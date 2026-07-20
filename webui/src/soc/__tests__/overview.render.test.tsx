@@ -198,14 +198,17 @@ describe('Overview — Security Command Center (rebuild)', () => {
     expect(strip.querySelectorAll('[data-testid^="kpi-"]')).toHaveLength(5);
     // Spend is not on the strip.
     expect(within(strip).queryByTestId('kpi-llm-spend')).toBeNull();
-    // Open cases = the 1 open-status case (rolled via CountUp).
-    expect(within(screen.getByTestId('kpi-open-cases')).getByText('1')).toBeInTheDocument();
+    // Open cases includes both the ordinary OPEN case and the retained NEEDS_HUMAN
+    // non-terminal alias (the backend lifecycle taxonomy counts both as still live).
+    expect(within(screen.getByTestId('kpi-open-cases')).getByText('2')).toBeInTheDocument();
     // False-positive rate reads the server quality rate (0.5 → "50%").
     expect(within(screen.getByTestId('kpi-false-positive-rate')).getByText('50%')).toBeInTheDocument();
     // Auto-resolved reads the server quality count (auto_closed_cases = 1).
     expect(within(screen.getByTestId('kpi-auto-resolved')).getByText('1')).toBeInTheDocument();
     expect(screen.getByTestId('kpi-open-cases')).toHaveClass('min-h-28', 'px-4', 'py-5');
-    expect(within(screen.getByTestId('kpi-critical-high')).getByText('1 critical case')).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId('kpi-critical-high')).getByText('2 open + 0 resolved'),
+    ).toBeInTheDocument();
     expect(within(screen.getByTestId('kpi-escalated-to-human')).getByText('Awaiting review')).toBeInTheDocument();
     expect(within(screen.getByTestId('kpi-false-positive-rate')).getByText('Closed as false pos.')).toBeInTheDocument();
     expect(within(screen.getByTestId('kpi-auto-resolved')).getByText('Closed by agent')).toBeInTheDocument();
@@ -221,6 +224,13 @@ describe('Overview — Security Command Center (rebuild)', () => {
     // The two snapshot headings (h2) — resolved + open case donuts.
     expect(screen.getByRole('heading', { name: 'Cases resolved', level: 2 })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Open cases', level: 2 })).toBeInTheDocument();
+    // Operational order is live queue first, terminal history second.
+    const lifecycle = within(heroRow).getByRole('region', { name: 'Resolved and open cases' });
+    expect(
+      within(lifecycle)
+        .getAllByRole('heading', { level: 2 })
+        .map((heading) => heading.textContent),
+    ).toEqual(['Open cases', 'Cases resolved']);
     // The resolved snapshot severity ring is present + labelled.
     const resolvedRing = screen.getByRole('img', { name: /Resolved cases by severity/i });
     const openRing = screen.getByRole('img', { name: /Open cases by severity/i });
@@ -373,16 +383,16 @@ describe('Overview — Security Command Center (rebuild)', () => {
     expect(screen.getByText(/Deltas compare the previous/i)).toBeInTheDocument();
   });
 
-  it('deep-links a KPI tile to the filtered case list carrying the window', async () => {
+  it('deep-links the Open KPI to the complete active-case lifecycle in this window', async () => {
     const onNavigate = vi.fn();
     render(<Overview onNavigate={onNavigate} />);
     await screen.findByTestId('page-hero');
     const openTile = await screen.findByTestId('kpi-open-cases');
     await userEvent.click(openTile);
-    expect(onNavigate).toHaveBeenCalledWith(
-      'cases',
-      expect.objectContaining({ status: 'open', window: expect.any(Number) }),
-    );
+    expect(onNavigate).toHaveBeenCalledWith('cases', {
+      status: '__active__',
+      window: expect.any(Number),
+    });
   });
 
   it('deep-links the snapshot CTAs to the resolved / open case lists', async () => {
@@ -395,10 +405,10 @@ describe('Overview — Security Command Center (rebuild)', () => {
       expect.objectContaining({ status: 'closed', window: expect.any(Number) }),
     );
     await userEvent.click(screen.getByRole('button', { name: /View open cases/i }));
-    expect(onNavigate).toHaveBeenLastCalledWith(
-      'cases',
-      expect.objectContaining({ status: 'open', window: expect.any(Number) }),
-    );
+    expect(onNavigate).toHaveBeenLastCalledWith('cases', {
+      status: '__active__',
+      window: expect.any(Number),
+    });
   });
 
   it('window-scopes the current case sample by created-at (#37)', async () => {
@@ -412,18 +422,59 @@ describe('Overview — Security Command Center (rebuild)', () => {
     expect(String(arg.from)).toMatch(/^now-\d+h$/);
   });
 
-  it('deep-links the Critical/High KPI tile to a SEVERITY-filtered case list (#38)', async () => {
+  it('deep-links the combined Critical/High KPI to the selected window without pretending one severity', async () => {
     const onNavigate = vi.fn();
     render(<Overview onNavigate={onNavigate} />);
     await screen.findByTestId('page-hero');
     const tile = await screen.findByTestId('kpi-critical-high');
     await userEvent.click(tile);
-    expect(onNavigate).toHaveBeenCalledWith(
-      'cases',
-      expect.objectContaining({ severity: 'critical', window: expect.any(Number) }),
-    );
+    expect(onNavigate).toHaveBeenCalledWith('cases', { window: expect.any(Number) });
     const [, opts] = onNavigate.mock.calls[0];
+    // The Cases page only supports one severity at a time. The tile represents the
+    // Critical OR High union, so applying either singleton filter would be misleading.
+    expect(opts).not.toHaveProperty('severity');
     expect(opts).not.toHaveProperty('status');
+  });
+
+  it('reconciles selected-window Critical/High across every open state plus resolved cases', async () => {
+    const currentWindow: Case[] = [
+      { case_id: 'open-critical', status: 'open', risk_score: 88 },
+      { case_id: 'human-high', status: 'needs_human', risk_score: 65 },
+      { case_id: 'escalated-critical', status: 'escalated', risk_score: 90 },
+      { case_id: 'resolved-high', status: 'resolved', risk_score: 60 },
+      { case_id: 'closed-low', status: 'closed', risk_score: 20 },
+    ] as unknown as Case[];
+    const previousWindow: Case[] = Array.from({ length: 55 }, (_, i) => ({
+      case_id: `previous-${i}`,
+      status: 'closed',
+      risk_score: 90,
+    })) as unknown as Case[];
+    listCasesMock
+      .mockResolvedValueOnce({ cases: currentWindow, total: currentWindow.length })
+      .mockResolvedValueOnce({ cases: previousWindow, total: previousWindow.length });
+
+    render(<Overview onNavigate={vi.fn()} />);
+    const tile = await screen.findByTestId('kpi-critical-high');
+
+    // Current-window all-lifecycle total = 3 still-open C/H + 1 resolved C/H. The
+    // 55 previous-window C/H cases power only comparison data and never inflate it.
+    await waitFor(() => expect(within(tile).getByText('4')).toBeInTheDocument());
+    expect(within(tile).getByText('3 open + 1 resolved')).toBeInTheDocument();
+
+    const openRing = screen.getByRole('img', { name: /Open cases by severity/i });
+    const resolvedRing = screen.getByRole('img', { name: /Resolved cases by severity/i });
+    expect(within(openRing).getByText('3')).toBeInTheDocument();
+    expect(within(resolvedRing).getByText('2')).toBeInTheDocument();
+
+    expect(listCasesMock.mock.calls[0][0]).toMatchObject({
+      limit: 200,
+      from: 'now-24h',
+    });
+    expect(listCasesMock.mock.calls[1][0]).toMatchObject({
+      limit: 200,
+      from: 'now-48h',
+      to: 'now-24h',
+    });
   });
 
   // The severity banding folds onto the ONE severity authority (badges.ts
@@ -441,11 +492,16 @@ describe('Overview — Security Command Center (rebuild)', () => {
     });
     render(<Overview onNavigate={vi.fn()} />);
     await screen.findByTestId('page-hero');
-    // 88 + 76 BOTH band Critical → the Critical/High tile shows 3 (2 crit + 1 high) and
-    // its sub reports "2 critical cases". Under the old 80-cut it would be "1 critical".
+    // 88 + 76 BOTH band Critical → the Critical/High tile shows all 3 selected-window
+    // open cases, and the Open snapshot's severity row reports 2 Critical. Under the
+    // old 80-cut, that row would report only 1 Critical.
     const tile = await screen.findByTestId('kpi-critical-high');
     await waitFor(() => expect(within(tile).getByText('3')).toBeInTheDocument());
-    expect(within(tile).getByText(/2 critical cases/i)).toBeInTheDocument();
+    expect(within(tile).getByText('3 open + 0 resolved')).toBeInTheDocument();
+    const openSnapshot = screen.getByRole('button', { name: 'View open cases' });
+    const criticalRow = within(openSnapshot).getByText('Critical').closest('li');
+    expect(criticalRow).not.toBeNull();
+    expect(within(criticalRow as HTMLElement).getByText('2')).toBeInTheDocument();
   });
 
   // The Cases severity FILTER prefers the source-asserted `severity_band`; the Overview
@@ -464,10 +520,14 @@ describe('Overview — Security Command Center (rebuild)', () => {
     render(<Overview onNavigate={vi.fn()} />);
     await screen.findByTestId('page-hero');
     // s1 counts Critical (via severity_band, NOT its risk_score 20 which is Low) → the
-    // Critical/High tile shows 2 (s1 crit + s2 high) with "1 critical case".
+    // Critical/High tile shows 2 selected-window open cases (s1 critical + s2 high).
     const tile = await screen.findByTestId('kpi-critical-high');
     await waitFor(() => expect(within(tile).getByText('2')).toBeInTheDocument());
-    expect(within(tile).getByText(/1 critical case/i)).toBeInTheDocument();
+    expect(within(tile).getByText('2 open + 0 resolved')).toBeInTheDocument();
+    const openSnapshot = screen.getByRole('button', { name: 'View open cases' });
+    const criticalRow = within(openSnapshot).getByText('Critical').closest('li');
+    expect(criticalRow).not.toBeNull();
+    expect(within(criticalRow as HTMLElement).getByText('1')).toBeInTheDocument();
   });
 
   it('folds the secondary bands (autonomy #3, connectors, volume, full timing) into Deeper analytics', async () => {

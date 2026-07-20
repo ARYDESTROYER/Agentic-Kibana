@@ -50,6 +50,7 @@ import {
   Search,
   Send,
   ShieldAlert,
+  SlidersHorizontal,
   Sparkles,
   Wand2,
   X,
@@ -84,6 +85,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/ui/accordion';
+import { Popover, PopoverContent, PopoverTrigger } from '@/ui/popover';
 import { CodeBlock, InlineCode } from './CodeBlock';
 import { Markdown } from './Markdown';
 
@@ -104,6 +106,8 @@ interface TranscriptItem {
   model?: string;
 }
 
+export type ChatPanelPresentation = 'default' | 'case-manager';
+
 export interface ChatPanelProps {
   /** When set, scopes the conversation to a case (passed to api.chat). */
   caseId?: string;
@@ -113,6 +117,8 @@ export interface ChatPanelProps {
   placeholder?: string;
   /** Suggested prompts for the empty state (clickable; submit immediately). */
   starters?: string[];
+  /** Additive visual treatment; all variants use this same transcript/send engine. */
+  presentation?: ChatPanelPresentation;
   className?: string;
 }
 
@@ -578,16 +584,43 @@ const Bubble: React.FC<{
   showMeta?: boolean;
   canRegenerate?: boolean;
   onRegenerate?: () => void;
-}> = ({ item, grouped = false, showMeta = true, canRegenerate = false, onRegenerate }) => {
+  presentation?: ChatPanelPresentation;
+}> = ({
+  item,
+  grouped = false,
+  showMeta = true,
+  canRegenerate = false,
+  onRegenerate,
+  presentation = 'default',
+}) => {
+  const isCaseManager = presentation === 'case-manager';
+
   if (item.role === 'user') {
     return (
       <div className={cn('flex justify-end', grouped && '-mt-1')}>
-        <div className="flex max-w-[min(80%,720px)] flex-col">
+        <div
+          className={cn(
+            'flex max-w-[min(80%,720px)] flex-col',
+            isCaseManager && 'items-end',
+          )}
+        >
+          {isCaseManager && !grouped ? (
+            <div className="mb-2 font-mono text-2xs font-semibold uppercase tracking-widest text-muted-foreground">
+              Operator
+            </div>
+          ) : null}
           {/* user content is UNTRUSTED → plain text node (whitespace preserved). */}
-          <div className="whitespace-pre-wrap break-words rounded-xl rounded-br-md bg-primary px-4 py-2.5 text-md leading-relaxed text-primary-foreground">
+          <div
+            className={cn(
+              'whitespace-pre-wrap break-words px-4 py-2.5 text-md leading-relaxed',
+              isCaseManager
+                ? 'rounded-md border border-border bg-muted/70 text-foreground'
+                : 'rounded-xl rounded-br-md bg-primary text-primary-foreground',
+            )}
+          >
             {item.content}
           </div>
-          {showMeta ? <MetaLine who="You" at={item.at} align="end" /> : null}
+          {showMeta && !isCaseManager ? <MetaLine who="You" at={item.at} align="end" /> : null}
         </div>
       </div>
     );
@@ -595,11 +628,28 @@ const Bubble: React.FC<{
 
   // Assistant (answer or error).
   return (
-    <div className={cn('flex items-start gap-3', grouped && '-mt-1')}>
-      <div className="shrink-0" aria-hidden>
-        {grouped ? <span className="block w-8" /> : <AgentAvatar />}
-      </div>
-      <div className="flex min-w-0 flex-1 flex-col" style={{ maxWidth: 'min(92%, 820px)' }}>
+    <div
+      className={cn(
+        isCaseManager ? 'flex flex-col items-start' : 'flex items-start gap-3',
+        grouped && '-mt-1',
+      )}
+    >
+      {isCaseManager ? (
+        !grouped ? (
+          <div className="mb-2 flex items-center gap-1.5 font-mono text-2xs font-semibold uppercase tracking-widest text-primary">
+            <Bot className="h-3.5 w-3.5" aria-hidden />
+            AI analyst
+          </div>
+        ) : null
+      ) : (
+        <div className="shrink-0" aria-hidden>
+          {grouped ? <span className="block w-8" /> : <AgentAvatar />}
+        </div>
+      )}
+      <div
+        className={cn('flex min-w-0 flex-col', isCaseManager ? 'w-full' : 'flex-1')}
+        style={{ maxWidth: isCaseManager ? 'min(88%, 860px)' : 'min(92%, 820px)' }}
+      >
         {item.isError ? (
           <Alert variant="destructive">
             <ShieldAlert className="h-4 w-4" aria-hidden />
@@ -608,7 +658,14 @@ const Bubble: React.FC<{
             <AlertDescription>{item.content}</AlertDescription>
           </Alert>
         ) : (
-          <div className="rounded-xl rounded-tl-md border border-border bg-card px-4 py-3 text-foreground">
+          <div
+            className={cn(
+              'border border-border bg-card px-4 py-3 text-foreground',
+              isCaseManager
+                ? 'rounded-md border-primary/25 bg-card/70'
+                : 'rounded-xl rounded-tl-md',
+            )}
+          >
             <Markdown text={item.content} />
           </div>
         )}
@@ -627,23 +684,49 @@ const Bubble: React.FC<{
         {item.resp?.memory_suggestion ? (
           <MemorySuggestionPrompt suggestion={item.resp.memory_suggestion} />
         ) : null}
-        {showMeta ? <MetaLine who="SOC agent" at={item.at} align="start" /> : null}
+        {showMeta && !isCaseManager ? <MetaLine who="SOC agent" at={item.at} align="start" /> : null}
       </div>
     </div>
   );
 };
 
 /** Animated "agent is thinking" indicator shown while a reply is in flight. */
-const TypingIndicator: React.FC = () => (
-  <div className="flex items-start gap-3" aria-label="Agent is responding">
-    <AgentAvatar />
-    <div className="flex items-center gap-1.5 rounded-xl rounded-tl-md border border-border bg-card px-4 py-3.5">
-      <span className="socTypingDot h-1.5 w-1.5 rounded-full bg-muted-foreground" />
-      <span className="socTypingDot h-1.5 w-1.5 rounded-full bg-muted-foreground" />
-      <span className="socTypingDot h-1.5 w-1.5 rounded-full bg-muted-foreground" />
+const TypingIndicator: React.FC<{ presentation?: ChatPanelPresentation }> = ({
+  presentation = 'default',
+}) => {
+  if (presentation === 'case-manager') {
+    return (
+      <div
+        className="flex flex-col items-start"
+        aria-label="AI analyst is searching configured sources"
+      >
+        <div className="mb-2 flex items-center gap-1.5 font-mono text-2xs font-semibold uppercase tracking-widest text-primary">
+          <Bot className="h-3.5 w-3.5" aria-hidden />
+          AI analyst
+        </div>
+        <div className="flex items-center gap-2 rounded-md border border-border bg-card/70 px-3 py-2 text-xs italic text-muted-foreground">
+          <span className="flex items-center gap-1" aria-hidden>
+            <span className="socTypingDot h-1.5 w-1.5 rounded-full bg-primary" />
+            <span className="socTypingDot h-1.5 w-1.5 rounded-full bg-primary" />
+            <span className="socTypingDot h-1.5 w-1.5 rounded-full bg-primary" />
+          </span>
+          Searching configured sources…
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-start gap-3" aria-label="Agent is responding">
+      <AgentAvatar />
+      <div className="flex items-center gap-1.5 rounded-xl rounded-tl-md border border-border bg-card px-4 py-3.5">
+        <span className="socTypingDot h-1.5 w-1.5 rounded-full bg-muted-foreground" />
+        <span className="socTypingDot h-1.5 w-1.5 rounded-full bg-muted-foreground" />
+        <span className="socTypingDot h-1.5 w-1.5 rounded-full bg-muted-foreground" />
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 /* ----------------------------------------------------------- empty state --- */
 
@@ -701,10 +784,31 @@ const EmptyState: React.FC<{
   </div>
 );
 
+/** Honest empty transcript for the Case Manager analyst-console treatment. */
+const AnalystReadyState: React.FC = () => (
+  <div className="flex w-full flex-col items-start pt-2">
+    <div className="mb-2 flex items-center gap-1.5 font-mono text-2xs font-semibold uppercase tracking-widest text-primary">
+      <Bot className="h-3.5 w-3.5" aria-hidden />
+      AI analyst
+    </div>
+    <div className="max-w-[min(88%,860px)] rounded-md border border-primary/25 bg-card/70 px-4 py-3 text-sm leading-relaxed text-foreground">
+      Case context is ready. Ask me to summarize the evidence, check related IOCs, or suggest a
+      response.
+    </div>
+  </div>
+);
+
 /* --------------------------------------------------------------- panel ----- */
 
 export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function ChatPanel(
-  { caseId, compact = false, placeholder, starters = [], className },
+  {
+    caseId,
+    compact = false,
+    placeholder,
+    starters = [],
+    presentation = 'default',
+    className,
+  },
   ref,
 ) {
   const [input, setInput] = useState('');
@@ -858,17 +962,79 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const hasSources = sources.length > 0;
 
   const isEmpty = transcript.length === 0;
+  const isCaseManager = presentation === 'case-manager';
   const composerPlaceholder =
-    placeholder ?? 'Ask a question…  (Enter to send · Shift+Enter for a new line)';
+    placeholder ??
+    (isCaseManager
+      ? 'Ask AI Analyst…'
+      : 'Ask a question…  (Enter to send · Shift+Enter for a new line)');
 
   // Readability frame: full-page chat centres its content + composer at a sensible
   // max-width; the embedded (compact) flyout surface stays full-bleed so it is not
   // double-constrained inside the already-narrow case sheet.
   const laneInner = compact ? 'w-full' : 'mx-auto w-full max-w-3xl';
+  const scopedCaseLabel = caseId && caseId.length > 19 ? `${caseId.slice(0, 18)}…` : caseId;
+
+  const sourcePicker = hasSources ? (
+    <Select value={sourceId} onValueChange={setSourceId}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <SelectTrigger
+            className={cn('h-8 gap-1.5 text-xs', isCaseManager && 'w-full rounded-sm')}
+            aria-label="Source"
+            style={isCaseManager ? undefined : { minWidth: compact ? 150 : 190 }}
+          >
+            <Database className="h-3.5 w-3.5 shrink-0 opacity-70" />
+            <SelectValue />
+          </SelectTrigger>
+        </TooltipTrigger>
+        <TooltipContent>Which source the agent queries</TooltipContent>
+      </Tooltip>
+      <SelectContent>
+        <SelectItem value={ALL_SOURCES}>All sources</SelectItem>
+        {sources.map((s) => (
+          <SelectItem key={s.id} value={s.id}>
+            {/* source label is operator-configured → plain text. */}
+            {sourceLabel(s)}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  ) : null;
+
+  const modelPicker = hasModels ? (
+    <Select value={model} onValueChange={setModel}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <SelectTrigger
+            className={cn('h-8 gap-1.5 text-xs', isCaseManager && 'w-full rounded-sm')}
+            aria-label="Model"
+            style={isCaseManager ? undefined : { minWidth: compact ? 150 : 200 }}
+          >
+            <Cpu className="h-3.5 w-3.5 shrink-0 opacity-70" />
+            <SelectValue />
+          </SelectTrigger>
+        </TooltipTrigger>
+        <TooltipContent>Model for this conversation</TooltipContent>
+      </Tooltip>
+      <SelectContent>
+        <SelectItem value={DEFAULT_MODEL}>Default model</SelectItem>
+        {modelOptions.map((o) => (
+          <SelectItem key={o.value} value={o.value}>
+            {/* model id is operator-configured → plain text. */}
+            {o.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  ) : null;
 
   return (
     <TooltipProvider delayDuration={200}>
-      <div className={cn('flex h-full min-h-0 flex-col', className)}>
+      <div
+        className={cn('flex h-full min-h-0 flex-col', className)}
+        data-chat-presentation={isCaseManager ? 'case-manager' : undefined}
+      >
         <style>{`
           @keyframes socTypingPulse {
             0%, 80%, 100% { opacity: 0.35; transform: translateY(0); }
@@ -885,8 +1051,34 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           }
         `}</style>
 
-        {/* Scope chip — only when scoped to a case. */}
-        {caseId ? (
+        {/* Case Manager uses the prototype's slim context/status rail. */}
+        {caseId && isCaseManager ? (
+          <div
+            className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-sm border border-border bg-card/70 px-3 py-2 font-mono text-2xs uppercase tracking-wide text-muted-foreground sm:grid-cols-[auto_1fr_auto]"
+            role="status"
+            aria-live="polite"
+            aria-label="AI analyst status"
+          >
+            <span
+              className="min-w-0 truncate whitespace-nowrap"
+              aria-label={`Scoped to case ${caseId}`}
+            >
+              <span
+                className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-primary"
+                aria-hidden
+              />
+              Scoped to: <span className="text-primary">{scopedCaseLabel}</span>
+            </span>
+            <span className="hidden truncate normal-case tracking-normal sm:block">
+              {loading
+                ? 'AI Analyst is processing case context…'
+                : 'AI Analyst ready with case context.'}
+            </span>
+            <span className={loading ? 'text-primary' : 'text-success'}>
+              Status: {loading ? 'Working' : 'Ready'}
+            </span>
+          </div>
+        ) : caseId ? (
           <div className={cn('shrink-0 text-xs text-muted-foreground', compact ? 'mb-2' : 'mb-3')}>
             <span className="inline-flex items-center gap-1.5">
               <Link2 className="h-3.5 w-3.5 opacity-70" aria-hidden />
@@ -903,14 +1095,22 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           ref={scrollRef}
           className={cn(
             'flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden',
-            compact ? 'gap-3 px-1 py-1' : 'gap-5 px-1 py-2',
+            isCaseManager
+              ? 'gap-5 px-1 py-4'
+              : compact
+                ? 'gap-3 px-1 py-1'
+                : 'gap-5 px-1 py-2',
           )}
           role="log"
           aria-live="polite"
           aria-busy={loading}
           aria-label="Chat transcript"
         >
-          {isEmpty ? (
+          {isEmpty && isCaseManager ? (
+            <div className={laneInner}>
+              <AnalystReadyState />
+            </div>
+          ) : isEmpty ? (
             // Centre without collapsing the scroll region: `m-auto` centres the
             // wrapper when it fits, and `min-h-full` keeps it scrollable from the top
             // when it is taller than the frame (a bare `justify-center` on the scroll
@@ -939,24 +1139,94 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                     showMeta={showMeta}
                     canRegenerate={item.role === 'assistant' && !item.isError && !loading}
                     onRegenerate={() => regenerate(item.id)}
+                    presentation={presentation}
                   />
                 );
               })}
-              {loading ? <TypingIndicator /> : null}
+              {loading ? <TypingIndicator presentation={presentation} /> : null}
             </div>
           )}
         </div>
 
+        {isCaseManager && starters.length ? (
+          <div
+            className={cn(
+              'flex min-w-0 shrink-0 flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain pb-1',
+              laneInner,
+            )}
+            role="group"
+            aria-label="Analyst quick actions"
+          >
+            {starters.map((prompt) => (
+              <Button
+                key={prompt}
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 shrink-0 rounded-sm px-3 text-xs"
+                onClick={() => void send(prompt)}
+                disabled={loading}
+              >
+                {starterIcon(prompt)}
+                {prompt}
+              </Button>
+            ))}
+          </div>
+        ) : null}
+
         {/* Composer — anchored at the bottom of the frame (shrink-0; never floats
-            mid-page). Centred to the same readability width as the transcript. */}
+            mid-page). The Case Manager variant keeps model/source controls in a
+            compact settings popover so the primary transcript stays prototype-flat. */}
         <div
           className={cn(
-            'shrink-0 rounded-lg border border-border bg-card',
+            'shrink-0 border border-border bg-card',
             laneInner,
-            compact ? 'mt-3 p-3' : 'mt-4 p-3.5',
+            isCaseManager
+              ? 'mt-2 rounded-sm p-2'
+              : compact
+                ? 'mt-3 rounded-lg p-3'
+                : 'mt-4 rounded-lg p-3.5',
           )}
         >
           <div className="flex items-end gap-2">
+            {isCaseManager ? (
+              hasSources || hasModels ? (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="h-9 w-9 shrink-0 rounded-sm text-muted-foreground"
+                      aria-label="Chat settings"
+                    >
+                      <SlidersHorizontal className="h-4 w-4" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-72 rounded-sm p-3">
+                    <div className="mb-3 font-mono text-2xs font-semibold uppercase tracking-widest text-muted-foreground">
+                      Analyst settings
+                    </div>
+                    <div className="space-y-2">
+                      {sourcePicker}
+                      {modelPicker}
+                    </div>
+                    {hasSources && sourceId === ALL_SOURCES ? (
+                      <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                        “All sources” currently queries the primary source.
+                      </p>
+                    ) : null}
+                  </PopoverContent>
+                </Popover>
+              ) : (
+                <span
+                  className="flex h-9 w-9 shrink-0 items-center justify-center text-muted-foreground"
+                  aria-hidden
+                >
+                  <MessageSquare className="h-4 w-4" />
+                </span>
+              )
+            ) : null}
             <Textarea
               ref={inputRef}
               placeholder={composerPlaceholder}
@@ -964,92 +1234,50 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={onKeyDown}
               disabled={loading}
-              rows={compact ? 2 : 3}
+              rows={isCaseManager ? 1 : compact ? 2 : 3}
               aria-label="Chat message"
-              className="min-h-0 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0"
+              className={cn(
+                'resize-none border-0 bg-transparent shadow-none focus-visible:ring-0',
+                isCaseManager
+                  ? 'min-h-9 max-h-24 overflow-y-auto py-2 font-mono text-xs [field-sizing:content]'
+                  : 'min-h-0',
+              )}
             />
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
+                  size={isCaseManager ? 'icon' : 'default'}
+                  className={cn(isCaseManager && 'h-9 w-9 shrink-0 rounded-sm')}
                   onClick={() => void send()}
                   disabled={(!input.trim() && !loading) || loading}
                   aria-label="Send message"
                 >
                   <Send className="h-4 w-4" />
-                  Send
+                  {isCaseManager ? null : 'Send'}
                 </Button>
               </TooltipTrigger>
               <TooltipContent>{loading ? 'Waiting for the agent…' : 'Send (Enter)'}</TooltipContent>
             </Tooltip>
           </div>
 
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
-            <span className="text-xs text-muted-foreground">
-              Enter to send · Shift+Enter for a new line
-            </span>
-            <div className="flex flex-wrap items-center gap-2">
-              {hasSources ? (
-                <Select value={sourceId} onValueChange={setSourceId}>
-                  {/* Tooltip attaches to the SelectTrigger (the focusable combobox
-                      button), not a wrapper <div> — so keyboard focus surfaces the
-                      description and Radix wires aria-describedby to it. */}
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <SelectTrigger
-                        className="h-8 gap-1.5 text-xs"
-                        aria-label="Source"
-                        style={{ minWidth: compact ? 150 : 190 }}
-                      >
-                        <Database className="h-3.5 w-3.5 shrink-0 opacity-70" />
-                        <SelectValue />
-                      </SelectTrigger>
-                    </TooltipTrigger>
-                    <TooltipContent>Which source the agent queries</TooltipContent>
-                  </Tooltip>
-                  <SelectContent>
-                    <SelectItem value={ALL_SOURCES}>All sources</SelectItem>
-                    {sources.map((s) => (
-                      <SelectItem key={s.id} value={s.id}>
-                        {/* source label is operator-configured → plain text. */}
-                        {sourceLabel(s)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : null}
-              {hasModels ? (
-                <Select value={model} onValueChange={setModel}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <SelectTrigger
-                        className="h-8 gap-1.5 text-xs"
-                        aria-label="Model"
-                        style={{ minWidth: compact ? 150 : 200 }}
-                      >
-                        <Cpu className="h-3.5 w-3.5 shrink-0 opacity-70" />
-                        <SelectValue />
-                      </SelectTrigger>
-                    </TooltipTrigger>
-                    <TooltipContent>Model for this conversation</TooltipContent>
-                  </Tooltip>
-                  <SelectContent>
-                    <SelectItem value={DEFAULT_MODEL}>Default model</SelectItem>
-                    {modelOptions.map((o) => (
-                      <SelectItem key={o.value} value={o.value}>
-                        {/* model id is operator-configured → plain text. */}
-                        {o.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : null}
-            </div>
-          </div>
+          {!isCaseManager ? (
+            <>
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
+                <span className="text-xs text-muted-foreground">
+                  Enter to send · Shift+Enter for a new line
+                </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  {sourcePicker}
+                  {modelPicker}
+                </div>
+              </div>
 
-          {hasSources && sourceId === ALL_SOURCES ? (
-            <div className="mt-2 text-xs text-muted-foreground">
-              “All sources” currently queries the primary source.
-            </div>
+              {hasSources && sourceId === ALL_SOURCES ? (
+                <div className="mt-2 text-xs text-muted-foreground">
+                  “All sources” currently queries the primary source.
+                </div>
+              ) : null}
+            </>
           ) : null}
         </div>
       </div>

@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 
 import { api } from '@/lib/api';
 import type { Case } from '@/lib/types';
+import { cn } from '@/lib/cn';
 
 import { Input } from '@/ui/input';
 import { Label } from '@/ui/label';
@@ -44,6 +45,7 @@ import type {
 } from '@/soc/pages/CaseDetail.api';
 
 import { PanelCard, SectionHeading } from './shared';
+import type { CasePanelPresentation } from './shared';
 
 /**
  * The Radix Select value for an assignee picker. Binds to the ACTUAL assignee so the
@@ -179,6 +181,7 @@ export const CollaborationThreadTab: React.FC<{
   liveCaseId?: string;
   onLiveThread?: () => void;
   onLiveActivity?: () => void;
+  presentation?: CasePanelPresentation;
 }> = ({
   c,
   thread,
@@ -206,12 +209,22 @@ export const CollaborationThreadTab: React.FC<{
   liveCaseId,
   onLiveThread,
   onLiveActivity,
+  presentation = 'default',
 }) => {
   return (
-    <div className="grid gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+    <div
+      className={cn(
+        'grid min-w-0 grid-cols-[minmax(0,1fr)] gap-6',
+        presentation === 'case-manager'
+          ? 'min-h-[400px] px-8 py-7 lg:grid-cols-[minmax(0,1fr)_16rem]'
+          : 'p-6 lg:grid-cols-[minmax(0,1fr)_22rem]',
+      )}
+      data-case-panel={presentation === 'case-manager' ? 'collaboration' : undefined}
+      data-presentation={presentation === 'case-manager' ? 'case-manager' : undefined}
+    >
       {/* -------------------------------------------------- main: the thread */}
       <div className="min-w-0 space-y-6">
-        <PanelCard>
+        <PanelCard className={cn(presentation === 'case-manager' && 'min-h-[400px] rounded-[8px]')}>
           <SectionHeading
             icon={MessageSquare}
             actions={(() => {
@@ -267,8 +280,8 @@ export const CollaborationThreadTab: React.FC<{
       {/* -------------------------------------------------- aside: ownership */}
       {/* Sticky rail on lg+ so ownership/tasks/activity stay in view while the
           thread scrolls; the rail itself scrolls when its own content overflows. */}
-      <aside className="space-y-6 lg:sticky lg:top-4 lg:self-start lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto">
-        <PanelCard className="p-4">
+      <aside className="min-w-0 space-y-6 lg:sticky lg:top-4 lg:self-start lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto">
+        <PanelCard className={cn('p-4', presentation === 'case-manager' && 'rounded-[8px]')}>
           <SectionHeading icon={Users}>
             Ownership
           </SectionHeading>
@@ -278,7 +291,7 @@ export const CollaborationThreadTab: React.FC<{
           <AssigneePicker c={c} users={users} canWrite={canWrite} onAssigned={onAssigned} />
         </PanelCard>
 
-        <PanelCard className="p-4">
+        <PanelCard className={cn('p-4', presentation === 'case-manager' && 'rounded-[8px]')}>
           <CaseTasks
             tasks={tasks || []}
             canWrite={canWrite}
@@ -289,7 +302,7 @@ export const CollaborationThreadTab: React.FC<{
           />
         </PanelCard>
 
-        <PanelCard className="p-4">
+        <PanelCard className={cn('p-4', presentation === 'case-manager' && 'rounded-[8px]')}>
           <SectionHeading icon={History}>
             Activity
           </SectionHeading>

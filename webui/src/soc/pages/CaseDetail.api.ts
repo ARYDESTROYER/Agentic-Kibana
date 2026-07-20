@@ -147,12 +147,35 @@ export type TimelineStageKind =
 export type TimelineStageStatus = 'done' | 'skipped' | 'pending' | string;
 export type StageStepKind = 'reasoning' | 'tool' | 'knowledge' | 'memory' | 'note' | string;
 
+/** One persisted 0–100 risk input and its exact term in the configured weighted sum. */
+export interface StageRiskFactor {
+  factor: string;
+  label: string;
+  value: number;
+  weight: number;
+  weighted_value: number;
+  contribution: number;
+}
+
+/** Read-time derivation of the displayed risk score; never feeds scoring or decide(). */
+export interface StageRiskCalculation {
+  factors: StageRiskFactor[];
+  numerator: number;
+  denominator: number;
+  calculated_score: number;
+  recorded_score: number;
+  displayed_score: number;
+  matches_displayed_score: boolean;
+  weight_basis: 'current_preferences' | string;
+}
+
 /** Derived scalars/labels at a stage — safe to render inline (never raw source text). */
 export interface StageState {
   severity?: number | null;
   severity_band?: string | null;
   severity_source?: string | null; // "source_asserted" | "derived"
   risk_score?: number | null;
+  risk_calculation?: StageRiskCalculation | null;
   verdict?: string | null;
   confidence?: number | null;
 }

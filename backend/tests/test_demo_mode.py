@@ -93,6 +93,34 @@ def test_seeded_historical_spread_is_identical() -> None:
     assert any(c.comments for c in a)
 
 
+def test_seeded_case_risk_factors_reconcile_with_default_weights() -> None:
+    """The demo's risk drill-down must explain the score it displays."""
+    org = gen.build_org(1337)
+    now = 1_700_000_000_000
+    recent_cases, _recent_events = gen.generate_recent_preseed(
+        1337, org, run_id="run-A", now_millis=now,
+    )
+    hitl_cases, tuner_cases = gen.generate_capability_seed_cases(
+        1337, org, run_id="run-A", now_millis=now,
+    )
+    cases = [
+        *gen.generate_historical_cases(1337, org, history_days=14, run_id="run-A", now_millis=now),
+        *recent_cases,
+        *hitl_cases,
+        *tuner_cases,
+    ]
+    for case in cases:
+        factors = case.risk_breakdown
+        calculated = (
+            0.25 * factors.volume
+            + 0.20 * factors.velocity
+            + 0.30 * factors.reputation
+            + 0.15 * factors.diversity
+            + 0.10 * factors.asset_criticality
+        )
+        assert calculated == pytest.approx(case.risk_score, abs=0.01), case.case_id
+
+
 def test_all_seed_fixtures_ignore_random_run_ids_at_a_fixed_clock() -> None:
     org = gen.build_org(9001)
     now = 1_783_785_600_000

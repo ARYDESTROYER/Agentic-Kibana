@@ -35,7 +35,15 @@ from ..config import AutoClosePolicy
 from ..constants import ActionType, CaseStatus, Verdict
 from ..engine.case_manager import decide
 from ..engine.priority import derive_triage
-from ..models import StageState, StageStep, TimelineStage, TimelineStagesResponse, TraceSpan
+from ..models import (
+    StageRiskCalculation,
+    StageRiskFactor,
+    StageState,
+    StageStep,
+    TimelineStage,
+    TimelineStagesResponse,
+    TraceSpan,
+)
 from .deps import get_state, require_permission
 
 router = APIRouter(prefix="/api")
@@ -480,10 +488,10 @@ async def _usage_attribution(
 _CANON_STAGES: tuple[tuple[str, str, bool], ...] = (
     ("input", "Alert received", False),
     ("correlate", "Correlate", True),
-    ("risk", "Risk", True),
+    ("risk", "Risk assigned", True),
     ("triage", "Triage", False),
     ("investigate", "Investigate", False),
-    ("decide", "Decide", True),
+    ("decide", "Decision", True),
 )
 
 
@@ -514,6 +522,60 @@ def _decide_headline(pr: dict[str, Any]) -> str:
     if status in (CaseStatus.NEEDS_HUMAN.value, "needs_human", CaseStatus.ON_HOLD.value):
         return "Held for human review"
     return _humanize(status).capitalize() or "Decision recorded"
+
+
+def _risk_calculation(case: Any, prefs: Any) -> StageRiskCalculation:
+    """Expose the stored factor scores and the exact CURRENT weighted arithmetic.
+
+    This deliberately mirrors only the final weighted blend in ``compute_risk()``;
+    it does not rescore, mutate, or feed a decision. Factor values come from the
+    persisted ``Case.risk_breakdown``. Coefficients come from the current Preferences,
+    so a changed configuration can honestly produce a different recomputed value; the
+    response calls that out through ``matches_displayed_score`` instead of concealing it.
+    """
+    rb = case.risk_breakdown
+    weights = prefs.risk_weights
+    factor_defs = (
+        ("volume", "Volume"),
+        ("velocity", "Velocity"),
+        ("reputation", "Reputation"),
+        ("diversity", "Diversity"),
+        ("asset_criticality", "Asset criticality"),
+    )
+    raw: list[tuple[str, str, float, float, float]] = []
+    for key, label in factor_defs:
+        value = float(getattr(rb, key, 0.0) or 0.0)
+        weight = float(getattr(weights, key, 0.0) or 0.0)
+        raw.append((key, label, value, weight, value * weight))
+
+    configured_sum = sum(item[3] for item in raw)
+    # Byte-for-byte scoring semantics: compute_risk() uses 1.0 when the configured
+    # coefficient sum is zero, preventing a divide-by-zero.
+    denominator = configured_sum or 1.0
+    numerator = sum(item[4] for item in raw)
+    calculated = numerator / denominator
+    recorded = float(case.risk_score or 0.0)
+    displayed = round(recorded)
+    factors = [
+        StageRiskFactor(
+            factor=key,
+            label=label,
+            value=value,
+            weight=weight,
+            weighted_value=weighted,
+            contribution=weighted / denominator,
+        )
+        for key, label, value, weight, weighted in raw
+    ]
+    return StageRiskCalculation(
+        factors=factors,
+        numerator=numerator,
+        denominator=denominator,
+        calculated_score=calculated,
+        recorded_score=recorded,
+        displayed_score=displayed,
+        matches_displayed_score=round(calculated) == displayed,
+    )
 
 
 def _build_stages(case_id: str, case: Any, rows: Any, state: Any) -> list[TimelineStage]:
@@ -554,10 +616,13 @@ def _build_stages(case_id: str, case: Any, rows: Any, state: Any) -> list[Timeli
                ("diversity", rb.diversity), ("asset criticality", rb.asset_criticality)]
     nz = [f"{k} {round(float(v), 1)}" for k, v in factors if v]
     risk_stage = TimelineStage(
-        id="risk", kind="risk", label="Risk", status="done", deterministic=True,
+        id="risk", kind="risk", label="Risk assigned", status="done", deterministic=True,
         ts=case.created_at or None,
         headline=f"Risk {round(float(case.risk_score))}/100",
-        state=StageState(risk_score=round(float(case.risk_score), 2)),
+        state=StageState(
+            risk_score=round(float(case.risk_score), 2),
+            risk_calculation=_risk_calculation(case, state.prefs),
+        ),
         steps=([StageStep(kind="note", label="risk factors", body=" · ".join(nz), trusted=True)] if nz else []),
     )
 
@@ -657,7 +722,7 @@ def _build_stages(case_id: str, case: Any, rows: Any, state: Any) -> list[Timeli
     if dspan is not None:
         pr = dspan.payload_ref
         decide_stage = TimelineStage(
-            id="decide", kind="decide", label="Decide", status="done", deterministic=True,
+            id="decide", kind="decide", label="Decision", status="done", deterministic=True,
             ts=dspan.ts or None, headline=_decide_headline(pr),
             state=StageState(verdict=pr.get("verdict"), confidence=pr.get("confidence"),
                              risk_score=pr.get("risk_score")),
@@ -666,7 +731,7 @@ def _build_stages(case_id: str, case: Any, rows: Any, state: Any) -> list[Timeli
         )
     else:
         decide_stage = TimelineStage(
-            id="decide", kind="decide", label="Decide", status="pending", deterministic=True,
+            id="decide", kind="decide", label="Decision", status="pending", deterministic=True,
             headline="Awaiting decision",
         )
 

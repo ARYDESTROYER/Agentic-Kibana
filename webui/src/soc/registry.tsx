@@ -60,6 +60,7 @@ import {
   SlidersHorizontal,
   Layers,
   Activity,
+  Columns3,
 } from 'lucide-react';
 
 /* -------------------------------------------------------------------------- */
@@ -72,6 +73,7 @@ export type PageId =
   | 'dashboard'
   | 'dashboards'
   | 'cases'
+  | 'case_manager'
   | 'investigate'
   | 'chat'
   | 'intelligence'
@@ -227,6 +229,13 @@ export const FEATURES: FeatureNode[] = [
 
   /* ---- Triage ---------------------------------------------------------- */
   { id: 'cases', label: 'Cases', icon: ShieldAlert, group: 'triage' },
+  {
+    id: 'case_manager',
+    label: 'Case Manager',
+    icon: Columns3,
+    group: 'triage',
+    perm: { resource: 'cases', action: 'read' },
+  },
   {
     id: 'campaigns',
     label: 'Campaigns',
@@ -408,6 +417,7 @@ export const FEATURE_GROUPS: { id: NavGroupId; label: string }[] = [
 const Home = React.lazy(() => import('./pages/Home'));
 const Dashboards = React.lazy(() => import('./pages/Dashboards'));
 const Cases = React.lazy(() => import('./pages/Cases'));
+const CaseManager = React.lazy(() => import('./pages/CaseManager'));
 const Workspace = React.lazy(() => import('./pages/Workspace'));
 const Scans = React.lazy(() => import('./pages/Scans'));
 const Analytics = React.lazy(() => import('./pages/Analytics'));
@@ -506,6 +516,10 @@ export const ROUTES: Record<PageId, RouteDef> = {
     render: (c) => (
       <Cases initialStatus={c.opts?.status} initialSeverity={c.opts?.severity} />
     ),
+  },
+  case_manager: {
+    element: CaseManager,
+    render: (c) => <CaseManager initialCaseId={c.opts?.caseId} />,
   },
   scans: { element: Scans },
   approvals: { element: Approvals },

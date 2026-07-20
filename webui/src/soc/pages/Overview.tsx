@@ -116,8 +116,26 @@ interface OverviewProps {
   onNavigate?: Navigate;
 }
 
-const OPEN_STATUSES = new Set(['open', 'investigating', 'in_progress', 'new', 'on_hold']);
+/**
+ * The backend's complete non-terminal lifecycle taxonomy
+ * (`constants.OPEN_CASE_STATUSES`). Keep this byte-for-byte aligned: a case awaiting
+ * human review or escalated to Tier 3 is still OPEN until it reaches resolved/closed.
+ */
+const OPEN_STATUSES = new Set([
+  'new',
+  'open',
+  'needs_human',
+  'investigating',
+  'escalated',
+  'on_hold',
+]);
 const CLOSED_STATUSES = new Set(['closed', 'resolved']);
+
+/**
+ * Cases.tsx's virtual status for the complete non-terminal lifecycle set above.
+ * Keep this lightweight local contract here rather than importing the Cases page.
+ */
+const ACTIVE_CASES_FILTER = '__active__';
 
 /** Per-browser dismissal flag for the recommended-automation nudge (onboarding). */
 const NUDGE_KEY = 'tlsoc.overview.automationNudge';
@@ -190,8 +208,10 @@ function sevSegments(counts: SevCounts): DonutSegment[] {
 /** Workload-status → bar color token. */
 function statusBar(status: string): string {
   const t = status.toLowerCase();
-  if (OPEN_STATUSES.has(t)) return 'bg-info';
+  // Preserve the higher-attention visual treatment while these statuses still count
+  // as open in every lifecycle aggregate.
   if (t === 'needs_human' || t === 'escalated') return 'bg-high';
+  if (OPEN_STATUSES.has(t)) return 'bg-info';
   if (CLOSED_STATUSES.has(t)) return 'bg-success';
   if (t === 'reopened') return 'bg-warning';
   return 'bg-accent-bar';
@@ -847,8 +867,9 @@ export default function Overview({ onNavigate }: OverviewProps) {
   const derived = React.useMemo(() => {
     let open = 0;
     let resolved = 0;
-    let critical = 0;
     let criticalHighAlerts = 0;
+    let openCriticalHigh = 0;
+    let resolvedCriticalHigh = 0;
     const sevCounts = emptySev();
     const openSev = emptySev();
     const resolvedSev = emptySev();
@@ -864,11 +885,30 @@ export default function Overview({ onNavigate }: OverviewProps) {
       sevCounts[band] += 1;
       if (isOpen) openSev[band] += 1;
       if (isClosed) resolvedSev[band] += 1;
-      if (band === 'critical') critical += 1;
-      if (band === 'critical' || band === 'high') criticalHighAlerts += 1;
+      if (band === 'critical' || band === 'high') {
+        // Critical / High is intentionally ALL lifecycle work in the selected
+        // dashboard window: still-open pressure + terminal cases. Unknown legacy
+        // statuses are excluded rather than silently inflating a reconciliable KPI.
+        if (isOpen) {
+          criticalHighAlerts += 1;
+          openCriticalHigh += 1;
+        } else if (isClosed) {
+          criticalHighAlerts += 1;
+          resolvedCriticalHigh += 1;
+        }
+      }
     }
 
-    return { open, resolved, critical, criticalHighAlerts, sevCounts, openSev, resolvedSev };
+    return {
+      open,
+      resolved,
+      criticalHighAlerts,
+      openCriticalHigh,
+      resolvedCriticalHigh,
+      sevCounts,
+      openSev,
+      resolvedSev,
+    };
   }, [cases]);
 
   // Previous-window open/resolved counts (for the snapshot trend deltas). null when the
@@ -1081,7 +1121,9 @@ export default function Overview({ onNavigate }: OverviewProps) {
     );
     const criticalTrend = caseArrivalTrend(cases, fromMs, toMs, (row) => {
       const band = bandOfCase(row);
-      return band === 'critical' || band === 'high';
+      const status = (row.status || '').toLowerCase();
+      const isKnownLifecycle = OPEN_STATUSES.has(status) || CLOSED_STATUSES.has(status);
+      return isKnownLifecycle && (band === 'critical' || band === 'high');
     });
     const escalatedTrend = caseArrivalTrend(cases, fromMs, toMs, (row) => {
       const status = (row.status || '').toLowerCase();
@@ -1101,25 +1143,26 @@ export default function Overview({ onNavigate }: OverviewProps) {
         accent: 'primary',
         spark: openTrend,
         goodDirection: 'down',
-        onClick: navigate ? () => navigate('cases', { status: 'open', window: navWindow }) : undefined,
+        onClick: navigate
+          ? () => navigate('cases', { status: ACTIVE_CASES_FILTER, window: navWindow })
+          : undefined,
       },
       {
         label: 'Critical / High',
         value: fmtNumber(derived.criticalHighAlerts),
         countTo: derived.criticalHighAlerts,
         format: fmtInt,
-        sub: `${fmtNumber(derived.critical)} critical ${derived.critical === 1 ? 'case' : 'cases'}`,
+        // Visible arithmetic explains why this all-lifecycle number can be larger
+        // than the terminal-only resolved snapshot immediately below it.
+        sub: `${fmtNumber(derived.openCriticalHigh)} open + ${fmtNumber(derived.resolvedCriticalHigh)} resolved`,
         icon: ShieldAlert,
         accent: 'critical',
         spark: criticalTrend,
         goodDirection: 'down',
-        onClick: navigate
-          ? () =>
-              navigate('cases', {
-                severity: derived.critical > 0 ? 'critical' : 'high',
-                window: navWindow,
-              })
-          : undefined,
+        // Cases currently supports one severity at a time. Applying only Critical
+        // (or only High) would falsely claim to drill into this combined total, so
+        // preserve only the honest selected-window scope.
+        onClick: navigate ? () => navigate('cases', { window: navWindow }) : undefined,
       },
       {
         label: 'Escalated To Human',
@@ -1356,6 +1399,19 @@ export default function Overview({ onNavigate }: OverviewProps) {
               className="min-w-0 border-b border-border/70 px-3 lg:col-span-4 lg:border-b-0 lg:border-r"
             >
               <SnapshotCard
+                title="Open cases"
+                caption={`Still open from the last ${windowLabel(hours)}`}
+                total={derived.open}
+                delta={countDelta(derived.open, prev?.open ?? null)}
+                goodDirection="down"
+                counts={derived.openSev}
+                ariaLabel="Open cases by severity"
+                ctaLabel="View open cases"
+                onClick={navigate
+                  ? () => navigate('cases', { status: ACTIVE_CASES_FILTER, window: navWindow })
+                  : undefined}
+              />
+              <SnapshotCard
                 title="Cases resolved"
                 caption={`Closed in the last ${windowLabel(hours)}`}
                 total={derived.resolved}
@@ -1365,17 +1421,6 @@ export default function Overview({ onNavigate }: OverviewProps) {
                 ariaLabel="Resolved cases by severity"
                 ctaLabel="View resolved cases"
                 onClick={navigate ? () => navigate('cases', { status: 'closed', window: navWindow }) : undefined}
-              />
-              <SnapshotCard
-                title="Open cases"
-                caption={`Still open from the last ${windowLabel(hours)}`}
-                total={derived.open}
-                delta={countDelta(derived.open, prev?.open ?? null)}
-                goodDirection="down"
-                counts={derived.openSev}
-                ariaLabel="Open cases by severity"
-                ctaLabel="View open cases"
-                onClick={navigate ? () => navigate('cases', { status: 'open', window: navWindow }) : undefined}
               />
             </section>
 

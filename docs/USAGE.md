@@ -46,7 +46,7 @@ surface into **six top-level nav groups**:
 | Group | What lives there |
 |---|---|
 | **Overview** | Dashboard (the Security Command Center), Dashboards (custom, §21), Standup (§7) — each a full page |
-| **Triage** | Cases (§3), Campaigns (§16), Logs (a unified cross-source log browser, §2a), Workspace → **Chat** (§5) and **Investigate** (§4) as left-nav children, Automated scans (§6), Approvals |
+| **Triage** | Cases (§3), **Case Manager** (§3), Campaigns (§16), Logs (a unified cross-source log browser, §2a), Workspace → **Chat** (§5) and **Investigate** (§4) as left-nav children, Automated scans (§6), Approvals |
 | **Intelligence** | Knowledge (§9), Memory (§10), Playbooks |
 | **Analytics** | Metrics, Cost (§8), Models (§22), Baseline (§17), Batch jobs (§22) |
 | **Notifications** | Inbox (the in-app notification inbox, §23) |
@@ -246,6 +246,22 @@ The triage workbench. The cases table (`GET /api/cases?limit=100`) shows **Entit
 · Rules · Risk · Status · Disposition · Verdict · Created** with per-status
 filtering (`?status=escalated`), per-surface filtering (`?surface=automated_scan`),
 and per-entity filtering (`?entity=10.10.1.152`).
+
+### Case Manager (additive workspace)
+
+**Case Manager** sits directly beneath Cases in the Triage rail. It is the newer,
+split-pane way to work the same case data while the table-based Cases surface remains
+available during the migration. The left queue supports **Active / All**, search,
+severity/status filters, latest/highest-risk sorting, quick Critical/High counts, and
+live refresh. The right pane embeds the canonical CaseDetail workflow: the same six
+tabs, lifecycle confirmations, deterministic decision card, RBAC gates, reinvestigate,
+playbooks, exports, notifications, collaboration/tasks/activity, and case-scoped chat.
+Its reference-matched header keeps only **Share**, **Take Action**, and the pane-close
+control at the upper-right; every lifecycle and operational command is consolidated
+inside **Take Action**. The legacy Cases drawer retains its existing toolbar and footer.
+At tablet/mobile widths the selected case replaces the queue and a **Cases** back control
+returns to the list. Counts explicitly distinguish the loaded 200-case window from the
+backend total when those differ.
 
 **Two-axis taxonomy.** A case carries both a lifecycle **status** and an analyst
 **disposition** — they are independent.

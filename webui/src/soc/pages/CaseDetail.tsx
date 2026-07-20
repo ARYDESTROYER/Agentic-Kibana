@@ -21,9 +21,11 @@
  * and the close-with-disposition dialog in `./ConfirmActionDialog`. This file is the
  * ORCHESTRATOR: it owns the fetch/lazy-load/mutation state and wires it to the panels.
  *
- * Contract (FROZEN): `CaseDetail({ caseId, onClose, onNavigate? })` — `caseId`
- * null/empty renders nothing (closed). Cases / Scans / Investigate open it by holding
- * an openCaseId state.
+ * Contract: `CaseDetail({ caseId, onClose, onNavigate?, presentation? })` — `caseId`
+ * null/empty renders nothing (closed). Cases / Scans / Investigate use the default
+ * right-side sheet; Case Manager opts into the additive `embedded` presentation so the
+ * SAME orchestrator, panels, RBAC gates, and deterministic lifecycle actions can live
+ * inside its split workspace without forking business logic.
  *
  * SECURITY (#9): every case-derived value (title, summary, entity, IPs, rules,
  * queries, evidence, tool output, comments, tags, model keys, enrichment) is UNTRUSTED
@@ -50,6 +52,7 @@ import {
   RefreshCw,
   Search,
   Send,
+  Share2,
   Shield,
   Users,
   X,
@@ -59,6 +62,7 @@ import {
 import { toast } from 'sonner';
 
 import { api } from '@/lib/api';
+import { copyText } from '@/lib/clipboard';
 import type {
   Case,
   CaseActionInput,
@@ -105,6 +109,8 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
 } from '@/ui/dropdown-menu';
 import {
   Tooltip,
@@ -114,7 +120,13 @@ import {
 } from '@/ui/tooltip';
 import { Skeleton, SkeletonCard } from '@/ui/skeleton';
 
-import { StatusBadge, DispositionBadge, AutoClosedBadge } from '@/soc/components/badges';
+import {
+  StatusBadge,
+  DispositionBadge,
+  AutoClosedBadge,
+  SeverityBadge,
+  severityBand,
+} from '@/soc/components/badges';
 import { DemoBadge, isDemoCase } from '@/soc/components/DemoBadge';
 import { Can, useCan } from '@/soc/components/Can';
 import { useAuth } from '@/soc/auth';
@@ -175,13 +187,66 @@ export type { ThreadMessage };
 
 /* --------------------------------------------------------------- component -- */
 
+type CaseDetailPresentation = 'sheet' | 'embedded';
+
+/**
+ * Presentation-only shell around the shared case workflow. Keeping this wrapper tiny
+ * is deliberate: the substantial child tree below is identical in the legacy Sheet
+ * and the new inline Case Manager, so actions and lazy panel loaders cannot drift.
+ */
+const CaseDetailSurface: React.FC<{
+  presentation: CaseDetailPresentation;
+  open: boolean;
+  onClose: () => void;
+  children: React.ReactNode;
+}> = ({ presentation, open, onClose, children }) => {
+  if (presentation === 'embedded') {
+    return (
+      <section
+        aria-label="Case detail"
+        className="h-full min-h-0 overflow-hidden bg-background"
+      >
+        {children}
+      </section>
+    );
+  }
+
+  return (
+    <Sheet
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) onClose();
+      }}
+    >
+      <SheetContent
+        side="right"
+        size="full"
+        className="w-full max-w-[min(98vw,1400px)] p-0"
+        aria-label="Case detail"
+      >
+        {children}
+      </SheetContent>
+    </Sheet>
+  );
+};
+
 export interface CaseDetailProps {
   caseId: string | null | undefined;
   onClose: () => void;
   onNavigate?: Navigate;
+  /** Default `sheet`; Case Manager uses `embedded` inside its selected-case pane. */
+  presentation?: CaseDetailPresentation;
+  /** Emits the authoritative server case after loads and mutations (queue sync only). */
+  onCaseChange?: (next: Case) => void;
 }
 
-export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavigate }) => {
+export const CaseDetail: React.FC<CaseDetailProps> = ({
+  caseId,
+  onClose,
+  onNavigate,
+  presentation = 'sheet',
+  onCaseChange,
+}) => {
   const open = Boolean(caseId && caseId.trim());
   const id = caseId || '';
 
@@ -199,6 +264,14 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<unknown>(null);
 
+  const commitCase = React.useCallback(
+    (next: Case) => {
+      setC(next);
+      onCaseChange?.(next);
+    },
+    [onCaseChange],
+  );
+
   // Campaign membership (#51) — the cross-case campaign this case belongs to, if any.
   // Advisory only (#3/#4): a campaign is a reporting grouping that never closes /
   // escalates / re-clusters the case. Best-effort — campaigns may be disabled.
@@ -206,6 +279,13 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
   const [tab, setTab] = React.useState<
     'overview' | 'timeline' | 'investigation' | 'threat' | 'collab' | 'chat'
   >('overview');
+  const panelScrollRef = React.useRef<HTMLDivElement>(null);
+
+  // All six panels share one scroll lane. Reset it when the selected tab/case changes
+  // so a deep Timeline scroll never opens Investigation halfway down the terminal.
+  React.useEffect(() => {
+    if (panelScrollRef.current) panelScrollRef.current.scrollTop = 0;
+  }, [tab, id]);
 
   // Round 3 — triage chips (#12), eager so the overview header is honest on open.
   const [triage, setTriage] = React.useState<TriageChips | null>(null);
@@ -256,6 +336,11 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
   const [runPlaybookId, setRunPlaybookId] = React.useState('');
   const [runningPlaybook, setRunningPlaybook] = React.useState(false);
 
+  // Embedded Case Manager: one reference-faithful top-right action surface. The
+  // legacy Sheet keeps its existing toolbar/footer so the old Cases workflow is
+  // backward-compatible while the new workspace stays deliberately uncluttered.
+  const [takeActionOpen, setTakeActionOpen] = React.useState(false);
+
   // Pending lifecycle action (confirm dialog) + optional structured fields.
   const [pending, setPending] = React.useState<ActionDef | null>(null);
   const [note, setNote] = React.useState('');
@@ -298,14 +383,14 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
     try {
       const res = await api.getCase(id);
       if (activeIdRef.current !== id) return; // a newer case is loading — drop the stale result
-      setC(res);
+      commitCase(res);
     } catch (e) {
       if (activeIdRef.current !== id) return;
       setError(e);
     } finally {
       if (activeIdRef.current === id) setLoading(false);
     }
-  }, [id]);
+  }, [id, commitCase]);
 
   React.useEffect(() => {
     if (!open) return;
@@ -711,7 +796,8 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
     setError(null);
     try {
       const next = await api.cases.runPlaybook(id, pid);
-      setC(next);
+      commitCase(next);
+      setTakeActionOpen(false);
       setRunPlaybookOpen(false);
       setRunPlaybookId('');
       // The run is a re-investigation — invalidate the lazy tab payloads.
@@ -728,7 +814,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
     } finally {
       setRunningPlaybook(false);
     }
-  }, [id, runPlaybookId, loadTriage]);
+  }, [id, runPlaybookId, loadTriage, commitCase]);
 
   // Models for the reinvestigate picker (best-effort).
   React.useEffect(() => {
@@ -807,6 +893,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
 
   const openAction = React.useCallback(
     (a: ActionDef) => {
+      setTakeActionOpen(false);
       resetActionFields();
       // Pre-seed the disposition picker with the case's current value, if any.
       if (a.fields.includes('disposition') && typeof c?.disposition === 'string') {
@@ -847,7 +934,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
         input.reason = actionReason.trim();
       }
       const next = await api.caseActionExec(id, input);
-      setC(next);
+      commitCase(next);
       setPending(null);
       resetActionFields();
       setRationale(null);
@@ -892,7 +979,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
           .then((updated) => {
             // Reflect the just-recorded grading in the prior-gradings history, but only
             // if this CaseDetail is still showing the same case.
-            if (updated && activeIdRef.current === id) setC(updated);
+            if (updated && activeIdRef.current === id) commitCase(updated);
           })
           .catch(() => {
             /* grading is best-effort; never surface as a close failure (#3). */
@@ -923,6 +1010,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
     loadTriage,
     loadActivity,
     activity,
+    commitCase,
   ]);
 
   const runReinvestigate = React.useCallback(async () => {
@@ -931,7 +1019,8 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
     try {
       const input = reinvestModel.trim() ? { model: reinvestModel.trim() } : undefined;
       const next = await api.reinvestigateCase(id, input);
-      setC(next);
+      commitCase(next);
+      setTakeActionOpen(false);
       setReinvestOpen(false);
       setRationale(null);
       setTimeline(null);
@@ -942,7 +1031,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
     } finally {
       setReinvesting(false);
     }
-  }, [reinvestModel, id, loadTriage]);
+  }, [reinvestModel, id, loadTriage, commitCase]);
 
   const runExport = React.useCallback(
     async (fmt: 'json' | 'md') => {
@@ -979,59 +1068,128 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
     return out;
   }, [models]);
 
-  // Open this case in a standalone browser tab. Cases.tsx auto-opens the CaseDetail
-  // sheet from `route.opts?.caseId`; the router encodes a sub-target as a hash query
-  // (`#/settings?s=<id>`), so we mirror that shape (`#/cases?caseId=<id>`) and open it
-  // against the current document base so a fresh tab lands on the Cases surface for this
-  // case. Read-only — opening a new tab never touches the case decision (#3).
+  // Open this case in a standalone browser tab. Both the legacy Cases sheet and the
+  // embedded Case Manager understand the generic `caseId` hash query, so preserve the
+  // current presentation's home instead of unexpectedly bouncing an inline analyst
+  // back to the legacy table. Read-only — opening a tab never touches the decision (#3).
   const openInNewTab = React.useCallback(() => {
     if (typeof window === 'undefined' || !id) return;
     const base = window.location.href.split('#')[0];
-    const url = `${base}#/cases?caseId=${encodeURIComponent(id)}`;
+    const routeId = presentation === 'embedded' ? 'case_manager' : 'cases';
+    const url = `${base}#/${routeId}?caseId=${encodeURIComponent(id)}`;
     window.open(url, '_blank', 'noopener,noreferrer');
-  }, [id]);
+  }, [id, presentation]);
+
+  const shareCase = React.useCallback(async () => {
+    if (typeof window === 'undefined' || !id) return;
+    const base = window.location.href.split('#')[0];
+    const routeId = presentation === 'embedded' ? 'case_manager' : 'cases';
+    const ok = await copyText(`${base}#/${routeId}?caseId=${encodeURIComponent(id)}`);
+    if (ok) toast.success('Case link copied.');
+    else toast.error('Could not copy the case link.');
+  }, [id, presentation]);
 
   if (!open) return null;
 
   const actionPlan = actionPlanForStatus(c?.status);
+  const permittedLifecycleActions = [
+    actionPlan.primary,
+    actionPlan.close,
+    ...actionPlan.overflow,
+  ].filter(
+    (action, index, actions): action is ActionDef =>
+      Boolean(action) &&
+      actions.findIndex((candidate) => candidate?.key === action?.key) === index &&
+      hasPermission(
+        ACTION_PERMISSION[action!.key].resource,
+        ACTION_PERMISSION[action!.key].action,
+      ),
+  );
+  const headerSeverity = c
+    ? severityBand(c.severity_band) ?? severityBand(c.risk_score)
+    : null;
 
   return (
     <TooltipProvider delayDuration={200}>
-      <Sheet
-        open={open}
-        onOpenChange={(o) => {
-          if (!o) onClose();
-        }}
-      >
-        <SheetContent
-          side="right"
-          size="full"
-          className="w-full max-w-[min(98vw,1400px)] p-0"
-          aria-label="Case detail"
-        >
+      <CaseDetailSurface presentation={presentation} open={open} onClose={onClose}>
           <MotionProvider>
           <div className="flex h-full min-h-0 flex-col">
             {/* ----------------------------------------------------- header */}
-            <header className="flex shrink-0 items-start gap-4 border-b border-border bg-card px-6 py-4">
-              <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-                <Shield className="h-5 w-5" />
+            <header
+              className={cn(
+                'flex shrink-0 items-start gap-4',
+                presentation === 'sheet' &&
+                  'border-b border-border bg-card px-6 py-4',
+                presentation === 'embedded' &&
+                  'flex-col bg-background px-8 pb-4 pt-6 sm:flex-row',
+              )}
+            >
+              <div
+                className={cn(
+                  presentation === 'sheet' && 'contents',
+                  presentation === 'embedded' &&
+                    'flex min-w-0 w-full flex-1 items-start gap-4 sm:w-auto',
+                )}
+              >
+              <div
+                className={cn(
+                  'mt-0.5 flex shrink-0 items-center justify-center',
+                  presentation === 'sheet' &&
+                    'h-9 w-9 rounded-md bg-primary/10 text-primary',
+                  presentation === 'embedded' &&
+                    'h-10 w-10 rounded-[3px] border border-critical/30 bg-critical/10',
+                )}
+              >
+                {presentation === 'embedded' && headerSeverity === 'critical' ? (
+                  <AlertTriangle className="h-5 w-5 text-critical-text" />
+                ) : (
+                  <Shield className="h-5 w-5 text-primary" />
+                )}
               </div>
               <div className="min-w-0 flex-1">
                 {loading || !c ? (
                   <Skeleton className="h-6 w-72" />
                 ) : (
                   <>
-                    <div className="flex items-center gap-2">
+                    <div
+                      className={cn(
+                        'flex items-center gap-2',
+                        presentation === 'sheet' ? 'flex-wrap' : 'min-w-0 flex-nowrap',
+                      )}
+                    >
                       {/* Human-facing display id (F7) — falls back to case_id. */}
-                      <span className="shrink-0 font-mono text-xs font-semibold text-primary">
+                      <span
+                        title={presentation === 'embedded' ? c.case_number || c.case_id : undefined}
+                        className={cn(
+                          'font-mono font-semibold',
+                          presentation === 'sheet' && 'shrink-0 text-xs text-primary',
+                          presentation === 'embedded' &&
+                            'block min-w-0 flex-1 truncate text-2xl uppercase tracking-tight text-foreground',
+                        )}
+                      >
                         {c.case_number || c.case_id}
                       </span>
+                      {presentation === 'embedded' ? (
+                        <SeverityBadge
+                          severity={headerSeverity}
+                          labelSuffix="severity"
+                          className="h-5 shrink-0 rounded-[3px] px-2 text-2xs uppercase tracking-wider"
+                        />
+                      ) : null}
                       <DemoBadge show={isDemoCase(c)} className="text-2xs" />
                     </div>
-                    <h2 className="mt-0.5 truncate text-lg font-semibold tracking-tight text-foreground">
+                    <h2
+                      className={cn(
+                        'font-semibold tracking-tight text-foreground',
+                        presentation === 'sheet' && 'mt-0.5 truncate text-lg',
+                        presentation === 'embedded' &&
+                          'mt-2 line-clamp-2 text-xl text-muted-foreground',
+                      )}
+                    >
                       {/* UNTRUSTED title — plain text node. */}
                       {c.title || c.case_id}
                     </h2>
+                    {presentation === 'sheet' ? (
                     <div className="mt-1.5 flex flex-wrap items-center gap-2">
                       <StatusBadge status={c.status} />
                       <DispositionBadge disposition={c.disposition ?? null} />
@@ -1052,8 +1210,10 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                         />
                       ) : null}
                     </div>
+                    ) : null}
                   </>
                 )}
+                {presentation === 'sheet' ? (
                 <p className="mt-1 text-xs text-muted-foreground">
                   {c?.created_at ? (
                     <>Created {humanizeAge(c.created_at)}</>
@@ -1062,11 +1222,185 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                   )}
                   {c?.updated_at ? <> · Updated {humanizeAge(c.updated_at)}</> : null}
                 </p>
+                ) : null}
+              </div>
               </div>
 
-              {/* header icon actions */}
-              {/* pr-8 keeps these icons clear of the built-in Sheet close X (right-4 top-4) */}
-              <div className="flex shrink-0 items-center gap-1 pr-8">
+              {/* Header icon actions. Sheet mode reserves room for Radix's built-in X;
+                  embedded mode supplies its own explicit pane-close control. */}
+              <div
+                className={cn(
+                  'flex shrink-0 items-center',
+                  presentation === 'sheet' && 'pr-8',
+                  presentation === 'embedded' &&
+                    'ml-auto w-full justify-end gap-3 sm:w-auto',
+                )}
+              >
+                {presentation === 'embedded' ? (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-9 rounded-[3px] px-4"
+                      onClick={() => void shareCase()}
+                    >
+                      <Share2 className="h-4 w-4" />
+                      Share
+                    </Button>
+
+                    <DropdownMenu open={takeActionOpen} onOpenChange={setTakeActionOpen}>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          size="sm"
+                          className="h-9 rounded-[3px] px-4 shadow-elev1"
+                          disabled={loading || acting}
+                        >
+                          <Zap className="h-4 w-4" />
+                          Take Action
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent
+                        align="end"
+                        sideOffset={8}
+                        className="w-72 rounded-[3px]"
+                      >
+                        <DropdownMenuLabel className="text-2xs uppercase tracking-wider">
+                          Case actions
+                        </DropdownMenuLabel>
+                        {permittedLifecycleActions.map((action) => {
+                          const Icon = action.icon;
+                          return (
+                            <DropdownMenuItem
+                              key={action.key}
+                              disabled={loading || acting}
+                              onSelect={() => openAction(action)}
+                            >
+                              <Icon className="h-4 w-4" />
+                              <span className="flex-1">{action.label}</span>
+                            </DropdownMenuItem>
+                          );
+                        })}
+
+                        <DropdownMenuSeparator />
+                        <DropdownMenuLabel className="text-2xs uppercase tracking-wider">
+                          Investigation
+                        </DropdownMenuLabel>
+                        <DropdownMenuItem
+                          disabled={reinvesting || loading}
+                          onSelect={() => {
+                            setTakeActionOpen(false);
+                            setReinvestModel('');
+                            setReinvestOpen(true);
+                          }}
+                        >
+                          <Zap className="h-4 w-4" />
+                          Reinvestigate
+                        </DropdownMenuItem>
+                        {hasPermission('playbooks', 'run') ? (
+                          <DropdownMenuItem
+                            disabled={runningPlaybook || loading}
+                            onSelect={() => {
+                              setTakeActionOpen(false);
+                              setRunPlaybookId('');
+                              setRunPlaybookOpen(true);
+                            }}
+                          >
+                            <BookOpen className="h-4 w-4" />
+                            Run a playbook
+                          </DropdownMenuItem>
+                        ) : null}
+                        <DropdownMenuItem
+                          disabled={loading}
+                          onSelect={() => {
+                            setTakeActionOpen(false);
+                            void loadCase();
+                          }}
+                        >
+                          <RefreshCw className="h-4 w-4" />
+                          Refresh case
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onSelect={() => {
+                            setTakeActionOpen(false);
+                            setTab('chat');
+                          }}
+                        >
+                          <MessageSquare className="h-4 w-4" />
+                          Ask about this case
+                        </DropdownMenuItem>
+
+                        <DropdownMenuSeparator />
+                        <DropdownMenuLabel className="text-2xs uppercase tracking-wider">
+                          Share &amp; export
+                        </DropdownMenuLabel>
+                        <DropdownMenuItem
+                          onSelect={() => {
+                            setTakeActionOpen(false);
+                            openInNewTab();
+                          }}
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                          Open in new tab
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={exporting !== null || loading}
+                          onSelect={() => {
+                            setTakeActionOpen(false);
+                            void runExport('json');
+                          }}
+                        >
+                          <Download className="h-4 w-4" />
+                          Export JSON
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={exporting !== null || loading}
+                          onSelect={() => {
+                            setTakeActionOpen(false);
+                            void runExport('md');
+                          }}
+                        >
+                          <FileText className="h-4 w-4" />
+                          Export Markdown report
+                        </DropdownMenuItem>
+                        {hasPermission('cases', 'write') ? (
+                          <DropdownMenuItem
+                            disabled={loading}
+                            onSelect={() => {
+                              setTakeActionOpen(false);
+                              setNotifyChannelId('');
+                              setNotifyOpen(true);
+                            }}
+                          >
+                            <Send className="h-4 w-4" />
+                            Notify
+                          </DropdownMenuItem>
+                        ) : null}
+                        {campaign && onNavigate ? (
+                          <DropdownMenuItem
+                            onSelect={() => {
+                              setTakeActionOpen(false);
+                              onNavigate('campaigns');
+                            }}
+                          >
+                            <Shield className="h-4 w-4" />
+                            Open campaign
+                          </DropdownMenuItem>
+                        ) : null}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="hidden h-9 w-9 rounded-[3px] xl:inline-flex"
+                      aria-label="Back to case queue"
+                      onClick={onClose}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </>
+                ) : (
+                  <>
                 {/* Reinvestigate (popover) */}
                 <Popover open={reinvestOpen} onOpenChange={setReinvestOpen}>
                   <Tooltip>
@@ -1385,12 +1719,8 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                     <TooltipContent>Notify</TooltipContent>
                   </Tooltip>
                 </Can>
-                {/*
-                  Panel dismiss is the built-in SheetContent close (X) at
-                  right-4 top-4 — do NOT hand-roll a second header X here, or two
-                  X controls stack. The labeled "Close case" lifecycle action
-                  lives in the footer and is separate.
-                */}
+                  </>
+                )}
               </div>
             </header>
 
@@ -1430,30 +1760,100 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                   onValueChange={(v) => setTab(v as typeof tab)}
                   className="flex min-h-0 flex-1 flex-col"
                 >
-                  <div className="shrink-0 border-b border-border px-6 pt-3">
-                    <TabsList className="h-9">
-                      <TabsTrigger value="overview" className="gap-1.5 text-xs">
-                        <FileText className="h-3.5 w-3.5" /> Overview
+                  <div
+                    className={cn(
+                      'shrink-0 overflow-x-auto border-b border-border',
+                      presentation === 'sheet' ? 'px-6' : 'px-8',
+                      presentation === 'sheet' && 'pt-3',
+                    )}
+                  >
+                    <TabsList
+                      className={cn(
+                        'w-max min-w-full justify-start',
+                        presentation === 'embedded' &&
+                          'h-auto gap-6 rounded-none border-0 bg-transparent p-0',
+                      )}
+                    >
+                      <TabsTrigger
+                        value="overview"
+                        className={cn(
+                          'gap-1.5',
+                          presentation === 'sheet' ? 'text-xs' : 'text-sm',
+                          presentation === 'embedded' &&
+                            'rounded-none border-b-2 border-transparent px-0 py-3 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none',
+                        )}
+                      >
+                        {presentation === 'sheet' ? <FileText className="h-3.5 w-3.5" /> : null}
+                        Overview
                       </TabsTrigger>
-                      <TabsTrigger value="timeline" className="gap-1.5 text-xs">
+                      <TabsTrigger
+                        value="timeline"
+                        className={cn(
+                          'gap-1.5',
+                          presentation === 'sheet' ? 'text-xs' : 'text-sm',
+                          presentation === 'embedded' &&
+                            'rounded-none border-b-2 border-transparent px-0 py-3 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none',
+                        )}
+                      >
                         <History className="h-3.5 w-3.5" /> Timeline
                       </TabsTrigger>
-                      <TabsTrigger value="investigation" className="gap-1.5 text-xs">
+                      <TabsTrigger
+                        value="investigation"
+                        className={cn(
+                          'gap-1.5',
+                          presentation === 'sheet' ? 'text-xs' : 'text-sm',
+                          presentation === 'embedded' &&
+                            'rounded-none border-b-2 border-transparent px-0 py-3 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none',
+                        )}
+                      >
                         <Bot className="h-3.5 w-3.5" /> Investigation
                       </TabsTrigger>
-                      <TabsTrigger value="threat" className="gap-1.5 text-xs">
-                        <Globe className="h-3.5 w-3.5" /> Threat context
+                      <TabsTrigger
+                        value="threat"
+                        className={cn(
+                          'gap-1.5',
+                          presentation === 'sheet' ? 'text-xs' : 'text-sm',
+                          presentation === 'embedded' &&
+                            'rounded-none border-b-2 border-transparent px-0 py-3 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none',
+                        )}
+                      >
+                        {presentation === 'sheet' ? <Globe className="h-3.5 w-3.5" /> : null}
+                        Threat context
                       </TabsTrigger>
-                      <TabsTrigger value="collab" className="gap-1.5 text-xs">
+                      <TabsTrigger
+                        value="collab"
+                        className={cn(
+                          'gap-1.5',
+                          presentation === 'sheet' ? 'text-xs' : 'text-sm',
+                          presentation === 'embedded' &&
+                            'rounded-none border-b-2 border-transparent px-0 py-3 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none',
+                        )}
+                      >
                         <Users className="h-3.5 w-3.5" /> Collaboration
                       </TabsTrigger>
-                      <TabsTrigger value="chat" className="gap-1.5 text-xs">
+                      <TabsTrigger
+                        value="chat"
+                        className={cn(
+                          'gap-1.5',
+                          presentation === 'sheet' ? 'text-xs' : 'text-sm',
+                          presentation === 'embedded' &&
+                            'rounded-none border-b-2 border-transparent px-0 py-3 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none',
+                        )}
+                      >
                         <MessageSquare className="h-3.5 w-3.5" /> Chat
                       </TabsTrigger>
                     </TabsList>
                   </div>
 
-                  <div className="min-h-0 flex-1 overflow-y-auto">
+                  <div
+                    ref={panelScrollRef}
+                    className={cn(
+                      'min-h-0 flex-1',
+                      presentation === 'embedded' && tab === 'chat'
+                        ? 'overflow-hidden'
+                        : 'overflow-y-auto',
+                    )}
+                  >
                     <TabsContent value="overview" className="mt-0">
                      <TabPanelMotion>
                       <OverviewPanel
@@ -1462,6 +1862,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                         triage={triage}
                         triageLoading={triageLoading}
                         onNavigate={onNavigate}
+                        presentation={presentation === 'embedded' ? 'case-manager' : 'default'}
                       />
                      </TabPanelMotion>
                     </TabsContent>
@@ -1475,6 +1876,8 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                         stagesLoading={stagesLoading}
                         stagesError={stagesError}
                         onRetryStages={loadStages}
+                        presentation={presentation === 'embedded' ? 'case-manager' : 'default'}
+                        onOpenInvestigation={() => setTab('investigation')}
                       />
                      </TabPanelMotion>
                     </TabsContent>
@@ -1494,6 +1897,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                         timelineLoading={timelineLoading}
                         timelineError={timelineError}
                         onRetryTimeline={loadTimeline}
+                        presentation={presentation === 'embedded' ? 'case-manager' : 'default'}
                       />
                      </TabPanelMotion>
                     </TabsContent>
@@ -1506,6 +1910,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                         error={threatError}
                         onRetry={loadThreat}
                         onNavigate={onNavigate}
+                        presentation={presentation === 'embedded' ? 'case-manager' : 'default'}
                       />
                      </TabPanelMotion>
                     </TabsContent>
@@ -1535,18 +1940,31 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                         onTaskStatus={(taskId, status) => void setTaskStatus(taskId, status)}
                         onTaskLog={(taskId, note) => void addTaskLog(taskId, note)}
                         onAssigned={(next) => {
-                          setC(next);
+                          commitCase(next);
                           if (activity !== null) void loadActivity();
                         }}
                         liveCaseId={id}
                         onLiveThread={liveRefreshThread}
                         onLiveActivity={liveRefreshActivity}
+                        presentation={presentation === 'embedded' ? 'case-manager' : 'default'}
                       />
                      </TabPanelMotion>
                     </TabsContent>
-                    <TabsContent value="chat" className="mt-0">
-                     <TabPanelMotion>
-                      <ChatTab c={c} onNavigate={onNavigate} onClose={onClose} />
+                    <TabsContent value="chat"
+                      className={cn(
+                        'mt-0',
+                        presentation === 'embedded' && 'h-full min-h-0',
+                      )}
+                    >
+                     <TabPanelMotion
+                       className={cn(presentation === 'embedded' && 'h-full min-h-0')}
+                     >
+                      <ChatTab
+                        c={c}
+                        onNavigate={onNavigate}
+                        onClose={onClose}
+                        presentation={presentation === 'embedded' ? 'case-manager' : 'default'}
+                      />
                      </TabPanelMotion>
                     </TabsContent>
                   </div>
@@ -1559,7 +1977,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                 "Close case" (unified Close-with-disposition) + an overflow "More"
                 menu for the rest — instead of a row of equally-weighted buttons.
                 Every control is <Can>-gated by its action's grant. */}
-            {c ? (
+            {c && presentation === 'sheet' ? (
               <footer className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border bg-card px-6 py-3">
                 <Button variant="ghost" size="sm" onClick={onClose}>
                   <X className="h-4 w-4" /> Dismiss
@@ -1659,8 +2077,144 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
             ) : null}
           </div>
           </MotionProvider>
-        </SheetContent>
-      </Sheet>
+      </CaseDetailSurface>
+
+      {/* Embedded-only editors launched from the single Take Action menu. They are
+          detached dialogs (not nested popovers), so Select focus/keyboard behavior
+          remains reliable after the Radix menu closes. */}
+      {presentation === 'embedded' ? (
+        <>
+          <Dialog open={reinvestOpen} onOpenChange={setReinvestOpen}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Zap className="h-4 w-4 text-primary" />
+                  Re-run the investigation
+                </DialogTitle>
+                <DialogDescription>
+                  Force a fresh AI investigation. This runs the LLM pipeline and may
+                  take a few seconds.
+                </DialogDescription>
+              </DialogHeader>
+              <Alert variant="warning">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertTitle>Costs tokens and overwrites the verdict</AlertTitle>
+                <AlertDescription>
+                  Last run cost {fmtMoney(c?.token_cost)}. Re-running spends more tokens
+                  and replaces the current verdict, confidence, and rationale.
+                </AlertDescription>
+              </Alert>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Model</Label>
+                <Select
+                  value={reinvestModel || '__configured__'}
+                  onValueChange={(value) =>
+                    setReinvestModel(value === '__configured__' ? '' : value)
+                  }
+                  disabled={reinvesting}
+                >
+                  <SelectTrigger aria-label="Model">
+                    <SelectValue placeholder="Use configured model" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__configured__">Use configured model</SelectItem>
+                    {modelOptions.map((model) => (
+                      <SelectItem key={model.value} value={model.value}>
+                        {model.text}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="ghost"
+                  onClick={() => setReinvestOpen(false)}
+                  disabled={reinvesting}
+                >
+                  Cancel
+                </Button>
+                <Button onClick={() => void runReinvestigate()} disabled={reinvesting}>
+                  {reinvesting ? (
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Play className="h-4 w-4" />
+                  )}
+                  Reinvestigate
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={runPlaybookOpen} onOpenChange={setRunPlaybookOpen}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <BookOpen className="h-4 w-4 text-primary" />
+                  Run a playbook
+                </DialogTitle>
+                <DialogDescription>
+                  Re-investigate with a trusted operator playbook. It can recommend;
+                  deterministic code still owns the close or escalate decision.
+                </DialogDescription>
+              </DialogHeader>
+              <Alert variant="warning">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertTitle>Costs tokens</AlertTitle>
+                <AlertDescription>
+                  This re-runs the LLM pipeline and may replace the verdict and rationale.
+                  It never changes lifecycle status on its own.
+                </AlertDescription>
+              </Alert>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Playbook</Label>
+                {playbooks.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    No playbooks are loaded. Add Markdown runbooks on the backend.
+                  </p>
+                ) : (
+                  <Select
+                    value={runPlaybookId || undefined}
+                    onValueChange={setRunPlaybookId}
+                    disabled={runningPlaybook}
+                  >
+                    <SelectTrigger aria-label="Playbook">
+                      <SelectValue placeholder="Select a playbook…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {playbooks.map((playbook) => (
+                        <SelectItem key={playbook.id} value={playbook.id}>
+                          {playbook.name || playbook.id}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="ghost"
+                  onClick={() => setRunPlaybookOpen(false)}
+                  disabled={runningPlaybook}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => void runPlaybook()}
+                  disabled={runningPlaybook || !runPlaybookId.trim()}
+                >
+                  {runningPlaybook ? (
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Play className="h-4 w-4" />
+                  )}
+                  Run playbook
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </>
+      ) : null}
 
       {/* --------------------------------------- confirm / close-with-disposition */}
       <ConfirmActionDialog

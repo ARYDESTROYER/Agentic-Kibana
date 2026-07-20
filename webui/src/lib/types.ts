@@ -2496,12 +2496,16 @@ export interface IocReputation {
   type?: string;
   /** 0..100 reputation/abuse score, when available. */
   reputation_score?: number;
+  /** Backend wire key used by the threat-context assembler (additive alias). */
+  score?: number;
   /** Whether the score crosses the configured malicious threshold. */
   is_malicious?: boolean;
   /** Country / source label (UNTRUSTED — plain text). */
   country?: string;
   /** The enrichment source that produced this (e.g. "abuseipdb"). */
   source?: string;
+  /** Backend wire map of provider id → provider result. */
+  sources?: Record<string, unknown>;
   [key: string]: unknown;
 }
 
@@ -2544,7 +2548,10 @@ export interface ThreatContextAsset {
   entity?: string;
   entity_type?: string;
   /** Operator-recorded criticality, when known. */
-  criticality?: string;
+  criticality?: string | number;
+  /** Backend-projected network context (all source/operator-derived). */
+  is_internal?: boolean;
+  networks?: unknown[];
   /** Free-form KV context (UNTRUSTED values — plain text). */
   attributes?: Record<string, unknown>;
   [key: string]: unknown;

@@ -946,6 +946,43 @@ class TraceSpan(BaseModel):
     payload_ref: dict[str, Any] = Field(default_factory=dict)
 
 
+class StageRiskFactor(BaseModel):
+    """One deterministic risk input and its exact term in the weighted sum.
+
+    ``value`` is the persisted, normalised 0–100 factor score. ``weight`` is the
+    currently configured coefficient. ``weighted_value`` is the numerator term
+    (``value * weight``), while ``contribution`` is that term divided by the
+    calculation denominator and therefore expressed in final risk-score points.
+    Read-time explainability only; none of these fields feed scoring or decide().
+    """
+
+    factor: str = ""
+    label: str = ""
+    value: float = 0.0
+    weight: float = 0.0
+    weighted_value: float = 0.0
+    contribution: float = 0.0
+
+
+class StageRiskCalculation(BaseModel):
+    """Reproducible arithmetic behind a Timeline risk score.
+
+    The factor values are persisted on the Case; weights are read from the current
+    Preferences at projection time. ``matches_displayed_score`` makes a historical
+    weight change visible instead of pretending the current configuration produced
+    an older stored score.
+    """
+
+    factors: list[StageRiskFactor] = Field(default_factory=list)
+    numerator: float = 0.0
+    denominator: float = 1.0
+    calculated_score: float = 0.0
+    recorded_score: float = 0.0
+    displayed_score: int = 0
+    matches_displayed_score: bool = True
+    weight_basis: str = "current_preferences"
+
+
 class StageState(BaseModel):
     """Derived scalars/labels at a stage (safe to render inline; never raw source text)."""
 
@@ -953,6 +990,7 @@ class StageState(BaseModel):
     severity_band: str | None = None
     severity_source: str | None = None       # "source_asserted" | "derived"
     risk_score: float | None = None
+    risk_calculation: StageRiskCalculation | None = None
     verdict: str | None = None
     confidence: float | None = None
 

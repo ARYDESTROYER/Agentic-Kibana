@@ -467,7 +467,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
 
         {/* actions */}
         {!deleted && !editing && canComment ? (
-          <div className="mt-1 flex items-center gap-1 pl-1">
+          <div className="mt-1 flex flex-wrap items-center gap-1 pl-1">
             {!nested ? (
               <Button
                 size="sm"

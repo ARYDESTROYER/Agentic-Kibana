@@ -145,6 +145,21 @@ describe('useAutoRefresh', () => {
     expect(tick).toHaveBeenCalledTimes(2);
   });
 
+  it('maps 5 seconds to exactly 5000ms and does not tick early', () => {
+    vi.useFakeTimers();
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+    const tick = vi.fn();
+    renderHook(() => useAutoRefresh('5s', tick));
+
+    expect(REFRESH_MS['5s']).toBe(5_000);
+    vi.advanceTimersByTime(4_999);
+    expect(tick).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(tick).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(5_000);
+    expect(tick).toHaveBeenCalledTimes(2);
+  });
+
   it('does not start when the tab is hidden', () => {
     vi.useFakeTimers();
     vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
@@ -199,5 +214,25 @@ describe('<TimeRangePicker/> render', () => {
     expect(trigger).toHaveClass('w-14', 'sm:w-36');
     // default option set exists
     expect(REFRESH_OPTIONS.map((o) => o.value)).toContain('off');
+  });
+
+  it('offers and emits the accessible 5-second refresh cadence', () => {
+    const onRefreshChange = vi.fn();
+    render(
+      <TimeRangePicker
+        value={PRESETS[2]}
+        onChange={() => {}}
+        refresh="off"
+        onRefreshChange={onRefreshChange}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole('combobox', { name: 'Auto-refresh interval: Off' }),
+    );
+    const fiveSeconds = screen.getByRole('option', { name: '5 seconds' });
+    expect(fiveSeconds).toBeInTheDocument();
+    fireEvent.click(fiveSeconds);
+    expect(onRefreshChange).toHaveBeenCalledWith('5s');
   });
 });

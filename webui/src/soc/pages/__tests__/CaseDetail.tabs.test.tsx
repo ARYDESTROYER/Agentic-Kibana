@@ -75,7 +75,7 @@ describe('CaseDetail — 6-tab story shell (task 5)', () => {
 
   it('renders exactly 6 TabsTrigger, each value matching its human label', () => {
     const tabsList = slice(src, '<TabsList', '</TabsList>');
-    const triggers = tabsList.match(/<TabsTrigger value="[^"]+"/g) || [];
+    const triggers = tabsList.match(/<TabsTrigger\s+value="[^"]+"/g) || [];
     expect(triggers.length).toBe(6);
 
     for (const v of TAB_VALUES) {
@@ -131,6 +131,42 @@ describe('CaseDetail — 6-tab story shell (task 5)', () => {
     expect(content).not.toContain('stages={stages}');
   });
 
+  it('forwards the embedded Case Manager presentation to all six shared panels', () => {
+    const presentationProp =
+      "presentation={presentation === 'embedded' ? 'case-manager' : 'default'}";
+    for (const value of TAB_VALUES) {
+      const content = slice(src, `<TabsContent value="${value}"`, '</TabsContent>');
+      expect(
+        content,
+        `TabsContent '${value}' must forward the shared presentation contract`,
+      ).toContain(presentationProp);
+    }
+  });
+
+  it('gives only the embedded Chat tab the full-height, internally-scrolling lane', () => {
+    const scrollLane = slice(src, '<div\n                    ref={panelScrollRef}', '<TabsContent value="overview"');
+    expect(scrollLane).toContain("presentation === 'embedded' && tab === 'chat'");
+    expect(scrollLane).toContain("? 'overflow-hidden'");
+    expect(scrollLane).toContain(": 'overflow-y-auto'");
+
+    const chat = slice(src, '<TabsContent value="chat"', '</TabsContent>');
+    expect(chat).toContain("presentation === 'embedded' && 'h-full min-h-0'");
+    expect(chat).toContain(
+      "className={cn(presentation === 'embedded' && 'h-full min-h-0')}",
+    );
+
+    // No other tab receives this height/overflow override.
+    for (const value of TAB_VALUES.filter((value) => value !== 'chat')) {
+      const content = slice(src, `<TabsContent value="${value}"`, '</TabsContent>');
+      expect(content).not.toContain("'h-full min-h-0'");
+    }
+  });
+
+  it('wires the Case Manager Timeline trace CTA to the existing Investigation tab', () => {
+    const content = slice(src, '<TabsContent value="timeline"', '</TabsContent>');
+    expect(content).toContain("onOpenInvestigation={() => setTab('investigation')}");
+  });
+
   it('stages lazy-load on the timeline tab; rationale/timeline on the investigation tab', () => {
     expect(src).toContain(
       "tab === 'timeline' && stages === null && !stagesLoading && !stagesError",
@@ -167,9 +203,19 @@ describe('CaseDetail — 6-tab story shell (task 5)', () => {
     // The header carries an aria-labelled "Open in new tab" control wired to openInNewTab.
     const openBtn = slice(src, 'aria-label="Open in new tab"', 'Button>');
     expect(openBtn).toContain('onClick={openInNewTab}');
-    // openInNewTab builds a `#/cases?caseId=<id>` deep-link (mirrors the router's hash query).
-    expect(src).toContain('#/cases?caseId=${encodeURIComponent(id)}');
+    // The default sheet still targets Cases; embedded mode preserves Case Manager.
+    expect(src).toContain("presentation === 'embedded' ? 'case_manager' : 'cases'");
+    expect(src).toContain('#/${routeId}?caseId=${encodeURIComponent(id)}');
     // The sheet is widened from 1180px to 1400px (task 7a).
     expect(src).toContain('max-w-[min(98vw,1400px)]');
+  });
+
+  it('supports an embedded presentation without forking the six-tab workflow', () => {
+    expect(src).toContain("type CaseDetailPresentation = 'sheet' | 'embedded'");
+    expect(src).toContain("presentation = 'sheet'");
+    expect(src).toContain("if (presentation === 'embedded')");
+    expect(src).toContain('<CaseDetailSurface presentation={presentation} open={open} onClose={onClose}>');
+    expect(src).toContain('onCaseChange?.(next)');
+    expect(src).toContain('commitCase(next)');
   });
 });

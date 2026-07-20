@@ -764,6 +764,38 @@ _ANALYSTS = ("pnair", "sgupta", "dsingh", "auto-triage")
 _BAD_IP_PREFIXES = ("203.0.113", "198.51.100", "192.0.2")
 
 
+def _demo_risk_breakdown(total: float) -> RiskBreakdown:
+    """Return varied demo factors that reconcile to ``total`` under defaults.
+
+    Demo cases pre-date a persisted risk-weight snapshot.  Keeping their five
+    factor values internally coherent with the default ``RiskWeights`` makes the
+    Timeline's read-only risk explanation useful instead of presenting invented,
+    non-reconciling arithmetic.  If an operator later changes those weights, the
+    API still reports the difference honestly rather than rewriting history.
+    """
+    risk = max(0.0, min(100.0, float(total)))
+    spread = min(risk, 100.0 - risk, 15.0) / 15.0
+    volume = round(risk + 10.0 * spread, 2)
+    velocity = round(risk - 5.0 * spread, 2)
+    reputation = round(risk + 5.0 * spread, 2)
+    diversity = round(risk - 10.0 * spread, 2)
+    # Solve the final factor after rounding the others so the persisted demo
+    # values reproduce the displayed score with the default 25/20/30/15/10 mix.
+    asset = round(
+        (risk - 0.25 * volume - 0.20 * velocity - 0.30 * reputation - 0.15 * diversity)
+        / 0.10,
+        2,
+    )
+    return RiskBreakdown(
+        volume=volume,
+        velocity=velocity,
+        reputation=reputation,
+        diversity=diversity,
+        asset_criticality=max(0.0, min(100.0, asset)),
+        total=round(risk, 2),
+    )
+
+
 def _hist_case(
     rng: random.Random, org: Org, tmpl: dict[str, Any], *, cid: str, sig_suffix: str,
     created_ms: int, first_seen_ms: int, idx: int,
@@ -830,10 +862,7 @@ def _hist_case(
         member_event_ids=[f"demo-hist-{idx}-{j}" for j in range(rng.randint(2, 9))],
         first_seen_millis=first_seen_ms,
         risk_score=risk,
-        risk_breakdown=RiskBreakdown(
-            volume=risk * 0.3, velocity=risk * 0.2, reputation=risk * 0.3,
-            diversity=risk * 0.1, asset_criticality=risk * 0.1, total=risk,
-        ),
+        risk_breakdown=_demo_risk_breakdown(risk),
         verdict=verdict,
         confidence=round(0.5 + rng.random() * 0.49, 2),
         evidence=[EvidenceItem(summary=f"{tmpl['rname']} on {entity_val}.", event_ids=[])],
@@ -1019,7 +1048,7 @@ def generate_capability_seed_cases(
             member_event_ids=[f"demo-hitl-{i}-{j}" for j in range(3)],
             first_seen_millis=hitl_ms - 60_000,
             risk_score=62.0,
-            risk_breakdown=RiskBreakdown(reputation=30.0, velocity=20.0, total=62.0),
+            risk_breakdown=_demo_risk_breakdown(62.0),
             verdict=Verdict.NEEDS_HUMAN, confidence=0.55,
             evidence=[EvidenceItem(summary="Impossible-travel sign-in for pnair.", event_ids=[])],
             mitre=["T1078"],
@@ -1053,7 +1082,7 @@ def generate_capability_seed_cases(
             source_name=DEMO_SOURCE_NAMES[DEMO_SOURCE_IDS[i % len(DEMO_SOURCE_IDS)]],
             member_event_ids=[f"demo-tune-{i}-0"],
             risk_score=16.0,
-            risk_breakdown=RiskBreakdown(reputation=8.0, total=16.0),
+            risk_breakdown=_demo_risk_breakdown(16.0),
             verdict=Verdict.FALSE_POSITIVE, confidence=round(0.6 + rng.random() * 0.3, 2),
             evidence=[EvidenceItem(summary="Benign scanner noise (auto-closed).", event_ids=[])],
             recommended_action="No action required.",

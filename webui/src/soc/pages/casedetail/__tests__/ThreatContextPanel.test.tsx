@@ -6,12 +6,44 @@
  * state that would silently drop the classification).
  */
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
+import { axe, toHaveNoViolations } from 'jest-axe';
 
 import { ThreatContextPanel } from '../ThreatContextPanel';
 import type { Case, ThreatContextPanel as ThreatContextPanelData } from '@/lib/types';
 
+expect.extend(toHaveNoViolations);
+
 const CASE = { case_id: 'c1', verdict: 'true_positive', risk_score: 50 } as unknown as Case;
+
+/** Mirrors GET /cases/{id}/threat-context — including its live score/sources shape. */
+const BACKEND_REAL_PANEL = {
+  case_id: 'c1',
+  summary: 'The IAM role was assumed from a known Tor exit node.',
+  ioc_reputation: [
+    {
+      indicator: '198.51.100.45',
+      type: 'ip',
+      score: 100,
+      is_malicious: true,
+      country: 'US',
+      cached: false,
+      sources: { AbuseIPDB: { score: 100 } },
+    },
+  ],
+  mitre_techniques: [
+    { id: 'T1078', name: 'Valid Accounts', tactics: ['initial_access'] },
+    { id: 'T1530', name: 'Data from Cloud Storage Object', tactics: ['collection'] },
+    { id: 'T1090', name: 'Proxy', tactics: ['command_and_control'] },
+  ],
+  asset_context: {
+    entity: 'ip:198.51.100.45',
+    criticality: 4,
+    is_internal: false,
+    networks: [],
+  },
+  generated_at: '2026-07-20T10:46:00Z',
+} as unknown as ThreatContextPanelData;
 
 describe('ThreatContextPanel — asset context', () => {
   it('renders a criticality-only asset instead of the empty state (#19)', () => {
@@ -91,5 +123,66 @@ describe('ThreatContextPanel — error state (#33)', () => {
     expect(screen.getByText('threat feed down')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /retry/i }));
     expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('ThreatContextPanel — Case Manager presentation', () => {
+  it('leads with the MITRE and IOC cards while honoring backend-real score/sources and numeric asset fields', () => {
+    const { container } = render(
+      <ThreatContextPanel
+        c={CASE}
+        panel={BACKEND_REAL_PANEL}
+        loading={false}
+        error={null}
+        onRetry={vi.fn()}
+        presentation="case-manager"
+      />,
+    );
+
+    const panel = container.querySelector(
+      '[data-case-panel="threat-context"][data-presentation="case-manager"]',
+    );
+    expect(panel).not.toBeNull();
+
+    const mitreHeading = screen.getByRole('heading', { name: /MITRE ATT&CK® Mapping/i });
+    const iocHeading = screen.getByRole('heading', { name: 'IOC Reputation' });
+    const leadGrid = mitreHeading.closest('.grid');
+    expect(leadGrid).not.toBeNull();
+    expect(leadGrid).toHaveClass('md:grid-cols-2');
+    expect(leadGrid).toContainElement(iocHeading);
+
+    expect(screen.getByText('T1078')).toBeInTheDocument();
+    expect(screen.getByText('Valid Accounts')).toBeInTheDocument();
+    expect(screen.getByText('T1530')).toBeInTheDocument();
+    expect(screen.getByText('Data from Cloud Storage Object')).toBeInTheDocument();
+    expect(screen.getByText('T1090')).toBeInTheDocument();
+    expect(screen.getByText('Proxy')).toBeInTheDocument();
+
+    const iocCard = iocHeading.closest('.rounded-\\[8px\\]');
+    expect(iocCard).not.toBeNull();
+    expect(within(iocCard as HTMLElement).getByText('198.51.100.45')).toBeInTheDocument();
+    expect(within(iocCard as HTMLElement).getByText('AbuseIPDB')).toBeInTheDocument();
+    expect(within(iocCard as HTMLElement).getByText('100%')).toBeInTheDocument();
+    expect(within(iocCard as HTMLElement).getByText('Malicious')).toBeInTheDocument();
+
+    const criticalityRow = screen.getByText('Criticality').parentElement;
+    expect(criticalityRow).not.toBeNull();
+    expect(within(criticalityRow as HTMLElement).getByText('4')).toBeInTheDocument();
+    expect(screen.getByText('Internal asset')).toBeInTheDocument();
+    expect(screen.getByText('No')).toBeInTheDocument();
+  });
+
+  it('has no axe violations with populated backend-real threat context', async () => {
+    const { container } = render(
+      <ThreatContextPanel
+        c={CASE}
+        panel={BACKEND_REAL_PANEL}
+        loading={false}
+        error={null}
+        onRetry={vi.fn()}
+        presentation="case-manager"
+      />,
+    );
+    expect(await axe(container)).toHaveNoViolations();
   });
 });

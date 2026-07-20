@@ -6,9 +6,12 @@
  */
 import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { axe, toHaveNoViolations } from 'jest-axe';
 
 import { StageTimeline } from '../StageTimeline';
 import type { TimelineStage, TimelineStagesResponse } from '@/soc/pages/CaseDetail.api';
+
+expect.extend(toHaveNoViolations);
 
 const stage = (over: Partial<TimelineStage>): TimelineStage => ({
   id: over.kind || 'input',
@@ -103,6 +106,144 @@ describe('StageTimeline', () => {
     fireEvent.click(screen.getByText(/Show 1 step/)); // expand the stage's steps first
     expect(screen.getByText('short.')).toBeInTheDocument();
     expect(screen.queryByText('Show more')).toBeNull();
+  });
+
+  it('uses the operator-facing Risk assigned / Decision labels in Case Manager', () => {
+    render(
+      <StageTimeline
+        presentation="case-manager"
+        data={data([
+          stage({ kind: 'risk', label: 'Risk', state: { risk_score: 7 } }),
+          stage({ kind: 'decide', label: 'Decide', headline: 'Held for human review' }),
+        ])}
+      />,
+    );
+
+    expect(screen.getByRole('heading', { name: 'Risk assigned' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Decision' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Risk' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Decide' })).toBeNull();
+  });
+
+  it('opens an exact, accessible risk derivation with values, weights, contributions, and formula', async () => {
+    const { container } = render(
+      <StageTimeline
+        presentation="case-manager"
+        data={data([
+          stage({
+            kind: 'risk',
+            label: 'Risk',
+            headline: 'Risk 7/100',
+            state: {
+              risk_score: 7,
+              risk_calculation: {
+                factors: [
+                  { factor: 'volume', label: 'Volume', value: 20, weight: 0.25, weighted_value: 5, contribution: 5 },
+                  { factor: 'velocity', label: 'Velocity', value: 10, weight: 0.2, weighted_value: 2, contribution: 2 },
+                  { factor: 'reputation', label: 'Reputation', value: 0, weight: 0.3, weighted_value: 0, contribution: 0 },
+                  { factor: 'diversity', label: 'Diversity', value: 0, weight: 0.15, weighted_value: 0, contribution: 0 },
+                  { factor: 'asset_criticality', label: 'Asset criticality', value: 0, weight: 0.1, weighted_value: 0, contribution: 0 },
+                ],
+                numerator: 7,
+                denominator: 1,
+                calculated_score: 7,
+                recorded_score: 7,
+                displayed_score: 7,
+                matches_displayed_score: true,
+                weight_basis: 'current_preferences',
+              },
+            },
+          }),
+        ])}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Risk factors' }));
+    expect(screen.getByRole('heading', { name: 'How 7/100 was derived' })).toBeInTheDocument();
+    expect(screen.getByRole('table', { name: 'Risk score factor calculation' })).toHaveTextContent(
+      'Volume20/1000.25 (25%)5 pts',
+    );
+    expect(screen.getByTestId('risk-formula')).toHaveTextContent(
+      'Σ(value × weight) = 7; 7 ÷ 1 = 7/100 → displayed as 7/100.',
+    );
+    expect(screen.queryByText(/Exact arithmetic cannot be reconstructed/i)).toBeNull();
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it('states the data gap for an older risk payload instead of inventing weights', () => {
+    render(
+      <StageTimeline
+        presentation="case-manager"
+        data={data([
+          stage({
+            kind: 'risk',
+            label: 'Risk',
+            headline: 'Risk 11/100',
+            state: { risk_score: 11 },
+            steps: [{
+              kind: 'note',
+              label: 'risk factors',
+              body: 'volume 20 · velocity 15 · reputation 10',
+              trusted: true,
+            }],
+          }),
+        ])}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Risk factors' }));
+    const table = screen.getByRole('table', { name: 'Risk score factor calculation' });
+    expect(table).toHaveTextContent('Volume20/100—');
+    expect(screen.getByText(/supplies factor values and the final score/i)).toHaveTextContent(
+      'Exact arithmetic cannot be reconstructed from the available data.',
+    );
+  });
+
+  it('removes only an equivalent investigate headline while retaining its chips', () => {
+    render(
+      <StageTimeline
+        presentation="case-manager"
+        data={data([
+          stage({
+            kind: 'investigate',
+            label: 'Investigate',
+            headline: 'Verdict: false positive · conf 97%',
+            state: { verdict: 'FALSE_POSITIVE', confidence: 0.97 },
+          }),
+        ])}
+      />,
+    );
+
+    expect(screen.queryByText('Verdict: false positive · conf 97%')).toBeNull();
+    expect(screen.getByText('False positive')).toBeInTheDocument();
+    expect(screen.getByText('conf 97%')).toBeInTheDocument();
+  });
+
+  it('pulses only the terminal marker and includes a reduced-motion override', () => {
+    const { container } = render(
+      <StageTimeline
+        presentation="case-manager"
+        data={data([
+          stage({ kind: 'input', label: 'Alert received' }),
+          stage({ kind: 'investigate', label: 'Investigate', status: 'pending' }),
+          stage({ kind: 'decide', label: 'Decide', status: 'done' }),
+        ])}
+      />,
+    );
+
+    const markers = [...container.querySelectorAll<HTMLElement>('[data-stage-marker]')];
+    expect(markers).toHaveLength(3);
+    expect(markers.filter((marker) => marker.dataset.motion === 'pulse')).toEqual([
+      container.querySelector('[data-stage-marker="decide"]'),
+    ]);
+    expect(markers[0]).toHaveAttribute('data-terminal', 'false');
+    expect(markers[1]).toHaveAttribute('data-motion', 'none');
+    expect(markers[1]).not.toHaveClass('motion-safe:animate-pulse');
+    expect(markers[2]).toHaveAttribute('data-terminal', 'true');
+    expect(markers[2]).toHaveClass(
+      'motion-safe:animate-pulse',
+      'motion-reduce:animate-none',
+    );
   });
 
   it('shows the empty state when there are no stages', () => {

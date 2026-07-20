@@ -31,7 +31,7 @@ describe('ROUTES registry', () => {
   it('covers all 31 documented page ids + custom dashboards', () => {
     // The DESIGN_STANDARD deep-link contract: these ids must remain routable.
     const EXPECTED = [
-      'overview', 'dashboard', 'dashboards', 'cases', 'investigate', 'chat',
+      'overview', 'dashboard', 'dashboards', 'cases', 'case_manager', 'investigate', 'chat',
       'intelligence', 'metrics', 'models', 'scans', 'standup', 'catalog', 'playbooks',
       'approvals', 'knowledge', 'memory', 'sources', 'cost', 'inbox', 'account',
       'sessions', 'settings', 'security', 'roles', 'users', 'audit', 'admin_sessions',
@@ -66,6 +66,12 @@ describe('ROUTES registry', () => {
     const cases = renderRoute('cases', { opts: { status: 'needs_human' }, onRerunWizard: () => {} });
     expect((cases.props as { initialStatus?: string }).initialStatus).toBe('needs_human');
     expect((cases.props as Record<string, unknown>).onNavigate).toBeUndefined();
+
+    const manager = renderRoute('case_manager', {
+      opts: { caseId: 'case-123' },
+      onRerunWizard: () => {},
+    });
+    expect((manager.props as { initialCaseId?: string }).initialCaseId).toBe('case-123');
 
     const dash = renderRoute('dashboard', { onRerunWizard: () => {} });
     expect((dash.props as { tab?: string }).tab).toBe('dashboard');

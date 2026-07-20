@@ -146,6 +146,8 @@ const SEVERITY_LABEL: Record<SeverityBand, string> = {
 export interface SeverityBadgeProps {
   severity: number | string | null | undefined;
   className?: string;
+  /** Optional visible noun after the band, e.g. "Critical severity" in case headers. */
+  labelSuffix?: string;
   /** Append the raw numeric value in parens (e.g. "High (72)"). */
   showValue?: boolean;
   /** Show the beside-color SEMANTIC_ICON shape (§6.1). Default true. */
@@ -159,6 +161,7 @@ export interface SeverityBadgeProps {
 export function SeverityBadge({
   severity,
   className,
+  labelSuffix,
   showValue,
   icon = true,
   scaleMax = 100,
@@ -176,6 +179,7 @@ export function SeverityBadge({
     <Badge variant={SEVERITY_VARIANT[band]} className={className}>
       <SemanticGlyph iconKey={band} show={icon} />
       {SEVERITY_LABEL[band]}
+      {labelSuffix ? ` ${labelSuffix}` : ''}
       {suffix}
     </Badge>
   );

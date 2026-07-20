@@ -2577,3 +2577,380 @@
 - Tests: Focused Overview/command-center/chart suite passed `26/26`; lint, TypeScript production build (3,156 modules, 287.69 kB entry), and `git diff --check` passed. Live Browser measurement confirmed both desktop and 390 px mobile numerals at exact 0 px X/Y offset from their ring centers, with no horizontal overflow and zero console warnings/errors.
 - Status: done.
 - Next: Operator visual review; no deployment, staging, commit, or push was requested.
+
+### 2026-07-19 20:25Z — Codex frontend implementer — Case Manager workspace started
+- Context: Add a new `Case Manager` navigation entry beneath Cases, adapt the supplied Stitch CaseManager ZIP into the standalone Console, and carry every existing case-detail capability into the new split-pane SOC workflow while retaining the current dark theme.
+- Did: Established the scope as a new additive workspace; the existing Cases route remains intact for phased migration. Explicitly excluded Codex Security review as requested.
+- Tests: ZIP audit, feature-contract mapping, focused/full Console validation, and live Browser QA pending.
+- Status: in-progress.
+- Next: Inspect the ZIP, inventory all existing CaseDetail tabs/actions/contracts, map routing/navigation conventions, then implement the integrated workspace.
+
+### 2026-07-19 20:20Z — `/root/zip_audit` — Case Manager ZIP audit started
+- Context: Read-only audit of `stitch_agentic_kibana_frontend CaseManager.zip` covering archive structure, UI/UX patterns, static data contracts, interactions, and mappings to the existing case-detail primitives.
+- Did: Began inspection of both standalone HTML mocks, their renders, and the Quantum Glass design specification. No repository edits and no security review.
+- Tests: Static artifact inspection in progress.
+- Status: in-progress.
+- Next: Distinguish functioning prototype behavior from visual-only controls and map the complete workflow to the Console.
+
+### 2026-07-19 20:27Z — `/root/zip_audit` — Case Manager ZIP audit complete
+- Context: Complete the read-only audit of all supplied Case Manager prototype artifacts.
+- Did: Audited all nine archive entries and confirmed the ZIP is static art direction: only tab switching works, while case selection, filters, actions, collaboration, and chat are inert. Mapped the split queue/workspace, six tabs, provenance, entity/story, and action areas to existing Console components; recommended inline reuse of the CaseDetail orchestrator.
+- Tests: Static source and image inspection only; no files changed and no security review was run.
+- Status: done.
+- Next: Adapt the layout around live Console behavior instead of copying inert prototype logic.
+
+### 2026-07-19 20:26Z — Codex route/nav mapper — Case Manager route audit started
+- Context: Map registry, router, navigation, RBAC, lazy-loading, mobile, and test contracts for a new Case Manager destination beneath Cases.
+- Did: Began a read-only trace of the registry-derived route/nav system and existing CaseDetail deep-link behavior. No files changed and no security review was run.
+- Tests: Static source inspection in progress.
+- Status: in-progress.
+- Next: Identify exact integration points and regression coverage.
+
+### 2026-07-19 20:29Z — Codex route/nav mapper — Case Manager route audit complete
+- Context: Complete the additive Case Manager route and navigation map.
+- Did: Confirmed `registry.tsx` is the single route/nav source feeding desktop, mobile, breadcrumbs, and Cmd-K; mapped the generic `caseId` deep-link seam, `cases:read` guard, responsive queue/detail behavior, and focused route/nav test requirements.
+- Tests: Static source inspection only; no files changed and no security review was run.
+- Status: done.
+- Next: Register a lazy `case_manager` page and embed the shared CaseDetail workflow.
+
+### 2026-07-19 20:26Z — Codex case-contract mapper — Existing case workflow inventory started
+- Context: Map the complete Cases/CaseDetail experience before integrating it into the new workspace.
+- Did: Began a read-only inventory of six detail tabs, lifecycle actions, dialogs, collaboration, data dependencies, shared components, routing, and regression coverage. No security review or source edits.
+- Tests: Static source inspection in progress.
+- Status: in-progress.
+- Next: Identify the minimum-risk reuse seam and current gaps.
+
+### 2026-07-19 20:30Z — Codex case-contract mapper — Existing case workflow inventory complete
+- Context: Finish the contract map needed to retain every current case-detail capability.
+- Did: Confirmed CaseDetail is the single shared workflow orchestrator; catalogued all tabs, header/footer actions, collaboration/task/activity/chat features, eager/lazy APIs, routing seams, and tests. Recommended a backward-compatible embedded presentation plus outward case-sync callback instead of duplicating mutation logic.
+- Tests: Static source inspection only; no files changed and no security review was run.
+- Status: done.
+- Next: Implement the additive split workspace while leaving the existing Cases route unchanged.
+
+### 2026-07-19 20:36Z — Codex frontend implementer — Live Case Manager workflow implemented
+- Context: Convert the prototype's split-pane art direction into a functioning Console workspace without regressing the legacy Cases sheet.
+- Did: Added the registry-derived Case Manager route directly after Cases with `cases:read` RBAC; built a real Active/All queue with search, severity/status filters, sort, counts, refresh, selection, responsive replacement navigation, empty/loading/error states, and dark semantic tokens; added a backward-compatible embedded CaseDetail presentation and synchronized authoritative case mutations back into the queue. All six existing detail tabs, lifecycle actions, RBAC checks, collaboration, tasks, activity, exports, notifications, playbooks, reinvestigation, and chat remain shared rather than copied.
+- Tests: First production TypeScript/Vite build passed (3,157 modules); focused and full regression testing plus live Browser QA pending.
+- Status: in-progress.
+- Next: Add focused route/page/embedded-mode coverage, run full Console validation, then inspect desktop/mobile interaction and geometry in the in-app Browser.
+
+### 2026-07-19 20:54Z — Codex frontend implementer — Case Manager validation milestone
+- Context: Exercise the additive Case Manager against the complete Console contract and the live local demo stack.
+- Did: Added route/nav/deep-link, queue behavior, mutation synchronization, embedded-workspace, responsive-back, failure-state, and automated accessibility coverage. Replaced an invalid nested `main` landmark with a labelled workspace region and tightened the mobile filter grid after measuring the rendered controls.
+- Tests: All `1,362/1,362` Console tests passed across 241 files; lint, TypeScript/Vite production build (3,157 modules; 12.20 kB lazy Case Manager chunk), design gates (37 tokens, 82 contrast axes, raw-colour/arbitrary-size/CVD checks), 190-path API type drift, `git diff --check`, and the complete backend test suite passed. No Codex Security review was run, per request.
+- Status: in-progress.
+- Next: Finish the live responsive/browser diagnostics pass and record the handoff.
+
+### 2026-07-19 20:55Z — Codex frontend implementer — Case Manager workspace complete
+- Context: Complete the ZIP-inspired Case Manager as a production-connected alternative workflow while preserving the old Cases page for phased migration.
+- Did: Finalized the dark split-pane SOC interface with Active/All scopes, honest loaded/total counts, critical/high quick filters, search, severity/status filters, sorting, live selection, mutation-aware queue updates, mobile queue/detail replacement, and the entire shared CaseDetail workflow. Updated the operator usage and handoff documentation. The supplied prototype's own shell and inert controls were intentionally not copied.
+- Tests: In-app Browser QA exercised Overview, Timeline, Investigation, Threat context, Collaboration, and Chat against real local demo data. At 390×844 the page and manager had exact client/scroll widths (390/390 and 358/358) and all filter controls stayed within the queue; at 1280×720 both panes and all six tabs were visible with no horizontal overflow. A fresh reload produced zero browser warnings/errors. Automated checks remain green as recorded above.
+- Status: done.
+- Next: Operator visual review and continued Case Manager iteration; the existing Cases workflow remains available. No deployment, staging, commit, or push was requested.
+
+### 2026-07-20 03:02Z — Codex frontend implementer — Case Manager header fidelity correction started
+- Context: Match the supplied Case Manager reference more literally by removing toolbar clutter from the detail header and consolidating operational controls behind one top-right `Take Action` button.
+- Did: Re-read the project handoff, canonical agent rules, and UI design standard; scoped the correction to the embedded CaseDetail presentation so the legacy Cases sheet remains backward-compatible.
+- Tests: Source audit, focused interaction coverage, production build, and live desktop/mobile Browser comparison pending.
+- Status: in-progress.
+- Next: Audit the prototype header and current action contracts, implement the top-right action menu and exact header/tab geometry, then verify all controls remain reachable.
+
+### 2026-07-20 03:03Z — `/root/header_fidelity` — Case Manager header fidelity audit started
+- Context: Read-only comparison of the supplied Case Manager prototype header against the shared embedded `CaseDetail` workflow, including title/severity placement, tabs, top-right controls, action consolidation, responsive behavior, accessibility, and test implications.
+- Did: Began tracing the ZIP markup and the current CaseDetail header/action contracts. No product source edits and no Codex Security review.
+- Tests: Static source inspection pending.
+- Status: in-progress.
+- Next: Produce an exact implementation map for the orchestrator and record the completed audit.
+
+### 2026-07-20 03:08Z — `/root/header_fidelity` — Case Manager header fidelity audit complete
+- Context: Finish the read-only header/action comparison requested for the Case Manager fidelity correction.
+- Did: Mapped the prototype's single square-edged header, case identity/severity/title hierarchy, unframed underline tabs, and exact top-right `Share` / `Take Action` / `X` order to the current embedded CaseDetail. Catalogued every existing header utility and lifecycle footer action that must move behind `Take Action`, including RBAC gates and the existing confirm/notify/reinvestigate/playbook flows; identified the robust shared clipboard helper for Share and the outer rounded Case Manager frame as an additional fidelity mismatch.
+- Tests: Static inspection of both ZIP HTML mocks, `quantum_glass/DESIGN.md`, `CaseDetail.tsx`, the action plan/dialog helpers, shared primitives, and focused tests. No product source edits and no Codex Security review.
+- Status: done.
+- Next: Implement the embedded-only header branch, preserve legacy Sheet behavior, and add live menu/share/responsive/accessibility regression coverage.
+
+### 2026-07-20 03:24Z — Codex frontend implementer — Case Manager reference-fidelity validation milestone
+- Context: Verify the corrected Case Manager header, borders, split geometry, and consolidated action surface against the supplied screenshot and ZIP in the live dark-theme Console.
+- Did: Rebuilt the embedded header as a flat square-edged surface with the prototype's one-third/two-thirds split, larger mono case identity, explicit severity label, underline-only tabs, and the exact top-right `Share` / filled `Take Action` / `X` order. Removed the embedded lifecycle footer and outer frame rounding/elevation; moved every lifecycle and operational command into the RBAC-aware `Take Action` menu while retaining the legacy Cases sheet unchanged. Added detached reinvestigate/playbook dialogs, canonical Case Manager link sharing, honest long-ID truncation, and neutral action-location copy.
+- Tests: Focused CaseDetail/CaseManager interaction suite passed `24/24`; live in-app Browser QA at 1600×900 measured the structural split at 1:2, pinned all three controls inside the right edge, exercised the complete action menu and reinvestigate dialog, and confirmed dark squared surfaces. At 390×844 the page width remained exactly 390 px, tabs scrolled locally, and the 288 px action menu stayed in-bounds with internal scrolling. A fresh reload produced zero browser warnings/errors.
+- Status: in-progress.
+- Next: Run the complete Console/backend regression, production build, lint, API drift, and design gates; then close the correction.
+
+### 2026-07-20 03:27Z — Codex frontend implementer — Case Manager header fidelity correction complete
+- Context: Complete the requested literal Case Manager header/action correction without changing deterministic case behavior or the legacy Cases workflow.
+- Did: Finalized the screenshot-matched embedded CaseDetail hierarchy and documented the top-right action contract. `Share` copies a canonical `#/case_manager?caseId=…` link; `Take Action` now owns lifecycle confirmations, reinvestigation, playbooks, refresh, case-scoped chat/timeline/investigation jumps, exports, notification, and campaign navigation; `X` returns to the queue. No Codex Security review was run, per the user's standing request.
+- Tests: Full Console suite passed `1,364/1,364` across 241 files; full backend suite passed `1,957/1,957`; TypeScript/Vite production build passed with 3,157 modules; lint, 190-path generated API type drift, design gates (37 tokens, 82 contrast axes, raw-colour/arbitrary-size/CVD checks), `git diff --check`, focused runtime interaction coverage, and desktop/mobile in-app Browser QA all passed.
+- Status: done.
+- Next: Operator visual review. No deployment, staging, commit, or push was requested.
+
+### 2026-07-20 03:34Z — Codex frontend implementer — Case Manager all-tab fidelity pass started
+- Context: Extend the supplied Stitch Case Manager aesthetic beyond the header into Timeline, Threat Context, Investigation, Collaboration, and Chat while preserving every live Console capability and the legacy Cases drawer.
+- Did: Scoped the work to presentation-aware Case Manager tab surfaces and began a fresh comparison of both ZIP prototypes, the supplied Timeline/Threat Context screenshots, current shared panel contracts, and live dark-theme rendering. Explicitly excluded Codex Security review per the user's standing request.
+- Tests: ZIP/tab audit, focused panel coverage, full Console validation, and live desktop/mobile Browser QA pending.
+- Status: in-progress.
+- Next: Map each static prototype tab to its real API-backed panel, implement embedded-only visual compositions, then exercise every tab and interaction in the browser.
+
+### 2026-07-20 03:42Z — `/root/tab_zip_audit` — Case Manager all-tab prototype audit started
+- Context: Read-only audit of both supplied Case Manager HTML prototypes and screenshots for exact Timeline, Investigation, Threat Context, Collaboration, Chat, and materially distinct Overview styling.
+- Did: Began extracting DOM hierarchy, layout geometry, visual tokens, static/inert interactions, and mappings from prototype content to the live case contract. No product files will be edited and no Codex Security review will be run.
+- Tests: Static ZIP/source inspection in progress.
+- Status: in-progress.
+- Next: Produce line-referenced implementation maps and call out fidelity and live-data pitfalls for the frontend implementer.
+
+### 2026-07-20 03:42Z — `/root/tab_test_audit` — Case Manager all-tab test audit started
+- Context: Read-only audit of the shared CaseDetail and Case Manager test contracts for Overview, Timeline, Investigation, Threat Context, Collaboration, and Chat.
+- Did: Began mapping existing runtime/static/a11y coverage, realistic fixtures, responsive assumptions, and the smallest non-brittle regression set needed to pin the supplied all-tab visual language. No product files will be edited and no Codex Security review will be run.
+- Tests: Static source and fixture inspection in progress.
+- Status: in-progress.
+- Next: Return exact proposed test files, assertions, fixtures, and likely failure modes to the orchestrator.
+
+### 2026-07-20 03:42Z — `/root/panel_contract_map` — Case Manager panel contract audit started
+- Context: Map the existing Overview, Timeline, Investigation, Threat Context, Collaboration, and Chat components/data contracts to safe embedded-only styling seams for the all-tab fidelity pass.
+- Did: Began a read-only source and test inventory, explicitly preserving legacy CaseDetail sheet behavior and excluding Codex Security review.
+- Tests: Static component, API-contract, and regression-test inspection in progress.
+- Status: in-progress.
+- Next: Return exact file/line mappings, reusable live data, missing prototype data, and presentation-prop recommendations to the frontend implementer.
+
+### 2026-07-20 03:47Z — `/root/tab_zip_audit` — Case Manager all-tab prototype audit complete
+- Context: Finish the read-only audit of the two supplied Stitch Case Manager variants and the attached Timeline/Threat Context screenshots.
+- Did: Identified the `fully_integrated_mission_control_suite` member as the canonical richer variant; extracted exact DOM, spacing, radius, typography, colour, microchart, empty-state, and interaction details for all six tabs; mapped each static element to the live Case, rationale, stage, threat-context, collaboration, and chat contracts; documented unsupported/fabricated-data hazards and the newer Take Action precedence. No product files were edited and no Codex Security review was run.
+- Tests: Static inspection of both ZIP HTML files, both ZIP screenshots, both user-supplied screenshots, the ZIP design specification, current TypeScript contracts, and the live panel implementations. No runtime tests were required for this read-only audit.
+- Status: done.
+- Next: Apply the richer variant's embedded-only skin while preserving the legacy sheet, live loading/error/empty states, RBAC, untrusted-data rendering, deterministic decision authority, and all existing controls.
+
+### 2026-07-20 03:51Z — `/root/panel_contract_map` — Case Manager panel contract audit complete
+- Context: Finish the read-only component, API-contract, and regression audit for the Case Manager all-tab fidelity pass.
+- Did: Mapped all six existing CaseDetail panels to additive embedded-only presentation seams while preserving the legacy Cases sheet and its shared data/mutation orchestration. Catalogued reusable live Timeline, rationale, threat-context, collaboration, and chat data; identified absent prototype-only history/last-reported values; and found an existing IOC contract drift where the backend emits `score`/`sources` but the Console expects `reputation_score`/`source`. Flagged the in-progress hard-coded Timeline bar series as fabricated data and recommended an honest scalar risk visualization instead. No product source was edited and no Codex Security review was run.
+- Tests: Static inspection of CaseDetail, all panel components, TypeScript/API contracts, backend timeline/threat-context assemblers, and the focused sheet/embedded/panel/live/lazy/a11y regression suites. No runtime tests were required for this read-only audit.
+- Status: done.
+- Next: Implement per-panel `case-manager` presentation branches, normalize real IOC fields additively, keep every existing capability, and verify both the embedded workspace and default sheet.
+
+### 2026-07-20 03:51Z — `/root/tab_test_audit` — Case Manager all-tab test audit complete
+- Context: Finish the read-only runtime/static/accessibility/responsive coverage audit for all six shared CaseDetail panels in the embedded Case Manager.
+- Did: Mapped existing coverage and proposed a minimal non-snapshot suite: one real six-tab embedded traversal, backend-canonical Timeline fixture + trace jump, backend-realistic MITRE/IOC/asset fixture + two-up/stack contract, and a mounted Collaboration composition. Recommended a single exported presentation type, explicit per-panel presentation props, stable panel hooks, and direct panel axe coverage. Found two live Threat Context fixture traps hidden by current tests: backend IOC rows use `score`/`sources` while the UI expects `reputation_score`/`source`, and backend asset criticality is numeric/top-level while the UI types it as a string/nested attributes; realistic fixtures must cover both.
+- Tests: Static inspection of CaseDetail/CaseManager orchestration, all six panel implementations, panel/component tests, frontend/backend contracts, backend stage/threat-context builders, both ZIP prototypes, and the canonical design standard. No product files were edited, no runtime mutation was needed, and no Codex Security review was run.
+- Status: done.
+- Next: Add the focused tests alongside the embedded-only implementation; use live desktop/mobile browser geometry checks for actual wrapping because jsdom cannot validate media-query layout.
+
+### 2026-07-20 03:54Z — `/root/tab_test_audit` — Case Manager all-tab focused test implementation started
+- Context: Implement the focused, tests-only regression coverage requested after the all-tab audit while the embedded panel presentation work lands in parallel.
+- Did: Scoped changes to Timeline, Threat Context, Collaboration, Chat, and static CaseDetail wiring tests; product source remains owned by the frontend implementer. Fixtures will mirror backend stage, IOC, asset, thread, task, and activity contracts and assertions will stay semantic rather than snapshot-based. No Codex Security review will be run.
+- Tests: Focused Vitest files pending.
+- Status: in-progress.
+- Next: Inspect the final in-flight presentation branches, patch only tests, then run the touched Vitest files.
+
+### 2026-07-20 04:00Z — `/root/tab_test_audit` — Case Manager all-tab focused tests complete
+- Context: Close the tests-only implementation for the Case Manager Timeline, Threat Context, Collaboration, Chat, and CaseDetail presentation wiring.
+- Did: Added a backend-canonical six-stage Timeline story with ordered semantic headings, a deterministic-trace callback assertion, and an escaped untrusted source block; added backend-real Threat Context coverage for `score`/`sources`, numeric criticality, the two lead cards, and axe; mounted Collaboration with human/AI discussion, ownership, task, activity, live SSE wiring, the 16rem responsive rail contract, and axe; pinned the shared case-scoped Chat frame and axe; and statically required all six panels plus the Timeline handoff to receive the embedded presentation contract. Product source was not edited and no Codex Security review was run.
+- Tests: Focused Vitest command passed 39/39 across 5 files; `git diff --check` passed for all touched tests and Journal. ChatPanel's pre-existing asynchronous model/source initialization still emits non-failing React `act(...)` warnings in its test file.
+- Status: done.
+- Next: The frontend implementer can run the wider Console validation and browser geometry pass after the remaining product presentation branches settle.
+
+### 2026-07-20 04:01Z — Codex frontend implementer — Case Manager live all-tab compositions implemented
+- Context: Complete the first implementation milestone for the requested ZIP-faithful Timeline and remaining Case Manager tabs without forking the legacy Cases workflow.
+- Did: Added an embedded-only panel presentation seam across all six shared panels; rebuilt Timeline as the live six-stage UTC narrative with honest scalar risk meter and a real Investigation jump; added the critical AI-assessment banner, always-visible terminal trace, lean deterministic summary, and retained evidence/policy disclosures; rebuilt Threat Context around the two equal MITRE/IOC cards while preserving summary/assets and normalizing backend-real `score`/`sources` plus numeric asset context; reskinned Collaboration to the reference 1fr/16rem rail and Chat to the 500px divided frame. Existing RBAC, SSE, task/thread mutations, one chat engine, escaped untrusted data, loading/errors, and the default sheet remain intact. No Codex Security review was run.
+- Tests: TypeScript compile and full Console lint passed. Focused semantic/a11y tests, production build, full regressions, and desktop/mobile Browser QA remain pending.
+- Status: in-progress.
+- Next: Land focused panel tests, exercise every embedded tab in the live Browser, correct visual/overflow issues, then run the complete frontend/backend validation matrix.
+
+### 2026-07-20 04:02Z — `/root/panel_contract_map` — Full backend regression validation started
+- Context: Validation-only follow-up for the Case Manager all-tab implementation using the repository's existing backend virtual environment.
+- Did: Began the complete offline backend pytest suite. No product source edits and no Codex Security review.
+- Tests: `cd backend && .venv/bin/python -m pytest -q` in progress.
+- Status: in-progress.
+- Next: Record the exact count, elapsed time, and any failures, then report to the frontend implementer.
+
+### 2026-07-20 04:07Z — `/root/tab_zip_audit` — Frontend release-gate validation started
+- Context: Validation-only follow-up for the completed Case Manager all-tab implementation.
+- Did: Confirmed the repository-standard frontend commands from `webui/package.json` and began production build, lint, generated API drift, and UI design-gate validation. No product source edits and no Codex Security review.
+- Tests: `npm run build`, `npm run lint`, `npm run check:types`, and `npm run gates` pending from `webui/`.
+- Status: in-progress.
+- Next: Record exact command outputs and return any actionable failures without modifying product code.
+
+### 2026-07-20 04:08Z — `/root/tab_zip_audit` — Frontend release-gate validation complete
+- Context: Complete the validation-only frontend release checks for the Case Manager all-tab implementation.
+- Did: Ran the exact repository-standard package scripts without modifying product source. Production TypeScript/Vite compilation, ESLint, generated OpenAPI type drift, and every UI design gate passed. No Codex Security review was run.
+- Tests: `cd webui && npm run build` passed (3,157 modules; Vite build 4.20s; entry 288.11 kB / 85.15 kB gzip; CaseDetail 177.87 kB / 42.32 kB gzip; CaseManager 12.19 kB / 4.39 kB gzip). `npm run lint` passed with zero errors/warnings. `npm run check:types` passed against OpenAPI 3.1.0 / 190 paths with no generated drift. `npm run gates` passed all checks: 37 required tokens, 82 contrast axes across both themes, no new arbitrary text sizes, no new raw hex colours, and a separable chart ramp across three dichromacies in both themes.
+- Status: done.
+- Next: Combine these green release gates with the focused/full Console tests, backend regression, and final Browser geometry checks owned by the orchestrator.
+
+### 2026-07-20 04:09Z — `/root/panel_contract_map` — Full backend regression validation complete
+- Context: Complete the requested validation-only backend regression run for the Case Manager all-tab implementation.
+- Did: Ran the complete offline backend suite from the existing `.venv`; pytest exited successfully. No product source edits and no Codex Security review.
+- Tests: `cd backend && .venv/bin/python -m pytest -q` passed `1,957/1,957` tests in approximately `60.004s` of tool-measured wall time, with `0` failures and `1` warning. The warning is the expected Elasticsearch client `SecurityWarning` in `test_per_source_client_never_carries_mgmt_key` for the test fixture URL using `verify_certs=False`.
+- Status: done.
+- Next: Combine this green backend gate with the frontend release checks, full Console suite, and final Browser QA.
+
+### 2026-07-20 04:21Z — Codex frontend implementer — Case Manager all-tab fidelity pass complete
+- Context: Finish the requested ZIP- and screenshot-faithful Timeline plus the remaining Case Manager tabs while preserving the existing Cases surface and every live case capability.
+- Did: Finalized the embedded-only Overview, Timeline, Investigation, Threat Context, Collaboration, and Chat compositions; kept the flat reference header with top-right Share / Take Action / Close controls; retained live RBAC actions, deterministic decision authority, SSE collaboration, tasks, activity, shared case chat, escaped untrusted evidence, loading/error/empty states, and the legacy Cases drawer. Corrected the final phone-width Collaboration grid min-content overflow so both Collaboration and Chat stay exactly within the viewport. No Codex Security review was run, per the user's standing request.
+- Tests: Full Console suite passed `1,375/1,375` across 241 files; after the final responsive sizing correction, the affected CaseDetail/panel/component suite passed `49/49`, production TypeScript/Vite build passed (3,157 modules), lint passed with zero errors/warnings, and `git diff --check` passed. Generated API drift and design gates passed (OpenAPI 3.1.0 / 190 paths; 37 tokens; 82 contrast axes; raw-colour/arbitrary-size/CVD checks). Full backend suite passed `1,957/1,957`. Live in-app Browser QA exercised all six tabs at desktop and phone widths; at `390×844`, Collaboration and Chat each measured `356px` client/scroll width inside a `390px` document, and at `1280×720` Timeline rendered all six live stages with zero console warnings/errors.
+- Status: done.
+- Next: Operator visual review. No deployment, staging, commit, or push was requested.
+
+### 2026-07-20 04:29Z — Codex frontend implementer — Noise-flow spacing refinement started
+- Context: Use the free dashboard space to make the Noise Reduction Flow graph slightly larger and place its six stage summaries slightly lower.
+- Did: Located the shared flat `NoiseFunnel` composition and scoped the change to its flow-band height and rail spacing only; no metric derivation, hover behavior, click navigation, or other dashboard layout will change.
+- Tests: Focused component test, lint/build, and live dashboard visual check pending.
+- Status: in-progress.
+- Next: Apply the small responsive sizing adjustment, pin it with focused coverage, and verify the running local dashboard.
+
+### 2026-07-20 04:32Z — Codex frontend implementer — Noise-flow spacing refinement complete
+- Context: Finish the requested small enlargement of the Noise Reduction Flow and lower its six stage summaries into the available dashboard space.
+- Did: Increased the flat dashboard flow band from `h-32 sm:h-36` to `h-36 sm:h-44` and added an 8px top inset to the six-stage rail. Card-mode sizing, Sankey data/geometry, labels, hover cards, click navigation, and surrounding dashboard composition remain unchanged.
+- Tests: `NoiseFunnel.test.tsx` passed `15/15`; full lint passed; TypeScript/Vite production build passed with 3,157 modules; `git diff --check` passed. Local frontend and backend health checks returned HTTP 200 / `status: ok`. The in-app Browser controller remained confined to its stale pre-restart network-error interstitial, so no unsafe bypass was attempted; the exact responsive height/spacing contract is covered by the focused test.
+- Status: done.
+- Next: Refresh the already-running local Overview page to review the updated proportions.
+
+### 2026-07-20 08:20Z — Codex frontend implementer — Case decision copy and analyst-chat refinement started
+- Context: Remove the redundant Case Manager decision wording, shorten the false-positive policy notice exactly as requested, and redesign the embedded Chat tab to match the supplied analyst transcript reference without forking the suite's shared live chat engine.
+- Did: Scoped the work to the embedded Case Manager Overview and Chat presentations and began a source, regression, and visual-reference audit. The legacy Cases drawer, backend contracts, deterministic decision authority, and shared chat transport remain out of scope for behavioral change. No Codex Security review will be run, per the user's standing request.
+- Tests: Focused semantic/a11y tests, full frontend validation, and live local Browser QA pending.
+- Status: in-progress.
+- Next: Correct the decision copy, add an embedded transcript presentation around the existing ChatPanel state/actions, then exercise copy, messages, quick actions, composer, loading states, accessibility, and responsive geometry.
+
+### 2026-07-20 08:43Z — Codex frontend implementer — Case decision copy and analyst-chat refinement complete
+- Context: Finish the requested Case Manager copy cleanup and screenshot-led Chat redesign while retaining the suite's single shared live chat engine.
+- Did: Shortened the disabled-policy notice to exactly `False-positive auto-close is disabled`; de-duplicated equivalent verdict/lifecycle labels so `needs_human + needs_human` now reads once while distinct outcomes still append; replaced the embedded Chat card chrome with the flat analyst-console composition from the reference; added the scoped READY/WORKING rail, honest empty analyst state, outlined AI and right-aligned operator turns, live searching state, three functional quick actions, compact growing composer, square send control, and a quiet settings popover that preserves source/model selection. Kept the default Chat page/legacy case chat unchanged, retained real case-scoped API sends, response tables/provenance/memory/actions, and added responsive height plus accessible quick-action grouping. No Codex Security review was run.
+- Tests: Focused Overview/CaseChat/shared-Chat suite passed `32/32`; complete Console suite passed `1,380/1,380` across 241 files; TypeScript/Vite production build passed with 3,157 modules; ESLint passed with zero errors/warnings; OpenAPI type drift check passed for 190 paths; all design gates passed (37 tokens, 82 contrast axes, raw-colour/arbitrary-size/CVD checks); `git diff --check` passed. Live Browser QA confirmed the exact policy sentence, the single `Needs human review` heading, a real demo chat exchange, the READY rail, full source/model control retention, zero horizontal document overflow, and no browser console warnings/errors; a deferred-send regression test pinned the WORKING state and transition back to READY. Frontend and backend health checks returned HTTP 200 / `status: ok`.
+- Status: done.
+- Next: Operator visual review of the already-open Case Manager Chat tab; no commit, push, deployment, or unrelated mutation was requested.
+
+### 2026-07-20 08:45Z — Codex frontend implementer — Case chat composer placement refinement started
+- Context: Move the Case Manager analyst quick actions and composer slightly lower to use the free vertical space shown in the operator screenshot.
+- Did: Confirmed the composer is correctly bottom-pinned inside its chat frame and scoped the adjustment to the frame's responsive height only, so transcript scrolling, prompt growth, and shorter viewport behavior remain intact. No Codex Security review will be run.
+- Tests: Focused CaseChat regression, production build, lint, diff check, and live visual/geometry validation pending.
+- Status: in-progress.
+- Next: Increase the roomier-screen height band, update the exact responsive contract test, and verify the final bottom spacing in the running console.
+
+### 2026-07-20 08:48Z — Codex frontend implementer — Case chat composer placement refinement complete
+- Context: Finish the small Case Manager Chat spacing refinement requested from the 1420×892 reference screenshot.
+- Did: Expanded only the embedded analyst console's responsive height from `clamp(30rem,58vh,36rem)` to `clamp(30rem,66vh,40rem)`. This moves the bottom-pinned quick actions and Ask AI Analyst composer about 72px lower at the reference height while preserving the existing 30rem minimum on shorter viewports, transcript scrolling, and composer growth.
+- Tests: Focused CaseChat suite passed `9/9`; TypeScript/Vite production build passed with 3,157 modules; ESLint passed with zero errors/warnings; `git diff --check` passed. Live in-app Browser QA at exactly 1420×892 measured a 588.7px chat frame, the composer 28px above its panel edge, document width equal to viewport width, no horizontal overflow, and no browser warnings/errors.
+- Status: done.
+- Next: Operator visual review in the already-open local Case Manager Chat tab; no commit, push, deployment, or unrelated mutation was requested.
+### 2026-07-20 10:06Z — Codex frontend implementer — Case Manager explainability and bulk-workflow refinement started
+- Context: Refine the new Case Manager from the supplied timeline, action-menu, and overview screenshots: make risk derivation explicit, remove redundant investigation text/actions, rename the final stage, pulse only the terminal marker, clean and enrich Overview without information loss, and add multi-case selection with useful bulk actions.
+- Did: Began a source/data-contract/visual audit across StageTimeline, OverviewPanel, CaseDetail actions, and the Case Manager queue. The existing deterministic close/escalate authority and dark-theme design system remain unchanged. The in-app browser workflow will be used for live interaction and responsive visual QA. No Codex Security review will be run, per the user's standing request.
+- Tests: Focused semantic/a11y regressions, full frontend validation, and live browser QA pending.
+- Status: in-progress.
+- Next: Implement the four isolated UI slices in parallel, integrate their contracts, then exercise all interactions and layout states in the running local console.
+
+### 2026-07-20 10:08Z — Codex frontend implementer — Take Action redundancy removed
+- Context: The Timeline and Investigation destinations are already permanently visible as Case Manager tabs and should not be repeated as pseudo-actions.
+- Did: Removed only the duplicate Timeline and Investigation entries from the embedded top-right Take Action menu. Kept Reinvestigate, playbook execution, refresh, case chat, lifecycle controls, exports, notification, and campaign navigation intact.
+- Tests: Focused embedded CaseDetail workflow suite passed `4/4`, including explicit absence assertions for the two repeated menu entries.
+- Status: complete milestone; broader Case Manager work remains in progress.
+- Next: Integrate explainable timeline, overview, and multi-select queue refinements.
+
+### 2026-07-20 10:07Z — `/root/case_bulk_selection` — Case Manager multi-select workflow started
+- Context: Add accessible per-case selection and a compact, deterministic-safe bulk reinvestigation workflow to the new Case Manager queue only.
+- Did: Scoped ownership to `webui/src/soc/pages/CaseManager.tsx` and its focused tests; began mapping the existing case action API and queue interaction model. No backend endpoint, decision-policy change, dependency, or Codex Security review is planned.
+- Tests: Focused interaction/a11y tests, build, lint, and diff validation pending.
+- Status: in-progress.
+- Next: Reuse the existing per-case reinvestigation path with bounded all-settled execution, update successful cases, surface partial failures honestly, and lock select-all/indeterminate/navigation semantics with tests.
+
+### 2026-07-20 10:14Z — `/root/case_bulk_selection` — Case Manager multi-select workflow complete
+- Context: Finish the new Case Manager queue's accessible multi-case selection and safe bulk reinvestigation workflow.
+- Did: Added sibling (non-nested) per-case checkboxes, select-all-visible with native mixed-state semantics, filter-stable selection, clear-selection, and a compact responsive action rail. Reused `api.reinvestigateCase` behind the existing explicit LLM-cost confirmation; work runs through bounded batches of three using `Promise.allSettled`, so every case re-enters the canonical pipeline and deterministic decision path. The rail reports live progress and persistent success/partial-failure results (including each failed case's display id), removes only successful ids from selection, leaves failures selected for retry, replaces queue cases with authoritative responses, and refreshes the open detail only when it changed. No backend endpoint, lifecycle shortcut, dependency, or Codex Security review was added.
+- Tests: Focused `CaseManager.test.tsx` passed `9/9`, including row-navigation isolation, select-all `mixed`, filter persistence, clear selection, confirmation, partial failure, authoritative row refresh, concurrency cap, progress locking, and `jest-axe`. File-scoped ESLint passed with zero errors/warnings; owned-file `git diff --check` passed. The integrated build reached TypeScript and was blocked only by concurrent out-of-scope unused declarations in `OverviewPanel.tsx:76` and `StageTimeline.tsx:324`; the orchestrator owns the final post-merge build.
+- Status: done.
+- Next: Orchestrator to run the integrated build/full suite and live browser QA after the Overview/Timeline agents finish their concurrent edits.
+
+### 2026-07-20 10:07Z — Codex timeline implementer — Case Manager timeline explainability refinement started
+- Context: Isolate the Case Manager Timeline changes: operator-facing stage labels, an honest score derivation, duplicate investigation copy, and terminal-marker motion.
+- Did: Began tracing the live `TimelineStage` payload from the backend projection through the typed frontend renderer and its focused regression suite. Scope is limited to `StageTimeline` and its tests; no deterministic decision logic or backend behavior will change, and no Codex Security review will be run.
+- Tests: Focused Timeline tests, lint, type/build validation, and accessibility/motion checks pending.
+- Status: in-progress.
+- Next: Preserve the existing API contract, derive explanations only from supplied score/factor data, and pin all four requested behaviors with focused tests.
+
+### 2026-07-20 10:07Z — `/root/overview_refinement` — Case Manager Overview refinement started
+- Context: Clean and tighten the embedded Case Manager Overview from the supplied reference while retaining every current fact, action, and deterministic decision-policy explanation.
+- Did: Scoped changes to `OverviewPanel` and its focused tests, with an embedded-only flat SOC treatment and compact risk/confidence visuals derived strictly from existing case fields. The legacy Case Detail presentation and backend decision authority remain unchanged. No Codex Security review will be run.
+- Tests: Focused semantic/accessibility tests and type/build validation pending.
+- Status: in-progress.
+- Next: Audit the existing component variants and test contracts, implement the presentation refinement, then verify information parity and accessible visual equivalents.
+
+### 2026-07-20 10:16Z — `/root/overview_refinement` — Case Manager Overview refinement complete
+- Context: Finish the screenshot-led cleanup of the embedded Case Manager Overview without losing case facts, provenance, or deterministic-policy explanations.
+- Did: Consolidated the repeated Decision brief / provenance / pinned DecisionCard projection into one compact embedded brief plus a CODE DECIDED authority lane; kept route, disposition, escalation, impact, priority, recommendation, policy note, decider, objection window, and auto-close marker. Added dependency-free risk and confidence meters plus five recorded risk-factor mini bars sourced only from existing case/triage data, each with visible numeric text and labelled progress semantics. Tightened embedded spacing and card padding while leaving the default legacy presentation and its pinned DecisionCard unchanged. No Codex Security review was run.
+- Tests: Focused Overview + baseline suites passed `28/28`, including `jest-axe`; TypeScript/Vite production build passed with 3,157 modules; ESLint passed with zero errors/warnings; all UI design gates passed (37 tokens, 82 contrast axes, raw-colour/arbitrary-size/CVD checks); `git diff --check` passed.
+- Status: done.
+- Next: Orchestrator to include the shared Overview changes in the integrated 1420×892 dark-theme Browser pass and full-suite validation.
+
+### 2026-07-20 10:20Z — Codex timeline implementer — Case Manager timeline explainability refinement complete
+- Context: Finish the requested Case Manager Timeline labels, risk-score explanation, investigation de-duplication, and terminal-marker animation.
+- Did: Renamed the canonical API/UI labels to `Risk assigned` and `Decision` while retaining compatible `risk`/`decide` ids; added a read-only `StageRiskCalculation` payload with all five persisted 0–100 factor values, current configured weights, numerator terms, normalized score contributions, numerator/denominator, calculated/recorded/displayed totals, and a historical-mismatch signal; rendered those facts behind the `Risk factors` disclosure with a table and readable formula. Older payloads fall back to their supplied factor values and explicitly state that missing weights/contributions prevent exact reconstruction. Suppressed only the Investigate headline that exactly duplicates its verdict/confidence chips. Applied reduced-motion-safe pulsing to only the terminal marker and exposed stable marker/terminal/motion data hooks. `compute_risk()` and deterministic `decide()` were untouched; no Codex Security review was run.
+- Tests: Backend case-stage suite passed `9/9`; focused StageTimeline + TimelinePanel suites passed `18/18`, including expanded risk-derivation `jest-axe`; TypeScript/Vite production build passed with 3,157 modules; ESLint passed with zero errors/warnings; all five design gates passed; OpenAPI drift check passed at 190 paths with no generated-file change; scoped `git diff --check` passed.
+- Status: done.
+- Next: Orchestrator to restart/reload the local backend if needed, then use the stable timeline hooks during integrated dark/light Browser QA; legacy/demo cases with non-reconstructable historical factors will correctly show the explicit mismatch/data-gap copy.
+
+### 2026-07-20 10:39Z — Codex frontend implementer — Case Manager explainability and bulk-workflow refinement complete
+- Context: Finish the supplied screenshot-led Case Manager refinement: exact risk-score explainability, clearer timeline language/motion, a non-redundant action menu, a denser information-complete Overview, and safe multi-case operations.
+- Did: Integrated `Risk assigned` / `Decision` timeline labels, exact five-factor value/weight/contribution math behind the Risk factors disclosure, exact duplicate Investigate-copy suppression, and reduced-motion-safe pulsing on only the terminal marker. Removed the redundant Timeline and Investigation destinations from Take Action while retaining every real lifecycle, investigation, collaboration, export, and campaign action. Consolidated the embedded Overview into one compact decision brief and deterministic authority lane, added accessible risk/confidence/factor visuals without dropping route, policy, impact, priority, disposition, provenance, or recommendation data, and added independent row selection, select-all-visible/mixed state, clear selection, and confirmed bulk reinvestigation with three-request concurrency, progress, authoritative refreshes, and honest partial failures. Corrected seeded demo factor fixtures so their displayed risk scores reconcile exactly under the default configured weights; older real cases still show the explicit historical-weight mismatch/data-gap notice when exact reconstruction is impossible. No Codex Security review was run.
+- Tests: Complete Console suite passed `1,392/1,392` across 241 files; focused integrated Case Manager/Timeline/Overview/action suites passed `55/55`; TypeScript/Vite production build, ESLint, OpenAPI drift check (190 paths), all design gates (37 tokens, 82 contrast axes, raw-colour/arbitrary-size/CVD checks), and `git diff --check` passed. Complete backend suite passed `1,960/1,960` with the one expected Elasticsearch test-fixture TLS warning. Live in-app Browser QA in dark mode verified exact `62/100` factor reconciliation, one terminal pulse, no duplicate Investigate sentence or Timeline/Investigation action items, select-all and indeterminate behavior, non-navigating row checkboxes, the LLM-cost bulk confirmation (cancelled without mutation), seven accessible Overview progress visuals, fully visible factor labels, zero browser warnings/errors, and zero horizontal overflow at both desktop and `390×844` widths.
+- Status: done.
+- Next: Operator visual review of the Case Manager Overview left open in the in-app browser. No deployment, commit, staging, or push was requested.
+
+### 2026-07-20 10:56Z — Codex frontend implementer — Case Manager overview and chat geometry follow-up started
+- Context: Apply the operator's screenshot-led follow-up: remove the redundant Decision brief eyebrow, semantically colour true-positive/escalated headings, prevent recorded-factor label wrapping, add case-specific factor explanations on hover, and anchor the Case Manager chat composer to the bottom edge.
+- Did: Began a focused audit of the embedded Overview signal profile, semantic verdict palette, shared hover primitives, and embedded analyst-console height/flex contracts. The deterministic score/decision pipeline and legacy Cases surface remain unchanged. The in-app browser workflow will verify both themes and responsive geometry; no Codex Security review will be run.
+- Tests: Focused Overview/Chat semantic and accessibility regressions, full frontend validation, and live browser checks pending.
+- Status: in-progress.
+- Next: Implement the isolated Overview and Chat slices in parallel, integrate them, then exercise hover content and bottom anchoring at desktop and phone widths.
+
+### 2026-07-20 11:22Z — Codex frontend implementer — Case Manager overview and chat geometry follow-up complete
+- Context: Finish the operator's follow-up on Overview hierarchy, true-positive emphasis, risk-factor readability/explainability, and bottom-anchored Case Manager chat composition.
+- Did: Removed the embedded-only Decision brief eyebrow while preserving the legacy case sheet; applied the dual-theme semantic critical text token to true-positive/escalated headings; replaced the cramped factor columns with non-wrapping horizontal meters; and added keyboard-focusable hover explanations for Volume, Velocity, Reputation, Diversity, and Asset criticality that state both the engine definition and the case evidence actually available. Reworked the embedded Chat height chain so only the transcript scrolls and the quick actions/composer remain at the bottom, including compact responsive status/action rails at phone widths. The deterministic risk and decision pipeline remains unchanged. No Codex Security review was run.
+- Tests: Complete Console suite passed `1,396/1,396` across 241 files; final focused Overview/Chat/Case Detail/Case Manager regression passed `59/59`; TypeScript/Vite production build passed with 3,157 modules; ESLint, all design gates, OpenAPI drift check at 190 paths, and `git diff --check` passed. In-app Browser QA verified dark/light AA heading contrast (`5.17:1` / `6.07:1`), unbroken factor labels, no horizontal overflow, transcript-only scrolling, bottom-visible composers at desktop, `390x844`, and `320x568`, and no new browser logs.
+- Status: done.
+- Next: Operator visual review of the dark-theme Case Manager Overview left open in the in-app browser. No deployment, staging, commit, or push was requested.
+
+### 2026-07-20 12:43Z — Codex dashboard implementer — Dashboard flow, lifecycle, scope, and refresh follow-up started
+- Context: Apply the operator's four dashboard refinements: widen only the Noise Reduction graph toward the left, reverse the Open/Resolved snapshot order, reconcile the Critical/High KPI with the selected time-window data, and add a five-second auto-refresh cadence.
+- Did: Began auditing the NoiseFunnel plot geometry independently of its heading/stage rail, the lifecycle snapshot composition order, the dashboard metric derivations, and the shared refresh dropdown contract. The in-app Browser workflow will compare both themes and responsive behavior. No Codex Security review will be run.
+- Tests: Focused dashboard, NoiseFunnel, and refresh-control regressions plus full frontend validation and live Browser checks pending.
+- Status: in-progress.
+- Next: Resolve the KPI scope from code and live data, implement the four isolated changes in parallel, then integrate and verify.
+
+### 2026-07-20 11:25Z — Codex frontend implementer — Case Manager flat Overview follow-up started
+- Context: Remove the recorded-factor scale helper, restore larger neutral decision headings, and replace the embedded Overview's card-like treatment with the flatter visual language used by the current dashboard.
+- Did: Began comparing the embedded Overview structure and tokens against the dashboard's border-light section hierarchy. Scope is presentation-only; risk explanations, case facts, deterministic scoring, and legacy Case Detail behavior remain intact. The in-app Browser workflow will verify both themes and responsive behavior; no Codex Security review will be run.
+- Tests: Focused Overview semantic/accessibility tests, production build, lint, diff hygiene, and live browser checks pending.
+- Status: in-progress.
+- Next: Identify the exact shared dashboard treatment, implement the embedded-only flattening, then validate visually and with focused regressions.
+
+### 2026-07-20 11:37Z — Codex frontend implementer — Case Manager flat Overview follow-up complete
+- Context: Match the embedded Case Manager Overview to the Security Command Center's flat, divider-led surface grammar while restoring a larger neutral decision title and removing the redundant recorded-factor scale helper.
+- Did: Removed the visible `0–100 each` copy; changed every embedded decision outcome to the shared `text-foreground` title color at the larger `text-3xl` step; removed the semantic left-edge/card chrome; and converted the embedded summary, provenance, entity, evidence, baseline, and expanded audit surfaces to transparent dashboard bands separated by quiet borders. All case facts, signal meters, accessible factor explanations, and deterministic decision projections remain present. The legacy Case Detail sheet retains its original card treatment. No Codex Security review was run.
+- Tests: Complete Console suite passed `1,396/1,396` across 241 files; focused Overview/baseline regression passed `31/31`, including accessibility coverage; TypeScript/Vite production build passed with 3,157 modules; ESLint and `git diff --check` passed. In-app Browser QA verified the flat composition in light and dark themes, neutral dark-mode heading color, no scale helper, no horizontal overflow at desktop, `390x844`, or `320x568`, and a clean stable reload with only normal Vite/React development messages.
+- Status: done.
+- Next: Operator visual review of the dark-theme Case Manager Overview left open in the in-app browser. No deployment, staging, commit, or push was requested.
+
+### 2026-07-20 13:00Z — `/root/overview_refinement` — Dashboard flow-plot extension complete
+- Context: Use the available left-side plot space without moving the Noise Reduction heading, explanatory copy, or six-stage rail.
+- Did: Added a flat-variant-only 14-unit SVG left extension that tapers to zero at the terminal node; the first node/ribbons move left while the final node and all surrounding text stay fixed. The reusable card variant remains byte-for-byte geometrically unchanged.
+- Tests: Focused NoiseFunnel suite passed `16/16`; the regression compares flat/card first and final node coordinates; scoped ESLint and diff hygiene passed.
+- Status: done.
+- Next: None.
+
+### 2026-07-20 13:00Z — `/root/timeline_explainability` — Dashboard lifecycle reconciliation complete
+- Context: Reverse the Open/Resolved presentation and make the Critical/High KPI explain and reconcile with the lifecycle snapshot in the selected time window.
+- Did: Rendered Open cases before Cases resolved; aligned the frontend active-case set with the backend's `new/open/needs_human/investigating/escalated/on_hold` taxonomy; limited the combined Critical/High tile to recognized active or terminal cases; exposed the exact `N open + M resolved` breakdown; aligned the sparkline to the same scope; and routed Open drill-downs through the existing all-active virtual filter. The combined Critical/High drill-down no longer pretends one singleton severity filter represents two severities.
+- Tests: Focused and broader Overview suites passed `27/27`, including order, active-state aliases, current-window reconciliation, drill-throughs, and accessibility; scoped ESLint and diff hygiene passed.
+- Status: done.
+- Next: None.
+
+### 2026-07-20 13:00Z — `/root/case_bulk_selection` — Five-second auto-refresh option complete
+- Context: Add an exact five-second cadence to the shared squared auto-refresh dropdown.
+- Did: Extended the shared refresh contract with `5s`, displayed `5 seconds` immediately after Off, and mapped it to exactly 5,000 ms without changing the default Off state or the existing 30-second/1-minute/5-minute choices.
+- Tests: TimeRangePicker suite passed `21/21` and consumer suites passed `20/20`; fake-timer coverage proves no early tick at 4,999 ms and ticks at 5,000/10,000 ms; scoped ESLint and diff hygiene passed.
+- Status: done.
+- Next: None.
+
+### 2026-07-20 13:00Z — Codex dashboard implementer — Dashboard flow, lifecycle, scope, and refresh follow-up complete
+- Context: Integrate and verify the four requested dashboard refinements.
+- Did: Integrated the left-extended flow plot, Open-first lifecycle snapshot, backend-aligned active-case taxonomy, reconciled Critical/High breakdown, honest drill-through scope, and exact five-second refresh option. Live data now visibly reconciles the Critical/High total as open plus resolved (during verification: `63 = 17 open + 46 resolved`), with Open remaining the default lifecycle view and auto-refresh left Off. No Codex Security review was run.
+- Tests: Complete Console suite passed `1,400/1,400` across 241 files; TypeScript/Vite production build passed with 3,157 modules; ESLint and `git diff --check` passed. Stable in-app Browser QA verified Open-before-Resolved ordering, the live arithmetic, the visible five-second option, unchanged text/stage-rail geometry, the flat flow's 14-unit first-node extension with fixed final node, zero desktop horizontal overflow, clean light/dark rendering, and no application console warnings/errors after reload.
+- Status: done.
+- Next: Operator visual review of the dark-theme Dashboard left open in the in-app browser. No deployment, staging, commit, or push was requested.

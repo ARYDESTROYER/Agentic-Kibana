@@ -355,6 +355,13 @@ export type FpPolicy = {
   max_risk_score?: number;
 } | null;
 
+/**
+ * Additive visual treatment used by the split Case Manager workspace. The default
+ * keeps the legacy Cases sheet byte-for-byte familiar; `case-manager` only changes
+ * layout/chrome and never the panel's data or mutation contracts.
+ */
+export type CasePanelPresentation = 'default' | 'case-manager';
+
 /** Derive the ConfidenceBadge threshold/note from the FP auto-close policy. */
 export function confidenceCalibration(
   policy: FpPolicy,

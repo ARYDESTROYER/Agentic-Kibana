@@ -50,6 +50,7 @@ async def test_stages_never_404s_returns_skeleton(app_state):
     res = await case_stages("ghost-case", app_state)
     assert res["total"] == 6
     assert [s["kind"] for s in res["stages"]] == _ORDER
+    assert [s["label"] for s in res["stages"]][2::3] == ["Risk assigned", "Decision"]
     assert all(s["status"] == "skipped" for s in res["stages"])
 
 
@@ -83,6 +84,7 @@ async def test_stages_full_case_projects_six_ordered_stages(app_state):
     assert "clustered" in by["correlate"]["headline"]
     # risk — deterministic score + inline state
     assert by["risk"]["deterministic"] is True
+    assert by["risk"]["label"] == "Risk assigned"
     assert by["risk"]["headline"] == "Risk 72/100"
     assert by["risk"]["state"]["risk_score"] == 72.0
     # triage — routed to the specialist (from the CONTEXT row / persona)
@@ -95,8 +97,72 @@ async def test_stages_full_case_projects_six_ordered_stages(app_state):
     assert "tool" in step_kinds
     # decide — deterministic terminal, carries the final state
     assert by["decide"]["deterministic"] is True
+    assert by["decide"]["label"] == "Decision"
     assert by["decide"]["status"] == "done"
     assert by["decide"]["state"]["risk_score"] == 72.0
+
+
+async def test_risk_stage_exposes_exact_current_weight_calculation(app_state):
+    """The Timeline can explain every term without re-running or changing scoring."""
+    state = app_state
+    case = _mk_case(case_id="case-s-risk-math", risk=7.0).model_copy(update={
+        "risk_breakdown": RiskBreakdown(
+            volume=20.0,
+            velocity=10.0,
+            reputation=0.0,
+            diversity=0.0,
+            asset_criticality=0.0,
+            total=7.0,
+        ),
+    })
+    await state.cases.save(case)
+
+    res = await case_stages(case.case_id, state)
+    risk = next(stage for stage in res["stages"] if stage["kind"] == "risk")
+    calc = risk["state"]["risk_calculation"]
+
+    assert calc["weight_basis"] == "current_preferences"
+    assert calc["numerator"] == 7.0
+    assert calc["denominator"] == 1.0
+    assert calc["calculated_score"] == 7.0
+    assert calc["recorded_score"] == 7.0
+    assert calc["displayed_score"] == 7
+    assert calc["matches_displayed_score"] is True
+    assert [factor["factor"] for factor in calc["factors"]] == [
+        "volume", "velocity", "reputation", "diversity", "asset_criticality",
+    ]
+    volume = calc["factors"][0]
+    assert volume == {
+        "factor": "volume",
+        "label": "Volume",
+        "value": 20.0,
+        "weight": 0.25,
+        "weighted_value": 5.0,
+        "contribution": 5.0,
+    }
+
+
+async def test_risk_stage_does_not_hide_a_current_weight_mismatch(app_state):
+    """Historical score stays recorded; a later weight change is called out honestly."""
+    state = app_state
+    case = _mk_case(case_id="case-s-risk-weight-change", risk=7.0).model_copy(update={
+        "risk_breakdown": RiskBreakdown(volume=20.0, velocity=10.0, total=7.0),
+    })
+    await state.cases.save(case)
+    state.prefs.risk_weights.volume = 1.0
+    state.prefs.risk_weights.velocity = 0.0
+    state.prefs.risk_weights.reputation = 0.0
+    state.prefs.risk_weights.diversity = 0.0
+    state.prefs.risk_weights.asset_criticality = 0.0
+
+    res = await case_stages(case.case_id, state)
+    risk = next(stage for stage in res["stages"] if stage["kind"] == "risk")
+    calc = risk["state"]["risk_calculation"]
+
+    assert calc["calculated_score"] == 20.0
+    assert calc["recorded_score"] == 7.0
+    assert calc["displayed_score"] == 7
+    assert calc["matches_displayed_score"] is False
 
 
 async def test_stages_no_verdict_skips_investigate_and_pends_decide(app_state):

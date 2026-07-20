@@ -263,6 +263,12 @@ export function deriveFunnel(data: NoiseReduction): DerivedFunnel {
 /** Fixed-aspect viewBox (~2.9:1, wide QRadar-style flow). Stretch-scaled to the band. */
 const VB_W = 640;
 const VB_H = 220;
+/**
+ * The flat dashboard has useful whitespace before the first centered stage column.
+ * Reclaim a small part of it for the decorative plot only. The offset tapers to zero
+ * at the final node, so the right edge stays fixed and the labelled rail never moves.
+ */
+const FLAT_PLOT_LEFT_EXTENSION = 14;
 /** Vertical center + the plot band the strands live in. */
 const CY = VB_H / 2;
 const PLOT_PAD = 24;
@@ -355,7 +361,12 @@ interface SpineGeom {
  * rects, per-connector drop-off badges, and the suppressed/ignored side-spur.
  * Pure geometry — no meaning lives here (the rail carries it).
  */
-function buildLayout(derived: DerivedFunnel, drops: { suppressed: number; ignored: number }, uid: string): Layout {
+function buildLayout(
+  derived: DerivedFunnel,
+  drops: { suppressed: number; ignored: number },
+  uid: string,
+  leftExtension = 0,
+): Layout {
   const rows = derived.rows;
   const n = rows.length;
   const spineCount = (() => {
@@ -363,7 +374,13 @@ function buildLayout(derived: DerivedFunnel, drops: { suppressed: number; ignore
     return i < 0 ? n : i;
   })();
   const topTotal = derived.topTotal;
-  const colCenter = (i: number) => (VB_W * (i + 0.5)) / Math.max(1, n);
+  const colCenter = (i: number) => {
+    const count = Math.max(1, n);
+    const canonical = (VB_W * (i + 0.5)) / count;
+    if (leftExtension <= 0) return canonical;
+    const progress = count <= 1 ? 0 : i / (count - 1);
+    return canonical - leftExtension * (1 - progress);
+  };
 
   const rects: Rect[] = [];
   const ribbons: Ribbon[] = [];
@@ -668,11 +685,20 @@ export function NoiseFunnel({
   const rawUid = React.useId();
   const uid = React.useMemo(() => rawUid.replace(/[^a-zA-Z0-9_-]/g, ''), [rawUid]);
   const derived = React.useMemo(() => (data ? deriveFunnel(data) : null), [data]);
+  const flat = variant === 'flat';
   const dropSuppressed = data?.drops?.suppressed ?? 0;
   const dropIgnored = data?.drops?.ignored ?? 0;
   const layout = React.useMemo(
-    () => (derived ? buildLayout(derived, { suppressed: dropSuppressed, ignored: dropIgnored }, uid) : null),
-    [derived, dropSuppressed, dropIgnored, uid],
+    () =>
+      derived
+        ? buildLayout(
+            derived,
+            { suppressed: dropSuppressed, ignored: dropIgnored },
+            uid,
+            flat ? FLAT_PLOT_LEFT_EXTENSION : 0,
+          )
+        : null,
+    [derived, dropSuppressed, dropIgnored, uid, flat],
   );
 
   if (loading && !derived) return <LoadingState ariaLabel={ariaLabel} className={className} />;
@@ -687,7 +713,6 @@ export function NoiseFunnel({
   const n = derived.rows.length;
   const casesTotal = derived.casesTotal;
   const closedByHuman = derived.rows.find((r) => r.key === 'closed')?.total ?? 0;
-  const flat = variant === 'flat';
 
   const chips = derived.rows.map((row) => {
     const pct = Math.round(row.pctRetained);
@@ -817,7 +842,10 @@ export function NoiseFunnel({
           {/* The decorative flow band — full-width, column-aligned with the rail below
               (preserveAspectRatio='none' fills the width so nodes never letterbox into a
               dead side-gutter). All meaning is carried by the interactive rail. */}
-          <div className={cn('relative mt-1 w-full', flat ? 'h-32 sm:h-36' : 'h-44 sm:h-52')}>
+          <div
+            data-testid="noise-flow-band"
+            className={cn('relative mt-1 w-full', flat ? 'h-36 sm:h-44' : 'h-44 sm:h-52')}
+          >
             <svg
               viewBox={`0 0 ${VB_W} ${VB_H}`}
               preserveAspectRatio="none"
@@ -909,7 +937,7 @@ export function NoiseFunnel({
               data-testid="noise-stage-rail"
               className={cn(
                 'grid items-start gap-1',
-                flat && 'grid-cols-2 gap-y-3 sm:grid-cols-3',
+                flat && 'grid-cols-2 gap-y-3 pt-2 sm:grid-cols-3',
                 flat && flatGridColumns,
               )}
               style={gridStyle}
@@ -922,7 +950,7 @@ export function NoiseFunnel({
               data-testid="noise-stage-rail"
               className={cn(
                 'grid items-start gap-1',
-                flat && 'grid-cols-2 gap-y-3 sm:grid-cols-3',
+                flat && 'grid-cols-2 gap-y-3 pt-2 sm:grid-cols-3',
                 flat && flatGridColumns,
               )}
               style={gridStyle}

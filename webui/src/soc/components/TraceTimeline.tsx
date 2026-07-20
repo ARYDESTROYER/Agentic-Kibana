@@ -37,6 +37,7 @@ import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
 
 import type { DecisionPayload, TimelineResponse, TraceSpan } from '@/soc/pages/CaseDetail.api';
+import type { CasePanelPresentation } from '@/soc/pages/casedetail/shared';
 
 /* ------------------------------------------------------------------ kinds -- */
 
@@ -293,13 +294,110 @@ export interface TraceTimelineProps {
   loading?: boolean;
   error?: unknown;
   onRetry?: () => void;
+  presentation?: CasePanelPresentation;
 }
+
+function terminalTime(ts?: string | null): string {
+  if (!ts) return DASH;
+  const ms = Date.parse(ts);
+  if (Number.isNaN(ms)) return ts;
+  try {
+    return new Date(ms).toLocaleTimeString('en-GB', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+      timeZone: 'UTC',
+    });
+  } catch {
+    return formatTimestamp(ts);
+  }
+}
+
+const TERMINAL_LABEL: Record<string, { label: string; tone: string }> = {
+  invoke_agent: { label: 'AGENT', tone: 'text-primary' },
+  chat: { label: 'CHAT', tone: 'text-info-text' },
+  execute_tool: { label: 'TOOL', tone: 'text-medium-text' },
+  decision: { label: 'DECISION', tone: 'text-critical-text' },
+};
+
+/** Compact terminal treatment used only by the Case Manager Investigation tab. */
+const TerminalTrace: React.FC<{ data: TimelineResponse; spans: TraceSpan[] }> = ({ data, spans }) => {
+  const toolCount = spans.filter((span) => span.kind === 'execute_tool').length;
+  return (
+    <div className="overflow-hidden rounded-[4px] border border-border bg-surface-sunken">
+      <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+        <span className="h-2.5 w-2.5 rounded-full bg-critical" aria-hidden />
+        <span className="h-2.5 w-2.5 rounded-full bg-medium" aria-hidden />
+        <span className="h-2.5 w-2.5 rounded-full bg-success" aria-hidden />
+        <span className="ml-2 font-mono text-2xs uppercase tracking-widest text-muted-foreground">
+          Agent investigation trace
+        </span>
+        <span className="ml-auto font-mono text-2xs text-muted-foreground">
+          {spans.length} steps · {toolCount} tools
+        </span>
+      </div>
+      <ol className="space-y-3 p-4">
+        {spans.map((span) => {
+          const meta = TERMINAL_LABEL[span.kind] || {
+            label: humanizeToken(span.kind) || 'STEP',
+            tone: 'text-foreground',
+          };
+          const untrusted = span.trusted === false;
+          return (
+            <li key={span.id || span.step_index} className="font-mono text-xs leading-relaxed">
+              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                <time className="text-muted-foreground">{terminalTime(span.ts)}</time>
+                <span className={cn('font-semibold', meta.tone)}>[{meta.label}]</span>
+                <span className="text-foreground/80">{humanizeToken(span.name)}</span>
+                {untrusted ? (
+                  <Badge variant="warning" className="h-5 gap-1 px-1.5 font-sans text-2xs">
+                    <Lock className="h-3 w-3" /> untrusted
+                  </Badge>
+                ) : null}
+              </div>
+              {span.summary ? (
+                untrusted ? (
+                  <div className="mt-2">
+                    <CodeBlock
+                      value={span.summary}
+                      caption="untrusted tool / log payload"
+                      wrap
+                      copyable
+                      maxHeightClassName="max-h-36"
+                    />
+                  </div>
+                ) : (
+                  <p className="mt-1 whitespace-pre-wrap pl-0 text-foreground/90 sm:pl-[5.75rem]">
+                    {span.summary}
+                  </p>
+                )
+              ) : null}
+            </li>
+          );
+        })}
+      </ol>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-border px-4 py-2 font-mono text-2xs text-muted-foreground">
+        <span>cost {fmtMoney(data.totals?.cost)}</span>
+        {typeof data.totals?.tokens === 'number' ? (
+          <span>{fmtTokens(data.totals.tokens)} tokens</span>
+        ) : null}
+      </div>
+    </div>
+  );
+};
 
 /**
  * The case agent-work timeline. Renders a header with the run totals (steps / tools /
  * cost / tokens), then the span list with the terminal decision step distinct.
  */
-export const TraceTimeline: React.FC<TraceTimelineProps> = ({ data, loading, error, onRetry }) => {
+export const TraceTimeline: React.FC<TraceTimelineProps> = ({
+  data,
+  loading,
+  error,
+  onRetry,
+  presentation = 'default',
+}) => {
   if (loading) {
     return (
       <div className="space-y-4 p-6">
@@ -331,6 +429,10 @@ export const TraceTimeline: React.FC<TraceTimelineProps> = ({ data, loading, err
 
   const toolCount = spans.filter((s) => s.kind === 'execute_tool').length;
   const hasDecision = spans.some((s) => s.kind === 'decision');
+
+  if (presentation === 'case-manager') {
+    return <TerminalTrace data={data as TimelineResponse} spans={spans} />;
+  }
 
   return (
     <div className="space-y-6 p-6">

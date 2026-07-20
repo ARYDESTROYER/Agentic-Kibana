@@ -22,6 +22,7 @@ import { ChatPanel } from '@/soc/components/ChatPanel';
 import type { Navigate } from '@/soc/router';
 
 import { PanelCard, SectionHeading } from './shared';
+import type { CasePanelPresentation } from './shared';
 
 /** Case-scoped starter prompts surfaced in the empty state. */
 const CASE_CHAT_STARTERS = [
@@ -31,41 +32,65 @@ const CASE_CHAT_STARTERS = [
   'Is this a known false positive?',
 ];
 
+/** ZIP/reference-matched actions for the embedded analyst console. */
+const CASE_MANAGER_CHAT_STARTERS = ['Summarize Case', 'Check IOCs', 'Suggest Remediation'];
+
 export const ChatTab: React.FC<{
   c: Case;
   onNavigate?: Navigate;
   onClose: () => void;
-}> = ({ c, onNavigate, onClose }) => (
-  <div className="space-y-6 p-6">
-    <PanelCard>
-      <SectionHeading
-        icon={MessageSquare}
-        actions={
-          onNavigate ? (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                onClose();
-                onNavigate('chat', { caseId: c.case_id });
-              }}
-            >
-              <MessageSquare className="h-4 w-4" /> Open full chat
-            </Button>
-          ) : null
-        }
+  presentation?: CasePanelPresentation;
+}> = ({ c, onNavigate, onClose, presentation = 'default' }) => {
+  if (presentation === 'case-manager') {
+    return (
+      <div
+        className="flex h-full min-h-0 overflow-hidden px-3 pb-3 pt-4 sm:px-8 sm:pb-4 sm:pt-7"
+        data-case-panel="chat"
+        data-presentation="case-manager"
       >
-        Case chat
-      </SectionHeading>
-
-      {/* The shared chat engine, embedded compact + scoped to this case. A definite
-          height gives ChatPanel's internal transcript scroll + bottom-pinned composer
-          a frame to work in (the transcript lane is the only scrolling region). */}
-      <div className="h-[60vh] min-h-[24rem]">
-        <ChatPanel caseId={c.case_id} compact starters={CASE_CHAT_STARTERS} />
+        <ChatPanel
+          caseId={c.case_id}
+          compact
+          presentation="case-manager"
+          starters={CASE_MANAGER_CHAT_STARTERS}
+          className="w-full overflow-hidden"
+        />
       </div>
-    </PanelCard>
-  </div>
-);
+    );
+  }
+
+  return (
+    <div className="space-y-6 p-6">
+      <PanelCard>
+        <SectionHeading
+          icon={MessageSquare}
+          actions={
+            onNavigate ? (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  onClose();
+                  onNavigate('chat', { caseId: c.case_id });
+                }}
+              >
+                <MessageSquare className="h-4 w-4" /> Open full chat
+              </Button>
+            ) : null
+          }
+        >
+          Case chat
+        </SectionHeading>
+
+        {/* The shared chat engine, embedded compact + scoped to this case. A definite
+            height gives ChatPanel's internal transcript scroll + bottom-pinned composer
+            a frame to work in (the transcript lane is the only scrolling region). */}
+        <div className="h-[60vh] min-h-[24rem]">
+          <ChatPanel caseId={c.case_id} compact starters={CASE_CHAT_STARTERS} />
+        </div>
+      </PanelCard>
+    </div>
+  );
+};
 
 export default ChatTab;

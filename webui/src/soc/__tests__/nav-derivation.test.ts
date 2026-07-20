@@ -41,7 +41,19 @@ describe('navLabel — the registry is the authoritative label source', () => {
 
   it('still resolves a rail item + a disclosure child to their registry labels', () => {
     expect(navLabel('cases')).toBe('Cases'); // top-level rail item
+    expect(navLabel('case_manager')).toBe('Case Manager');
     expect(navLabel('standup')).toBe('Standup'); // disclosure child of Overview
+  });
+
+  it('places Case Manager directly beneath Cases in the Triage rail', () => {
+    const triage = FEATURES.filter((feature) => feature.group === 'triage' && !feature.hidden);
+    const casesIndex = triage.findIndex((feature) => feature.id === 'cases');
+    expect(casesIndex).toBeGreaterThanOrEqual(0);
+    expect(triage[casesIndex + 1]).toMatchObject({
+      id: 'case_manager',
+      label: 'Case Manager',
+      perm: { resource: 'cases', action: 'read' },
+    });
   });
 
   it('humanises a truly-unknown id only as the last resort', () => {

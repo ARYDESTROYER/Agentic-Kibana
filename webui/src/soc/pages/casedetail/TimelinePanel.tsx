@@ -18,6 +18,7 @@ import { GitMerge } from 'lucide-react';
 import type { TimelineStagesResponse } from '@/soc/pages/CaseDetail.api';
 
 import { StageTimeline } from './StageTimeline';
+import type { CasePanelPresentation } from './shared';
 
 export interface TimelinePanelProps {
   /** FACTS — the six-stage pipeline narrative. */
@@ -25,6 +26,9 @@ export interface TimelinePanelProps {
   stagesLoading: boolean;
   stagesError: unknown;
   onRetryStages: () => void;
+  presentation?: CasePanelPresentation;
+  /** Case Manager's final timeline event deep-links to the existing Investigation tab. */
+  onOpenInvestigation?: () => void;
 }
 
 export const TimelinePanel: React.FC<TimelinePanelProps> = ({
@@ -32,33 +36,56 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
   stagesLoading,
   stagesError,
   onRetryStages,
-}) => (
-  <div className="space-y-4 p-6">
-    <div className="flex items-center gap-2.5">
-      <span
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground"
-        aria-hidden
+  presentation = 'default',
+  onOpenInvestigation,
+}) => {
+  if (presentation === 'case-manager') {
+    return (
+      <div
+        className="px-8 py-7"
+        data-case-panel="timeline"
+        data-presentation="case-manager"
       >
-        <GitMerge className="h-5 w-5" />
-      </span>
-      <div className="min-w-0">
-        <h3 className="text-lg font-semibold tracking-tight text-foreground">What happened</h3>
-        <p className="text-sm text-muted-foreground">
-          Source-asserted facts + the deterministic engine steps — the story of how this
-          alert became a case.
-        </p>
+        <StageTimeline
+          data={stages}
+          loading={stagesLoading}
+          error={stagesError}
+          onRetry={onRetryStages}
+          presentation="case-manager"
+          onOpenInvestigation={onOpenInvestigation}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4 p-6">
+      <div className="flex items-center gap-2.5">
+        <span
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground"
+          aria-hidden
+        >
+          <GitMerge className="h-5 w-5" />
+        </span>
+        <div className="min-w-0">
+          <h3 className="text-lg font-semibold tracking-tight text-foreground">What happened</h3>
+          <p className="text-sm text-muted-foreground">
+            Source-asserted facts + the deterministic engine steps — the story of how this
+            alert became a case.
+          </p>
+        </div>
+      </div>
+      {/* StageTimeline carries its own padding + skeleton/error/empty states. */}
+      <div className="rounded-lg border border-border bg-card">
+        <StageTimeline
+          data={stages}
+          loading={stagesLoading}
+          error={stagesError}
+          onRetry={onRetryStages}
+        />
       </div>
     </div>
-    {/* StageTimeline carries its own padding + skeleton/error/empty states. */}
-    <div className="rounded-lg border border-border bg-card">
-      <StageTimeline
-        data={stages}
-        loading={stagesLoading}
-        error={stagesError}
-        onRetry={onRetryStages}
-      />
-    </div>
-  </div>
-);
+  );
+};
 
 export default TimelinePanel;

@@ -138,6 +138,9 @@ backend/app/
   threat/          bundled compact MITRE ATT&CK technique map (+ refresh script)
 webui/src/
   soc/pages/       Login, Cases (Round-9c: 6-tile summary strip + monogram Assignee column),
+                   CaseManager (additive Active/All split-pane queue using the shared
+                   CaseDetail orchestrator in embedded mode; reference-matched top-right
+                   Share/Take Action/close controls; legacy Cases remains),
                    CaseDetail (Round-5 split from a 4210-line god-file into ~1529 LOC +
                    sub-components; **6 tabs**: overview | timeline | investigation | threat |
                    collab | chat — Round 9/9b split the old Investigation tab into a

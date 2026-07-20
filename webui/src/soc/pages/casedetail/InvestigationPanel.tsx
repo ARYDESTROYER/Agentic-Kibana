@@ -20,19 +20,22 @@
  * decides or mutates a case.
  */
 import * as React from 'react';
-import { Bot, ChevronDown, ListTree, ShieldCheck } from 'lucide-react';
+import { Bot, ChevronDown, Gauge, Lightbulb, ListTree, ShieldCheck } from 'lucide-react';
 
 import type { Case, CaseRationale } from '@/lib/types';
 import type { TimelineResponse } from '@/soc/pages/CaseDetail.api';
 import { cn } from '@/lib/cn';
+import { DASH, fmtPercent, humanizeToken } from '@/lib/format';
 
 import { Badge } from '@/ui/badge';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/ui/collapsible';
+import { Skeleton } from '@/ui/skeleton';
 
 import { WhyPanel } from './WhyPanel';
 import { DecisionCard } from './DecisionCard';
 import { GradingHistory } from './grading';
 import { TraceTimeline } from '@/soc/components/TraceTimeline';
+import type { CasePanelPresentation } from './shared';
 
 /* --------------------------------------------------------------- zone header -- */
 
@@ -94,6 +97,7 @@ export interface InvestigationPanelProps {
   timelineLoading: boolean;
   timelineError: unknown;
   onRetryTimeline: () => void;
+  presentation?: CasePanelPresentation;
 }
 
 export const InvestigationPanel: React.FC<InvestigationPanelProps> = ({
@@ -106,8 +110,11 @@ export const InvestigationPanel: React.FC<InvestigationPanelProps> = ({
   timelineLoading,
   timelineError,
   onRetryTimeline,
+  presentation = 'default',
 }) => {
   const [traceOpen, setTraceOpen] = React.useState(false);
+  const [evidenceOpen, setEvidenceOpen] = React.useState(false);
+  const [decisionOpen, setDecisionOpen] = React.useState(false);
 
   // Lazy-load the raw trace the first time the disclosure opens, if the parent hasn't
   // already fetched it (the DecisionCard reads its policy_clause from the same data).
@@ -120,6 +127,200 @@ export const InvestigationPanel: React.FC<InvestigationPanelProps> = ({
     },
     [timeline, timelineLoading, timelineError, onRetryTimeline],
   );
+
+  if (presentation === 'case-manager') {
+    const confidence =
+      typeof rationale?.confidence === 'number' ? rationale.confidence : c.confidence;
+    const summary =
+      rationale?.reasoning?.trim() ||
+      rationale?.decision_rationale?.trim() ||
+      c.summary?.trim() ||
+      '';
+    const recommendation = c.recommended_action?.trim() || '';
+    const decisionSummary = rationale?.decision_rationale?.trim() || '';
+    const critical =
+      (c.severity_band || '').toLowerCase() === 'critical' ||
+      (c.verdict || '').toLowerCase() === 'true_positive';
+
+    return (
+      <div
+        className="space-y-6 px-8 py-7"
+        data-case-panel="investigation"
+        data-presentation="case-manager"
+      >
+        {/* The reference's critical assessment banner, populated only with live case
+            and rationale values. Model-derived copy remains a plain text node (#9). */}
+        <section
+          aria-labelledby="case-manager-assessment-title"
+          className={cn(
+            'relative overflow-hidden rounded-[8px] border bg-card p-5',
+            critical ? 'border-critical/30' : 'border-primary/30',
+          )}
+        >
+          <span
+            aria-hidden
+            className={cn('absolute inset-y-0 left-0 w-1', critical ? 'bg-critical' : 'bg-primary')}
+          />
+          <div className="flex flex-wrap items-start justify-between gap-3 pl-1">
+            <div className="flex items-start gap-3">
+              <span
+                className={cn(
+                  'mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-[4px] border',
+                  critical
+                    ? 'border-critical/30 bg-critical/10 text-critical-text'
+                    : 'border-primary/30 bg-primary/10 text-primary',
+                )}
+                aria-hidden
+              >
+                <Bot className="h-4 w-4" />
+              </span>
+              <div>
+                <h2
+                  id="case-manager-assessment-title"
+                  className="text-base font-semibold tracking-tight text-foreground"
+                >
+                  AI Assessment Summary
+                </h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Agent analysis · advisory evidence
+                </p>
+              </div>
+            </div>
+            {typeof confidence === 'number' ? (
+              <div className="text-right">
+                <div className="text-2xs font-semibold uppercase tracking-widest text-muted-foreground">
+                  Confidence
+                </div>
+                <div className="mt-0.5 font-mono text-sm font-semibold text-primary">
+                  {fmtPercent(confidence)}
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="mt-4 pl-1">
+            {rationaleLoading && !summary ? (
+              <div className="space-y-2" aria-label="Loading AI assessment">
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-4/5" />
+              </div>
+            ) : summary ? (
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">
+                {summary}
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                No assessment summary was recorded for this investigation.
+              </p>
+            )}
+          </div>
+
+          <div className="mt-5 grid gap-3 border-t border-border pt-4 sm:grid-cols-[minmax(0,1fr)_11rem]">
+            <div className="border border-border bg-surface-sunken p-3">
+              <div className="mb-1 flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-widest text-muted-foreground">
+                <Lightbulb className="h-3.5 w-3.5 text-primary" aria-hidden />
+                Recommended action
+              </div>
+              <p className="text-sm text-foreground/90">
+                {recommendation || 'No recommended action was recorded.'}
+              </p>
+            </div>
+            <div className="border border-border bg-surface-sunken p-3">
+              <div className="mb-1 flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-widest text-muted-foreground">
+                <Gauge className="h-3.5 w-3.5 text-critical-text" aria-hidden />
+                Risk score
+              </div>
+              <div className="font-mono text-xl font-semibold text-critical-text">
+                {typeof c.risk_score === 'number' ? `${Math.round(c.risk_score)}/100` : DASH}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section aria-labelledby="case-manager-trace-title" className="space-y-3">
+          <div className="flex items-center gap-2">
+            <ListTree className="h-4 w-4 text-primary" aria-hidden />
+            <h2
+              id="case-manager-trace-title"
+              className="text-xs font-semibold uppercase tracking-widest text-foreground"
+            >
+              Investigation Trace
+            </h2>
+          </div>
+          <TraceTimeline
+            data={timeline}
+            loading={timelineLoading}
+            error={timelineError}
+            onRetry={onRetryTimeline}
+            presentation="case-manager"
+          />
+        </section>
+
+        <section
+          aria-label="Deterministic decision summary"
+          className="flex flex-col gap-3 rounded-[4px] border border-primary/25 bg-primary/5 p-4 sm:flex-row sm:items-center"
+        >
+          <span
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[4px] border border-primary/30 bg-primary/10 text-primary"
+            aria-hidden
+          >
+            <ShieldCheck className="h-4 w-4" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <h3 className="text-sm font-semibold text-foreground">Deterministic decision</h3>
+            <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+              {decisionSummary ||
+                'The server-side case policy recorded the outcome shown for this case.'}
+            </p>
+          </div>
+          <Badge variant="outline" className="self-start font-mono sm:self-center">
+            {humanizeToken(c.status) || 'Pending'}
+          </Badge>
+        </section>
+
+        {/* The prototype is visually lean, but the production assessment evidence and
+            exact policy inputs remain one disclosure away—nothing from Cases is lost. */}
+        <div className="flex flex-wrap gap-x-5 gap-y-2 border-t border-border pt-4">
+          <Collapsible className="w-full" open={evidenceOpen} onOpenChange={setEvidenceOpen}>
+            <CollapsibleTrigger className="inline-flex items-center gap-1.5 rounded text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <Bot className="h-3.5 w-3.5" aria-hidden />
+              {evidenceOpen ? 'Hide' : 'Show'} full assessment evidence
+              <ChevronDown
+                className={cn('h-3.5 w-3.5 transition-transform', evidenceOpen && 'rotate-180')}
+                aria-hidden
+              />
+            </CollapsibleTrigger>
+            <CollapsibleContent className="mt-3 w-full overflow-hidden rounded-[4px] border border-info/30 bg-info/5">
+              <WhyPanel
+                c={c}
+                rationale={rationale}
+                loading={rationaleLoading}
+                error={rationaleError}
+                onRetry={onRetryRationale}
+                hideDecision
+                hideMitre
+              />
+            </CollapsibleContent>
+          </Collapsible>
+
+          <Collapsible className="w-full" open={decisionOpen} onOpenChange={setDecisionOpen}>
+            <CollapsibleTrigger className="inline-flex items-center gap-1.5 rounded text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
+              {decisionOpen ? 'Hide' : 'Show'} policy inputs
+              <ChevronDown
+                className={cn('h-3.5 w-3.5 transition-transform', decisionOpen && 'rotate-180')}
+                aria-hidden
+              />
+            </CollapsibleTrigger>
+            <CollapsibleContent className="mt-3 w-full">
+              <DecisionCard c={c} rationale={rationale} timeline={timeline} />
+            </CollapsibleContent>
+          </Collapsible>
+        </div>
+        <GradingHistory feedback={c.feedback} />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 p-6">

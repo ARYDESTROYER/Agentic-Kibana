@@ -61,7 +61,7 @@ export interface ResolvedRange {
   toMs: number;
 }
 
-export type RefreshValue = 'off' | '30s' | '1m' | '5m';
+export type RefreshValue = 'off' | '5s' | '30s' | '1m' | '5m';
 
 /** The relative presets exposed in the picker (DESIGN_STANDARD §4.3). */
 export const PRESETS: readonly TimeRange[] = [
@@ -78,6 +78,7 @@ export const DEFAULT_RANGE: TimeRange = PRESETS[2]; // Last 24 hours
 /** Auto-refresh options; default is Off (cost-metered). */
 export const REFRESH_OPTIONS: readonly { value: RefreshValue; label: string }[] = [
   { value: 'off', label: 'Off' },
+  { value: '5s', label: '5 seconds' },
   { value: '30s', label: '30 seconds' },
   { value: '1m', label: '1 minute' },
   { value: '5m', label: '5 minutes' },
@@ -86,6 +87,7 @@ export const REFRESH_OPTIONS: readonly { value: RefreshValue; label: string }[] 
 /** Refresh cadence → poll interval in ms (`off` → 0 = never). */
 export const REFRESH_MS: Record<RefreshValue, number> = {
   off: 0,
+  '5s': 5_000,
   '30s': 30_000,
   '1m': 60_000,
   '5m': 300_000,

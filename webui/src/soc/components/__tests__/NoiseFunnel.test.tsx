@@ -94,6 +94,46 @@ function fixture(overrides: Partial<NoiseReduction> = {}): NoiseReduction {
 }
 
 describe('NoiseFunnel', () => {
+  it('uses the available flat-dashboard space for a taller flow and lower stage rail', () => {
+    render(<NoiseFunnel data={fixture()} animate={false} variant="flat" />);
+
+    expect(screen.getByTestId('noise-flow-band')).toHaveClass('h-36', 'sm:h-44');
+    expect(screen.getByTestId('noise-stage-rail')).toHaveClass(
+      'grid-cols-2',
+      'gap-y-3',
+      'pt-2',
+      'sm:grid-cols-3',
+      'lg:grid-cols-6',
+    );
+    expect(screen.getByTestId('noise-stage-rail')).not.toHaveAttribute('style');
+  });
+
+  it('extends only the flat plot toward the left while keeping its final node fixed', () => {
+    const { container, rerender } = render(
+      <NoiseFunnel data={fixture()} animate={false} variant="flat" />,
+    );
+
+    const nodeXs = () => {
+      const rects = Array.from(
+        container.querySelectorAll<SVGRectElement>('[data-testid="noise-flow-band"] svg rect'),
+      );
+      expect(rects.length).toBeGreaterThan(1);
+      return {
+        first: Number(rects[0].getAttribute('x')),
+        last: Number(rects[rects.length - 1].getAttribute('x')),
+      };
+    };
+
+    const flatXs = nodeXs();
+    rerender(<NoiseFunnel data={fixture()} animate={false} variant="card" />);
+    const cardXs = nodeXs();
+
+    // Flat mode reclaims 14 viewBox units from the unused first half-column.
+    expect(cardXs.first - flatXs.first).toBeCloseTo(14, 5);
+    // The offset tapers away, so the final outcome still lands at the canonical x.
+    expect(flatXs.last).toBeCloseTo(cardXs.last, 5);
+  });
+
   it('renders the linear flow ending in "Closed by human" (headline + every stage)', () => {
     const { container } = render(<NoiseFunnel data={fixture()} animate={false} />);
 

@@ -3,17 +3,21 @@
  *
  * The overview reads top-to-bottom as: a DECISION BRIEF hero (verdict headline +
  * summary + chip row + recommended action + auto-close note), a 3-column PROVENANCE
- * row (SOURCE SAYS / AGENT FOUND / CODE DECIDED) anchored by the pinned deterministic
- * <DecisionCard>, an ENTITY row (primary entity / attack story / relationship), an
+ * row (SOURCE SAYS / AGENT FOUND / CODE DECIDED), an ENTITY row (primary entity / attack
+ * story / relationship), an
  * EVIDENCE row (checklist + reproduce), and collapsibles (related / provenance & audit).
  *
  * Provenance stays obvious: SIEM facts, AI judgement, and deterministic code are told
  * apart by <ProvenanceTag>. Every case-derived value renders as plain text / CodeBlock
- * (#9); the panel never decides or mutates the case (#3) — the DecisionCard only
- * PROJECTS the recorded deterministic decision.
+ * (#9); the panel never decides or mutates the case (#3). The default sheet keeps its
+ * pinned DecisionCard; Case Manager consolidates the same projection into CODE DECIDED.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
+import { axe, toHaveNoViolations } from 'jest-axe';
+import userEvent from '@testing-library/user-event';
+
+expect.extend(toHaveNoViolations);
 
 vi.mock('@/lib/api', () => ({
   api: {
@@ -48,6 +52,18 @@ function renderOverview(c: Case) {
   return render(<OverviewPanel c={c} fpPolicy={null} triage={null} triageLoading={false} />);
 }
 
+function renderCaseManager(c: Case = CASE) {
+  return render(
+    <OverviewPanel
+      c={c}
+      fpPolicy={null}
+      triage={null}
+      triageLoading={false}
+      presentation="case-manager"
+    />,
+  );
+}
+
 describe('OverviewPanel — decision brief (task 7c)', () => {
   it('leads with a verdict headline, one-sentence summary, and the recommended action', () => {
     renderOverview(CASE);
@@ -80,9 +96,24 @@ describe('OverviewPanel — decision brief (task 7c)', () => {
         triageLoading={false}
       />,
     );
-    expect(screen.getByText(/Auto-close policy/)).toBeInTheDocument();
+    expect(screen.getByText('False-positive auto-close is disabled')).toBeInTheDocument();
+    expect(screen.queryByText(/Auto-close policy/)).toBeNull();
+    expect(screen.queryByText(/this case was held/i)).toBeNull();
     // No error alert (c.error unset) — the auto-close note is not an <Alert>.
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('does not repeat an identical needs-human verdict and lifecycle status', () => {
+    renderOverview({ ...CASE, verdict: 'needs_human', status: 'needs_human' } as unknown as Case);
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent(/^Needs human review$/);
+    expect(screen.queryByText('Needs human review — needs human review')).toBeNull();
+  });
+
+  it('keeps a distinct lifecycle result in the decision headline', () => {
+    renderOverview({ ...CASE, verdict: 'true_positive', status: 'escalated' } as unknown as Case);
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent(
+      /^Likely a true positive — escalated$/,
+    );
   });
 });
 
@@ -153,6 +184,179 @@ describe('OverviewPanel — provenance row (source vs. agent vs. code)', () => {
     // Terminal status + decision_by === 'agent' → the AI auto-closed it.
     renderOverview({ ...CASE, status: 'closed', decision_by: 'agent' } as unknown as Case);
     expect(screen.getByText('Auto-closed by AI')).toBeInTheDocument();
+  });
+});
+
+describe('OverviewPanel — embedded Case Manager composition', () => {
+  it('consolidates the repeated decision projection into one compact brief and authority lane', () => {
+    const { container } = renderCaseManager({
+      ...CASE,
+      verdict: 'TRUE_POSITIVE',
+      status: 'escalated',
+      impact_band: 'low',
+      priority_level: 'p4',
+      disposition: 'undetermined',
+      decision_by: 'system',
+    } as unknown as Case);
+
+    const panel = container.querySelector(
+      '[data-case-panel="overview"][data-presentation="case-manager"]',
+    );
+    expect(panel).toBeInTheDocument();
+    expect(screen.queryByTestId('decision-card')).toBeNull();
+    expect(within(panel as HTMLElement).queryByText('Decision brief')).toBeNull();
+    expect(screen.getByRole('heading', { level: 2 })).toHaveClass(
+      'text-3xl',
+      'text-foreground',
+    );
+
+    // The embedded workspace follows the dashboard's single-canvas composition:
+    // one flat summary and divider-led columns, not a stack of independent cards.
+    expect(screen.getByTestId('case-manager-decision-summary')).toHaveClass(
+      'rounded-none',
+      'border-y',
+      'border-border/70',
+      'bg-transparent',
+      'px-0',
+      'py-5',
+    );
+    expect(screen.getByTestId('case-manager-decision-summary')).not.toHaveClass('border-l-2');
+    const flatColumns = panel?.querySelectorAll('[data-overview-surface="flat-column"]');
+    expect(flatColumns).toHaveLength(8);
+    flatColumns?.forEach((column) => {
+      expect(column).toHaveClass('rounded-none', 'bg-transparent');
+    });
+
+    // All unique facts from the removed duplicate card remain in the compact lanes.
+    expect(screen.getByText('Deterministic decision authority')).toBeInTheDocument();
+    expect(screen.getByText('case_manager')).toBeInTheDocument();
+    expect(screen.getByText('System')).toBeInTheDocument();
+    expect(screen.getByText('Impact')).toBeInTheDocument();
+    expect(screen.getByText('Low')).toBeInTheDocument();
+    expect(screen.getByText('Priority')).toBeInTheDocument();
+    expect(screen.getByText('P4')).toBeInTheDocument();
+    expect(
+      screen.getByText(/close \/ escalate call is made by deterministic code/i),
+    ).toBeInTheDocument();
+
+    // Risk and confidence are each presented once instead of being echoed in three cards.
+    expect(screen.getAllByText('40/100')).toHaveLength(1);
+    expect(screen.getAllByText('90%')).toHaveLength(1);
+  });
+
+  it('keeps the larger embedded decision heading neutral across verdict outcomes', () => {
+    const { unmount } = renderCaseManager({
+      ...CASE,
+      verdict: 'false_positive',
+      status: 'resolved',
+    } as unknown as Case);
+    expect(screen.getByRole('heading', { level: 2 })).toHaveClass(
+      'text-3xl',
+      'text-foreground',
+    );
+    expect(screen.getByRole('heading', { level: 2 })).not.toHaveClass('text-info-text');
+    unmount();
+
+    renderCaseManager({ ...CASE, verdict: 'needs_human', status: 'needs_human' } as unknown as Case);
+    expect(screen.getByRole('heading', { level: 2 })).toHaveClass(
+      'text-3xl',
+      'text-foreground',
+    );
+    expect(screen.getByRole('heading', { level: 2 })).not.toHaveClass('text-warning-text');
+  });
+
+  it('renders honest, text-equivalent risk and confidence visuals from existing case data', () => {
+    renderCaseManager();
+    const profile = screen.getByRole('complementary', { name: 'Case signal profile' });
+
+    const risk = within(profile).getByRole('progressbar', { name: 'Risk score: 40/100' });
+    expect(risk).toHaveAttribute('aria-valuenow', '40');
+    const confidence = within(profile).getByRole('progressbar', { name: 'Confidence: 90%' });
+    expect(confidence).toHaveAttribute('aria-valuenow', '90');
+
+    const volume = within(profile).getByRole('progressbar', {
+      name: 'Volume risk factor: 40 out of 100',
+    });
+    expect(volume).toHaveAttribute('aria-valuenow', '40');
+    expect(
+      within(profile).getByRole('progressbar', {
+        name: 'Velocity risk factor: 10 out of 100',
+      }),
+    ).toHaveAttribute('aria-valuenow', '10');
+    // The visible text equivalents make the visuals useful without colour.
+    expect(within(profile).getByText('Volume')).toBeInTheDocument();
+    expect(within(profile).getByText('Reputation')).toBeInTheDocument();
+    expect(within(profile).getAllByText('40').length).toBeGreaterThanOrEqual(1);
+    expect(within(profile).queryByText('0–100 each')).toBeNull();
+
+    for (const [label, value] of [
+      ['Volume', 40],
+      ['Velocity', 10],
+      ['Reputation', 0],
+      ['Diversity', 0],
+      ['Asset criticality', 0],
+    ] as const) {
+      const trigger = within(profile).getByRole('button', {
+        name: `Explain ${label} risk factor, recorded ${value} out of 100`,
+      });
+      expect(trigger).toHaveClass('whitespace-nowrap');
+      expect(trigger).not.toHaveClass('break-words');
+    }
+  });
+
+  it('explains a factor on hover using the recorded score without inventing provider data', async () => {
+    const user = userEvent.setup();
+    renderCaseManager();
+    await user.hover(
+      screen.getByRole('button', {
+        name: 'Explain Reputation risk factor, recorded 0 out of 100',
+      }),
+    );
+
+    const tooltip = await screen.findByRole('tooltip');
+    expect(tooltip).toHaveTextContent('clamped 0–100 enrichment reputation signal');
+    expect(tooltip).toHaveTextContent(
+      'deterministic breakdown stores Reputation at 0/100',
+    );
+    expect(tooltip).toHaveTextContent('no provider-level reputation input is retained');
+  });
+
+  it('opens factor help on keyboard focus and names the case data behind the value', async () => {
+    const user = userEvent.setup();
+    renderCaseManager({
+      ...CASE,
+      member_event_ids: ['event-1', 'event-2'],
+    } as unknown as Case);
+
+    await user.tab();
+    expect(screen.getByRole('button', { name: /Explain Volume risk factor/i })).toHaveFocus();
+    const tooltip = await screen.findByRole('tooltip');
+    expect(tooltip).toHaveTextContent('log-normalized against a 50-event reference');
+    expect(tooltip).toHaveTextContent('case records 2 correlated events');
+    expect(tooltip).toHaveTextContent('stored Volume factor is 40/100');
+  });
+
+  it('keeps the legacy default presentation and its pinned DecisionCard unchanged', () => {
+    const { container } = renderOverview(CASE);
+    expect(screen.getByTestId('decision-card')).toBeInTheDocument();
+    expect(screen.queryByRole('complementary', { name: 'Case signal profile' })).toBeNull();
+    expect(screen.getByRole('heading', { level: 2 })).toHaveClass(
+      'text-2xl',
+      'text-foreground',
+    );
+    expect(screen.queryByTestId('case-manager-decision-summary')).toBeNull();
+    expect(container.querySelector('[data-overview-surface]')).toBeNull();
+  });
+
+  it('has no automated accessibility violations in the embedded overview', async () => {
+    const { container } = renderCaseManager({
+      ...CASE,
+      entity: { type: 'ip', value: '10.0.0.5' },
+      severity_band: 'high',
+      severity_source: 'source_asserted',
+      mitre: ['T1110'],
+    } as unknown as Case);
+    expect(await axe(container)).toHaveNoViolations();
   });
 });
 
