@@ -246,7 +246,7 @@ async def test_factory_tier_clears_everything_and_flips_setup_complete():
         assert await _case_count(state) == 0
         assert state.prefs.sources == []
         assert state.prefs.setup_complete is False  # → fresh OOBE
-        assert state.prefs.branding.org_name == "TLSOC"  # back to the shipped default
+        assert state.prefs.branding.org_name == "Agentic SOC"  # back to the shipped default
         for ns, key in (
             ("users", "entries"), ("sessions", "entries"), ("user_prefs", "buckets"),
             ("custom_roles", "roles"), ("proposals", "entries"), ("memory", "entries"),

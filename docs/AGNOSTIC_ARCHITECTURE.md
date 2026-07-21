@@ -18,7 +18,7 @@
 > Kibana plugin was later **archived**, not merely retired mid-flight — see
 > `archive/kibana-plugin/`).
 >
-> This document is the master plan that turned the TLSOC Agentic Triage Suite
+> This document is the master plan that turned the original TLSOC prototype
 > (at the time: an ELK/Kibana-coupled triage backend + Kibana plugin) into an
 > **open-source, self-hosted, vendor-agnostic agentic SOC** that fetches alerts
 > from any SIEM/EDR/XDR. It complements `AGENTS.md` (process), `README.md`
@@ -383,7 +383,7 @@ covering OCSF `unmapped`).
   it**: the webui was built (and later fully re-skinned) on Tailwind + shadcn/Radix
   instead, sidestepping the question entirely.
 - **Naming/branding** — "TLSOC … Kibana" branding is ELK-specific; an
-  open-source agnostic product likely wants a neutral name. **Resolved**: the
-  product settled on **TLSOC Agentic Triage Suite** as its formal name (no Kibana
-  reference), with operator-configurable white-label branding (`BrandingConfig`)
-  layered on top for deployments that want their own identity.
+  open-source agnostic product needs a neutral name. **Current resolution**: the
+  operator-facing product is **Agentic SOC**. Technical `TLSOC_*` compatibility
+  identifiers remain stable, with operator-configurable white-label branding
+  (`BrandingConfig`) layered on top for deployments that want their own identity.

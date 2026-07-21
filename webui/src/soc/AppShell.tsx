@@ -40,7 +40,7 @@ import {
   Search,
 } from 'lucide-react';
 import { Button } from '@/ui/button';
-import { Badge } from '@/ui/badge';
+import { badgeVariants } from '@/ui/badge';
 import { Separator } from '@/ui/separator';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/ui/tooltip';
 import { Popover, PopoverContent, PopoverTrigger } from '@/ui/popover';
@@ -67,7 +67,12 @@ import { cn } from '@/lib/cn';
 import { api } from '@/lib/api';
 import { initialsFrom } from '@/lib/avatar';
 import { humanizeToken } from '@/lib/format';
-import type { AccountProfile, HealthResponse } from '@/lib/types';
+import type { AccountProfile, BuildInfoResponse, HealthResponse } from '@/lib/types';
+import {
+  CONSOLE_RELEASE_IDENTITY,
+  resolveReleasePresentation,
+  type ReleaseIdentity,
+} from '@/lib/release';
 import { useTheme } from './theme';
 import { usePrefs } from './prefs';
 import { useDemo } from './demo';
@@ -78,6 +83,7 @@ import { GlassSurface } from './components/GlassSurface';
 import { NavSidebar, useNavPrefs } from './components/NavSidebar';
 import { NotificationBell } from './components/NotificationBell';
 import { useIsMobile } from './hooks/useMediaQuery';
+import { usePrefersReducedMotion } from './hooks/usePrefersReducedMotion';
 import { navItem, navLabel, navParentOf, type PageId } from './nav';
 import type { Navigate } from './router';
 // TYPE-ONLY import (elided at build → zero runtime import): motion.dev must NEVER ride
@@ -227,6 +233,116 @@ function useHealth(): { health: HealthResponse | null; err: boolean } {
   }, []);
 
   return { health, err };
+}
+
+/** Build identity is immutable for a running backend, so fetch it once per shell. */
+function useBuildInfo(): BuildInfoResponse | null {
+  const [buildInfo, setBuildInfo] = React.useState<BuildInfoResponse | null>(null);
+  React.useEffect(() => {
+    // A few isolated shell tests intentionally provide only the API methods their
+    // scenario exercises. Treat an older/mocked client exactly like an unavailable
+    // build-info endpoint and keep the compile-time Console identity visible.
+    const getBuildInfo = api.buildInfo;
+    if (typeof getBuildInfo !== 'function') return undefined;
+    let alive = true;
+    void getBuildInfo()
+      .then((value) => {
+        if (alive) setBuildInfo(value);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return buildInfo;
+}
+
+/**
+ * Always-visible release badge. Its popover names both compiled Console provenance
+ * and runtime backend provenance; a disagreement is conspicuous and can never render
+ * Stable. Every value is rendered as plain text.
+ */
+export function ReleaseBadge({
+  buildInfo,
+  consoleIdentity = CONSOLE_RELEASE_IDENTITY,
+}: {
+  buildInfo?: BuildInfoResponse | null;
+  consoleIdentity?: ReleaseIdentity;
+}) {
+  const release = resolveReleasePresentation(consoleIdentity, buildInfo);
+  const tone = release.channel === 'stable' ? 'success' : 'warning';
+  const ariaLabel = `Agentic SOC v${release.version}, ${release.contextLabel}${
+    release.mismatch ? ', build identity mismatch' : ''
+  }`;
+
+  const row = (label: string, value: string) => (
+    <div className="flex min-w-0 items-start justify-between gap-4">
+      <dt className="shrink-0 text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 break-all text-right font-mono text-foreground">{value}</dd>
+    </div>
+  );
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          data-testid="release-badge"
+          aria-label={ariaLabel}
+          className={cn(
+            badgeVariants({ variant: tone }),
+            'h-7 shrink-0 gap-1.5 font-normal tabular-nums',
+          )}
+        >
+          <span>v{release.version}</span>
+          <span aria-hidden="true">·</span>
+          <span>{release.channelLabel}</span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-[min(22rem,calc(100vw-2rem))] space-y-3 text-xs">
+        <div>
+          <p className="font-semibold text-foreground">{release.contextLabel}</p>
+          <p className="mt-0.5 text-muted-foreground">
+            {release.channel === 'stable'
+              ? 'Explicitly promoted from the protected main release path.'
+              : 'Testing is the fail-safe default for source, integration, and preview builds.'}
+          </p>
+        </div>
+
+        {release.mismatch ? (
+          <p className="rounded-md border border-warning/30 bg-warning/10 px-2.5 py-2 text-warning-text">
+            Console and backend build identities differ. This session is treated as Testing.
+          </p>
+        ) : null}
+
+        <div className="space-y-2 border-t border-border pt-3">
+          <p className="font-semibold text-foreground">Console build</p>
+          <dl className="space-y-1.5">
+            {row('Version', release.console.version)}
+            {row('Channel', release.console.channel === 'stable' ? 'Stable' : 'Testing')}
+            {row('Commit', release.console.commitSha)}
+            {row('Built', release.console.buildTime)}
+          </dl>
+        </div>
+
+        {release.backend ? (
+          <div className="space-y-2 border-t border-border pt-3">
+            <p className="font-semibold text-foreground">Backend build</p>
+            <dl className="space-y-1.5">
+              {row('Version', release.backend.version)}
+              {row('Channel', release.backend.channel === 'stable' ? 'Stable' : 'Testing')}
+              {row('Commit', release.backend.commitSha)}
+              {row('Built', release.backend.buildTime)}
+            </dl>
+          </div>
+        ) : (
+          <p className="border-t border-border pt-3 text-muted-foreground">
+            Backend build-info is unavailable; showing the immutable Console build stamp.
+          </p>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 /**
@@ -417,12 +533,14 @@ export const AppShell: React.FC<AppShellProps> = ({
     [isDark, setThemeMode],
   );
   const { health, err } = useHealth();
+  const buildInfo = useBuildInfo();
   const { active: demoActive, refresh: refreshDemo } = useDemo();
   const profile = useAccountProfile(Boolean(username));
   const [paletteOpen, setPaletteOpen] = React.useState(false);
   const [mobileNavOpen, setMobileNavOpen] = React.useState(false);
   const mobileNavRef = React.useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
+  const reducedMotion = usePrefersReducedMotion();
   // Nav collapse + open-group state (shell-owned; hydrates synchronously from a
   // localStorage mirror to avoid a first-paint flash, then reconciles with the
   // server-side UserPrefs.misc and persists every change). See useNavPrefs.
@@ -450,15 +568,16 @@ export const AppShell: React.FC<AppShellProps> = ({
   );
 
   // TASK 6 — HOVER-TO-EXPAND for the collapsed icon rail. When the PERSISTED pref is
-  // "collapsed" (a 64px rail), pointing at (or keyboard-focusing) the rail temporarily
-  // expands it to the full labelled drawer, then collapses back on leave. This is a
+  // "collapsed" (a 64px rail), pointing at the rail temporarily expands it to the
+  // full labelled drawer, then collapses back on leave. This is a
   // TRANSIENT visual overlay only — we never call setCollapsed, so the user's persisted
   // choice is untouched and a PINNED-OPEN sidebar (collapsed === false) is unaffected.
-  // Pointer + focus are tracked separately and OR'd so a keyboard user mid-navigation
-  // keeps the labels even if the pointer wanders off the rail.
+  // Keyboard focus deliberately does NOT replace the entire rail DOM: doing so between
+  // pointer-down/focus and click could activate whichever expanded-row happened to move
+  // under the cursor. Collapsed buttons are already labelled, and parent groups expose
+  // keyboard-reachable inline fly-outs via their own focus-within state.
   const [railHovered, setRailHovered] = React.useState(false);
-  const [railFocused, setRailFocused] = React.useState(false);
-  const transientExpand = railHovered || railFocused;
+  const transientExpand = railHovered;
   // The width the sidebar actually renders at: the persisted rail expands on hover/focus,
   // a pinned-open drawer is left alone.
   const effectiveCollapsed = collapsed && !transientExpand;
@@ -471,6 +590,21 @@ export const AppShell: React.FC<AppShellProps> = ({
     (id: PageId) => {
       setMobileNavOpen(false);
       onNavigate(id);
+    },
+    [onNavigate],
+  );
+
+  // A collapsed desktop rail temporarily expands while one of its links owns
+  // keyboard focus. After activating a destination, hand focus to the routed
+  // main landmark so the floating drawer does not remain over the new page.
+  // This also gives keyboard/screen-reader users an immediate, predictable
+  // starting point in the content they just opened.
+  const navigateFromDesktop = React.useCallback(
+    (id: PageId) => {
+      onNavigate(id);
+      window.requestAnimationFrame(() => {
+        document.getElementById('socMain')?.focus();
+      });
     },
     [onNavigate],
   );
@@ -527,7 +661,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   const useMotionRoute = motionActive && Boolean(RouteMotion);
 
   // Product name for the breadcrumb prefix; falls back to a neutral default.
-  const productName = branding.product_name?.trim() || branding.org_name?.trim() || 'ASP';
+  const productName = branding.product_name?.trim() || branding.org_name?.trim() || 'Agentic SOC';
   const logoUrl = branding.logo_data_url?.trim() || '';
   // Breadcrumb leaf label — resolves top-level items, disclosure children, and the
   // consolidated sub-pages (navItem only knows top-level rail items).
@@ -653,6 +787,7 @@ export const AppShell: React.FC<AppShellProps> = ({
               logoUrl={logoUrl}
               productName={productName}
               className="h-full w-full border-r-0"
+              reducedMotion={reducedMotion}
               // Reserve the top-right Sheet close button's footprint so a long,
               // operator-provided product name never runs underneath it.
               toggleSlot={<span className="size-8 shrink-0" aria-hidden />}
@@ -667,28 +802,29 @@ export const AppShell: React.FC<AppShellProps> = ({
           sidebar INSIDE grows to the drawer width and FLOATS over the content
           (elevated via `floating`), so the footprint — and the page layout — never
           shift on hover (no reflow). `min-w-0` defeats flex `min-width:auto` so the
-          overflowing drawer can exceed the reserved 64px. onMouseEnter/Leave +
-          onFocus/Blur drive the transient expand; the persisted pref is untouched. */}
+          overflowing drawer can exceed the reserved 64px. Mouse enter/leave drives
+          the transient expand; keyboard navigation stays on the stable icon rail. */}
       {!isMobile ? (
         // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- presentational hover/focus affordance; nested nav remains fully operable
         <div
+          data-testid="desktop-navigation-frame"
+          data-motion={reducedMotion ? 'reduced' : 'full'}
           className={cn(
             // Springy ease (the app's `--motion-ease-premium` curve) gives the rail a
             // physical "settle" without pulling the motion.dev runtime onto the eager
             // first-paint graph (NavSidebar/AppShell are eager; motion stays lazy, §budget).
-            'relative shrink-0 min-w-0 transition-[width] duration-200 ease-premium motion-reduce:transition-none',
+            'relative shrink-0 min-w-0',
+            reducedMotion
+              ? 'transition-none'
+              : 'transition-[width] duration-200 ease-premium',
             collapsed ? 'z-40 w-16' : 'w-60',
           )}
           onMouseEnter={() => setRailHovered(true)}
           onMouseLeave={() => setRailHovered(false)}
-          onFocus={() => setRailFocused(true)}
-          onBlur={(e) => {
-            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setRailFocused(false);
-          }}
         >
           <NavSidebar
             page={page}
-            onNavigate={onNavigate}
+            onNavigate={navigateFromDesktop}
             collapsed={effectiveCollapsed}
             floating={collapsed}
             openGroups={openGroups}
@@ -697,6 +833,7 @@ export const AppShell: React.FC<AppShellProps> = ({
             logoUrl={logoUrl}
             productName={productName}
             toggleSlot={navToggle}
+            reducedMotion={reducedMotion}
           />
         </div>
       ) : null}
@@ -797,12 +934,9 @@ export const AppShell: React.FC<AppShellProps> = ({
               <TooltipContent>{isDark ? 'Light mode' : 'Dark mode'}</TooltipContent>
             </Tooltip>
 
-            {/* Version badge */}
-            {health?.version ? (
-              <Badge variant="outline" className="hidden font-normal xl:inline-flex">
-                v{health.version}
-              </Badge>
-            ) : null}
+            {/* Release identity is build-time first, then reconciled with the public
+                backend build-info endpoint. It never infers Stable from SemVer. */}
+            <ReleaseBadge buildInfo={buildInfo} />
 
             {/* Health pill — a click-to-open Popover with plain-language help.
                 store_type/help text is backend-derived and rendered as PLAIN

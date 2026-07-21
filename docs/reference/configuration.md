@@ -1,11 +1,11 @@
 ---
 title: Configuration reference
-description: Configuration authorities, environment wiring, durable preferences, runtime-only secrets, and state backends in TLSOC 0.1.
+description: Configuration authorities, environment wiring, durable preferences, runtime-only secrets, and state backends in Agentic SOC 0.1.
 ---
 
 # Configuration reference
 
-TLSOC 0.1 separates credentials and process wiring from validated application
+Agentic SOC 0.1 separates credentials and process wiring from validated application
 preferences. Keep that boundary intact: a secret is never an ordinary setting.
 
 ## Configuration authorities
@@ -13,8 +13,8 @@ preferences. Keep that boundary intact: a secret is never an ordinary setting.
 | Authority | Examples | Persistence | Managed through |
 |---|---|---|---|
 | Backend environment | state URL, provider keys, auth signing key, TLS paths | Deployment-owned | Process environment or `.env` |
-| Organization preferences | sources, feeds, models, correlation, budgets, automation, branding, RBAC | Selected TLSOC state backend | TLSOC Console or `/api/settings*` |
-| User preferences | theme, saved views, table layouts, personal dashboards | Selected TLSOC state backend | TLSOC Console or `/api/prefs/user`, `/api/views*`, `/api/dashboards*` |
+| Organization preferences | sources, feeds, models, correlation, budgets, automation, branding, RBAC | Selected Agentic SOC state backend | Agentic SOC Console or `/api/settings*` |
+| User preferences | theme, saved views, table layouts, personal dashboards | Selected Agentic SOC state backend | Agentic SOC Console or `/api/prefs/user`, `/api/views*`, `/api/dashboards*` |
 | Runtime secret tier | wizard-submitted global keys and per-source/channel/provider secrets | Process memory only unless also supplied at boot | Secret-setting API routes |
 
 `backend/app/config.py` defines both `Secrets` and `Preferences`. The settings schema
@@ -52,23 +52,29 @@ rule. The image/build pipeline passes these names directly:
 | `TLSOC_RELEASE_CHANNEL` | `testing` by default; set to `stable` only for the accepted `main`/tag build |
 | `TLSOC_BUILD_SHA` | Exact source commit embedded in `/api/health/build-info` and image metadata |
 | `TLSOC_BUILD_DATE` | Build timestamp embedded in `/api/health/build-info` and image metadata |
+| `TLSOC_SOURCE_URL` | Dockerfile build argument for the canonical source URL embedded in OCI image metadata; the reference Compose files currently use the Dockerfile's repository default |
 
 The release channel is independent of SemVer: both the accepted Testing candidate and
 its Stable promotion are application `0.1.0`. Promotion changes provenance/channel,
 not the source version.
 
+The Console compiles version/channel/SHA/date into its own build and displays an
+always-visible `vX.Y.Z · Testing|Stable` badge. Opening the badge compares Console
+and `/api/health/build-info` identities. A channel/version/known-SHA mismatch is
+shown as Testing; Stable is never inferred from SemVer or a branch name.
+
 ## Common backend environment variables
 
 | Group | Variables | Notes |
 |---|---|---|
-| State | `STATE_BACKEND`, `STATE_DB_URL`, `ES_STORE_ENABLED` | Selects TLSOC-owned persistence; does not select a log source |
+| State | `STATE_BACKEND`, `STATE_DB_URL`, `ES_STORE_ENABLED` | Selects Agentic SOC-owned persistence; does not select a log source |
 | Elasticsearch wiring | `ES_URL`, `ES_CA_CERT`, `ES_VERIFY_CERTS`, `ES_REQUEST_TIMEOUT` | Used by the implicit Elastic source and/or Elastic state backend |
 | Elasticsearch keys | `ES_API_KEY`, `ES_MGMT_API_KEY` | Read-only log key and separate `tlsoc-agent-*` management key |
-| LLMs | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `LITELLM_API_KEY`; Azure, Bedrock, and Vertex fields | Every call still goes through the TLSOC gateway and cost ledger |
+| LLMs | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `LITELLM_API_KEY`; Azure, Bedrock, and Vertex fields | Every call still goes through the Agentic SOC gateway and cost ledger |
 | Enrichment | provider-specific API keys plus `EMBEDDING_API_KEY` | Keyless providers need no key; enabled/keyed filtering happens at dispatch |
 | Cache | `REDIS_URL` | Enrichment caching degrades to an in-process cache when Redis is unavailable |
 | Server | `BACKEND_HOST`, `BACKEND_PORT`, `LOG_LEVEL` | Uvicorn bind and logging configuration |
-| Release identity | `TLSOC_VERSION`, `TLSOC_RELEASE_CHANNEL`, `TLSOC_BUILD_SHA`, `TLSOC_BUILD_DATE` | Direct prefixed build metadata; channel/SHA/date also reach the API runtime as non-secret identity |
+| Release identity | `TLSOC_VERSION`, `TLSOC_RELEASE_CHANNEL`, `TLSOC_BUILD_SHA`, `TLSOC_BUILD_DATE`, `TLSOC_SOURCE_URL` | Direct prefixed build metadata; channel/SHA/date also reach the API runtime as non-secret identity. Source URL is an OCI-only Docker build argument and is not mapped from `.env` by the reference Compose files |
 | Authentication | `AUTH_ENABLED`, `AUTH_JWT_SECRET`, `AUTH_TOKEN_HOURS`, `AUTH_COOKIE_SECURE`, bootstrap user fields | Use a stable signing key and secure cookies behind HTTPS |
 | Security middleware | `SECURITY_HEADERS_ENABLED`, `RATE_LIMIT_ENABLED`, `RATE_LIMIT_CAPACITY`, `RATE_LIMIT_REFILL_PER_SECOND`, `CSRF_ENABLED` | Headers default on; rate limiting and CSRF default off |
 | Secret maps | `CONNECTOR_SECRETS`, `SSO_CLIENT_SECRETS`, `NOTIFICATION_SECRETS` | JSON objects parsed directly by the backend; mapping support differs by Compose file |
@@ -81,7 +87,7 @@ connector secrets from the environment, pass the backend's unprefixed
 
 ## State backends
 
-`STATE_BACKEND` controls only TLSOC-owned state: cases, audit, usage, preferences,
+`STATE_BACKEND` controls only Agentic SOC-owned state: cases, audit, usage, preferences,
 cursors, users/sessions, collaboration, baselines, campaigns, rule versions, and
 knowledge/vector records. Connector credentials and external telemetry remain outside
 that store.
@@ -115,6 +121,24 @@ preferences model. Prefer small section-specific changes and re-read after updat
 A malformed value is rejected rather than persisted. General preference updates do
 not provide a universal revision history in 0.1; detection rules have their own
 version ledger and rollback endpoints.
+
+### Discounted alert inference
+
+`batch.prefer_discounted_alerts` defaults to `true`. When an automated-scan or
+entity/case investigation uses official OpenAI (no Azure/custom base URL) with a
+supported GPT-5, o3, or o4-mini model, the single LLM gateway requests
+`service_tier=flex`. The usage ledger applies the discounted rate only when the
+provider response actually reports Flex (`processing_tier: flex`); unsupported
+providers/models remain standard before the call. `batch.fallback_to_standard`
+defaults to `true`, so an OpenAI 429 or Flex/service-tier-specific 400 retries at
+standard service and is metered as standard. Chat, standup, embeddings, and
+model-test calls are not automatically moved to Flex.
+
+The existing `batch.enabled` switch remains the separate, true asynchronous provider
+Batch path for the aggregated event-feed funnel. Ordinary case investigations require
+an in-band result before deterministic routing can proceed, so they use supported Flex
+rather than pretending an asynchronous Batch job has completed. Neither path changes
+the deterministic close/escalate authority.
 
 ## Secret durability and exposure
 

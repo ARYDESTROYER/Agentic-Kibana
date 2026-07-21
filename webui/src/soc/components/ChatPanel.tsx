@@ -963,6 +963,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
 
   const isEmpty = transcript.length === 0;
   const isCaseManager = presentation === 'case-manager';
+  // The full Workspace chat uses the same compact command-bar grammar as Case
+  // Manager. Only narrow generic embeds keep the older two-row controls, where a
+  // popover would hide too much context.
+  const isWorkspace = !compact && !isCaseManager;
   const composerPlaceholder =
     placeholder ??
     (isCaseManager
@@ -980,9 +984,12 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       <Tooltip>
         <TooltipTrigger asChild>
           <SelectTrigger
-            className={cn('h-8 gap-1.5 text-xs', isCaseManager && 'w-full rounded-sm')}
+            className={cn(
+              'h-8 gap-1.5 text-xs',
+              (isCaseManager || isWorkspace) && 'w-full rounded-sm',
+            )}
             aria-label="Source"
-            style={isCaseManager ? undefined : { minWidth: compact ? 150 : 190 }}
+            style={isCaseManager || isWorkspace ? undefined : { minWidth: 150 }}
           >
             <Database className="h-3.5 w-3.5 shrink-0 opacity-70" />
             <SelectValue />
@@ -1007,9 +1014,12 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       <Tooltip>
         <TooltipTrigger asChild>
           <SelectTrigger
-            className={cn('h-8 gap-1.5 text-xs', isCaseManager && 'w-full rounded-sm')}
+            className={cn(
+              'h-8 gap-1.5 text-xs',
+              (isCaseManager || isWorkspace) && 'w-full rounded-sm',
+            )}
             aria-label="Model"
-            style={isCaseManager ? undefined : { minWidth: compact ? 150 : 200 }}
+            style={isCaseManager || isWorkspace ? undefined : { minWidth: 150 }}
           >
             <Cpu className="h-3.5 w-3.5 shrink-0 opacity-70" />
             <SelectValue />
@@ -1175,13 +1185,14 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         ) : null}
 
         {/* Composer — anchored at the bottom of the frame (shrink-0; never floats
-            mid-page). The Case Manager variant keeps model/source controls in a
-            compact settings popover so the primary transcript stays prototype-flat. */}
+            mid-page). Full Workspace and Case Manager surfaces keep model/source
+            controls in a compact settings popover so the transcript stays flat and
+            the old oversized two-tier form never consumes the working area. */}
         <div
           className={cn(
             'shrink-0 border border-border bg-card',
             laneInner,
-            isCaseManager
+            isCaseManager || isWorkspace
               ? 'mt-2 rounded-sm p-2'
               : compact
                 ? 'mt-3 rounded-lg p-3'
@@ -1189,7 +1200,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           )}
         >
           <div className="flex items-end gap-2">
-            {isCaseManager ? (
+            {isCaseManager || isWorkspace ? (
               hasSources || hasModels ? (
                 <Popover>
                   <PopoverTrigger asChild>
@@ -1197,7 +1208,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                       type="button"
                       size="icon"
                       variant="ghost"
-                      className="h-9 w-9 shrink-0 rounded-sm text-muted-foreground"
+                      className="h-10 w-10 shrink-0 rounded-sm text-muted-foreground"
                       aria-label="Chat settings"
                     >
                       <SlidersHorizontal className="h-4 w-4" />
@@ -1234,12 +1245,15 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={onKeyDown}
               disabled={loading}
-              rows={isCaseManager ? 1 : compact ? 2 : 3}
+              rows={isCaseManager || isWorkspace ? 1 : 2}
               aria-label="Chat message"
               className={cn(
                 'resize-none border-0 bg-transparent shadow-none focus-visible:ring-0',
-                isCaseManager
-                  ? 'min-h-9 max-h-24 overflow-y-auto py-2 font-mono text-xs [field-sizing:content]'
+                isCaseManager || isWorkspace
+                  ? cn(
+                      'min-h-10 max-h-28 overflow-y-auto py-2.5 [field-sizing:content]',
+                      isCaseManager ? 'font-mono text-xs' : 'text-sm',
+                    )
                   : 'min-h-0',
               )}
             />
@@ -1247,7 +1261,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
               <TooltipTrigger asChild>
                 <Button
                   size={isCaseManager ? 'icon' : 'default'}
-                  className={cn(isCaseManager && 'h-9 w-9 shrink-0 rounded-sm')}
+                  className={cn(
+                    'shrink-0 rounded-sm',
+                    isCaseManager ? 'h-10 w-10' : isWorkspace ? 'h-10 px-4' : '',
+                  )}
                   onClick={() => void send()}
                   disabled={(!input.trim() && !loading) || loading}
                   aria-label="Send message"
@@ -1260,7 +1277,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
             </Tooltip>
           </div>
 
-          {!isCaseManager ? (
+          {!isCaseManager && !isWorkspace ? (
             <>
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
                 <span className="text-xs text-muted-foreground">

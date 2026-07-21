@@ -158,7 +158,9 @@ async def put_batch_config(
     await _audit(
         state, request, "batch_config_update",
         f"enabled={cfg.enabled} severity_floor={cfg.severity_floor} "
-        f"flex={cfg.flex} providers={','.join(cfg.providers)}",
+        f"flex={cfg.flex} prefer_discounted_alerts={cfg.prefer_discounted_alerts} "
+        f"fallback_to_standard={cfg.fallback_to_standard} "
+        f"providers={','.join(cfg.providers)}",
     )
     return {"ok": True, "config": cfg.model_dump(mode="json")}
 

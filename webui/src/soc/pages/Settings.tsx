@@ -43,7 +43,6 @@ import { Input } from '@/ui/input';
 import { Badge } from '@/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
 import { Skeleton } from '@/ui/skeleton';
-import { Card, CardContent } from '@/ui/card';
 
 import { PageHeader } from '@/soc/components/PageHeader';
 import { PageContainer } from '@/soc/components/PageContainer';
@@ -327,7 +326,7 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
 
   if (loading) {
     return (
-      <PageContainer variant="fixed" className="space-y-6">
+      <PageContainer variant="wide" className="space-y-6">
         <PageHeader icon={SettingsIcon} eyebrow="Platform" title="Settings" />
         <div className="grid gap-6 lg:grid-cols-[256px_minmax(0,1fr)]">
           <div className="space-y-1.5">
@@ -343,7 +342,7 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
 
   if (!prefs) {
     return (
-      <PageContainer variant="fixed" className="space-y-6">
+      <PageContainer variant="wide" className="space-y-6">
         <PageHeader icon={SettingsIcon} eyebrow="Platform" title="Settings" />
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" aria-hidden />
@@ -411,6 +410,7 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
   };
 
   const activeDef = SECTION_BY_ID[section] ?? SECTION_BY_ID.general;
+  const ActiveSectionIcon = activeDef.icon;
   const isGrid = GRID_SECTIONS.has(activeDef.id);
 
   // When the settings lock is ON, Save is disabled — EXCEPT when the operator's pending
@@ -422,7 +422,7 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
   const saveLocked = readOnly && !unlockingNow;
 
   return (
-    <PageContainer variant="fixed" className="space-y-6">
+    <PageContainer variant="wide" className="space-y-6">
       <PageHeader
         icon={SettingsIcon}
         eyebrow="Platform"
@@ -457,11 +457,11 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
         </Alert>
       ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-[256px_minmax(0,1fr)]">
+      <div className="grid gap-8 lg:grid-cols-[272px_minmax(0,1fr)]">
         {/* Section nav: searchable, grouped, RBAC-aware. */}
         <nav
           aria-label="Settings sections"
-          className="lg:sticky lg:top-[calc(var(--header-h)+1rem)] lg:self-start"
+          className="border-b border-border pb-5 lg:sticky lg:top-[calc(var(--header-h)+1rem)] lg:max-h-[calc(100dvh-var(--header-h)-2rem)] lg:self-start lg:overflow-y-auto lg:border-b-0 lg:border-r lg:pb-0 lg:pr-5"
         >
           <div className="space-y-3">
             <div className="relative">
@@ -474,7 +474,7 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search settings…"
                 aria-label="Search settings sections"
-                className="h-9 pl-8"
+                className="h-9 rounded-none border-x-0 border-t-0 pl-8 shadow-none"
               />
             </div>
 
@@ -503,11 +503,11 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
                               data-testid={`settings-section-${s.id}`}
                               title={modified ? `${s.blurb} (unsaved changes)` : s.blurb}
                               className={cn(
-                                'group inline-flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                                'group inline-flex items-center gap-2.5 border-l-2 px-3 py-2 text-left text-sm font-medium transition-colors',
                                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                                 active
-                                  ? 'bg-accent text-foreground'
-                                  : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
+                                  ? 'border-primary bg-accent/45 text-foreground'
+                                  : 'border-transparent text-muted-foreground hover:bg-accent/30 hover:text-foreground',
                               )}
                             >
                               <Icon
@@ -557,15 +557,26 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
           </div>
         </nav>
 
-        {/* Section body. Grid sections bring their own SettingsCards (full width, no
-            outer Card); simpler sections sit on the shared single-card surface. */}
-        <div className="min-w-0">
+        {/* Section body. The active section uses the same flat, divider-led grammar as
+            the Security Command Center instead of a card nested inside the page. */}
+        <div className="min-w-0 space-y-5">
+          <header className="flex items-start gap-3 border-b border-border pb-4">
+            <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center border border-border bg-surface text-primary">
+              <ActiveSectionIcon className="h-4 w-4" aria-hidden />
+            </span>
+            <div className="min-w-0">
+              <h2 className="text-xl font-semibold tracking-tight text-foreground">
+                {activeDef.title}
+              </h2>
+              <p className="mt-1 max-w-3xl text-sm leading-relaxed text-muted-foreground">
+                {activeDef.blurb}
+              </p>
+            </div>
+          </header>
           {isGrid ? (
             renderSection(activeDef)
           ) : (
-            <Card>
-              <CardContent className="p-6 sm:p-7">{renderSection(activeDef)}</CardContent>
-            </Card>
+            <section className="border-b border-border pb-6">{renderSection(activeDef)}</section>
           )}
 
           {/* Sticky save/discard bar — only visible while there are unsaved changes.

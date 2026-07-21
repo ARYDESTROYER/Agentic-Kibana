@@ -15,7 +15,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 
 import { ROUTES, renderRoute, FEATURES, type FeatureChild } from '../registry';
-import { RouterProvider, useRoute } from '../router';
+import { pageHash, RouterProvider, useRoute } from '../router';
 import { ThemeProvider } from '../theme';
 import { PrefsProvider } from '../prefs';
 import { AuthProvider } from '../auth';
@@ -165,6 +165,13 @@ describe('RouterProvider — initial hash normalization', () => {
     });
     expect(currentPage).toBe('overview');
     expect(window.location.hash).toBe('#/overview');
+  });
+
+  it('serializes the selected Case Manager case for refresh-safe handoff', () => {
+    expect(pageHash('case_manager', { caseId: 'case/alpha 01' })).toBe(
+      '#/case_manager?caseId=case%2Falpha%2001',
+    );
+    expect(pageHash('cases')).toBe('#/cases');
   });
 });
 

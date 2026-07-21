@@ -1,4 +1,4 @@
-# TLSOC Agentic Triage Suite — backend runtime dependencies
+# Agentic SOC — backend runtime dependencies
 # Pinned for reproducibility. Python 3.11.
 
 # --- Web framework / server ---

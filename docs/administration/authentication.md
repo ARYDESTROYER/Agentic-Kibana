@@ -1,11 +1,11 @@
 ---
 title: Authentication
-description: Configure local authentication, sessions, MFA, and OIDC SSO in TLSOC 0.1.
+description: Configure local authentication, sessions, MFA, and OIDC SSO in Agentic SOC 0.1.
 ---
 
 # Authentication
 
-TLSOC supports local password authentication, signed sessions, TOTP MFA, recovery
+Agentic SOC supports local password authentication, signed sessions, TOTP MFA, recovery
 codes, and OIDC sign-in. Authentication is **disabled by default** for compatibility
 with isolated development and evaluation setups. Enable it before shared use.
 
@@ -45,13 +45,13 @@ TOTP setup returns a secret and recovery codes once. Store recovery codes outsid
 application. Confirmation is required before MFA becomes active. Disabling MFA is a
 sensitive operation and requires the authenticated account flow.
 
-TLSOC obfuscates stored TOTP secrets with `MFA_OBFUSCATION_KEY`, or derives a key from
+Agentic SOC obfuscates stored TOTP secrets with `MFA_OBFUSCATION_KEY`, or derives a key from
 the JWT secret when no dedicated key is supplied. For a durable deployment, configure
 a separate stable key and include it in secret backup procedures.
 
 ## OIDC SSO
 
-TLSOC includes Google, Microsoft, and generic OIDC provider shapes. Configure provider
+Agentic SOC includes Google, Microsoft, and generic OIDC provider shapes. Configure provider
 metadata as organization preferences and supply each client secret through the secret
 tier. Register the callback URL ending in `/api/auth/sso/callback` at the identity
 provider.

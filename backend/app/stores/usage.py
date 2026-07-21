@@ -41,6 +41,23 @@ class UsageStore(UsageRepository):
         except Exception as exc:  # noqa: BLE001
             logger.error("USAGE WRITE FAILED (role=%s model=%s): %s", doc.role, doc.model, exc)
 
+    async def records(self, *, limit: int = 1000) -> list[dict[str, Any]]:
+        """Newest-first bounded ledger rows for the privileged data export."""
+        cap = max(1, min(int(limit or 1000), 5000))
+        try:
+            resp = await self._es.search(
+                USAGE_READ_PATTERN,
+                {
+                    "size": cap,
+                    "query": {"match_all": {}},
+                    "sort": [{"ts": {"order": "desc"}}],
+                },
+            )
+            return [h.get("_source", {}) or {} for h in resp.get("hits", {}).get("hits", [])]
+        except Exception as exc:  # noqa: BLE001 — export degrades per scope
+            logger.warning("usage records read failed: %s", exc)
+            return []
+
     async def summary(self, window_hours: int = 24, case_id: str | None = None) -> dict[str, Any]:
         now = now_utc()
         from_millis = to_millis(now) - window_hours * 3600 * 1000

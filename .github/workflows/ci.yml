@@ -47,6 +47,9 @@ jobs:
       - name: Install API contract generator
         run: npm ci --prefix ../webui --ignore-scripts
       - name: Check canonical release version
+        env:
+          TLSOC_SOURCE_REF: ${{ github.ref }}
+          TLSOC_RELEASE_CHANNEL: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && 'stable' || 'testing' }}
         run: python ../scripts/check_version.py
       - name: Check public documentation structure and links
         run: python ../scripts/check_docs.py
@@ -77,16 +80,30 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: webui/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: docs/requirements.txt
       - name: Install dependencies
         run: npm ci
+      - name: Install versioned Help Center dependencies
+        run: python -m pip install --requirement ../docs/requirements.txt
+      - name: Test versioned Help Center artifact contract
+        run: python ../scripts/test_build_docs_bundle.py
       - name: Lint (jsx-a11y and hooks are errors)
         run: npm run lint
       - name: Run design-system gates
         run: npm run gates
       - name: Run Vitest
         run: npm test
-      - name: Type-check + build (tsc --noEmit && vite build)
-        run: npm run build
+      - name: Build versioned Help Center + type-check + Vite bundle
+        env:
+          TLSOC_RELEASE_CHANNEL: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && 'stable' || 'testing' }}
+          TLSOC_BUILD_SHA: ${{ github.sha }}
+        run: |
+          export TLSOC_BUILD_DATE="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          npm run build
 
   # A single aggregate check to require in branch protection.
   ci:

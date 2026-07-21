@@ -16,6 +16,8 @@ describe('casedetail/shared — escalate action copy', () => {
     expect(esc.help).toMatch(/ESCALATED/);
     expect(esc.confirmBody).not.toMatch(/NEEDS_HUMAN/);
     expect(esc.help).not.toMatch(/NEEDS_HUMAN/);
+    expect(esc.confirmBody).not.toMatch(/tier|\bL[123]\b/i);
+    expect(esc.help).not.toMatch(/tier|\bL[123]\b/i);
     // The escalate verb still maps to the real backend verb (never invented, #3).
     expect(esc.wireAction ?? esc.key).toBe('escalate');
   });

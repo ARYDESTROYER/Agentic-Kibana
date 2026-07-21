@@ -509,6 +509,20 @@ class RagService:
             logger.warning("RAG list_documents failed: %s", exc)
             return []
 
+    async def snapshot_documents(self) -> list[dict[str, Any]]:
+        """Read existing document metadata without seeding or embedding.
+
+        Portable export must be a read-only snapshot: merely asking for an export
+        must not populate the corpus or incur an embedding call. The ordinary
+        Knowledge page continues to use :meth:`list_documents` and its lazy-seed
+        contract; this narrow seam exposes only what is already persisted.
+        """
+        try:
+            return await self._store.list_documents()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("RAG snapshot failed: %s", exc)
+            return []
+
     async def get_document(self, document_id: str) -> dict[str, Any] | None:
         """A document + its chunks (as dicts), or None if no such document. Never raises."""
         try:

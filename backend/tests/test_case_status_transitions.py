@@ -80,7 +80,9 @@ def test_set_disposition_rejects_unknown(client, mock_provider):
 
 def test_escalate_then_deescalate(client, mock_provider):
     cid = _create_case(client, mock_provider, "203.0.113.13")
-    r = _action(client, cid, action="escalate", level=3, reason="tier3")
+    # The legacy `level` input remains wire-compatible, but current operator
+    # surfaces render the resulting lifecycle state simply as Escalated.
+    r = _action(client, cid, action="escalate", level=3, reason="requires analyst action")
     assert r.json()["status"] == "escalated"
     assert r.json()["escalation_level"] == 3
     r = _action(client, cid, action="deescalate")
@@ -174,3 +176,19 @@ def test_legacy_case_dict_without_new_fields_validates():
     assert c.status == CaseStatus.NEEDS_HUMAN
     assert c.disposition is None
     assert c.case_number == ""
+
+
+def test_escalation_wire_fields_are_marked_compatibility_only(client):
+    """Generated API docs must not present the retained wire integers as tiers."""
+    schemas = client.app.openapi()["components"]["schemas"]
+
+    case_flag = schemas["Case"]["properties"]["escalation_level"]
+    assert case_flag["title"] == "Escalated compatibility flag"
+    assert case_flag["deprecated"] is True
+    assert "numbered tiers" in case_flag["description"]
+
+    for action_schema in ("CaseAction", "BulkCaseAction"):
+        legacy_input = schemas[action_schema]["properties"]["level"]
+        assert legacy_input["title"] == "Legacy escalation compatibility value"
+        assert legacy_input["deprecated"] is True
+        assert "single Escalated state" in legacy_input["description"]

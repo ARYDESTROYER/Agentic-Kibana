@@ -46,6 +46,7 @@ import {
   SelectItem,
 } from '@/ui/select';
 import { useAnnouncer } from './announcer';
+import { LoadingBar } from './LoadingBar';
 import { semanticColor } from './palette';
 import { ProvenanceTag, type Provenance } from './ProvenanceTag';
 
@@ -400,10 +401,18 @@ export function DataTable<T>({
       className={cn(
         // Clean OpenSearch card: hairline border, soft elevation, clipped so the
         // header row + rounded corners stay crisp. Borders over heavy shadow.
-        'overflow-hidden rounded-lg border border-border bg-card shadow-elev1',
+        'relative overflow-hidden rounded-lg border border-border bg-card shadow-elev1',
         className,
       )}
+      aria-busy={loading}
     >
+      <LoadingBar
+        active={loading}
+        size="sm"
+        label={ariaLabel ? `Loading ${ariaLabel}` : 'Loading table'}
+        data-testid="data-table-loading-indicator"
+        className="absolute inset-x-0 top-0 z-20 rounded-none bg-transparent"
+      />
       <Table aria-label={ariaLabel}>
         <TableHeader sticky={sticky}>
           <TableRow className="hover:bg-transparent">

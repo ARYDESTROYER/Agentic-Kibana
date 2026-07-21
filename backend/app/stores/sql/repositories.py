@@ -360,6 +360,18 @@ class SqlUsageRepository(UsageRepository):
         except Exception as exc:  # noqa: BLE001
             logger.error("USAGE WRITE FAILED (role=%s model=%s): %s", doc.role, doc.model, exc)
 
+    async def records(self, *, limit: int = 1000) -> list[dict[str, Any]]:
+        """Newest-first bounded ledger rows for the privileged data export."""
+        cap = max(1, min(int(limit or 1000), 5000))
+        stmt = select(UsageRow).order_by(UsageRow.ts.desc(), UsageRow.id.desc()).limit(cap)
+        try:
+            async with self._sm() as session:
+                rows = (await session.execute(stmt)).scalars().all()
+            return [dict(row.doc or {}) for row in rows]
+        except Exception as exc:  # noqa: BLE001 — export degrades per scope
+            logger.warning("usage records read failed: %s", exc)
+            return []
+
     async def summary(self, window_hours: int = 24, case_id: str | None = None) -> dict[str, Any]:
         from collections import defaultdict
 

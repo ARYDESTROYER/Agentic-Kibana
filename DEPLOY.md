@@ -1,7 +1,7 @@
-# DEPLOY.md — Deploying TLSOC Agentic Triage Suite
+# DEPLOY.md — Deploying Agentic SOC
 
-This is the deployment guide for the **vendor-agnostic, self-hosted TLSOC Agentic
-Triage Suite**. The product is a read-only triage layer that consumes alerts from
+This is the deployment guide for the **vendor-agnostic, self-hosted Agentic SOC**.
+The product is a read-only triage layer that consumes alerts from
 **any** SIEM / EDR / XDR and turns raw alert volume into audited, cost-metered,
 human-reviewable cases.
 
@@ -10,6 +10,12 @@ default to `TLSOC_RELEASE_CHANNEL=testing`; set `stable` only while building the
 exact accepted `main` / `v0.1.0` commit. Version and channel are independent so a
 Testing candidate cannot report itself as Stable merely because it already carries
 the final SemVer.
+
+> **Release-topology status (2026-07-20):** the remote currently exposes
+> `Testing` and legacy/default `claude/main`; it does not expose literal `main` or
+> `v0.1.0`. Until the owner creates/renames and protects `main` (or deliberately
+> changes every workflow/document to another canonical name), only Testing
+> candidates exist. `claude/main` is not Stable by implication.
 
 > **The SIEM is NOT baked into the stack.** You connect your log source(s) from
 > the **first-run wizard** ("add a source") AFTER the stack is up — not in a
@@ -29,13 +35,13 @@ the final SemVer.
 
 ## 1. Overview — two deployment modes
 
-| | **Mode A — Agnostic stack (RECOMMENDED)** | **Mode B — Legacy ELK merge (optional)** |
+| | **Mode A — Agnostic stack (RECOMMENDED)** | **Mode B — Existing ELK attachment (optional)** |
 |---|---|---|
-| What runs | A self-contained stack: Postgres (+pgvector), Redis, the backend, and the standalone React + Tailwind + shadcn web UI (nginx). | Just the backend (+Redis) bolted into an existing ELK stack; the UI is the **archived Kibana plugin** (revive at your own risk). |
+| What runs | A self-contained stack: Postgres (+pgvector), Redis, the backend, and the standalone React + Tailwind + shadcn web UI (nginx). | The backend (+Redis) attached to an existing ELK stack; run the supported standalone web UI separately. |
 | Own state | PostgreSQL — **no Elasticsearch required** for the app's own bookkeeping. | The suite's own `tlsoc-agent-*` Elasticsearch indices. |
-| UI | Standalone SPA at `http://localhost:8080`. | Inside Kibana, as the `tlsocAgenticTriage` plugin. |
+| UI | Standalone SPA at `http://localhost:8080`. | The same standalone SPA; the old Kibana plugin is archived and unsupported. |
 | Log source | Connected from the wizard (pull or push). | Connected from the wizard (pull or push). |
-| When to use | New deployments; any SIEM/EDR/XDR; no Kibana dependency. | You already run Kibana 8.12.2 / 8.19.12 and want the UI inside it. |
+| When to use | New deployments; any SIEM/EDR/XDR; no Kibana dependency. | You already operate compatible Elasticsearch and want TLSOC state in dedicated ES indices. |
 | Compose file | `deploy/docker-compose.agnostic.yml` | `deploy/docker-compose.tlsoc.yml` (a service block to merge) |
 
 In **both** modes the agent's log-reading surface is the **connector layer**
@@ -68,7 +74,7 @@ backend choice is independent of where logs come from.
 | `tlsoc-postgres` | `pgvector/pgvector:pg16` | The app's OWN state (cases/audit/usage/config/cursor + RAG vectors). Replaces the `tlsoc-agent-*` ES indices. |
 | `tlsoc-redis` | `redis:7-alpine` | Enrichment + dedup cache (recommended; backend falls back to in-memory without it). |
 | `tlsoc-backend` | built from `backend/Dockerfile` | FastAPI + LangGraph agent. Started with `STATE_BACKEND=postgres`. Listens on `:8088`. |
-| `tlsoc-webui` | built from `webui/Dockerfile` | The standalone React + Tailwind + shadcn SPA served by nginx on `:80`, published as `:8080`. Proxies `/api/*` to the backend. |
+| `tlsoc-webui` | built from `webui/Dockerfile` with the repository-root context | The standalone React Console plus version-matched MkDocs Help Center, served by nginx on `:80` and published as `:8080`. Serves `/docs/<major.minor>/` locally and proxies `/api/*` to the backend. |
 
 ### 3.1 Configure `.env`
 
@@ -203,11 +209,12 @@ You can also pre-seed one pull source at boot via `TLSOC_ES_URL` +
 `TLSOC_ES_API_KEY` (mapped to `ES_URL` / `ES_API_KEY`).
 
 > **Honesty about scope.** Today's **pull** connectors are **Elasticsearch,
-> OpenSearch, and Wazuh** (Wazuh via its indexer). Wiring **multiple distinct pull
-> clusters simultaneously**, and **native PULL** for Splunk / Microsoft Sentinel /
-> QRadar / Chronicle / EDR-XDR vendors, are on the roadmap — those `SourceType`s
-> exist in the enum but do not yet ship a pull driver. Those vendors can push to
-> the suite today via the generic receivers below.
+> OpenSearch, and Wazuh** (Wazuh via its indexer). `PollerManager` fans out across
+> every enabled pull-source/feed pair with an independent durable cursor and
+> in-flight signature lock, so one deployment can poll multiple configured pull
+> clusters. Native PULL for Splunk / Microsoft Sentinel / QRadar / Chronicle /
+> EDR-XDR vendors remains outside 0.1; those vendors can push to the suite today
+> through the generic receivers below.
 
 ### 3.6 Connecting a PUSH source (webhook / HEC / syslog / queues / object stores)
 
@@ -258,9 +265,7 @@ listener port** by editing the `ports:` of `tlsoc-backend` in
 
 Then `docker compose -f deploy/docker-compose.agnostic.yml up -d` to apply.
 
-The **16 built-in push receivers** (`SourceType` → optional pip dependency; the
-core image is intentionally lean and ships **none** of these — install a
-receiver's deps only if you use it):
+The **16 built-in push receivers** (`SourceType` → optional pip dependency):
 
 | SourceType | Mode | Optional pip dep |
 |---|---|---|
@@ -281,14 +286,15 @@ receiver's deps only if you use it):
 | `azure_blob` | OBJECT_STORE | `azure-storage-blob` |
 | `file` | OBJECT_STORE / PUSH_SOCKET | none (stdlib tail) |
 
-Every optional client is imported **lazily**; configuring a receiver whose dep is
-missing returns a clear error carrying the exact `pip install` hint instead of
-crashing. **To add a connector's deps**, the simplest path is a one-line image
-overlay — create `backend/Dockerfile.extra` (or add to your own build) layering
-on the core image:
+Every optional client is imported **lazily**. The shipped Dockerfile's default
+`full` target installs the complete receiver dependency set; the deliberately
+smaller `core` target does not. A custom core-based deployment that configures a
+missing receiver gets a clear error with the exact `pip install` hint. If your
+organization deliberately publishes the `core` target under a site-specific image
+name, add only the required clients in a derived image, for example:
 
 ```dockerfile
-FROM tlsoc-agentic-triage-backend:0.1.0
+FROM registry.example/tlsoc-backend-core:0.1.0
 RUN pip install --no-cache-dir confluent-kafka boto3   # only what you need
 ```
 
@@ -398,13 +404,16 @@ curl -s http://localhost:8088/api/health
 - *Elasticsearch state backend (Mode B):* use Elasticsearch **snapshots** of the
   `tlsoc-agent-*` indices via your stack's snapshot repository.
 
-**Upgrades.** Pull the new code and rebuild in place (data in the volumes /
-indices is preserved; preference fields are additive with safe defaults and the
-built-in rule catalog is version-guarded so operator edits are never clobbered):
+**Upgrades.** Deploy an exact accepted tag or digest; do not run a generic
+`git pull` and assume the resulting branch is Stable. Once literal `main` is
+provisioned, pulling it receives only the last accepted Stable source, while
+pulling `Testing` receives the next integration candidate. Back up first and
+follow [`docs/operations/upgrades.md`](docs/operations/upgrades.md):
 
 ```bash
 cd <repo-root>
-git pull
+git fetch --tags origin
+git checkout v0.1.0   # replace with the exact accepted release tag
 docker compose -f deploy/docker-compose.agnostic.yml up -d --build
 ```
 
@@ -417,10 +426,12 @@ proxy is configured with 300s read/send timeouts for that reason.
 
 ---
 
-## 7. Mode B — Legacy ELK merge + Kibana plugin (optional)
+## 7. Mode B — Existing ELK attachment (optional)
 
-Use this only if you already run a Kibana 8.12.2 / 8.19.12 stack and want the UI
-**inside Kibana** with the suite's state in Elasticsearch.
+Use this only if you already operate a compatible Elasticsearch stack and want
+the suite's state in dedicated Elasticsearch indices. The supported interface is
+still the standalone web UI; add/run its service separately from the legacy merge
+block.
 
 ### 7.1 Add the backend to the existing stack
 
@@ -473,12 +484,13 @@ docker compose up -d --build tlsoc-backend tlsoc-redis
 docker exec tlsoc-backend curl -fsS http://localhost:8088/api/health ; echo
 ```
 
-### 7.3 Install the pre-built Kibana plugin
+### 7.3 Unsupported archived-plugin revival
 
-The plugin is **archived** (`archive/kibana-plugin/`) and ships **pre-built** in
-`archive/kibana-plugin/dist/`. It is no longer built/version-stamped in CI — the
-standalone webui is the sole supported surface. **Do not compile on the server.**
-Install the zip that matches your Kibana version, then restart Kibana:
+The plugin is **archived** (`archive/kibana-plugin/`) and is no longer built,
+tested, version-stamped, or shipped as a supported 0.1 surface. Existing committed
+zips are historical artifacts, not release deliverables. A site that elects to
+revive one owns compatibility and verification; never compile on a production
+server. The old matching artifacts were:
 
 | Running Kibana | Install this committed zip |
 |---|---|
@@ -491,11 +503,12 @@ docker exec kibana ./bin/kibana-plugin install file:///tmp/tlsocAgenticTriage-8.
 docker restart kibana
 ```
 
-The plugin talks to the backend through a Kibana server-side proxy and defaults to
+The archived plugin talks to the backend through a Kibana server-side proxy and defaults to
 `http://tlsoc-backend:8088` (resolves on the shared Docker network because the
 container is named `tlsoc-backend`). Override with `tlsocAgenticTriage.backendUrl`
-in `kibana.yml` if needed. Then open the **TLSOC Agentic Triage** app in Kibana
-and complete the same wizard described in §3.4.
+in `kibana.yml` if needed. Then open the archived **Agentic SOC** app in Kibana
+and complete the same wizard described in §3.4. This does not make the revived
+plugin part of the supported release.
 
 > The Kibana plugin folder is ephemeral; a `compose down/up` or image pull removes
 > it — just re-run the install + restart. (See `archive/kibana-plugin/BUILD.md`
@@ -511,7 +524,9 @@ and complete the same wizard described in §3.4.
   (e.g. nginx, Caddy, Traefik). The suite now ships **built-in API auth + RBAC +
   MFA + SSO** (default OFF — enable per §9); enable it (and set
   `TLSOC_AUTH_COOKIE_SECURE=true` behind TLS), and/or add proxy-level auth in
-  front. In Mode B, the Kibana plugin inherits Kibana's authenticated session.
+  front. A site that revives the unsupported archived Kibana plugin must assess
+  and own that plugin's separate session/proxy boundary; it is not part of the
+  supported production posture.
 - **Restrict the `:8088` backend port.** The compose files publish `8088:8088`
   for direct API access / debugging. In production, remove that mapping (the UI
   reaches the backend over the internal Docker network at

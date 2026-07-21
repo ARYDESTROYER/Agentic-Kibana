@@ -101,8 +101,10 @@ class CompletionResult:
     # the gateway threads these onto the UsageDoc + into cost_for's cache pricing.
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
-    # True when the result was served via a provider BATCH API (0.5× discounted).
+    # True when the result received a provider Batch/Flex discount (0.5× today).
     batch: bool = False
+    # Tier ACTUALLY reported by the provider, never merely the requested tier.
+    processing_tier: str = "standard"
 
 
 @dataclass
@@ -207,13 +209,19 @@ class AnthropicProvider(BaseProvider):
 # --------------------------------------------------------------------------- #
 class OpenAIProvider(BaseProvider):
     def __init__(self, api_key: str, base_url: str = "https://api.openai.com",
-                 service_tier: str | None = None) -> None:
+                 service_tier: str | None = None,
+                 fallback_to_standard: bool = True) -> None:
         self._key = api_key
-        self._client = httpx.AsyncClient(base_url=base_url, timeout=60.0)
+        # OpenAI recommends a longer client timeout for Flex because lower cost comes
+        # with intentionally higher/variable latency. Injected test clients are
+        # unaffected. Standard calls retain the historical 60-second timeout.
+        timeout = 600.0 if (service_tier or "").strip() == "flex" else 60.0
+        self._client = httpx.AsyncClient(base_url=base_url, timeout=timeout)
         # Optional real-time ``service_tier`` (Round 4). ``"flex"`` opts a live
         # completion into OpenAI's cheaper best-effort tier (higher latency, discounted);
         # ``None`` keeps the request shape byte-identical for the default path.
         self._service_tier = (service_tier or "").strip() or None
+        self._fallback_to_standard = bool(fallback_to_standard)
 
     async def complete(self, role, messages, model, temperature, max_tokens) -> CompletionResult:
         payload: dict[str, Any] = {
@@ -239,7 +247,26 @@ class OpenAIProvider(BaseProvider):
             resp.raise_for_status()
             return resp
 
-        resp = await with_retry(_post)
+        try:
+            resp = await with_retry(_post)
+        except ProviderError as exc:
+            # Flex is best-effort. OpenAI can return 429 when no Flex capacity is
+            # available, and an endpoint/model mismatch is surfaced as a 400. Retry
+            # once through the normal service only when explicitly allowed. The
+            # standard result below is NOT stamped as discounted.
+            msg = str(exc).lower()
+            flex_unavailable = (
+                self._service_tier == "flex"
+                and (
+                    exc.status == 429
+                    or (exc.status == 400 and ("flex" in msg or "service_tier" in msg))
+                )
+            )
+            if not (self._fallback_to_standard and flex_unavailable):
+                raise
+            logger.info("OpenAI Flex unavailable for %s; retrying at standard tier", model)
+            payload.pop("service_tier", None)
+            resp = await with_retry(_post)
         data = resp.json()
         text = data["choices"][0]["message"]["content"] or ""
         usage = data.get("usage", {})
@@ -257,12 +284,16 @@ class OpenAIProvider(BaseProvider):
         cached = int(details.get("cached_tokens", 0) or 0) if isinstance(details, dict) else 0
         prompt_tokens = int(usage.get("prompt_tokens", _estimate_tokens(str(messages))))
         uncached = max(prompt_tokens - cached, 0)
+        actual_tier = str(data.get("service_tier") or "standard").strip().lower()
+        is_flex = actual_tier == "flex"
         return CompletionResult(
             text=text,
             prompt_tokens=uncached,
             completion_tokens=int(usage.get("completion_tokens", _estimate_tokens(text))),
             model=model,
             cache_read_tokens=cached,
+            batch=is_flex,
+            processing_tier="flex" if is_flex else "standard",
         )
 
     async def embed(self, texts: list[str], model: str) -> EmbeddingResult:
@@ -718,9 +749,11 @@ def _make_anthropic(*, api_key: str = "", base_url: str | None = None, **_: Any)
 
 
 def _make_openai(*, api_key: str = "", base_url: str | None = None,
-                 service_tier: str | None = None, **_: Any) -> BaseProvider:
+                 service_tier: str | None = None,
+                 fallback_to_standard: bool = True, **_: Any) -> BaseProvider:
     return OpenAIProvider(api_key, base_url=base_url or "https://api.openai.com",
-                          service_tier=service_tier)
+                          service_tier=service_tier,
+                          fallback_to_standard=fallback_to_standard)
 
 
 def _make_mock(**_: Any) -> BaseProvider:

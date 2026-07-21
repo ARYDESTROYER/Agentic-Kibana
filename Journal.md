@@ -2954,3 +2954,422 @@
 - Tests: Complete Console suite passed `1,400/1,400` across 241 files; TypeScript/Vite production build passed with 3,157 modules; ESLint and `git diff --check` passed. Stable in-app Browser QA verified Open-before-Resolved ordering, the live arithmetic, the visible five-second option, unchanged text/stage-rail geometry, the flat flow's 14-unit first-node extension with fixed final node, zero desktop horizontal overflow, clean light/dark rendering, and no application console warnings/errors after reload.
 - Status: done.
 - Next: Operator visual review of the dark-theme Dashboard left open in the in-app browser. No deployment, staging, commit, or push was requested.
+
+### 2026-07-20 13:18Z — Codex release-and-bulk-actions implementer — Case Manager bulk actions, release channels, and documentation refresh started
+- Context: Expand multi-case Case Manager operations beyond reinvestigation, make Testing-versus-Stable release identity explicit in the application, and comprehensively synchronize operator/developer documentation for the two-branch promotion flow.
+- Did: Began auditing the existing human case-action endpoints, multi-select UI, build-time version/channel sources, branch/release automation, and all authoritative documentation. The browser workflow will verify the completed bulk menu and release badge; no Git push or Codex Security review will be performed.
+- Tests: Focused case-action/version tests, complete frontend validation, relevant backend contract tests, documentation/version checks, and live Browser QA pending.
+- Status: in-progress.
+- Next: Reuse canonical per-case analyst actions with safe partial-failure handling, introduce deterministic release metadata for Testing and Stable, then update and cross-check the full documentation set.
+
+### 2026-07-20 13:29Z — `/root/case_bulk_selection` — Case Manager bulk analyst workflow expanded
+- Context: Expanded the new Case Manager's selection workflow to match the mature Cases-page analyst action contract while preserving its compact split-pane design.
+- Did: Added a squared, theme-token-based Bulk actions dropdown with RBAC-gated Acknowledge, Assign, Add tag, Set status, Set disposition, Reinvestigate, and Resolve actions. Assignment and tagging use their status-neutral per-case endpoints; lifecycle/disposition actions use `/api/cases/bulk`; reinvestigation retains its bounded per-case pipeline. Added focused field dialogs, acknowledge/resolve/reinvestigate confirmations, progress reporting, authoritative queue/detail updates, mixed-selection semantics, and failed-selection retention with case-specific error summaries. Raw Close remains omitted because no explicit disposition is collected.
+- Tests: Case Manager suite passed 13/13; the combined Case Manager/release suite passed 21/21; scoped ESLint and TypeScript passed; the production build and diff hygiene passed. This agent's in-app Browser session was unavailable; the orchestrator completed the live pass later.
+- Status: complete.
+- Next: None; integrated live QA is recorded in the orchestrator completion entry below.
+
+### 2026-07-20 13:35Z — `/root/overview_refinement` — Trustworthy release identity complete
+- Context: Make Testing-versus-Stable identity explicit and auditable across source runs, CI, Docker browser bundles, backend diagnostics, and the top-right Console chrome without changing SemVer.
+- Did: Added one immutable Vite build identity, reconciled it with the public `/api/health/build-info` response, and replaced the ambiguous version chip with an always-visible `v0.1.0 · Testing/Stable` provenance popover. Only an explicit stable stamp can render Stable; missing/unknown/branch-like stamps and Console/backend mismatches fail safe to Testing. Stamped Vite's Docker build stage, made run-demo derive Stable only on literal `main` unless explicitly overridden, and added CI/ref/version guardrails. No branches, commits, pushes, docs, or Codex Security review were performed.
+- Tests: Backend API release tests passed 10/10; release/AppShell suites passed 22/22; TypeScript/Vite production build passed with 3,158 modules; scoped ESLint passed; OpenAPI/type drift check passed at 190 paths; canonical version, Testing/main ref-channel gates, shell syntax, and diff hygiene passed; the negative main+Testing pairing was correctly rejected.
+- Status: complete with a repository-governance prerequisite.
+- Next: The repository owner must create/rename/protect literal `main`, or intentionally retarget all Stable CI/docs/release references to `claude/main`; the current remote exposes only `Testing` and `claude/main`.
+
+### 2026-07-20 13:40Z — docs consistency reviewer — Release and Case Manager audit
+- Context: Performed a read-only accuracy review of release-channel/provisioning documentation and the Case Manager bulk-selection contract.
+- Did: Compared public docs with release workflow, build identity code, Case Manager implementation, lifecycle APIs, and risk-derivation behavior; reported corrections for historical-weight reconstruction, busy-state wording, audit attribution, Case Manager-specific pulse/action behavior, Stable badge fallback, bundle size, and remote-push status to the documentation implementer.
+- Tests: Documentation structure passed at 62 pages; version consistency and diff hygiene passed. No application tests were run.
+- Status: complete.
+- Next: Corrections were incorporated by the parent documentation implementer.
+
+### 2026-07-20 13:46Z — `/root/timeline_explainability` — Release and Case Manager documentation audit
+- Context: Audited and standardized public/operator documentation for the Testing-to-Stable release contract, Security Command Center, Case Manager, bulk selection, and case explainability.
+- Did: Added the dedicated Case Manager operator guide and linked it throughout the public docs; documented the actual remote-topology prerequisite, build/channel badge provenance, promotion and deployment workflow, Dashboard behavior, seven permission-gated bulk actions, partial-failure semantics, and six-tab workspace. Corrected risk explainability to describe persisted factors plus current-weight reconstruction and explicit historical-weight gaps; scoped terminal pulsing and top-right Take Action behavior to Case Manager; corrected bulk busy-state/audit wording, combined Critical/High drill-through, ACK/MTTA response timing, source-URL build mapping, current bundle size, and stale remote-push status.
+- Tests: Diff hygiene and version checks passed; documentation consistency passed with 62 public pages; strict MkDocs build passed. Application suites were run separately by the orchestrator.
+- Status: complete.
+- Next: Promote only after the literal protected `main` branch is provisioned.
+
+### 2026-07-20 13:46Z — Codex release-and-bulk-actions implementer — Case Manager bulk actions, release identity, and documentation refresh complete
+- Context: Complete the requested multi-case operations, make Testing/Stable identity truthful in the UI and build pipeline, and bring operator/developer/release documentation in sync.
+- Did: Integrated the seven-action, RBAC-aware Case Manager bulk menu with bounded neutral mutations, canonical lifecycle routes, confirmations, partial-failure retention, and authoritative refreshes. Added strict build-time Console provenance, public backend reconciliation, an always-visible channel badge, Docker/CI/local stamping, and fail-safe Testing downgrade behavior. Updated the complete release, deploy, environment, handoff, analyst, usage, API, compatibility, roadmap, changelog, and contributor documentation set, including a new Case Manager guide. Confirmed the current remote has `Testing` and `claude/main` but no literal `main`; no branch, commit, stage, push, deployment, or Codex Security review was performed.
+- Tests: Complete Console suite passed 1,412/1,412 across 243 files; complete backend suite passed 1,960/1,960 with the existing Elasticsearch fixture TLS warning; focused bulk/release suites passed 21/21; TypeScript/Vite production build passed with 3,158 modules and a 291.60 kB entry chunk; a separate explicitly stamped Stable Vite build embedded its supplied release SHA; ESLint, all five design gates, OpenAPI drift at 190 paths, version/ref guards, Compose validation, shell syntax, YAML parsing, 62-page documentation checks, strict MkDocs, and diff hygiene passed. In-app Browser QA in both theme states verified the seven-action menu, assign dialog/cancel path, Testing provenance popover, dark-theme dropdown, zero horizontal overflow, and no application console errors; it was left clean on Case Manager in dark mode.
+- Status: complete in the working tree.
+- Next: The owner should provision/protect literal `main`, push this candidate to `Testing`, complete acceptance, promote the same accepted tree to `main`, and build/tag it with explicit Stable provenance.
+
+### 2026-07-20 15:19Z — Codex console-standardization implementer — Console-wide UI and product cleanup started
+- Context: Correct Case Manager policy/heading presentation, add the requested appearance control, standardize navigation/loading/page treatment, overhaul Settings and Playbooks, clarify weak navigation areas, add bundled documentation access, and codify release/process rules.
+- Did: Began a source-and-visual audit of the affected Case Manager, shell, feature registry, Settings, Investigate, Automated Scans, Playbooks, documentation, and release surfaces. Created a temporary local-only working-memory file that will be deleted before handoff. No Codex Security review will be run.
+- Tests: Focused regressions, complete Console/backend suites, documentation gates, build/lint, and live Browser verification pending.
+- Status: in-progress.
+- Next: Split the bounded implementation tracks, integrate shared visual primitives and product routing, then verify the complete candidate.
+
+### 2026-07-20 15:32Z — `/root/overview_refinement` — Shell navigation and route-loading refinement started
+- Context: Modernize the shared sidebar/hamburger transitions, add a bottom Docs destination with honest bundled-doc freshness guidance, and standardize lazy-route loading without losing any registered destination.
+- Did: Began auditing the single feature registry, desktop/mobile navigation variants, existing motion and reduced-motion boundaries, shared loading primitives, and shell accessibility tests. Scope is presentation and routing only; no backend or security policy changes and no Codex Security review.
+- Tests: Focused navigation, accessibility, reduced-motion, lazy-fallback, lint, and build validation pending.
+- Status: in-progress.
+- Next: Preserve registry-derived navigation, implement the Docs shell and motion-safe fallbacks, then verify keyboard and responsive behavior.
+
+### 2026-07-20 15:20Z — `/root/case_bulk_selection` — Case Manager policy-note and appearance refinement started
+- Context: Make the false-positive auto-close note semantically accurate, remove the redundant embedded Overview divider, and refine the persisted System/Light/Dark appearance selector.
+- Did: Began auditing the Overview decision-policy derivation, embedded-versus-legacy layout boundary, theme state/persistence primitives, and existing focused tests. No deterministic case-decision behavior will be changed and no Codex Security review will be run.
+- Tests: Focused Overview, Case Detail layout, theme persistence, accessibility, scoped lint/typecheck, and production build pending.
+- Status: in-progress.
+- Next: Add explicit applicability coverage for the policy note, isolate the Case Manager-only divider removal, integrate the canonical appearance control, and verify the combined surface.
+
+### 2026-07-20 15:23Z — `/root/case_bulk_selection` — Case Manager policy-note semantics and divider complete
+- Context: Prevent the current disabled false-positive policy from misdescribing a historical case that was already auto-closed, and remove the duplicate rule above the embedded outcome heading.
+- Did: Suppressed the disabled-policy sentence only for terminal false-positive cases whose recorded decider is the agent, leaving the canonical Auto-closed-by-AI outcome visible and preserving current-policy notes for active, needs-human, and manually resolved cases. Removed only the embedded summary's top border while retaining its bottom grouping divider; the legacy Case Detail card path is unchanged.
+- Tests: Focused Overview suite passed 32/32; combined Overview/baseline/Case Detail layout suites passed 50/50, including five policy applicability combinations, legacy-presentation assertions, and accessibility. The existing jsdom chart-size warning remains confined to the baseline fixture.
+- Status: complete for the Case Manager portion; appearance integration remains in progress.
+- Next: Integrate and verify the canonical persisted System/Light/Dark segmented control.
+
+### 2026-07-20 15:25Z — `/root/playbooks_manager` — Operator Playbooks management started
+- Context: Turn the read-only playbook catalog into a safe management workflow for browsing, opening, creating, and editing operator-authored Markdown while preserving protected bundled content and deterministic decision authority.
+- Did: Began auditing the Markdown loader/registry, preferences path, audit infrastructure, RBAC permissions, existing Catalog UI, and test conventions. No Codex Security review will be run.
+- Tests: Focused backend API/loader tests, focused Console tests, typecheck/build/lint, and diff hygiene pending.
+- Status: in-progress.
+- Next: Add path-safe atomic operator-file mutations with registry reload and audit, then integrate the token-based Catalog editor and documentation.
+
+### 2026-07-20 15:26Z — `/root/case_bulk_selection` — Case Manager and appearance refinements complete
+- Context: Complete the immediate policy-note, embedded divider, and personal appearance-control corrections without introducing a second theme state path or changing deterministic case logic.
+- Did: Integrated the Case Manager-only policy-note applicability guard and flat-summary border correction, then replaced Settings' three separate theme cards with the shared compact Radix `SegmentedControl` ordered System / Light / Dark and labelled “Personal colour mode”. Theme changes still flow through `PrefsProvider.setThemeMode`, immediately apply to the document, and persist to both user preferences and the first-paint `soc.theme` cache.
+- Tests: Integrated Overview, baseline, Case Detail layout, and customization suites passed 60/60; scoped ESLint passed. The appearance implementation's TypeScript and production build passed after integration, and diff hygiene passed. A later workspace-wide typecheck attempt was temporarily blocked only by concurrent shell work referencing a not-yet-created `pages/Docs` module; the orchestrator will rerun the global gate after that sibling task lands.
+- Status: complete in this scope.
+- Next: Orchestrator live-browser visual QA of the compact appearance selector and divider-free embedded outcome, followed by the final workspace-wide typecheck/build once concurrent modules settle.
+
+### 2026-07-20 15:33Z — `/root/overview_refinement` — Shell navigation and route-loading refinement complete
+- Context: Finish the shared sidebar/hamburger modernization, add trustworthy in-app documentation discovery, and ensure lazy routes remain informative and motion-safe while loading.
+- Did: Kept navigation registry-derived while adding a pinned bottom Docs destination across desktop, mobile, and the command palette; the new Docs landing page visibly warns that its bundled index may lag and links every section to the canonical `main/docs` tree. Refined active-trail/sidebar width, chevron, and flyout transitions with an explicit reduced-motion path, retained the persisted Cmd/Ctrl+B hamburger behavior, and replaced generic lazy fallbacks with route-labelled status/skeleton/progress chrome whose loading indicator becomes static under reduced motion. No destination was removed by this scope and motion.dev remains outside the eager first-paint graph.
+- Tests: Focused navigation, route-registry, palette, Docs, lazy-fallback, reduced-motion, bundle-boundary, and accessibility suites passed 74/74 across 9 files; TypeScript passed; complete Console ESLint passed; the production Vite build passed with 3,158 modules and a 293.86 kB entry chunk; all five design gates and diff hygiene passed.
+- Status: complete in the shared working tree; no branch, commit, push, deployment, journal omission, or Codex Security review was performed.
+- Next: Orchestrator live-browser QA of the expanded/collapsed rail, mobile sheet, Docs cards, and cold-route fallback in both themes.
+
+### 2026-07-20 15:36Z — `/root/playbooks_manager` — Safe Playbooks file/API boundary complete
+- Context: Establish the backend boundary required by the operator Playbooks editor without allowing arbitrary filesystem access or changing case decisions.
+- Did: Added slug/path-contained operator Markdown create/open/update, a 256 KiB UTF-8 bound, symlink rejection, atomic replace with rollback, registry hot reload, protected bundled-file metadata, `playbooks:manage`, and append-only playbook mutation/reload audit events. Catalog responses expose ownership/editability without leaking server paths; packaged procedures remain readable but immutable.
+- Tests: Focused loader, management API, auth coverage, RBAC, hot-reload, and recommendation-only pipeline suites passed 44/44.
+- Status: backend milestone complete; Console management UI and docs in progress.
+- Next: Add browse/view/create/edit interactions to the Playbooks Catalog, then run frontend and integrated contract gates.
+
+### 2026-07-20 15:39Z — `/root/docs_release_audit` — Documentation and release-process audit started
+- Context: Audit the current product-documentation and release-process changes against the console-standardization request: shared UI rules, bundled documentation discovery, Testing-to-Stable promotion, legacy branch cleanup, temporary task memory, product navigation, Settings, and release metadata.
+- Did: Read the canonical handoff and agent rulebook, scoped the review to non-Playbooks documentation, and began cross-checking claims against the current working tree and release tooling.
+- Tests: Documentation, version, reference, and diff-hygiene checks pending.
+- Status: in-progress.
+- Next: Correct only evidence-backed documentation gaps, then run the repository documentation and release guards.
+
+### 2026-07-20 15:55Z — `/root/docs_release_audit` — Documentation and release-process audit complete
+- Context: Finish the non-Playbooks documentation and release-governance portion of the Console-standardization work without changing application behavior.
+- Did: Made the current Console UI standard the enforceable migration contract; documented the shell/loading, bottom Documentation freshness/canonical-source behavior, flat Settings frame, Entity investigation job, and hidden Automated Scans compatibility route across the handoff, usage, development, release, roadmap, and contributor guides. Normalized `CHANGELOG.md` to exactly one active `[Unreleased]` section, converted prior unpublished pseudo-releases to dated Development snapshots, and documented the final freeze/reopen/promote/tag rule. Added the safe one-time `Testing` to protected literal `main` migration sequence that preserves the legacy `claude/main` tip until Stable is proven. Confirmed the agent rulebook now defines temporary ignored `memory.md`, excludes transient local-run help from the development journal, and requires immutable version/tag/documentation discipline for every future release.
+- Tests: `scripts/check_docs.py` passed with 63 public pages; canonical, Testing, and Stable invocations of `scripts/check_version.py` passed at app 0.1.0 / docs 0.1; strict MkDocs built clean; the one-`[Unreleased]` and no-premature-0.1.0 assertions passed; `git diff --check` passed.
+- Status: complete.
+- Next: The orchestrator should rerun the complete application gates after all concurrent code changes settle, then the owner can commit/push the accepted Testing candidate and use the documented protected-main promotion sequence. No Stable tag exists yet.
+
+### 2026-07-20 15:58Z — `/root/playbooks_manager` — Operator Playbooks management complete
+- Context: Replace the read-only Playbooks catalog with a safe, SOC-styled workflow for browsing/opening procedures and creating/editing operator Markdown, while protecting bundled content and deterministic case authority.
+- Did: Added slug- and path-contained UTF-8 create/open/update APIs, reserved-name and symlink guards, a 256 KiB bound, atomic replace/rollback/hot reload, redacted reload summaries, bundled-versus-operator ownership metadata, append-only mutation/reload audit, `playbooks:manage` RBAC (including the custom-role matrix), and a `cases:read` gate on case-selection explainability. Intelligence now opens directly on Playbooks and provides a responsive plain-text source/editor sheet, protected/operator badges, permission-aware New/Edit controls, loading/error states, and mutation-authoritative post-save behavior. Synchronized the operator, API, permission, extension, usage, backend authoring, and changelog documentation. No delete endpoint was added because v0.1 has no audited safe-delete lifecycle; packaged procedures remain immutable. `engine/case_manager.py` is byte-identical.
+- Tests: Complete backend suite passed 1,968/1,968 (one existing Elasticsearch TLS fixture warning); complete Console suite passed 1,439/1,439 across 246 files. Focused Playbooks/RBAC suites passed 46/46 backend and 11/11 Console; TypeScript, full ESLint, production Vite build (3,158 modules), all five design gates, generated OpenAPI/type drift at 191 paths, version/docs consistency, strict MkDocs, and diff hygiene passed.
+- Status: complete in the shared working tree; no branch, commit, push, deployment, or Codex Security review was performed.
+- Next: Orchestrator live-browser QA of bundled open/read-only state plus operator create/edit/reopen in both themes, then integrated handoff.
+
+### 2026-07-20 16:16Z — Codex console-standardization implementer — Console-wide UX, Playbooks, and release governance complete
+- Context: Complete the requested Case Manager corrections, compact appearance selector, shell/page migration foundation, Settings overhaul, Playbooks management, loading feedback, bundled documentation access, and future release discipline.
+- Did: Made the false-positive policy note case-applicable only and removed the redundant embedded Case Manager divider; added the persisted icon-only System / Light / Dark selector; modernized the responsive registry-derived navigation with a pinned Docs destination; added route-aware reduced-motion-safe loading; replaced the Settings card maze with a searchable flat section rail; renamed and clarified Entity investigation; removed Automated Scans from primary navigation while preserving its compatibility route; added safe browse/open/create/edit workflows for operator Playbooks; and standardized the UI/release/documentation contracts. Case Manager multi-select now exposes Acknowledge, Assign, Add tag, Set status, Set disposition, Reinvestigate, and Resolve with RBAC and partial-failure handling. Added truthful `v0.1.0 · Testing/Stable` build identity and documented the one-time protected-`main` migration that preserves the legacy `claude/main` tip until Stable is proven. Deleted the ignored temporary `memory.md` before handoff. No Codex Security review was run.
+- Tests: Complete backend suite passed 1,968/1,968; complete Console suite passed 1,441/1,441 across 246 files; focused final Overview applicability suite passed 34/34. TypeScript/OpenAPI drift at 191 paths, complete ESLint, production Vite build with 3,158 modules and a 294.06 kB entry chunk, all five design gates, 63-page documentation validation, strict MkDocs, release/version guards, shell/YAML/Compose checks, Python compilation, and diff hygiene passed. Final in-app Browser QA covered Case Manager, all seven two-case bulk actions, Playbooks, Settings/appearance, Docs, responsive navigation, both themes, and case-specific policy states; the final QA console contained no warnings or errors.
+- Status: complete in the `Testing` working tree. No files were staged, committed, pushed, tagged, or deployed.
+- Next: Review the candidate on `Testing`; provision and protect literal `main`; merge the accepted Testing tree through review; run the full Stable gate against the exact merge SHA; then create the immutable annotated `v0.1.0` tag and publish matching docs/artifacts. Delete `claude/main` only after the new Stable branch and tag are verified.
+
+### 2026-07-20 16:42Z — Codex Case Manager UI implementer — Risk-factor alignment started
+- Context: Align every recorded-risk-factor meter to one common horizontal starting position in the Case Manager signal profile.
+- Did: Began tracing the shared risk-factor row markup and responsive layout from the supplied visual reference. The change is presentation-only; scoring, factors, tooltips, and deterministic decision behavior remain untouched.
+- Tests: Focused component tests, TypeScript/build checks, and in-app Browser verification pending.
+- Status: in-progress.
+- Next: Replace content-width label flow with one stable label column, add a regression assertion, and visually verify dark and light layouts.
+
+### 2026-07-20 16:47Z — Codex Case Manager UI implementer — Risk-factor alignment complete
+- Context: Finish the shared-baseline correction for the five recorded-risk-factor meters.
+- Did: Replaced five independently sized row grids with one three-column grid whose label width is calculated once from the longest factor. Volume, Velocity, Reputation, Diversity, and Asset criticality therefore share the same meter start while keeping their focusable explanations, values, semantics, and responsive remaining-width behavior. Added a structural regression assertion that all five progress bars are direct members of the shared grid. No scoring or decision logic changed, and no Codex Security review was run.
+- Tests: OverviewPanel passed 34/34; combined Case Manager and OverviewPanel passed 47/47; complete Console ESLint passed; TypeScript plus the production Vite build passed with 3,158 modules and a 294.06 kB entry chunk; diff hygiene passed. In-app Browser measurement confirmed all five meter starts at the identical x-coordinate in both dark and light themes, with no QA-window console warnings or errors.
+- Status: complete in the `Testing` working tree; nothing staged, committed, pushed, tagged, or deployed.
+- Next: Review the aligned signal profile visually, then include this presentation-only change with the existing Testing candidate when ready.
+
+### 2026-07-21 06:15Z — Codex table-loading UI implementer — Animated loading feedback started
+- Context: Make the Cases data-table loading state visibly active instead of reading as a frozen set of placeholder rows.
+- Did: Began tracing the shared DataTable skeleton and motion primitives from the supplied dark-theme reference. Confirmed the skeleton intended to shimmer but its configured keyframes were not emitted into the production CSS, leaving the placeholders static.
+- Tests: Shared DataTable skeleton tests, build/lint, reduced-motion behavior, and in-app Browser verification pending.
+- Status: in-progress.
+- Next: Restore the shimmer keyframes, add an unambiguous table-level indeterminate indicator, and verify the loading state without layout shift.
+
+### 2026-07-21 06:23Z — Codex table-loading UI implementer — Animated loading feedback complete
+- Context: Finish the Cases table loading-state animation while preserving the existing row-shaped placeholders and accessibility behavior.
+- Did: Added the missing emitted `shimmer` keyframes and refined the neutral sweep used by every shared Skeleton. Added a slim overlayed indeterminate accent line to DataTable loading states, exposed `aria-busy` plus a labelled progressbar, and kept the reduced-motion path as a calm full-width indicator. The overlay does not consume layout space, so loaded rows do not jump. Added regression coverage for the busy state, progress semantics, animation utility, and reduced-motion fallback. No data behavior or decision logic changed, and no Codex Security review was run.
+- Tests: Shared skeleton tests passed 6/6; the expanded DataTable/Cases set passed 16/16 across five files; complete Console ESLint passed; TypeScript and the production Vite build passed with 3,158 modules and a 294.07 kB entry chunk; all five design gates and diff hygiene passed. The built CSS contains both the keyframes and 1.65-second shimmer declaration. In-app Browser QA verified the real Cases loading state reported `bar-indeterminate` plus `shimmer`, cleared both loaders after completion, retained 50 loaded rows, and produced no QA-window console warnings or errors.
+- Status: complete in the `Testing` working tree; nothing staged, committed, pushed, tagged, or deployed.
+- Next: Review the Cases refresh/loading transition visually, then include this presentation-only fix with the existing Testing candidate.
+
+### 2026-07-21 09:06Z — Codex documentation-platform implementer — Versioned in-app Help Center started
+- Context: Replace the GitHub-only Docs directory with one same-origin documentation portal that defaults to how-to-use guidance while retaining administration, deployment/operations, reference, and release material for the installed app version.
+- Did: Began auditing the React Docs route, MkDocs taxonomy/version configuration, Vite/nginx/Docker delivery paths, release metadata, and documentation tests. Created the ignored temporary `memory.md` scratchpad for this multi-track implementation; it will be deleted before handoff. No Codex Security review will be run.
+- Tests: Documentation, webui, packaging/config, and in-app Browser gates pending.
+- Status: in-progress.
+- Next: Establish the versioned same-origin artifact pipeline, rebuild the in-app Help Center navigation against local articles, then validate development and production-shaped serving.
+
+### 2026-07-21 09:10Z — `/root/docs_information_architecture` — Help Center information architecture started
+- Context: Reshape the existing Markdown corpus into one bundled, installed-version documentation portal whose default path is product use, without duplicating the administrator, operations, reference, or release material.
+- Did: Began auditing the current MkDocs navigation, public-page checks, version language, and existing analyst/admin/operator guides. Scope is documentation configuration and Markdown only; the React page and documentation delivery pipeline remain with the parent task. No Codex Security review will be run.
+- Tests: Strict MkDocs, documentation links/page policy, release/version checks, and diff hygiene pending.
+- Status: in-progress.
+- Next: Reuse and regroup the strongest existing guides under a user-first taxonomy, add only the missing portal orientation/version semantics, and validate the complete documentation site.
+
+### 2026-07-21 09:09Z — `/root/help_center_ui` — In-app Help Center UI started
+- Context: Replace the GitHub-only React Docs landing with a same-origin, version-aware product Help Center that prioritizes how-to-use guidance while keeping administration, operations, reference, and release material discoverable.
+- Did: Audited the existing Docs page/tests, release identity contract, shared page primitives, and the documented 0.1 documentation-line routing model. Scoped this worker to the Help Center UI and focused frontend tests; the artifact/serving pipeline remains with the orchestrator.
+- Tests: Focused Docs tests, accessibility, lint, and TypeScript pending.
+- Status: in-progress.
+- Next: Implement local search, category navigation, installed-version/channel context, and same-origin `/docs/{major.minor}/...` article links with GitHub demoted to a secondary source action.
+
+### 2026-07-21 09:08Z — `/root/docs_bundle_pipeline` — Same-origin documentation artifact pipeline started
+- Context: Build the repository MkDocs source into an immutable, version-matched Help Center served by both the local Vite console and production nginx without committing generated site files.
+- Did: Audited the existing MkDocs, release metadata, Vite, Docker, Compose, nginx, CI, and documentation publishing paths; confirmed the current web image build context cannot access the repository-level docs source.
+- Tests: Focused artifact-layout, Vite-serving, nginx-routing, Docker/Compose, version-guard, and production-build validation pending.
+- Status: in-progress.
+- Next: Add one deterministic bundle builder and wire it into local development, console builds, the root-context web image, nginx, and release guards.
+
+### 2026-07-21 09:26Z — `/root/docs_bundle_pipeline` — Version-matched Help Center packaging complete
+- Context: Make the installed manual a real same-origin release artifact at `/docs/0.1/`, not a GitHub-only link or a React-route placeholder.
+- Did: Added an atomic MkDocs bundle builder derived from root `VERSION`, a deterministic manifest and truthful `/docs/` + `/docs/installed/` aliases, a one-command pinned-toolchain bootstrap, Vite development/preview static boundaries, nginx static routing with real 404s, a narrow root Docker context, a dedicated Docker docs stage, Compose wiring, CI installation/contract tests, and release-version guards. Fixed two integration defects found during adversarial QA: Vite directory URLs now resolve concrete MkDocs `index.html` rather than the SPA, and nginx emits relative redirects so published ports and TLS ingresses are preserved. Generated output is ignored and never committed.
+- Tests: 4/4 Python artifact tests and 4/4 Vitest identity/routing tests passed; `npm run docs:check`, TypeScript, ESLint, strict MkDocs, documentation/version guards, Python compile, Compose config, diff hygiene, Vite dev, Vite preview, Dockerfile `--check`, a full root-context multi-stage image build, nginx startup, OCI labels, canonical/article 200s, missing-docs 404, alias redirects, and Console SPA isolation all passed.
+- Status: complete for build/serve packaging; final combined repository gates remain with the orchestrator.
+- Next: Keep `/docs/<major.minor>/` canonical in the Help Center UI, retain public Latest Stable/Development links only as secondary external choices, and rerun the complete Console suite after all parallel UI/prose edits settle.
+
+### 2026-07-21 09:22Z — `/root/docs_information_architecture` — User-first Help Center information architecture complete
+- Context: Complete one version-aware documentation portal that serves daily product use first while retaining administration, deployment/operations, technical reference, and release/version guidance without duplicating content.
+- Did: Renamed the MkDocs surface to the TLSOC Help Center and regrouped all 63 public pages under exactly five top-level paths: Use the product, Administer, Deploy and operate, Reference, and Releases and versions. Reused the existing analyst, automation, intelligence, source, administration, operations, concept, reference, and development articles in that hierarchy. Rebuilt the Help Center home around user/analyst jobs and documented the installed `/docs/0.1/` guide as authoritative for the running build; Latest Stable is for upgrade/support comparison and Development is preview-only. Removed the old blanket-freshness/GitHub-primary contract from the public UI standard and release copy: GitHub is now explicitly a secondary source/edit destination. Added a documentation gate that preserves the user-first top-level taxonomy and keeps the Help Center home first. No Codex Security review was run.
+- Tests: `scripts/check_docs.py` passed all 63 public pages; `scripts/check_version.py` passed canonical, Testing, literal-main Stable, and `v0.1.0` Stable-tag modes; strict MkDocs built clean; diff hygiene passed.
+- Status: complete in the shared `Testing` working tree; no files were staged, committed, pushed, tagged, or deployed.
+- Next: Parent task should integrate the React Help Center and same-origin artifact pipeline, rerun combined docs/application packaging gates, and visually verify the five-section navigation plus installed-version context.
+
+### 2026-07-21 09:14Z — `/root/help_center_ui` — In-app Help Center UI complete
+- Context: Finish the Console-side discovery experience for the installed, version-matched Help Center while keeping external Stable and Development material clearly secondary.
+- Did: Replaced the GitHub directory cards with one accessible Help Center hub that defaults to “Use the product”, exposes Administer, Deploy & operate, and Reference & releases categories, locally filters all 28 curated guides, and opens every guide on the same origin under `/docs/{major.minor}/`. The page derives product version, documentation line, and Testing/Stable channel from the immutable Console release identity; it explains that the bundled guide is authoritative for the installation. GitHub source, public Latest Stable, and Testing development source remain explicit external links only. Styling uses the shared flat command-center tokens, responsive layout, focus states, and reduced-motion fallbacks in both themes; no new dependency or documentation renderer was introduced.
+- Tests: Focused Help Center suite passed 7/7 including category navigation, cross-category search/empty recovery, local-route contracts, external-link boundaries, release-version derivation, and jest-axe accessibility. Integrated Docs/nav/route/rail set passed 48/48. Scoped ESLint, TypeScript, and diff hygiene passed.
+- Status: complete in the shared `Testing` working tree; nothing staged, committed, pushed, tagged, or deployed.
+- Next: Orchestrator integrates the `/docs/0.1/` artifact pipeline, runs live dark/light and responsive Browser QA against real bundled articles, then completes the workspace-wide release gate.
+
+### 2026-07-21 09:15Z — `/root/help_center_quality_audit` — Help Center independent quality audit started
+- Context: Independently verify the new Console Help Center and MkDocs information architecture for truthful installed-version semantics, same-origin route integrity, accessibility, responsive/theme consistency, and bounded search claims.
+- Did: Read the current handoff and canonical agent rules, reviewed the completed worker milestones, and scoped this pass to read-only product-quality validation with no security review.
+- Tests: Focused source, route, documentation, UI, and browser checks pending.
+- Status: in-progress.
+- Next: Trace every curated Help Center target to the generated MkDocs URL map, exercise the UI and bundled articles across themes/viewports, and report only concrete defects or verified acceptance.
+
+### 2026-07-21 09:26Z — `/root/help_center_quality_audit` — Help Center independent quality audit complete
+- Context: Complete the independent acceptance pass for the version-matched, same-origin Help Center without performing a security review.
+- Did: Verified all 28 curated Console guide targets against the generated 63-page MkDocs bundle and corrected the Console copy so its local filter truthfully describes a featured-guide directory rather than claiming full-corpus search. Found and handed off three material integration defects that were corrected in the shared tree: Vite directory URLs falling through to the Console SPA, a local documentation-build dependency path that broke the documented `npm run build`, and release/source-link semantics that could advertise unavailable or mismatched documentation. Flagged one remaining resolved-channel condition for the orchestrator and handed off the visual token/theme convergence because the in-app Browser backend was unavailable to this worker.
+- Tests: Strict bundle generation passed; documentation policy and release/version checks passed; all 28 curated targets exist; a generated-site audit checked 64 HTML pages and 5,032 local `href`/`src` references with zero broken targets; Vite request QA confirmed canonical/slashless redirects, MkDocs bodies for landing and Case Manager, 200 assets/search data, 404 missing docs, and an intact Console SPA root; `npm run docs:check` passed; focused Docs/config tests passed 13/13; scoped ESLint and TypeScript checks passed. Production-shaped container validation was independently reported green by the artifact-pipeline worker. Visual Browser QA was not claimed because no browser instance was available.
+- Status: complete in the shared `Testing` working tree; no files were staged, committed, pushed, tagged, or deployed.
+- Next: Orchestrator should gate Latest Stable on the resolved release channel, finish live dark/light and responsive article QA, align MkDocs appearance/theme persistence with the Console design tokens, and run the final combined release gates.
+
+### 2026-07-21 09:28Z — `/root/docs_theme_alignment` — Help Center theme alignment started
+- Context: Bring the same-origin MkDocs article experience into visual and theme continuity with the TLSOC Console while preserving MkDocs accessibility and its independent theme control.
+- Did: Began auditing the Console design tokens and fonts, existing MkDocs assets/overrides, and the `soc.theme` persistence contract. Scope is documentation presentation plus pre-paint theme synchronization only; the React Help Center, content taxonomy, and artifact pipeline remain untouched. No Codex Security review will be run.
+- Tests: Static theme-contract checks, strict MkDocs, generated-asset inspection, and focused browser-independent theme behavior pending.
+- Status: in-progress.
+- Next: Add local documentation CSS/JavaScript assets, verify dark/light/system resolution without flash, and build the complete Help Center strictly.
+
+### 2026-07-21 09:37Z — `/root/docs_theme_alignment` — Help Center theme alignment complete
+- Context: Finish visual and preference continuity between the Console Help Center hub and its version-matched MkDocs article pages.
+- Did: Replaced the old Shoo/lime presentation with the Console command-center palette: #050505 dark canvas, ultraviolet #cdbdfa accent, quiet light tokens, flat hairline surfaces, Inter/JetBrains/system font stacks, and compact Console typography. Removed the Google Fonts dependency, decorative grid, moving lime ticker, heavy code shadow, and square marketing-card treatment. Added a blocking pre-paint bridge from `localStorage['soc.theme']` that resolves explicit Light/Dark or System media preference before the body renders; MkDocs keeps its accessible toggle, which now writes the same Console preference, follows System changes, and synchronizes across tabs. Both Material palettes now declare deep-purple instead of lime. Added focused theme-contract tests. No Codex Security review was run.
+- Tests: Theme contract passed 3/3, including a fresh strict generated bundle and pre-body script-order check; `node --check` passed; strict 63-page Help Center bundle, documentation consistency, version metadata, and diff hygiene passed. Measured foreground/prose/muted/accent contrast ranges from 5.73:1 to 16.72:1 across the two themes. Live Browser QA remains with the orchestrator because this worker had no available in-app Browser backend.
+- Status: complete in the shared `Testing` working tree; nothing staged, committed, pushed, tagged, or deployed.
+- Next: Orchestrator should run the integrated Console/article Browser pass in dark, light, System, and narrow layouts, then include `python3 -m unittest scripts.test_docs_theme -v` in the final documentation gate.
+
+### 2026-07-21 09:29Z — `/root/docs_bundle_pipeline` — Same-origin documentation pipeline final integration verified
+- Context: Close the artifact/serving work after all Help Center UI and information-architecture edits landed in the shared Testing tree.
+- Did: Rechecked caller-relative bundle output, confirmed generated files exist only under the ignored `webui/public/docs/`, verified all temporary QA ports and containers were stopped, and reran the artifact, release, documentation, frontend, Compose, and Dockerfile contract gates. Reported the remaining stale prose that still describes `npm run build` as app-only to the orchestrator for the documentation owner to correct. No Codex Security review was run.
+- Tests: 4/4 Python bundle tests; 4/4 Vitest bundle-identity tests; `npm run docs:check`; TypeScript; complete ESLint; version and 63-page documentation checks; Python compile; Compose config; Dockerfile `--check`; and diff hygiene all passed. Earlier production-shaped QA also passed a full multi-stage image build, nginx startup, OCI labels, canonical/article 200s, real documentation 404s, alias redirects, and Console SPA isolation.
+- Status: complete in the shared `Testing` working tree; no files were staged, committed, pushed, tagged, or deployed.
+- Next: The orchestrator should finish the parallel docs-theme and resolved-channel UI fixes, update the stale build-command prose, run the final combined release gate, and review the Testing candidate before promotion.
+
+### 2026-07-21 09:54Z — Codex documentation-platform implementer — Versioned in-app Help Center complete
+- Context: Finish one authoritative product Help Center that runs alongside the installed Console instead of sending every reader to GitHub, while keeping administration, deployment, technical reference, and release/version guidance in the same portal.
+- Did: Shipped the same-origin `/docs/0.1/` MkDocs artifact with truthful `/docs/` and `/docs/installed/` aliases, real missing-page 404s, a release manifest, Vite/nginx/Docker/Compose/CI integration, and an in-Console discovery hub for 28 curated guides. Reorganized all 63 public articles under Use the product, Administer, Deploy and operate, Reference, and Releases and versions; made the installed guide authoritative and GitHub secondary; added Testing/Stable identity and mismatch handling; and aligned article styling with the Console's flat command-center Light/Dark/System palette. Browser QA found and corrected one reverse preference defect: changing appearance inside a guide now persists the signed-in user preference as well as the `soc.theme` first-paint mirror, so returning to the Console preserves the choice. Updated build/test/release prose and current test counts, then deleted the ignored temporary `memory.md`. No Codex Security review was run.
+- Tests: Complete backend suite passed 1,968/1,968; complete Console suite passed 1,451/1,451 across 247 files. Documentation artifact tests passed 4/4, theme tests 3/3, focused Help Center/release tests 21/21, all five design gates, complete ESLint, OpenAPI/type drift at 191 paths, strict 63-page MkDocs build, documentation/version checks in Testing/main/tag modes, Python/JavaScript syntax, Compose config, production Vite build, route/redirect/search/404 matrix, and diff hygiene passed. In-app Browser QA verified the Console Help Center, curated filtering, installed article rendering, full-text search, dark/light inheritance in both directions, and zero browser console errors.
+- Status: complete in the `Testing` working tree. No files were staged, committed, pushed, tagged, deployed, or published.
+- Next: Review the Testing candidate; when accepted, promote it through the protected literal `main` branch, rerun the exact Stable gate, create the immutable `v0.1.0` tag, and publish the matching Stable documentation aliases.
+
+### 2026-07-21 11:32Z — Codex documentation UI implementer — Previous docs interface restoration started
+- Context: Restore the documentation experience's previous visual UI at the user's request without regressing the new same-origin, version-matched Help Center, user-first information architecture, or release semantics.
+- Did: Re-read the project handoff/process rules and scoped this pass to presentation and interaction parity. The installed `/docs/0.1/` artifact, local routes, version identity, content taxonomy, and GitHub-as-secondary behavior remain authoritative. No Codex Security review will be run.
+- Tests: Prior/current UI diff audit, focused documentation and Console tests, strict bundle build, and dark/light Browser QA pending.
+- Status: in-progress.
+- Next: Compare the committed previous Docs hub and MkDocs shell with the current implementation, restore the familiar presentation selectively, then verify that every local/versioned documentation contract still holds.
+
+### 2026-07-21 11:36Z — `/root/docs_prior_ui_audit` — Previous docs interface restoration audit complete
+- Context: Identify the smallest safe restoration of the prior documentation UI without regressing the new versioned, same-origin Help Center.
+- Did: Compared the committed MkDocs shell with the current working tree. Confirmed there is no committed React Docs-page predecessor; the recoverable prior interface is the Shoo/lime article shell. Recommended restoring the old stylesheet and lime/font presentation while retaining the current React hub, user-first navigation, release semantics, same-origin packaging, pre-paint theme bridge, Light/Dark/System synchronization, and accessibility state.
+- Tests: Read-only audit; targeted diff hygiene passed. Implementation should rerun theme contracts, strict bundle generation, documentation/version checks, focused Console Docs tests, build, and both-theme Browser QA.
+- Status: done.
+- Next: Apply the presentation-only restoration and update the theme assertions without touching the new documentation delivery or information architecture.
+
+### 2026-07-21 11:40Z — Codex documentation UI implementer — Previous docs interface restored
+- Context: Complete the requested return to the documentation's established visual interface while retaining the newly delivered, version-matched in-app Help Center.
+- Did: Restored the committed Shoo/lime article shell exactly: Space Mono and Unbounded typography, black/lime palette, animated release ticker, grid-backed dark canvas, original light palette, and prior card/code/navigation treatments. Kept the new React discovery hub, `/docs/0.1/` same-origin delivery, five-section user-first taxonomy, Testing/Stable identity, release-aware links, Light/Dark/System pre-paint synchronization, signed-in theme persistence, and accessibility state. Updated the focused appearance contracts to prevent another accidental restyle. No Codex Security review was run.
+- Tests: Theme contracts passed 3/3; focused Help Center and bundle identity tests passed 13/13; strict 63-page documentation check, documentation consistency, version metadata, JavaScript syntax, TypeScript, production Vite build, and diff hygiene passed. In-app Browser QA verified the restored dark and light shells, lime/Space Mono computed styles, animated Testing banner, persistent theme across the Case Manager article, primary navigation, and right-hand TOC. Preview resources were closed and `memory.md` remains absent.
+- Status: done in the shared `Testing` working tree; no files were staged, committed, pushed, tagged, deployed, or published.
+- Next: Review the restored Help Center presentation in the Testing candidate; the versioned documentation platform and installed-guide routing are ready for the normal promotion gate.
+
+### 2026-07-21 19:10Z — Codex product integration lead — Agentic SOC workflow and UI expansion started
+- Context: Implement the requested cost-routing, case workflow, clustering visibility, expanded noise-flow, workspace chat, tuning, export, live-dashboard, demo-source, branding, and documentation-navigation improvements as one integrated Testing candidate.
+- Did: Re-read the canonical handoff and agent rules, inspected the dirty shared worktree and current feature surface, divided the work into parallel backend/data, Cases/Case Manager, dashboard/flow, and shared UI/branding streams, and created the required ignored temporary `memory.md` scratchpad. The deterministic case decision authority remains out of scope and untouched. No Codex Security review will be run.
+- Tests: Focused and full backend/frontend/docs gates plus in-app Browser verification pending.
+- Status: in-progress.
+- Next: Audit the existing batch/flex and clustering contracts, implement each isolated workstream, integrate without overwriting prior uncommitted user work, then delete `memory.md` before any local commit.
+
+### 2026-07-21 19:12Z — `/root/cases_experience` — Cases and Case Manager interaction pass started
+- Context: Align the legacy full-width Cases workspace with Case Manager, remove redundant Case Manager severity summaries, add a resizable master/detail split, and route legacy case opens through a short accessible handoff into Case Manager.
+- Did: Read the canonical handoff, agent rules, and Console UI standard; scoped work to the Cases/Case Manager frontend, navigation state, and focused tests in the shared dirty Testing tree. Existing edits will be preserved and no Codex Security review will be run.
+- Tests: Source audit, focused Vitest/accessibility checks, typecheck/lint, and browser verification pending.
+- Status: in-progress.
+- Next: Inspect the current Cases, Case Manager, router, and test contracts; implement shared visual/state behavior with responsive and keyboard-accessible fallbacks.
+
+### 2026-07-21 19:12Z — `/root/backend_cost_export` — Discounted alert inference and safe data export started
+- Context: Implement the backend/data workstream for discounted batch/flex alert investigations and an RBAC-gated, selectable, secret-free application export without changing deterministic case decisions.
+- Did: Read the current handoff and canonical agent rules, preserved the shared dirty `Testing` tree, and scoped the work to existing provider/batch, event-detection, RBAC, state-store, API, and focused backend-test contracts. No frontend files or Codex Security review are in scope.
+- Tests: Existing implementation audit and focused backend tests pending.
+- Status: in-progress.
+- Next: Map provider capabilities and investigation call sites, select a truthful discounted-execution fallback, then add bounded deterministic export contracts and regression coverage.
+
+### 2026-07-21 19:13Z — `/root/cluster_live_demo` — Explainable clustering and live-flow work started
+- Context: Add a truthful, permission-gated clustering explanation, a Case Threat Context cluster diagram, an expanded dashboard noise-flow, LIVE refresh, and Microsoft Entra ID / Active Directory demo telemetry.
+- Did: Read the canonical handoff, agent rules, and shared dirty-tree status; scoped changes to correlation/metrics/demo contracts and the dashboard/CaseDetail Threat Context UI only. Existing work will be preserved, deterministic case decisions remain untouched, and no Codex Security review will be run.
+- Tests: Contract audit, focused backend/frontend tests, typecheck, and in-app Browser verification pending.
+- Status: in-progress.
+- Next: Map persisted case/correlation evidence and noise counters, then implement the smallest additive contracts and design-system-consistent visualizations.
+### 2026-07-21 19:42Z — Codex product integration lead — Shared Agentic SOC UI cleanup milestone
+- Context: Continue the coordinated product pass while backend/export, case workflow, and clustering/live/demo work proceed in parallel.
+- Did: Established `Agentic SOC` as the shipped operator-facing default while preserving technical `TLSOC_*` compatibility identifiers; flattened the Workspace Chat composer into a compact bottom command bar; fixed Auto-tuning column squeeze and pathological rule-ID wrapping; replaced tiered escalation badges with `Escalated`; added evidence-backed, keyboard-accessible disclosures to Agent Found metrics; and compacted the established Shoo/lime Help Center navigation geometry without changing its visual language.
+- Tests: Web UI TypeScript check passed after the shared changes. Diff hygiene passed for all touched integration files. Full combined gates and Browser QA remain pending until the three delegated workstreams merge.
+- Status: in progress.
+- Next: Wire the RBAC-scoped portable export UI, integrate delegated changes, update user/operator documentation, then run full backend/Console/docs/browser validation.
+
+### 2026-07-21 19:26Z — `/root/cases_experience` — Cases and Case Manager interaction pass complete
+- Context: Finish the requested Case Manager queue cleanup, operator-adjustable split workspace, and legacy Cases-to-Case-Manager transition while preserving the mature horizontal table and existing case controls.
+- Did: Removed the redundant Critical/High Case Manager summary cards while retaining the Severity filter; added a responsive pointer-draggable and keyboard-adjustable queue/detail separator with bounded geometry, ARIA value semantics, double-click reset, and local width persistence; restyled the full-width Cases controls, table, and row language to the same compact square command-center grammar; replaced the legacy inline case sheet with an accessible half-second “Taking you to Case Manager…” handoff; and serialized the selected `caseId` into the hash so refresh/history always reopen the exact case. Added focused filter, separator, persistence, accessibility, handoff-timing, and router-state coverage. No Codex Security review was run.
+- Tests: Focused Cases/Case Manager suite passed 61/61 across 12 files; full Console ESLint passed with zero warnings; all five design gates passed; production TypeScript/Vite build passed; diff hygiene passed. Live in-app Browser QA was not claimed because this worker had no available Browser backend.
+- Status: complete in the shared `Testing` working tree; no files were staged, committed, pushed, tagged, deployed, or published.
+- Next: Orchestrator should include these routes in the combined live demo/browser pass and final full Console gate after the remaining parallel work settles.
+
+### 2026-07-21 19:27Z — `/root/cluster_live_demo` — Redacted clustering and Entra demo backend milestone
+- Context: Give analysts an evidence-backed explanation of case formation and add Microsoft identity telemetry to the isolated Demo Mode without exposing raw payload identifiers or changing deterministic decisions.
+- Did: Added a pure redacted alert→cluster→case projection to the existing permission-gated Threat Context response, using stable one-way input references and persisted rule/window/source/cross-source facts. Added a fifth standards-shaped Demo Mode source for Microsoft Entra ID / Active Directory using Graph sign-in and Identity Protection fields through the production webhook normalization boundary; coherent incidents now include the Microsoft identity source alongside Splunk, QRadar, Wazuh, and syslog.
+- Tests: Focused backend contract run passed 97/97 across threat context, native demo sources, demo API integration, and demo lifecycle/runtime tests.
+- Status: backend milestone complete; Console interaction tests and in-app Browser QA remain in progress.
+- Next: Validate the cluster formation diagram, expanded aggregate noise flow, and 24-hour LIVE dashboard controls in both themes and responsive layouts.
+
+### 2026-07-21 19:32Z — `/root/backend_cost_export` — Discounted alert inference and safe data export complete
+- Context: Finish the backend/data workstream for lower-cost alert inference and a selectable Settings export without changing deterministic case decisions or exposing credentials.
+- Did: Added a default-on alert cost preference that requests OpenAI Flex only for compatible official OpenAI model families on case/alert surfaces, keeps chat/standup/embedding/model-test traffic standard, falls back to standard service when Flex is unavailable, and records/prices the provider-reported `processing_tier` rather than the requested tier. Preserved the existing true asynchronous provider-Batch event funnel as a separate opt-in path. Added a dedicated `data_export:export` permission (default `super_admin`/`soc_manager` only) and `POST /api/admin/export`, with selectable cases/audit/usage/configuration/automation/knowledge scopes, canonical downloadable JSON, 1–5000 item caps, a 25 MiB ceiling, per-scope truncation manifests, recursive credential omission/token redaction, explicit user/session/secret/raw-log exclusions, read-only RAG metadata snapshots, and append-only export auditing. Extended ES/SQL usage-ledger reads and tier mappings, and updated API/configuration/permission references. Deterministic `case_manager.decide()` was not touched. No Codex Security review was run.
+- Tests: Complete backend suite passed 1,976/1,976. Focused discounted inference/export, LLM economics, RBAC, route-auth coverage, settings/config endpoint, API, and settings-roundtrip tests passed; Python compile, deploy-template JSON validation, and targeted diff hygiene passed.
+- Status: complete in the shared dirty `Testing` working tree; no files were staged, committed, pushed, tagged, deployed, or published.
+- Next: Orchestrator should wire the Settings export selector/download UI to the shared contract, regenerate/check OpenAPI frontend types as part of the combined gate, and explain the provider limitation truthfully: supported OpenAI alert calls use Flex; unsupported providers/models stay standard, while true provider Batch remains the asynchronous event-feed path.
+
+### 2026-07-21 19:32Z — `/root/cluster_live_demo` — Explainable clustering, expanded flow, LIVE dashboard, and Entra demo complete
+- Context: Finish the delegated dashboard/Threat Context/demo-source workstream with truthful aggregate and per-case explainability while preserving deterministic decisions and the shared Console design system.
+- Did: Added a flat, keyboard/hover-explainable Threat Context diagram showing redacted alert inputs → persisted deterministic correlation cluster → opened case plus cross-source/prior-case links; added an accessible near-fullscreen Noise Reduction Expand view with explicit counter/truncation/raw-ID limitations; added a LIVE option below 5 minutes and made Overview open at Last 24 hours + LIVE with a reduced-motion-safe green pulse; and completed the fifth Demo Mode source for Microsoft Entra ID / Active Directory. Existing `cases:read` authorization protects the additive clustering contract. No Codex Security review was run.
+- Tests: Backend focused suites passed 97/97; Console focused suites passed 53/53; TypeScript, scoped ESLint, all five UI design gates, production Vite build, diff hygiene, and an authenticated runtime contract smoke passed. The in-app Browser backend was unavailable to this worker after the required discovery/troubleshooting flow, so the orchestrator should include the rendered routes in its integrated Browser pass.
+- Status: complete in the shared `Testing` working tree; the local demo remains running for integrated QA. No files were staged, committed, pushed, tagged, or published.
+- Next: Orchestrator should update the consolidated operator docs, run the combined full-suite/browser gate, remove the temporary root `memory.md`, and promote through the normal Testing release workflow.
+
+### 2026-07-22 02:05Z — `/root/docs_information_architecture` — Agentic SOC product documentation integration started
+- Context: Bring the current user, operator, release, and agent documentation into line with the integrated Agentic SOC feature pass and the new version-matched Help Center build contract.
+- Did: Began a documentation-only audit covering operator-facing Agentic SOC naming while preserving TLSOC technical identifiers, discounted batch/flex alert inference and fallback, the Cases handoff, explainable clustering and expanded LIVE flow, the resizable Case Manager split, Microsoft Entra demo data, portable RBAC export, and Workspace/auto-tuning fixes. Existing dirty-tree documentation work will be preserved. No implementation files or Codex Security review are in scope.
+- Tests: Documentation consistency, version metadata, strict MkDocs, targeted terminology/contract searches, and diff hygiene pending.
+- Status: in-progress.
+- Next: Verify each shipped behavior against the current implementation and focused tests, update only authoritative prose, and then run the complete documentation gates.
+
+### 2026-07-21 19:31Z — `/root/docs_information_architecture/naming_build_docs_audit` — Naming and docs-build prose audit started
+- Context: Read-only audit of authoritative prose for the Agentic SOC operator-facing name, preserved TLSOC technical identifiers, and the version-matched Help Center build contract.
+- Did: Read `docs/HANDOFF.md` and `AGENTS.md` in full, inspected the shared dirty-tree scope, and limited repository changes to this required Journal entry; no security review is in scope.
+- Tests: Exact-line terminology and build-contract searches pending; no product tests are required for the read-only audit.
+- Status: in-progress.
+- Next: Compare `AGENTS.md`, `docs/HANDOFF.md`, `README.md`, `CHANGELOG.md`, `ROADMAP.md`, and `docs/**` against the current implementation and return exact recommended prose edits.
+
+### 2026-07-21 19:31Z — `/root/docs_information_architecture/feature_docs_audit` — Feature-to-documentation contract audit started
+- Context: Independently map the current dirty implementation for discounted alert inference, case workflow, clustering/live flow, Entra demo telemetry, portable RBAC export, Workspace, and auto-tuning to exact shipped behavior and authoritative documentation gaps.
+- Did: Re-read the complete canonical handoff and agent rules, preserved all shared working-tree edits, and constrained this pass to read-only implementation/diff evidence plus the required Journal entries. No documentation or implementation edits and no Codex Security review are in scope.
+- Tests: Targeted source, endpoint, permission, UI-label, and documentation contract audit pending; no executable test suite planned for this read-only pass.
+- Status: in-progress.
+- Next: Trace each requested behavior through backend models/routes/tests and Console components/tests, compare it with current authoritative prose, and return exact file evidence with suggested language.
+
+### 2026-07-21 19:37Z — `/root/docs_information_architecture/naming_build_docs_audit` — Naming and docs-build prose audit complete
+- Context: Finish the read-only authoritative-prose audit for Agentic SOC naming and the version-matched Help Center build contract.
+- Did: Identified the remaining retired product-name occurrences across current root guidance and 63 public Help Center pages; defined the safe naming boundary that retains `TLSOC_*`, `tlsoc-*`, `tlsoc-agent-*`, cookies, headers, entry points, and other wire identifiers; verified the canonical npm build behavior against `webui/package.json` and the bundler wrapper; and reported exact stale Help Center, deployment, troubleshooting, release, and roadmap passages to the documentation orchestrator. No product prose or implementation file was edited and no security review was run.
+- Tests: `python3 scripts/check_docs.py` passed for all 63 public pages; scoped `git diff --check` passed. Targeted `rg` terminology/build-contract searches exposed branding drift that the current consistency checker does not reject.
+- Status: done; only the required Journal start/end entries changed in this audit.
+- Next: Apply the recommended operator-facing replacements, preserve technical TLSOC identifiers, add the installed/public documentation distinctions, and rerun strict MkDocs, version, docs, and diff-hygiene gates.
+
+### 2026-07-21 19:41Z — `/root/docs_information_architecture/feature_docs_audit` — Feature-to-documentation contract audit complete
+- Context: Finish the independent read-only mapping of the integrated cost, case-workflow, explainability, demo, export, Workspace, and auto-tuning changes to authoritative operator documentation.
+- Did: Traced the requested behavior through backend models/routes/services/tests and Console routes/components/tests; recorded exact endpoints, permissions, defaults, labels, safety boundaries, and compatibility behavior; identified stale Cases-sheet/quick-count, four-source demo, Batch-policy, and export-scope claims; and returned documentation-ready prose plus implementation-copy caveats to the documentation orchestrator. No documentation or implementation file was edited and no Codex Security review was run.
+- Tests: No executable suites were run for this read-only audit. Targeted source/diff searches covered every requested feature and its current authoritative prose; existing focused test assertions were inspected as evidence only.
+- Status: done; only the required Journal start/end entries changed in this audit.
+- Next: Apply the recommended authoritative-prose corrections, resolve or explicitly track the identified Console copy/config mismatches, and run the integrated documentation/version/build gates.
+
+### 2026-07-22 02:44Z — `/root/docs_information_architecture` — Agentic SOC documentation contracts integrated
+- Context: Complete the documentation-only integration for the current Agentic SOC feature candidate before running the final documentation gates.
+- Did: Standardized current operator-facing prose on Agentic SOC while preserving the TLSOC technical compatibility namespace; documented the Cases-to-Case-Manager handoff and accessible persisted split resize, the redacted alert-to-cluster-to-case explanation, default LIVE/expanded Noise Reduction behavior, live OpenAI Flex versus opt-in async Batch and truthful fallback accounting, five-source Entra demo incidents, privileged portable state export and its non-backup/RBAC boundary, Workspace naming, auto-tuning layout cleanup, and the installed same-origin Help Center/build contract. Updated the public release, admin, analyst, operator, development, API, compatibility, terminology, and known-limitations guidance without editing implementation files. No Codex Security review was run.
+- Tests: Final documentation consistency, version, bundle, strict-render, terminology, and diff-hygiene gates pending.
+- Status: documentation content integrated in the shared dirty Testing tree.
+- Next: Run the focused documentation/version/bundle gates, correct any render/link drift, append the final result, and report the scoped file set to the integration lead.
+
+### 2026-07-22 02:51Z — `/root/docs_information_architecture` — Agentic SOC documentation integration complete
+- Context: Close the documentation-only feature and information-architecture pass for the integrated Testing candidate.
+- Did: Finished the operator-facing Agentic SOC naming sweep with the TLSOC compatibility namespace documented explicitly; completed analyst/admin/API/release guidance for canonical Case Manager handoff/resize/bulk work, explainable clustering, LIVE and expanded Noise Reduction, live Flex versus async Batch, Entra-backed five-source demo, portable export/RBAC/backup boundaries, and installed version-matched Help Center delivery. Added the reusable queue/detail UI standard and corrected stale docs-build instructions. No implementation/UI file was edited by this agent and no Codex Security review was run.
+- Tests: `scripts/check_docs.py` passed all 63 public pages; `scripts/check_version.py` reported app 0.1.0/docs 0.1 consistent; strict `npm run docs:bundle` plus `docs:check` passed at `/docs/0.1/`; documentation script discovery passed 7/7; `node --check docs/javascripts/extra.js` passed; `git diff --check` passed; targeted stale terminology/legacy-drawer/four-source/Batch-copy searches were clean apart from intentional historical release text and explicit TLSOC compatibility references.
+- Status: complete in the shared dirty Testing working tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Integration lead should run the combined backend/Console/browser gate, reconcile final test-count prose to that run, and optionally update the docs-bundler's remaining operator-visible “TLSOC documentation” status/title strings outside this docs-only scope.
+
+### 2026-07-21 20:07Z — `/root/noise_detail_fix` — Expanded Noise Reduction lineage drill-down started
+- Context: Close the final audit gap in the Dashboard Noise Reduction expanded view by exposing a bounded, inspectable selected-timeframe path from redacted alert inputs through deterministic clusters and opened cases to terminal outcomes.
+- Did: Read the current handoff and canonical agent rules, preserved the shared dirty `Testing` tree, and scoped the work to truthful lineage contracts, design-system-consistent keyboard-accessible UI, and focused tests. No Codex Security review is in scope.
+- Tests: Pending implementation and focused backend/Console validation.
+- Status: in progress.
+- Next: Reuse the existing redacted cluster/case contracts where possible, implement the wide inspection view without raw identifiers or unbounded payloads, and run focused tests plus diff hygiene.
+
+### 2026-07-21 20:18Z — `/root/noise_detail_fix` — Bounded Noise Reduction lineage API complete
+- Context: Supply the expanded Dashboard flow with inspectable selected-window lineages without increasing the normal dashboard payload or exposing raw alerts.
+- Did: Added a lazy `GET /api/metrics/noise-reduction/lineage` read gated by both `metrics:view` and `cases:read`; it reuses the Threat Context alert-reference redaction, returns at most 1–25 newest case rows, reports store/window/sample truncation, and distinguishes terminal auto-clear/human-close from non-terminal escalation or analyst wait. No correlation or decision code is re-run or modified.
+- Tests: Focused `backend/tests/test_round7_noise_counters.py` passed 22/22, including selected-window exclusion, limit/truncation honesty, native-alert-id absence, persisted correlation facts, and non-terminal outcome labeling.
+- Status: backend contract complete; Console integration in progress.
+- Next: Add the wide four-stage lineage rows to the existing near-fullscreen dialog, lazy-load only on open, and cover loading/error/keyboard/deep-link behavior.
+
+### 2026-07-21 20:08Z — `/root/escalation_cleanup` — Operator-facing escalation-tier cleanup started
+- Context: Close the final terminology gap by removing operator-visible L1/L2/L3 and escalation-level language while preserving any compatibility-only wire fields.
+- Did: Read the canonical handoff and agent rules in full, preserved the shared dirty `Testing` tree, and scoped the pass to current non-archived product code, focused tests, and authoritative operator documentation. Deterministic case decisions remain untouched and no Codex Security review is in scope.
+- Tests: Targeted terminology audit and focused backend/Console tests pending.
+- Status: in progress.
+- Next: Inventory every current escalation-tier surface, replace only operator copy with Escalated/Escalate, add regression assertions, and run focused validation plus diff hygiene.
+
+### 2026-07-21 20:14Z — `/root/escalation_cleanup` — Operator-facing escalation-tier cleanup complete
+- Context: Finish the requested removal of escalation hierarchy from current operator surfaces and Demo Mode while retaining compatibility for existing stored cases and API clients.
+- Did: Replaced senior/Tier-3 action guidance with plain Escalate/Escalated copy, changed escalated demo recommendations to `Escalate.`, removed tier/level guidance and payloads from current operator documentation, and relabeled the retained `level`/`escalation_level` OpenAPI properties as deprecated compatibility values rather than product tiers. Added regressions proving actual case rendering, action dialogs, demo fixtures, and generated API docs never present a numbered escalation tier. Existing wire keys and behavior remain compatible; deterministic decision code was untouched. No Codex Security review was run.
+- Tests: Focused backend suites passed 68/68; final backend contract smoke passed 3/3; focused Console suites passed 36/36; Console TypeScript and generated OpenAPI drift checks passed; documentation consistency passed all 63 public pages; `git diff --check` passed.
+- Status: complete in the shared dirty `Testing` working tree; nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Integration lead should include these files in the combined full-suite/build/browser gate and retain the compatibility fields until a separately versioned schema migration is planned.
+
+### 2026-07-21 20:19Z — `/root/noise_detail_fix` — Expanded Noise Reduction lineage drill-down complete
+- Context: Finish the Dashboard Expand gap with a truthful, inspectable selected-window path from alert inputs through deterministic clustering and the opened case to its current or terminal outcome.
+- Did: Added a lazy, dual-permission `GET /api/metrics/noise-reduction/lineage` contract and a wide four-stage Console view below the existing aggregate funnel. The endpoint reuses persisted one-way alert references and correlation facts, is bounded to 1–25 newest cases, distinguishes AI auto-clear, human close, escalation, and analyst-wait outcomes, and reports both store and sample truncation. The Console loads it only when Expand opens, preserves the aggregate on error, offers Retry and Case Manager deep links, and exposes clustering facts through keyboard-native disclosure. Generated OpenAPI artifacts and authoritative Dashboard/operator prose were updated; raw alert identifiers and payloads remain excluded, and no correlation or deterministic decision logic changed. No Codex Security review was run.
+- Tests: Focused backend Noise Reduction suite passed 22/22; the integration lead independently ran the combined focused backend set at 34/34. Focused `NoiseFunnel` Vitest passed 18/18; TypeScript and scoped ESLint passed; OpenAPI generation completed at 193 paths; generated-route presence and scoped `git diff --check` passed.
+- Status: complete in the shared dirty `Testing` working tree. Nothing was staged, committed, pushed, tagged, or published.
+- Next: Integration lead should include this lazy endpoint and expanded flow in the final combined build/browser pass, then remove the task-level `memory.md` before committing the integrated candidate.
+
+### 2026-07-21 20:30Z — `/root` — Agentic SOC operations experience integrated and release-gated
+- Context: Complete the requested cross-product UI/UX and operator-workflow pass on `Testing`: discounted alert inference, canonical Case Manager handoff, explainable clustering, expanded LIVE noise flow, Entra demo telemetry, Agentic SOC naming, Workspace/tuning cleanup, portable RBAC export, version-matched installed docs, and the remaining interaction/a11y fixes.
+- Did: Integrated the delegated backend, case-experience, dashboard/demo, documentation, terminology, and audit-gap workstreams; retained provider/operator model choice while preferring truthful OpenAI Flex for supported live alert surfaces and preserving asynchronous provider Batch as a separate delayed path; added a secret-free selectable export with `data_export:export` in both backend and custom-role UI; removed redundant Case Manager severity summary cards and numbered escalation copy; added the persisted/keyboard-resizable queue split, seven-option bulk menu, exact 500 ms Cases handoff, redacted cluster diagrams, bounded expanded alert→cluster→case→outcome lineages, default Last-24-hours + LIVE controls, Entra ID demo cases, cleaner Workspace Chat and auto-tuning layouts, and same-origin Agentic SOC Help Center styling/versioning. Reconciled public baseline prose and Kibana saved-object display copy. Deterministic `case_manager.decide()` was not changed. No Codex Security review was run.
+- Tests: Full backend suite passed **1,982/1,982**. Full Console suite passed **1,468/1,468 across 248 files**. Production docs+app build passed with 3,161 modules, **294.80 kB** entry and lazy **83.85 kB** motion chunk. ESLint passed with 0 errors/warnings; all five design gates passed; generated OpenAPI/TypeScript matched 193 paths; docs consistency passed 63 public pages; version/docs bundle checks, seven documentation script tests, documentation JavaScript syntax, dashboard NDJSON parsing, and `git diff --check` passed. In-app Browser QA verified both themes' shared dark contract on the final dark surface, Dashboard LIVE/Expand, lineage details, wide Cases handoff, exact Case Manager selection, keyboard resize, bulk actions, Threat Context clustering, Workspace Chat, auto-tuning, selective export, custom-role permission, installed Help Center layout, and a clean browser error console.
+- Status: implementation and verification complete in the shared `Testing` tree; the temporary task memory is being removed before the ensuing local commit. Nothing was pushed, tagged, deployed, or published.
+- Next: Review and push this Testing commit when ready; promote to protected `main` only after the documented Stable release gates pass.

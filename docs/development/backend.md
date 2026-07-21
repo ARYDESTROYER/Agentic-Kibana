@@ -1,11 +1,11 @@
 ---
 title: Backend development
-description: TLSOC API architecture, conventions, configuration, routes, persistence, and local workflow for version 0.1.
+description: Agentic SOC API architecture, conventions, configuration, routes, persistence, and local workflow for version 0.1.
 ---
 
 # Backend development
 
-The TLSOC API is an asynchronous Python application built with FastAPI, Pydantic v2,
+The Agentic SOC API is an asynchronous Python application built with FastAPI, Pydantic v2,
 and LangGraph-compatible agent orchestration. The application entry point is
 `backend/app/main.py`; startup constructs one `AppState`, loads the selected state
 backend, initializes services, and starts configured background workers.
@@ -95,7 +95,7 @@ Application code depends on repository interfaces rather than a concrete databas
 The selected state backend supplies cases, usage, audit, configuration, cursors, KV
 documents, and vector storage.
 
-- Elasticsearch uses dedicated TLSOC indices and aliases.
+- Elasticsearch uses dedicated Agentic SOC indices and aliases.
 - PostgreSQL and SQLite share the asynchronous SQLAlchemy repository layer.
 - Feature stores commonly use a namespaced KV document to avoid unnecessary schema
   migrations.

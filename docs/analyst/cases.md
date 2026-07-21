@@ -5,16 +5,25 @@ description: Find, assess, assign, progress, and close v0.1 cases without crossi
 
 # Cases
 
-A case is TLSOC's durable, human-reviewable record for a correlated security story.
+A case is Agentic SOC's durable, human-reviewable record for a correlated security story.
 It preserves source provenance, selected event identifiers, risk, the agent verdict,
 the code decision, analyst actions, cost, and an append-only lifecycle history.
 
 ## Find the work that matters
 
-Open **Triage → Cases**. Search by display or internal case ID, title, entity, rule,
-source, or tag. Narrow the table by status, disposition, severity, assignee, time, or
-cross-source relationship. Saved views and column choices are personal preferences;
-they do not change the underlying case.
+Open **Triage → Cases** for the established table workflow, or **Triage → Case
+Manager** for the additive split-pane queue and case workspace. Search by display or
+internal case ID, title, entity, rule, source, or tag. Narrow the table by status,
+disposition, severity, assignee, time, or cross-source relationship. Saved views and
+column choices are personal preferences; they do not change the underlying case.
+
+Case Manager is the intended successor. The Cases table itself remains available for
+its mature table/saved-view workflow, but opening a row or case deep link shows a
+short announced handoff and opens that exact record in Case Manager. The selected
+`caseId` survives refresh and browser history. Use Case Manager directly when you
+want queue, detail, and bulk operations in one continuous workspace. See the
+dedicated [Case Manager guide](case-manager.md) for exact selection, resize,
+permission, and failure semantics.
 
 Selecting rows opens bulk actions. Bulk operations execute the same server-side
 action once per case and return individual successes and failures. A partial failure
@@ -29,7 +38,7 @@ does not make the successful changes disappear.
 | New | Created but not yet investigated |
 | Open / needs human | Investigated and awaiting an analyst |
 | Investigating | An analyst or re-investigation is working the case |
-| Escalated | Flagged for senior attention |
+| Escalated | Marked for analyst escalation |
 | On hold | Paused for information, maintenance, or a third party |
 | Resolved | Work is complete and pending final close or audit |
 | Closed | Terminal |
@@ -40,21 +49,31 @@ analyst's conclusion; it does not rewrite the earlier agent verdict.
 
 ## Work a case
 
-The detail panel has six tabs:
+The canonical Case Manager detail has six tabs. Cases no longer opens a separate
+sheet with another copy of the same controls.
 
-- **Overview** — source facts, assessment summary, entity, risk, ownership, and
-  provenance.
-- **Timeline** — the chronological input → correlate → risk → triage → investigate →
-  decide story.
+- **Overview** — a compact decision brief, risk and confidence signal profile,
+  persisted risk-factor values, source/agent/code provenance, entity context, attack story,
+  ownership, and history without duplicating the same verdict in every card.
+- **Timeline** — the chronological input → correlate → risk assigned → triage →
+  investigate → decision story. Expanding Risk Assigned reconstructs current-weight
+  arithmetic from persisted factors and flags any historical-weight mismatch. In
+  Case Manager only, the final stage marker pulses.
 - **Investigation** — AI assessment, pinned deterministic decision, and the full
   tool/reasoning trace.
-- **Threat** — indicator reputation, ATT&CK context, and related cases.
+- **Threat** — indicator reputation, ATT&CK context, related cases, and the persisted
+  redacted Input alerts → Correlation cluster → Opened case explanation. Focus or
+  hover its nodes for source counts, grouping, threshold/window, status, and verdict;
+  raw identifiers and payloads are excluded.
 - **Collab** — discussion, reactions, activity, and tasks.
 - **Chat** — case-scoped questions using the shared chat engine.
 
-From the header you can assign, tag, notify, run a playbook, re-investigate, export,
-or use the lifecycle action appropriate for the current status. Exports are available
-as JSON or a Markdown handoff report.
+In Case Manager, the top-right **Take Action** menu contains state-changing, investigative, and export
+commands: the appropriate lifecycle action, disposition, re-investigation, playbook,
+refresh, case chat, open in a new tab, JSON/Markdown export, and notification as
+permissions allow. Timeline and Investigation are visible tabs and are intentionally
+not repeated as menu actions. **Share** remains separate. Exports are available as
+JSON or a Markdown handoff report.
 
 ## Lifecycle actions and permissions
 

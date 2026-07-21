@@ -19,7 +19,10 @@
 import * as React from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
+import { axe, toHaveNoViolations } from 'jest-axe';
 import { TooltipProvider } from '@/ui/tooltip';
+
+expect.extend(toHaveNoViolations);
 
 /* ---- Mocks ---------------------------------------------------------------- */
 
@@ -80,6 +83,15 @@ beforeEach(() => {
 /* ---- Disclosure semantics ------------------------------------------------- */
 
 describe('NavSidebar — WAI-ARIA disclosure', () => {
+  it('keeps Docs pinned below the scrolling groups and navigates in-app', () => {
+    const { onNavigate } = renderExpanded();
+    const footer = screen.getByTestId('nav-footer');
+    const docs = screen.getByRole('button', { name: 'Docs' });
+    expect(footer).toContainElement(docs);
+    fireEvent.click(docs);
+    expect(onNavigate).toHaveBeenCalledWith('docs');
+  });
+
   it('renders a parent with children as a collapsed disclosure (aria-expanded=false, no panel)', () => {
     renderExpanded();
     // The Overview host has children {Dashboard, Standup}; its disclosure toggle.
@@ -183,6 +195,21 @@ describe('NavSidebar — WAI-ARIA disclosure', () => {
 /* ---- Collapsed icon-rail --------------------------------------------------- */
 
 describe('NavSidebar — collapsed icon rail', () => {
+  it('keeps the pinned Docs destination labelled and current in the collapsed rail', () => {
+    renderExpanded({ collapsed: true, page: 'docs' });
+    const docs = screen.getByRole('button', { name: 'Docs' });
+    expect(docs).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByTestId('nav-footer')).toContainElement(docs);
+  });
+
+  it('disables sidebar transitions when reduced motion is requested', () => {
+    renderExpanded({ collapsed: true, reducedMotion: true });
+    const sidebar = screen.getByLabelText('Primary navigation');
+    expect(sidebar).toHaveAttribute('data-reduced-motion', 'true');
+    expect(sidebar.className).toContain('transition-none');
+    expect(sidebar.className).not.toContain('duration-200');
+  });
+
   it('keeps child destinations reachable via a fly-out (no aria-controls panel inline)', () => {
     renderExpanded({ collapsed: true, page: 'standup' });
     // The collapsed parent icon-button is labelled but has no expand/collapse toggle.
@@ -220,6 +247,11 @@ describe('NavSidebar — collapsed icon rail', () => {
     const flyout = document.getElementById('nav-fly-overview');
     expect(flyout).not.toBeNull();
     expect((flyout as HTMLElement).style.position).toBe('fixed');
+  });
+
+  it('has no detectable accessibility violations with the footer destination present', async () => {
+    const { container } = renderExpanded({ page: 'docs' });
+    expect(await axe(container)).toHaveNoViolations();
   });
 });
 

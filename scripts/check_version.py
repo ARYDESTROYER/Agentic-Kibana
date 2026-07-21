@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import re
 import sys
 import tomllib
@@ -65,6 +66,28 @@ def main() -> int:
         if value != version:
             failures.append(f"{label}: expected {version!r}, found {value!r}")
 
+    # CI may provide a ref/channel pair to verify promotion semantics. Stable is
+    # allowed only for the literal main branch or the exact canonical version tag;
+    # pull requests, Testing, similarly named branches, and unknown refs are Testing.
+    source_ref = os.getenv("TLSOC_SOURCE_REF", "").strip()
+    configured_channel = os.getenv("TLSOC_RELEASE_CHANNEL", "").strip().lower()
+    if source_ref:
+        expected_channel = (
+            "stable"
+            if source_ref in {"refs/heads/main", f"refs/tags/v{version}"}
+            else "testing"
+        )
+        if configured_channel not in {"testing", "stable"}:
+            failures.append(
+                "TLSOC_RELEASE_CHANNEL must be exactly 'testing' or 'stable' when "
+                "TLSOC_SOURCE_REF is supplied"
+            )
+        elif configured_channel != expected_channel:
+            failures.append(
+                f"release channel/ref mismatch: {source_ref!r} requires "
+                f"{expected_channel!r}, found {configured_channel!r}"
+            )
+
     main_source = (ROOT / "backend/app/main.py").read_text(encoding="utf-8")
     if "version=__version__" not in main_source:
         failures.append("FastAPI application version must reference app.__version__")
@@ -115,8 +138,89 @@ def main() -> int:
             if marker not in source:
                 failures.append(f"{relative}: missing release metadata marker {marker!r}")
 
+    web_docker_source = (ROOT / "webui/Dockerfile").read_text(encoding="utf-8")
+    for marker in (
+        "ARG TLSOC_VERSION=unknown",
+        "ARG TLSOC_RELEASE_CHANNEL=testing",
+        "ARG TLSOC_BUILD_SHA=unknown",
+        "ARG TLSOC_BUILD_DATE=unknown",
+    ):
+        # Web metadata is needed twice: in the Node stage for the immutable Vite
+        # bundle and in the nginx stage for the OCI labels.
+        count = web_docker_source.count(marker)
+        if count < 2:
+            failures.append(
+                f"webui/Dockerfile: expected build + runtime metadata marker "
+                f"{marker!r} twice, found {count}"
+            )
+    for marker in (
+        "FROM python:3.11-alpine AS docs",
+        "scripts/build_docs_bundle.py --output /artifact/docs",
+        "COPY --from=docs /artifact/docs ./public/docs",
+        "RUN npm run build:app",
+    ):
+        if marker not in web_docker_source:
+            failures.append(
+                f"webui/Dockerfile: missing installed documentation marker {marker!r}"
+            )
+
+    web_package_scripts = web_package.get("scripts", {})
+    for script_name, marker in (
+        ("predev", "docs:bundle"),
+        ("build", "docs:bundle"),
+        ("docs:bundle", "run_docs_bundle.py"),
+        ("docs:check", "--check-only"),
+    ):
+        command = str(web_package_scripts.get(script_name, ""))
+        if marker not in command:
+            failures.append(
+                f"webui/package.json: script {script_name!r} is missing {marker!r}"
+            )
+
+    nginx_source = (ROOT / "webui/nginx.conf").read_text(encoding="utf-8")
+    for marker in ("location = /docs", "location ^~ /docs/", "=404"):
+        if marker not in nginx_source:
+            failures.append(f"webui/nginx.conf: missing documentation boundary {marker!r}")
+
+    compose_source = (ROOT / "deploy/docker-compose.agnostic.yml").read_text(
+        encoding="utf-8"
+    )
+    if "context: ..\n      dockerfile: webui/Dockerfile" not in compose_source:
+        failures.append(
+            "deploy/docker-compose.agnostic.yml: webui must use the repository-root "
+            "build context so the image can compile docs/"
+        )
+
+    gitignore_source = (ROOT / ".gitignore").read_text(encoding="utf-8")
+    if "/webui/public/docs/" not in gitignore_source:
+        failures.append(".gitignore: generated /webui/public/docs/ must remain ignored")
+
+    release_config_source = (ROOT / "webui/release.config.ts").read_text(encoding="utf-8")
+    if "resolveBuildReleaseIdentity" not in release_config_source:
+        failures.append("webui/release.config.ts: missing build identity resolver")
+    for relative in ("webui/vite.config.ts", "webui/vitest.config.ts"):
+        source = (ROOT / relative).read_text(encoding="utf-8")
+        for marker in ("resolveBuildReleaseIdentity", "__TLSOC_RELEASE_IDENTITY__"):
+            if marker not in source:
+                failures.append(f"{relative}: missing browser release marker {marker!r}")
+
+    shell_source = (ROOT / "webui/src/soc/AppShell.tsx").read_text(encoding="utf-8")
+    for marker in ("ReleaseBadge", "api.buildInfo", "resolveReleasePresentation"):
+        if marker not in shell_source:
+            failures.append(f"webui/src/soc/AppShell.tsx: missing release marker {marker!r}")
+
+    demo_source = (ROOT / "scripts/run-demo.sh").read_text(encoding="utf-8")
+    for marker in (
+        'SOURCE_BRANCH="$(git -C "${REPO_ROOT}" symbolic-ref',
+        '[[ "${SOURCE_BRANCH}" == "main" ]]',
+        "export TLSOC_VERSION TLSOC_RELEASE_CHANNEL TLSOC_BUILD_SHA TLSOC_BUILD_DATE",
+    ):
+        if marker not in demo_source:
+            failures.append(f"scripts/run-demo.sh: missing release marker {marker!r}")
+
     mkdocs_source = (ROOT / "mkdocs.yml").read_text(encoding="utf-8")
     for marker in (
+        "TLSOC_DOCS_SITE_URL",
         f'product_version: "{version}"',
         f'docs_version: "{docs_version}"',
         "provider: mike",
@@ -124,6 +228,19 @@ def main() -> int:
     ):
         if marker not in mkdocs_source:
             failures.append(f"mkdocs.yml: missing documentation-version marker {marker!r}")
+
+    changelog_source = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    active_unreleased = re.findall(r"^## \[Unreleased\]\s*$", changelog_source, re.MULTILINE)
+    if len(active_unreleased) != 1:
+        failures.append(
+            "CHANGELOG.md must contain exactly one active '## [Unreleased]' section; "
+            f"found {len(active_unreleased)}"
+        )
+    if re.search(r"^## \[Unreleased-prev\]", changelog_source, re.MULTILINE):
+        failures.append(
+            "CHANGELOG.md contains a legacy [Unreleased-prev] section; historical "
+            "unpublished work must be labelled Development snapshot"
+        )
 
     # Release records use the machine-readable SemVer. The documentation selector
     # intentionally uses the stable major.minor line, so patch releases update the

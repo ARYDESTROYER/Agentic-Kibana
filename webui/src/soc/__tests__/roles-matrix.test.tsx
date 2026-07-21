@@ -5,16 +5,17 @@
  * denies grid) and the PreviewDiff render that shows the resolved effective grants +
  * the per-resource added/removed action diff. No network: everything here is offline.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { TooltipProvider } from '@/ui/tooltip';
 import {
   cellState,
   cycleCell,
+  RoleMatrixEditor,
   type RoleDraft,
 } from '../components/RoleMatrixEditor';
 import { PreviewDiff } from '../pages/Roles';
-import type { RolePreviewResponse } from '../pages/Roles.api';
+import { RESOURCE_ACTIONS, type RolePreviewResponse } from '../pages/Roles.api';
 
 function draft(): RoleDraft {
   return { name: 'tier1_plus', description: '', inherits: [], grants: {}, denies: {} };
@@ -52,6 +53,37 @@ describe('RoleMatrixEditor cell logic', () => {
     d = cycleCell(d, 'cases', 'read'); // read: grant → deny
     expect(d.grants.cases).toEqual(['write']);
     expect(d.denies.cases).toEqual(['read']);
+  });
+});
+
+describe('RoleMatrixEditor resource vocabulary', () => {
+  it('exposes playbook management so custom roles can use the editor workflow', () => {
+    expect(RESOURCE_ACTIONS.playbooks).toEqual(['read', 'run', 'manage']);
+  });
+
+  it('exposes portable data export for custom-role grant and deny workflows', () => {
+    expect(RESOURCE_ACTIONS.data_export).toEqual(['export']);
+
+    let d = draft();
+    d = cycleCell(d, 'data_export', 'export');
+    expect(d.grants.data_export).toEqual(['export']);
+
+    d = cycleCell(d, 'data_export', 'export');
+    expect(d.grants.data_export).toBeUndefined();
+    expect(d.denies.data_export).toEqual(['export']);
+  });
+
+  it('renders the portable export permission in the custom-role matrix', () => {
+    render(
+      <TooltipProvider>
+        <RoleMatrixEditor draft={draft()} onChange={vi.fn()} />
+      </TooltipProvider>,
+    );
+
+    expect(screen.getByText('Data export')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /data_export:export/i }),
+    ).toBeInTheDocument();
   });
 });
 

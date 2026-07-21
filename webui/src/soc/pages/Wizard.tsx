@@ -298,7 +298,7 @@ export default function Wizard({ onComplete, onExit }: WizardProps) {
                 <ShieldCheck className="h-4 w-4" aria-hidden />
               </span>
               <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                TLSOC · First-run setup
+                Agentic SOC · First-run setup
               </span>
             </div>
             {onExit ? (
@@ -515,7 +515,7 @@ function WelcomeStep({
   return (
     <div className="space-y-6">
       <StepHeading
-        title="Welcome to TLSOC"
+        title="Welcome to Agentic SOC"
         description="This console turns raw alert volume into audited, cost-metered, human-reviewable cases. Let's get it connected to your data and models."
       />
 

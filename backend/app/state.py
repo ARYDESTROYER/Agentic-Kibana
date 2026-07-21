@@ -382,6 +382,7 @@ class AppState:
             self.secrets, self._real_usage_store, self._provider_overrides,
             price_overlay=self.price_overlay, budget_gate=self.budget_gate,
             custom_models=self.custom_models,
+            discounted_policy=lambda: self.prefs.batch,
         )
         # Auth service (Wave 2). Disabled unless secrets.auth_enabled — the no-auth
         # "old version" is the default. Building it is cheap and re-runs on rewire.
@@ -717,6 +718,29 @@ class AppState:
         if override is not None and override.dir:
             return Path(override.dir)
         return Path(__file__).resolve().parent.parent / "playbooks"
+
+    def _new_playbook_registry(self):
+        """Build a registry with ownership metadata for the active directory.
+
+        The three Markdown procedures shipped in ``backend/playbooks`` are bundled
+        reference content and therefore protected from runtime edits.  A configured
+        override directory is operator-owned, so every valid playbook there may be
+        edited by a principal holding ``playbooks:manage``.
+        """
+        from .playbooks.registry import (
+            DEFAULT_BUNDLED_PLAYBOOK_FILES,
+            PlaybookRegistry,
+        )
+
+        directory = self._playbooks_dir()
+        bundled_directory = Path(__file__).resolve().parent.parent / "playbooks"
+        protected = (
+            DEFAULT_BUNDLED_PLAYBOOK_FILES
+            if directory.expanduser().resolve(strict=False)
+            == bundled_directory.resolve(strict=False)
+            else frozenset()
+        )
+        return PlaybookRegistry(directory, protected_filenames=protected)
 
     def _build_memory(self):
         """Construct the operator MEMORY store over the active backend's KV. The KV
@@ -1669,9 +1693,7 @@ class AppState:
     def _build_playbooks(self):
         """Construct + load the PlaybookRegistry (never raises; a bad file is
         skipped, an empty/missing dir yields zero playbooks → generic behaviour)."""
-        from .playbooks.registry import PlaybookRegistry
-
-        reg = PlaybookRegistry(self._playbooks_dir())
+        reg = self._new_playbook_registry()
         try:
             summary = reg.reload()
             logger.info(
@@ -1686,10 +1708,8 @@ class AppState:
         """Hot-reload playbooks from disk via the registry's ATOMIC validate-then-swap
         (a wholesale-broken dir keeps the prior good live set). Re-points at the
         configured dir first if it changed. Returns {loaded, skipped, ids}."""
-        from .playbooks.registry import PlaybookRegistry
-
         if str(self.playbooks._directory) != str(self._playbooks_dir()):
-            self.playbooks = PlaybookRegistry(self._playbooks_dir())
+            self.playbooks = self._new_playbook_registry()
         summary = self.playbooks.reload()
         self._real_pipeline._playbooks = self.playbooks
         return summary

@@ -47,7 +47,7 @@ import { useAuth } from '@/soc/auth';
 import { usePrefs } from '@/soc/prefs';
 import { useTheme } from '@/soc/theme';
 import { useDemo } from '@/soc/demo';
-import { NAV_GROUPS, isPageId, type PageId } from '@/soc/nav';
+import { NAV_FOOTER_ITEMS, NAV_GROUPS, isPageId, type PageId } from '@/soc/nav';
 import type { Navigate } from '@/soc/router';
 // The always-on command palette needs only the section SEARCH metadata, never a
 // Settings renderer — import from the COMPONENT-FREE meta module so the heavy Settings
@@ -175,7 +175,12 @@ export function CommandPalette({ open, onOpenChange, onNavigate }: CommandPalett
     { id: string; label: string; targets: { id: PageId; label: string; icon?: LucideIcon; key: string }[] }[]
   >(
     () =>
-      NAV_GROUPS.map((group) => {
+      [
+        ...NAV_GROUPS,
+        ...(NAV_FOOTER_ITEMS.length > 0
+          ? [{ id: 'help', label: 'Help', items: NAV_FOOTER_ITEMS }]
+          : []),
+      ].map((group) => {
         const targets: { id: PageId; label: string; icon?: LucideIcon; key: string }[] = [];
         for (const item of group.items) {
           if (item.perm && !hasPermission(item.perm.resource, item.perm.action)) continue;

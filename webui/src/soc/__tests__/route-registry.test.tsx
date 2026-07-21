@@ -28,7 +28,7 @@ describe('ROUTES registry', () => {
     }
   });
 
-  it('covers all 31 documented page ids + custom dashboards', () => {
+  it('covers every documented page id, including custom dashboards and Docs', () => {
     // The DESIGN_STANDARD deep-link contract: these ids must remain routable.
     const EXPECTED = [
       'overview', 'dashboard', 'dashboards', 'cases', 'case_manager', 'investigate', 'chat',
@@ -36,6 +36,7 @@ describe('ROUTES registry', () => {
       'approvals', 'knowledge', 'memory', 'sources', 'cost', 'inbox', 'account',
       'sessions', 'settings', 'security', 'roles', 'users', 'audit', 'admin_sessions',
       'logs', 'campaigns', 'tuning', 'batchjobs', 'baseline',
+      'docs',
     ] as const;
     for (const id of EXPECTED) {
       expect(ROUTES[id as keyof typeof ROUTES], `missing route "${id}"`).toBeDefined();

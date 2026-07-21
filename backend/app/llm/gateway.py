@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any
+from typing import Any, Callable
 
 from ..config import ModelConfig, Provider, Secrets
 from ..constants import Role, UsageOutcome
@@ -38,6 +38,11 @@ class GatewayError(RuntimeError):
 _DEMO_IN_RATE = 3.0 / 1_000_000.0      # $/input token
 _DEMO_OUT_RATE = 15.0 / 1_000_000.0    # $/output token
 
+# OpenAI Flex support is intentionally capability-gated. These are the families
+# listed for Flex pricing by OpenAI as of 2026-07. A newly named/unsupported model
+# therefore stays standard instead of receiving an invalid service_tier request.
+_OPENAI_FLEX_MODEL_PREFIXES: tuple[str, ...] = ("gpt-5", "o3", "o4-mini")
+
 
 def _demo_synthetic_cost(prompt_tokens: int, completion_tokens: int) -> float:
     return round(prompt_tokens * _DEMO_IN_RATE + completion_tokens * _DEMO_OUT_RATE, 8)
@@ -54,6 +59,7 @@ class LLMGateway:
         price_overlay: Any = None,
         budget_gate: Any = None,
         custom_models: Any = None,
+        discounted_policy: Callable[[], Any] | None = None,
     ) -> None:
         self._secrets = secrets
         self._usage = usage_store
@@ -78,11 +84,16 @@ class LLMGateway:
         # suspenders so a local model NEVER bills at the conservative default rate. It is
         # advisory to routing + the ledger only; it NEVER touches decide() (#3).
         self._custom_models = custom_models
+        # Live getter for Preferences.batch. Keeping this optional preserves every
+        # historical direct/test constructor; AppState supplies it so a settings
+        # change takes effect without reconstructing callers.
+        self._discounted_policy = discounted_policy
 
     # ----- provider resolution -----
     def _provider(
         self, name: Provider | str, *, for_embedding: bool = False, model: str = "",
-        endpoint: ModelConfig | None = None,
+        endpoint: ModelConfig | None = None, service_tier: str | None = None,
+        fallback_to_standard: bool = True,
     ) -> BaseProvider:
         # An explicit override (tests / demo) keyed by provider NAME wins, byte-identical
         # to the historical behaviour (mock/anthropic/openai injected by the test/demo
@@ -100,8 +111,16 @@ class LLMGateway:
         # base_url (vLLM/Ollama/Azure/...) for a specific model gets its own client
         # without colliding with the default.
         cache_key = str(name)
-        if base_url or api_version or region:
-            cache_key = f"{name}@{base_url}|{api_version}|{region}"
+        if base_url or api_version or region or service_tier:
+            # The fallback policy is constructor state on OpenAIProvider, so it is
+            # part of the client identity whenever a live service tier is selected.
+            # Without this bit, changing only `fallback_to_standard` in live prefs
+            # could silently reuse the previously-cached provider until restart.
+            fallback_key = int(bool(fallback_to_standard)) if service_tier else 1
+            cache_key = (
+                f"{name}@{base_url}|{api_version}|{region}|"
+                f"{service_tier or 'standard'}|fallback={fallback_key}"
+            )
         cached = self._providers.get(cache_key)
         if cached is not None:
             return cached
@@ -116,14 +135,17 @@ class LLMGateway:
             raise GatewayError(f"Unknown provider: {name}")
         kwargs = self._provider_kwargs(
             str(name), for_embedding=for_embedding, base_url=base_url,
-            api_version=api_version, region=region,
+            api_version=api_version, region=region, service_tier=service_tier,
+            fallback_to_standard=fallback_to_standard,
         )
         provider = factory(**kwargs)
         self._providers[cache_key] = provider
         return provider
 
     def _provider_kwargs(self, name: str, *, for_embedding: bool, base_url: str | None,
-                         api_version: str | None = None, region: str | None = None) -> dict[str, Any]:
+                         api_version: str | None = None, region: str | None = None,
+                         service_tier: str | None = None,
+                         fallback_to_standard: bool = True) -> dict[str, Any]:
         """Resolve the credential/endpoint kwargs a provider factory needs from
         ``Secrets`` (the anthropic/openai/mock paths are byte-identical to before;
         the new providers read best-effort secret attrs that may be unset → the
@@ -150,7 +172,13 @@ class LLMGateway:
             # placeholder (an empty string is rejected by strict OpenAI-compatible clients).
             if not key and base_url and name == "openai_compatible":
                 key = "sk-no-key"
-            return {"api_key": key or "", "base_url": base_url}
+            out = {"api_key": key or "", "base_url": base_url}
+            # ``service_tier`` is an OpenAI cloud capability, not part of the generic
+            # OpenAI-compatible contract. Never send it to self-hosted/LiteLLM paths.
+            if name == "openai" and service_tier:
+                out["service_tier"] = service_tier
+                out["fallback_to_standard"] = bool(fallback_to_standard)
+            return out
         if name == "azure":
             key = getattr(self._secrets, "azure_openai_api_key", None) or self._secrets.openai_api_key
             kwargs: dict[str, Any] = {
@@ -204,9 +232,16 @@ class LLMGateway:
         # config carried none, so a role bound to a self-hosted / LiteLLM model routes
         # to the right server. No-op for every model with an explicit / registry base_url.
         model_cfg = await self._resolve_endpoint(model_cfg)
+        service_tier, fallback_to_standard = self._alert_processing_preference(
+            model_cfg, surface
+        )
         started = time.perf_counter()
         try:
-            provider = self._provider(model_cfg.provider, model=model_cfg.model, endpoint=model_cfg)
+            provider = self._provider(
+                model_cfg.provider, model=model_cfg.model, endpoint=model_cfg,
+                service_tier=service_tier,
+                fallback_to_standard=fallback_to_standard,
+            )
             result = await provider.complete(
                 role_str, messages, model_cfg.model, model_cfg.temperature, model_cfg.max_tokens
             )
@@ -222,6 +257,7 @@ class LLMGateway:
         cache_read = int(getattr(result, "cache_read_tokens", 0) or 0)
         cache_write = int(getattr(result, "cache_write_tokens", 0) or 0)
         is_batch = bool(getattr(result, "batch", False))
+        processing_tier = str(getattr(result, "processing_tier", "standard") or "standard")
         if self._demo:
             # $0 mock run, but stamp a small PLAUSIBLE synthetic cost for the cost page.
             cost = _demo_synthetic_cost(result.prompt_tokens, result.completion_tokens)
@@ -235,8 +271,44 @@ class LLMGateway:
             role_str, surface, case_id, model_used,
             result.prompt_tokens, result.completion_tokens, latency, UsageOutcome.OK, cost,
             cache_read_tokens=cache_read, cache_write_tokens=cache_write, batch=is_batch,
+            processing_tier=processing_tier,
         )
         return result
+
+    def _alert_processing_preference(
+        self, model_cfg: ModelConfig, surface: str,
+    ) -> tuple[str | None, bool]:
+        """Return the safe live service-tier preference for one completion.
+
+        Only case/alert surfaces are cost-routed. Chat, standup, embeddings and
+        operator model tests remain interactive/standard. Only official OpenAI
+        endpoints and currently-supported model families receive ``flex``; every
+        unsupported combination falls back BEFORE a provider call and is therefore
+        truthfully billed as standard.
+        """
+        if surface not in {"automated_scan", "investigate"}:
+            return None, True
+        if self._discounted_policy is None:
+            return None, True
+        try:
+            policy = self._discounted_policy()
+        except Exception as exc:  # noqa: BLE001 — cost preference must not drop alerts
+            logger.warning("discounted-inference policy read failed (%s); using standard", exc)
+            return None, True
+        fallback = bool(getattr(policy, "fallback_to_standard", True))
+        if not bool(getattr(policy, "prefer_discounted_alerts", False)):
+            return None, fallback
+        allowed = {str(p).strip().lower() for p in (getattr(policy, "providers", []) or [])}
+        if "openai" not in allowed or str(model_cfg.provider) != "openai":
+            return None, fallback
+        # A base_url means Azure/self-hosted/compatible routing even if the provider
+        # label is "openai". Flex must never leak onto that non-OpenAI contract.
+        if (model_cfg.base_url or "").strip() or base_url_for(model_cfg.model):
+            return None, fallback
+        model = (model_cfg.model or "").strip().lower()
+        if not any(model.startswith(prefix) for prefix in _OPENAI_FLEX_MODEL_PREFIXES):
+            return None, fallback
+        return "flex", fallback
 
     # ----- embeddings (degrade gracefully to local hashing) -----
     async def embed(
@@ -390,6 +462,7 @@ class LLMGateway:
         cache_read_tokens: int = 0,
         cache_write_tokens: int = 0,
         batch: bool = False,
+        processing_tier: str | None = None,
     ) -> None:
         total = prompt_tokens + completion_tokens
         # Demo Mode: a $0 mock run — pricing_source is ALWAYS 'zero' (the cost is
@@ -428,6 +501,7 @@ class LLMGateway:
             cache_read_tokens=int(cache_read_tokens or 0),
             cache_write_tokens=int(cache_write_tokens or 0),
             batch=bool(batch),
+            processing_tier=(processing_tier or ("batch" if batch else "standard")),
         )
         await self._usage.write(doc)
 

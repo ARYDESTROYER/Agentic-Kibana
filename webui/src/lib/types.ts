@@ -321,7 +321,7 @@ export interface RolesResponse {
 }
 
 // --------------------------------------------------------------------------- //
-// Agent personas + playbooks (read-only catalog surface).
+// Agent personas + operator-managed playbooks.
 // --------------------------------------------------------------------------- //
 /** One specialist persona the router can specialise the investigator into. */
 export interface AgentPersona {
@@ -350,18 +350,41 @@ export interface PlaybookMatch {
 export interface Playbook {
   id: string;
   name: string;
-  version: string;
+  version: number;
   description: string;
   priority: number;
   match: PlaybookMatch;
   suggested_tools: string[];
   rag_queries: string[];
+  escalate_if: string;
+  suggested_verdict_bias: string;
+  /** Packaged reference procedures are readable but immutable. */
+  source_type: 'bundled' | 'operator';
+  protected: boolean;
+  editable: boolean;
+  file_name: string;
+}
+
+/** One opened Markdown document. Render as plain text; never as raw HTML. */
+export interface PlaybookDetail extends Playbook {
+  content: string;
+  body: string;
 }
 
 export interface PlaybooksResponse {
   enabled: boolean;
   count: number;
   playbooks: Playbook[];
+}
+
+export interface PlaybookMutationResponse {
+  ok: boolean;
+  playbook: Playbook;
+  reload: {
+    loaded: number;
+    skipped: { file: string; reason: string }[];
+    ids: string[];
+  };
 }
 
 // --------------------------------------------------------------------------- //
@@ -803,6 +826,17 @@ export interface HealthResponse {
   es_connected?: boolean;
   store_type?: string;
   setup_complete?: boolean;
+}
+
+/** Public, non-secret runtime release identity from `/api/health/build-info`. */
+export interface BuildInfoResponse {
+  service: string;
+  version: string;
+  release_channel: string;
+  commit_sha: string;
+  build_time: string;
+  state_backend: string;
+  ocsf_version: string;
 }
 
 // --------------------------------------------------------------------------- //
@@ -1642,7 +1676,7 @@ export interface Case {
   disposition?: Disposition | null;
   /** Free-text reason for the current lifecycle state (why on hold / how resolved). */
   status_reason?: string;
-  /** Escalation priority level (0 == not escalated). */
+  /** Deprecated wire-compatibility flag; operator UI renders only Escalated. */
   escalation_level?: number;
   /** Append-only lifecycle transition trail (from→to, by, when, reason). */
   status_history?: StatusHistoryEntry[];
@@ -1897,7 +1931,7 @@ export interface CaseActionInput {
   disposition?: Disposition;
   /** set_status: the lifecycle status to move to. */
   status?: CaseStatus;
-  /** escalate: priority level. */
+  /** Deprecated compatibility input; the Console does not expose escalation tiers. */
   level?: number;
 }
 
@@ -2271,6 +2305,73 @@ export interface NoiseReduction {
   [key: string]: unknown;
 }
 
+/**
+ * One selected-window case lineage returned by the lazy Noise Reduction drill-down.
+ * ``clustering`` is the same bounded/redacted projection used by Threat Context;
+ * it never contains raw alert ids or payloads.
+ */
+export interface NoiseLineageRow {
+  case_id: string;
+  display_id: string;
+  created_at: string;
+  severity: string;
+  clustering: {
+    available?: boolean;
+    cluster_id?: string;
+    input_count?: number;
+    input_refs?: string[];
+    input_refs_truncated?: number;
+    source_count?: number;
+    source_breakdown?: Record<string, number>;
+    correlation?: {
+      mode?: string;
+      threshold?: number;
+      window_seconds?: number;
+      group_by?: string;
+      observed_count?: number;
+      matched_rule?: string;
+      rule_values?: string[];
+      reason?: string;
+    };
+    opened_case?: {
+      case_id?: string;
+      display_id?: string;
+      status?: string;
+      verdict?: string;
+    };
+    limitations?: string;
+    [key: string]: unknown;
+  };
+  outcome: {
+    key: 'auto_cleared' | 'closed_by_human' | 'escalated' | 'awaiting_analyst' | string;
+    label: string;
+    /** Aggregate Noise Reduction branch that currently accounts for the row. */
+    funnel_stage: 'auto_cleared' | 'escalated' | 'closed' | string;
+    terminal: boolean;
+    status: string;
+    verdict: string;
+    disposition: string;
+    decision_by: string;
+  };
+}
+
+/** GET /api/metrics/noise-reduction/lineage — bounded, selected-window drill-down. */
+export interface NoiseLineage {
+  window_hours: number;
+  generated_at: string;
+  rows: NoiseLineageRow[];
+  meta: {
+    returned: number;
+    window_cases_in_fetched_page: number;
+    fetched_cases: number;
+    store_total: number;
+    limit: number;
+    truncated: boolean;
+    store_truncated: boolean;
+  };
+  limitations: string;
+}
+
 // --------------------------------------------------------------------------- //
 // Knowledge / RAG corpus management (GET/POST/DELETE /api/rag/*).
 // --------------------------------------------------------------------------- //
@@ -2565,6 +2666,8 @@ export interface ThreatContextPanel {
   ioc_reputation?: IocReputation[];
   mitre_techniques?: MitreTechnique[];
   related_cases?: ThreatContextRelatedCase[];
+  /** Redacted persisted alert → correlation-cluster → case explanation. */
+  clustering?: Record<string, unknown>;
   asset_context?: ThreatContextAsset | null;
   evidence?: Evidence[];
   generated_at?: string;
@@ -2791,10 +2894,10 @@ export interface ThresholdTuningConfig {
 }
 
 /**
- * BATCH-inference policy (mirrors backend `BatchConfig`). Default OFF. When enabled
- * a later wave routes LOW-URGENCY investigations (at/below `severity_floor`, an OCSF
- * severity_id 1-6) through a provider's async, discounted batch API. #6 preserved
- * (one usage-ledger write per resolved call).
+ * Discounted-inference policy (mirrors backend `BatchConfig`). Compatible live
+ * OpenAI alert investigations prefer Flex by default; the separate async Batch
+ * queue remains opt-in for low-urgency work. The ledger records the tier actually
+ * used, and deterministic case authority is unchanged.
  */
 export interface BatchConfig {
   enabled?: boolean;
@@ -2804,6 +2907,10 @@ export interface BatchConfig {
   providers?: string[];
   /** Opt into a provider's flexible / best-effort tier. */
   flex?: boolean;
+  /** Prefer live discounted processing for compatible case/alert inference. */
+  prefer_discounted_alerts?: boolean;
+  /** Retry at standard service when discounted live capacity is unavailable. */
+  fallback_to_standard?: boolean;
 }
 
 /**

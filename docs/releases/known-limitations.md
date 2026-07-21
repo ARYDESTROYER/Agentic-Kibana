@@ -1,15 +1,27 @@
 ---
 title: Known limitations
-description: Promotion blockers and explicit operating constraints for TLSOC 0.1.0.
+description: Promotion blockers and explicit operating constraints for Agentic SOC 0.1.0.
 ---
 
 # Known limitations
 
-This list is part of the product contract for TLSOC `0.1.0`. It distinguishes
+This list is part of the product contract for Agentic SOC `0.1.0`. It distinguishes
 blockers to Stable promotion from documented version 0.1 constraints so a green
 unit-test suite is never mistaken for production evidence.
 
 ## Stable-promotion blockers
+
+### Stable branch topology is not provisioned
+
+The release contract requires a protected literal `main` branch. The current
+remote exposes `Testing` and legacy/default `claude/main`, but no `main`.
+Consequently no current checkout or artifact is a supported Stable release.
+
+**Required change:** create or rename and protect literal `main`, make it the
+default branch, require the documented CI/promotion gates, and publish the first
+tag from its verified commit. If the owner intentionally keeps `claude/main`,
+change every workflow, link, branch protection, and release document to that one
+canonical name before publication.
 
 ### No project license
 
@@ -188,6 +200,23 @@ provider calls over the ceiling; a blocked investigation persists/fails safe to
 can finish above the boundary. It also cannot prevent costs created outside this
 backend. Keep concurrency conservative, configure provider-side budgets/rate limits,
 and alert on ledger/provider disagreement.
+
+### Discounted inference depends on provider capacity and reporting
+
+Compatible official OpenAI alert/case work prefers live Flex, but Flex is a
+best-effort service tier. Eligibility is intentionally narrow and the configured
+standard fallback may cost more than Flex. The Agentic SOC ledger records the tier
+actually returned; it remains an estimate and must be reconciled with provider
+billing. The separate asynchronous Batch queue is opt-in and can add material
+latency or return results out of order.
+
+### Portable export is not backup or tenant isolation
+
+The Data export workflow is bounded to 5,000 items per selected scope and 25 MiB,
+excludes secrets/users/sessions/raw logs/raw knowledge chunks, and has no import
+endpoint. It is suitable for support and offline analysis, not disaster recovery.
+`data_export:export` is also broad scope access rather than per-analyst row isolation;
+grant it to custom roles only after reviewing the disclosure boundary.
 
 ### Mapping is not yet a versioned lifecycle
 

@@ -1,11 +1,11 @@
 ---
 title: Getting started
-description: Choose the shortest supported path from a first look at TLSOC to a verified first case.
+description: Choose the shortest supported path from a first look at Agentic SOC to a verified first case.
 ---
 
 # Getting started
 
-These guides apply to **TLSOC 0.1**. They take you from an empty checkout to a
+These guides apply to **Agentic SOC 0.1**. They take you from an empty checkout to a
 working console, a configured source, and a case whose provenance you can verify.
 
 ## Choose a path
@@ -13,7 +13,7 @@ working console, a configured source, and a case whose provenance you can verify
 | Goal | Start here | What you need |
 | --- | --- | --- |
 | See the product without external services or model spend | [Run the demo](demo.md) | Python 3.11, Node.js 22, and npm |
-| Evaluate the packaged stack | [Install TLSOC](install.md) | Docker Engine or Desktop and Docker Compose v2 |
+| Evaluate the packaged stack | [Install Agentic SOC](install.md) | Docker Engine or Desktop and Docker Compose v2 |
 | Configure an already-running deployment | [Complete first-run setup](first-run.md) | Console access and administrator permission |
 | Prove data reaches the case workflow | [Create your first case](first-case.md) | One configured source and a synthetic test event |
 
@@ -26,7 +26,7 @@ and safety boundaries explained step by step.
 At the end of the onboarding path:
 
 - the liveness and readiness checks pass;
-- the TLSOC Console loads and setup is complete;
+- the Agentic SOC Console loads and setup is complete;
 - at least one enabled source reports recent activity;
 - a synthetic signal appears with the expected source, timestamp, rule, severity,
   and entity mapping;
@@ -35,7 +35,7 @@ At the end of the onboarding path:
 
 !!! note "Evaluation boundary"
 
-    TLSOC 0.1 is designed for a single backend replica. Some runtime-entered
+    Agentic SOC 0.1 is designed for a single backend replica. Some runtime-entered
     secrets and push-source evidence are memory-only. Keep the authoritative event
     in its source and read the [known limitations](../releases/known-limitations.md)
     before connecting sensitive or production data.

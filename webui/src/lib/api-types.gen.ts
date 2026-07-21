@@ -103,6 +103,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Export Application Data
+         * @description Download a bounded, secret-free, canonical JSON snapshot of selected state.
+         */
+        post: operations["export_application_data_api_admin_export_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/reset": {
         parameters: {
             query?: never;
@@ -2296,6 +2316,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/metrics/noise-reduction/lineage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Metrics Noise Reduction Lineage
+         * @description Bounded redacted alert → cluster → case → outcome lineages.
+         *
+         *     This lazy drill-down complements the aggregate Noise Reduction endpoint.  It
+         *     reuses the persisted Threat Context clustering projection, returns only the
+         *     newest ``limit`` cases in the selected window, and never returns raw alert ids
+         *     or payloads.  A store-page cap is reported explicitly so the Console cannot
+         *     imply that a bounded sample represents every historical case.
+         *
+         *     Read-only/advisory: no correlation is re-run and no value here participates in
+         *     risk scoring or the deterministic close/escalate decision (#3).
+         */
+        get: operations["metrics_noise_reduction_lineage_api_metrics_noise_reduction_lineage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/metrics/posture": {
         parameters: {
             query?: never;
@@ -2645,7 +2694,15 @@ export interface paths {
         /** Playbooks */
         get: operations["playbooks_api_playbooks_get"];
         put?: never;
-        post?: never;
+        /**
+         * Playbooks Create
+         * @description Create an operator Markdown file, atomically reload it, and audit the change.
+         *
+         *     The front-matter id must equal ``body.id``.  IDs are slug/path constrained and
+         *     a create never overwrites any existing file or bundled playbook.  Playbook text
+         *     remains recommendation-only context; this endpoint never touches ``decide()``.
+         */
+        post: operations["playbooks_create_api_playbooks_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2686,6 +2743,30 @@ export interface paths {
          */
         get: operations["playbook_selection_api_playbooks_selection__case_id__get"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/playbooks/{playbook_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Playbook Detail
+         * @description Open one playbook as plain UTF-8 Markdown plus parsed catalog metadata.
+         */
+        get: operations["playbook_detail_api_playbooks__playbook_id__get"];
+        /**
+         * Playbook Update
+         * @description Atomically update an operator playbook. Bundled playbooks are read-only.
+         */
+        put: operations["playbook_update_api_playbooks__playbook_id__put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -4543,14 +4624,14 @@ export interface components {
             material: "quiet" | "command";
             /**
              * Org Name
-             * @default TLSOC
+             * @default Agentic SOC
              */
             org_name: string;
             /** Presets */
             presets?: Record<string, never>[];
             /**
              * Product Name
-             * @default Agentic Triage
+             * @default
              */
             product_name: string;
             /**
@@ -4650,7 +4731,11 @@ export interface components {
             disposition?: string | null;
             /** Ids */
             ids?: string[];
-            /** Level */
+            /**
+             * Legacy escalation compatibility value
+             * @deprecated
+             * @description Deprecated compatibility input for older clients. The case enters the single Escalated state; operator surfaces do not display numbered tiers.
+             */
             level?: number | null;
             /**
              * Note
@@ -4727,7 +4812,9 @@ export interface components {
             /** Error */
             error?: string | null;
             /**
-             * Escalation Level
+             * Escalated compatibility flag
+             * @deprecated
+             * @description Legacy storage compatibility: zero means not escalated and any positive value means Escalated. Operator surfaces do not display numbered tiers.
              * @default 0
              */
             escalation_level: number;
@@ -4847,7 +4934,11 @@ export interface components {
             assignee?: string | null;
             /** Disposition */
             disposition?: string | null;
-            /** Level */
+            /**
+             * Legacy escalation compatibility value
+             * @deprecated
+             * @description Deprecated compatibility input for older clients. The case enters the single Escalated state; operator surfaces do not display numbered tiers.
+             */
             level?: number | null;
             /**
              * Note
@@ -5307,6 +5398,19 @@ export interface components {
             y: number;
         };
         /**
+         * DataExportRequest
+         * @description Selectable export request. ``all`` expands to every safe application scope.
+         */
+        DataExportRequest: {
+            /**
+             * Limit Per Scope
+             * @default 1000
+             */
+            limit_per_scope: number;
+            /** Scopes */
+            scopes?: ("all" | "cases" | "audit" | "usage" | "configuration" | "automation" | "knowledge")[];
+        };
+        /**
          * DecisionBy
          * @enum {string}
          */
@@ -5727,6 +5831,24 @@ export interface components {
             index?: string | null;
             /** Source */
             source?: Record<string, never>;
+        };
+        /**
+         * PlaybookCreateRequest
+         * @description Create one operator-owned Markdown playbook.
+         */
+        PlaybookCreateRequest: {
+            /** Content */
+            content: string;
+            /** Id */
+            id: string;
+        };
+        /**
+         * PlaybookUpdateRequest
+         * @description Replace one operator-owned Markdown playbook; the id remains immutable.
+         */
+        PlaybookUpdateRequest: {
+            /** Content */
+            content: string;
         };
         /** PricingBody */
         PricingBody: {
@@ -6818,6 +6940,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    export_application_data_api_admin_export_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DataExportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -10127,6 +10282,38 @@ export interface operations {
             };
         };
     };
+    metrics_noise_reduction_lineage_api_metrics_noise_reduction_lineage_get: {
+        parameters: {
+            query?: {
+                window_hours?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     metrics_posture_api_metrics_posture_get: {
         parameters: {
             query?: {
@@ -10625,6 +10812,39 @@ export interface operations {
             };
         };
     };
+    playbooks_create_api_playbooks_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlaybookCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     playbooks_reload_api_playbooks_reload_post: {
         parameters: {
             query?: never;
@@ -10655,6 +10875,72 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    playbook_detail_api_playbooks__playbook_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                playbook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    playbook_update_api_playbooks__playbook_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                playbook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlaybookUpdateRequest"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

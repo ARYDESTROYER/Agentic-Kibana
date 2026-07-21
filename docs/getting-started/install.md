@@ -1,13 +1,13 @@
 ---
-title: Install TLSOC
-description: Start the recommended TLSOC 0.1 evaluation stack and verify its public health checks.
+title: Install Agentic SOC
+description: Start the recommended Agentic SOC 0.1 evaluation stack and verify its public health checks.
 ---
 
-# Install TLSOC
+# Install Agentic SOC
 
-This guide applies to **TLSOC 0.1** and is for operators installing the recommended
-self-contained evaluation stack. It runs PostgreSQL with pgvector, Redis, the TLSOC
-API, and the nginx-served TLSOC Console. Your SIEM or event source remains separate
+This guide applies to **Agentic SOC 0.1** and is for operators installing the recommended
+self-contained evaluation stack. It runs PostgreSQL with pgvector, Redis, the Agentic SOC
+API, and the nginx-served Agentic SOC Console. Your SIEM or event source remains separate
 and read-only.
 
 ## Prerequisites
@@ -24,7 +24,7 @@ when infrastructure and external model calls are not part of your evaluation.
 
 ## 1. Check out version 0.1
 
-Use the immutable stable tag after it has been published:
+Use the immutable Stable tag after it has been published:
 
 ```bash
 git clone --branch v0.1.0 --depth 1 \
@@ -32,8 +32,11 @@ git clone --branch v0.1.0 --depth 1 \
 cd Agentic-Kibana
 ```
 
-For an unreleased preview, use the repository's `Testing` branch instead. Do not
-create or move a release tag locally.
+For an unreleased preview, use the repository's `Testing` branch instead. The
+current remote has no literal `main` or `v0.1.0`; legacy/default `claude/main` does
+not satisfy the Stable contract. Do not create or move a release tag locally. Once
+provisioned, pulling `main` means pulling the last accepted Stable source—not the
+next Testing candidate.
 
 ## 2. Prepare configuration
 
@@ -58,7 +61,7 @@ Generate random values with `openssl rand -hex 32`. Never commit `.env`.
 
 !!! warning "Secrets entered later in the UI"
 
-    In TLSOC 0.1, runtime-entered source, notification, SSO, and local-model secret
+    In Agentic SOC 0.1, runtime-entered source, notification, SSO, and local-model secret
     values live in process memory. They must be re-entered after a backend restart.
     Environment or an external deployment secret mechanism is the durable boot-time
     path.
@@ -86,6 +89,11 @@ curl --fail http://localhost:8080/api/health/build-info
 - **Live** confirms the API process is running.
 - **Ready** confirms the configured application-state store can serve requests.
 - **Build info** reports the product version and build metadata without secrets.
+
+Open **Documentation** from the bottom of the Console rail and confirm the browser
+stays on this deployment at `/docs/0.1/`. That bundled Help Center matches the
+installed application and remains usable without access to GitHub or the public docs
+site.
 
 If readiness fails, inspect the backend service logs and use the
 [troubleshooting guide](../operations/troubleshooting.md).

@@ -153,6 +153,24 @@ describe('BatchJobs', () => {
     expect(toggle).toHaveAttribute('aria-checked', 'true');
   });
 
+  it('shows live Flex preference separately from the opt-in async Batch queue', async () => {
+    jobsMock.mockResolvedValue({ jobs: [], count: 0 });
+    renderPage();
+
+    expect(
+      await screen.findByRole('switch', { name: /prefer discounted alert inference/i }),
+    ).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('switch', { name: /standard fallback/i })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    expect(screen.getByRole('switch', { name: /enable batch routing/i })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    );
+    expect(screen.getByText(/separate async Batch queue is off/i)).toBeInTheDocument();
+  });
+
   it('shows the empty state when there are no jobs', async () => {
     jobsMock.mockResolvedValue({ jobs: [], count: 0 });
     renderPage();

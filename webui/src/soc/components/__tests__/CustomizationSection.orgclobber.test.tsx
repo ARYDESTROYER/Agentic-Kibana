@@ -9,7 +9,7 @@
  */
 import * as React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 
 const FULL_ORG = {
   terminology: { case: 'incident' },
@@ -81,6 +81,8 @@ beforeEach(() => {
   mocks.effective.mockResolvedValue({ ...EMPTY_EFFECTIVE });
   mocks.getOrg.mockResolvedValue({ ...FULL_ORG });
   mocks.putOrg.mockResolvedValue({ ...FULL_ORG });
+  window.localStorage.clear();
+  document.documentElement.classList.remove('dark');
 });
 
 function renderSection() {
@@ -96,6 +98,37 @@ function renderSection() {
 }
 
 describe('CustomizationSection — org defaults save (Round-6 clobber fix)', () => {
+  it('offers a compact, labelled System / Light / Dark control and persists every choice', async () => {
+    renderSection();
+
+    const group = await screen.findByRole('radiogroup', { name: 'Personal colour mode' });
+    const radios = within(group).getAllByRole('radio');
+    expect(radios.map((radio) => radio.textContent)).toEqual(['System', 'Light', 'Dark']);
+    expect(within(group).getByRole('radio', { name: 'System' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+
+    fireEvent.click(within(group).getByRole('radio', { name: 'Light' }));
+    await waitFor(() =>
+      expect(mocks.putUser).toHaveBeenLastCalledWith({ theme_mode: 'light' }),
+    );
+    expect(window.localStorage.getItem('soc.theme')).toBe('light');
+
+    fireEvent.click(within(group).getByRole('radio', { name: 'Dark' }));
+    await waitFor(() => {
+      expect(mocks.putUser).toHaveBeenLastCalledWith({ theme_mode: 'dark' });
+      expect(document.documentElement).toHaveClass('dark');
+    });
+    expect(window.localStorage.getItem('soc.theme')).toBe('dark');
+
+    fireEvent.click(within(group).getByRole('radio', { name: 'System' }));
+    await waitFor(() =>
+      expect(mocks.putUser).toHaveBeenLastCalledWith({ theme_mode: 'system' }),
+    );
+    expect(window.localStorage.getItem('soc.theme')).toBe('system');
+  });
+
   it('round-trips the full org object (saved views + dashboards) when saving the default theme', async () => {
     renderSection();
     await waitFor(() => expect(mocks.getOrg).toHaveBeenCalled());

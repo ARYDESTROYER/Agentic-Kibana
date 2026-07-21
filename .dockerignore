@@ -1,0 +1,26 @@
+# The Console image uses the repository root as its build context so it can
+# compile the root-level MkDocs source. Keep that context intentionally narrow.
+**
+
+!VERSION
+!mkdocs.yml
+!docs/
+!docs/**
+!overrides/
+!overrides/**
+!scripts/
+!scripts/build_docs_bundle.py
+!webui/
+!webui/**
+
+# Never send local/generated state even when it lives below an included tree.
+webui/node_modules/
+webui/dist/
+webui/public/docs/
+webui/.vite/
+webui/*.log
+webui/.env*
+docs/.cache/
+site/
+.git/
+memory.md

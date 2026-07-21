@@ -52,7 +52,7 @@ unbounded raw-event search engine.
 ## Treat log content as data
 
 Log messages, field names, entities, and raw payload values can be attacker
-controlled. TLSOC renders them as plain data and fences them before model use. Do not
+controlled. Agentic SOC renders them as plain data and fences them before model use. Do not
 copy an instruction embedded in a log into a trusted runbook or memory entry without
 independent verification.
 

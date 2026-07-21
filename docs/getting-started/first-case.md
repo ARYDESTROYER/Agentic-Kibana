@@ -5,7 +5,7 @@ description: Send or select a synthetic signal and verify its path from source p
 
 # Create your first case
 
-This guide applies to **TLSOC 0.1**. It is for operators and analysts validating one
+This guide applies to **Agentic SOC 0.1**. It is for operators and analysts validating one
 source end to end before broadening collection.
 
 ## Prerequisites
@@ -29,10 +29,10 @@ curl --fail-with-body \
 {
   "@timestamp":"${CHECK_TS}",
   "event":{"id":"tlsoc-docs-check-001","severity":75},
-  "rule":{"id":"DOCS-CHECK","name":"TLSOC documentation check"},
+  "rule":{"id":"DOCS-CHECK","name":"Agentic SOC documentation check"},
   "source":{"ip":"192.0.2.10"},
   "host":{"name":"docs-check-host"},
-  "message":"Synthetic TLSOC onboarding event"
+  "message":"Synthetic Agentic SOC onboarding event"
 }
 JSON
 ```
@@ -62,13 +62,18 @@ If fields are missing or misplaced, correct the mapping before continuing. See
 
 ## 3. Inspect the case
 
-Open **Cases** and select the case for the synthetic entity. Verify the separation
+Open **Case Manager** (or the established **Cases** table) and select the case for
+the synthetic entity. Verify the separation
 between:
 
 - what the source reported;
 - what deterministic correlation and risk logic computed;
 - what the model assessed, if the candidate was admitted to investigation; and
 - what deterministic policy decided.
+
+In Case Manager, Overview separates the signal profile and provenance, Timeline
+expands **Risk Assigned** into the stored score factors and ends at **Decision**,
+and Investigation carries the model evidence plus the pinned deterministic result.
 
 An event-feed candidate can remain visible without a model call when it does not
 cross the investigation gate. That is expected and costs `$0`. An alert feed is

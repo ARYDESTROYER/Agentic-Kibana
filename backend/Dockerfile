@@ -1,4 +1,4 @@
-# TLSOC Agentic Triage Suite — backend image
+# Agentic SOC — backend image
 #
 # Targets:
 #   full (default/final) — every connector client advertised by the built-in registry.
@@ -12,8 +12,8 @@ ARG TLSOC_BUILD_SHA=unknown
 ARG TLSOC_BUILD_DATE=unknown
 ARG TLSOC_SOURCE_URL=https://github.com/ARYDESTROYER/Agentic-Kibana
 
-LABEL org.opencontainers.image.title="TLSOC API" \
-      org.opencontainers.image.description="Backend API for TLSOC Agentic Triage Suite" \
+LABEL org.opencontainers.image.title="Agentic SOC API" \
+      org.opencontainers.image.description="Backend API for Agentic SOC" \
       org.opencontainers.image.version="${TLSOC_VERSION}" \
       dev.tlsoc.release.channel="${TLSOC_RELEASE_CHANNEL}" \
       org.opencontainers.image.revision="${TLSOC_BUILD_SHA}" \

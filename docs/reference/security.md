@@ -1,11 +1,11 @@
 ---
 title: Security model
-description: Trust boundaries, enforced safety properties, deployment responsibilities, and known security limits in TLSOC 0.1.
+description: Trust boundaries, enforced safety properties, deployment responsibilities, and known security limits in Agentic SOC 0.1.
 ---
 
 # Security model
 
-TLSOC processes attacker-influenced telemetry and sends bounded summaries to language
+Agentic SOC processes attacker-influenced telemetry and sends bounded summaries to language
 models. Version 0.1 therefore treats input data, model output, and operational actions
 as separate trust domains. The product's consequential safety rules are enforced in
 code rather than delegated to a prompt.
@@ -14,16 +14,16 @@ code rather than delegated to a prompt.
 
 ```text
 Analyst browser
-    -> TLSOC Console / reverse proxy
-        -> TLSOC API
+    -> Agentic SOC Console / reverse proxy
+        -> Agentic SOC API
             -> read-only telemetry sources
-            -> TLSOC-owned state backend
+            -> Agentic SOC-owned state backend
             -> LLM and enrichment providers
 ```
 
 - The browser receives non-secret configuration and configured booleans, not secret values.
 - Pull-source credentials are read-only and scoped to the selected telemetry.
-- The state backend credential can write TLSOC-owned data but must not grant source-log access.
+- The state backend credential can write Agentic SOC-owned data but must not grant source-log access.
 - Push receivers authenticate inbound senders before parsing when bearer or HMAC mode is selected.
 - Model and enrichment calls cross an outbound trust boundary and require an explicit egress policy.
 
@@ -108,7 +108,7 @@ optional, in-process, and per client IP. It is a coarse single-process guard, no
 distributed rate-control system.
 
 CSRF middleware is optional and off by default. In 0.1 it expects matching
-`tlsoc_csrf` cookie and `X-CSRF-Token` header values on unsafe requests, but the TLSOC
+`tlsoc_csrf` cookie and `X-CSRF-Token` header values on unsafe requests, but the Agentic SOC
 Console does not mint/echo that token end to end. Do not enable it without validating
 the client flow or providing the exchange at the trusted proxy/application layer.
 
@@ -140,7 +140,7 @@ obfuscation/signing keys as sensitive and back them up separately.
 
 ## Security limits in 0.1
 
-TLSOC 0.1 does not provide a built-in durable secret manager, default multi-tenant
+Agentic SOC 0.1 does not provide a built-in durable secret manager, default multi-tenant
 row isolation, distributed rate limiting, or autonomous response containment. The
 reference service shape is single-backend oriented; multi-replica coordination and
 high availability require deployment-specific validation. Some transport receivers

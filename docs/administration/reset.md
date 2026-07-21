@@ -1,11 +1,11 @@
 ---
 title: Reset and recovery
-description: Understand TLSOC's destructive reset scopes, safeguards, and recovery requirements.
+description: Understand Agentic SOC's destructive reset scopes, safeguards, and recovery requirements.
 ---
 
 # Reset and recovery
 
-Reset removes TLSOC-owned state. It never deletes upstream log data and never erases
+Reset removes Agentic SOC-owned state. It never deletes upstream log data and never erases
 environment-provided secrets. Reset is destructive and is not a substitute for a
 tested backup/restore process.
 
@@ -23,9 +23,9 @@ tested backup/restore process.
 
 | Scope | Confirmation phrase | Intended effect |
 |---|---|---|
-| `cases` | `RESET CASES` | Clear TLSOC case-oriented state and related advisory counters while retaining configured sources and durable cost history where specified by the reset service |
+| `cases` | `RESET CASES` | Clear Agentic SOC case-oriented state and related advisory counters while retaining configured sources and durable cost history where specified by the reset service |
 | `sources` | `RESET SOURCES` | Remove configured sources, source cursors/mappings, and in-memory per-source secrets; does not delete data from upstream systems |
-| `factory` | `FACTORY RESET` | Clear TLSOC-owned configuration/state and return the application to first-run setup |
+| `factory` | `FACTORY RESET` | Clear Agentic SOC-owned configuration/state and return the application to first-run setup |
 
 The response returns the exact stores/categories reported as cleared. Review it rather
 than assuming every external dependency was affected.

@@ -5,7 +5,7 @@ description: Configure organization branding, terminology, themes, saved views, 
 
 # Branding and customization
 
-TLSOC has two customization scopes: organization defaults and personal preferences.
+Agentic SOC has two customization scopes: organization defaults and personal preferences.
 Organization settings establish the shared console vocabulary and appearance; user
 preferences can override supported presentation choices without changing other users.
 

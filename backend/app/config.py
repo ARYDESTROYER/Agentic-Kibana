@@ -755,8 +755,11 @@ class BrandingConfig(BaseModel):
 
     model_config = {"protected_namespaces": ()}
 
-    org_name: str = "TLSOC"
-    product_name: str = "Agentic Triage"
+    # Temporary shipped product identity. Technical compatibility names (TLSOC_*
+    # environment variables, index prefixes and API namespaces) intentionally stay
+    # unchanged; this is the operator-facing brand only.
+    org_name: str = "Agentic SOC"
+    product_name: str = ""
     logo_data_url: str = ""           # "data:image/png;base64,...." (bounded), or ""
     favicon_data_url: str = ""        # browser-tab icon as a data:image/* URL (bounded), or ""
     accent_color: str = ""            # "#RRGGBB" override for the UI accent, or "" = default
@@ -1345,12 +1348,16 @@ class ThresholdTuningConfig(BaseModel):
 
 
 class BatchConfig(BaseModel):
-    """BATCH-inference policy (Round 4 cost governance). Default OFF so today's
-    synchronous behaviour is byte-identical. When ``enabled`` a later wave routes
-    LOW-URGENCY investigations (at/below ``severity_floor``, an OCSF severity_id 1-6)
-    through a provider's async, discounted batch API instead of a live call. #6 is
-    preserved (one UsageDoc per resolved call). ``providers`` lists the providers whose
-    batch APIs may be used; ``flex`` opts into a provider's flexible/best-effort tier."""
+    """Discounted-inference policy (Round 4 cost governance).
+
+    ``enabled`` continues to gate the true ASYNC provider-Batch event funnel. Alert
+    investigations outside that funnel need an in-band answer before deterministic
+    case routing can continue, so ``prefer_discounted_alerts`` independently opts
+    compatible LIVE OpenAI alert calls into Flex. The gateway verifies provider/model
+    support, records the tier ACTUALLY returned, and can fall back to standard service
+    when Flex capacity is unavailable. Unsupported providers/models are never labelled
+    or billed as discounted. #6 remains one UsageDoc per resolved call; #3 is untouched.
+    """
 
     enabled: bool = False
     # OCSF severity_id (1-6): a candidate AT/BELOW this floor is eligible for batch
@@ -1358,6 +1365,12 @@ class BatchConfig(BaseModel):
     severity_floor: int = Field(default=3, ge=1, le=6)
     providers: list[str] = Field(default_factory=lambda: ["anthropic", "openai"])
     flex: bool = False
+    # Default-ON cost preference for case/alert inference. This is separate from the
+    # historical ``flex`` switch above, which belongs to the opt-in async EVENT funnel.
+    prefer_discounted_alerts: bool = True
+    # Flex is best-effort capacity. A standard retry preserves alert processing when
+    # Flex is unavailable; the fallback is metered at the standard rate, truthfully.
+    fallback_to_standard: bool = True
 
 
 class BaselineConfig(BaseModel):
@@ -1881,7 +1894,7 @@ class MfaConfig(BaseModel):
     MFA is per-user opt-in; this block only tunes issuer/format + optional
     role-level enforcement. NO secrets live here (the per-user TOTP secret lives
     obfuscated on the User record; the obfuscation key is in the SECRET tier).
-    ``issuer`` (blank → branding.org_name → "TLSOC") labels the authenticator
+    ``issuer`` (blank → branding.org_name → "Agentic SOC") labels the authenticator
     entry. ``enforce_for_roles`` lists roles for which a password login is treated as
     requiring MFA even before the user enrolled (they'll be prompted to set it up)."""
 

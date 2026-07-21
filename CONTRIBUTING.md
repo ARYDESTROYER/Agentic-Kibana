@@ -1,6 +1,6 @@
 # CONTRIBUTING.md — Developer workflow
 
-How to work on the **TLSOC Agentic Triage Suite** (vendor-agnostic). Read
+How to work on **Agentic SOC** (vendor-agnostic). Read
 [`AGENTS.md`](AGENTS.md) first — it is the canonical context (architecture, the 12
 non-negotiables, environment, and the Journal mandate). This file is the practical
 workflow that sits on top of it.
@@ -25,6 +25,16 @@ workflow that sits on top of it.
   do not maintain a parallel prerelease branch under another name. See
   [`docs/releases/channels.md`](docs/releases/channels.md). Commit focused changes;
   push only when asked.
+  **Current repository caveat:** the remote presently exposes `Testing` and
+  legacy/default `claude/main`, not literal `main`. The owner must provision and
+  protect `main` before the first Stable promotion, or deliberately update all
+  workflows and release references to a different canonical Stable branch.
+  `claude/main` is not implicitly Stable.
+- **Release notes:** keep one active top-level `[Unreleased]` section. Dated,
+  unpublished work is a Development snapshot, not another pseudo-release. The final
+  frozen release-preparation change creates `[X.Y.Z]`, reopens `[Unreleased]`, and is
+  promoted, verified, and annotated-tagged without content drift; see the release
+  checklist linked above.
 - **The Journal mandate (non-negotiable process rule).** Every agent (and the
   orchestrator) **MUST** append an entry to [`Journal.md`](Journal.md) at the
   start and end of any session, and after any meaningful milestone (a feature
@@ -77,6 +87,10 @@ overhaul.
   `src/ui/*` (shadcn-style wrappers on Radix — wrap, don't fork), SOC-domain
   components in `src/soc/components/*`; functional components + hooks
   throughout.
+- **Follow the current Console migration contract** in
+  [`docs/development/ui-standard.md`](docs/development/ui-standard.md) for every
+  routed page, shared shell component, loading state, theme surface, and navigation
+  change. Round-specific design docs are history, not a second current standard.
 - **Reuse `SourceEditor`** (`src/soc/components/SourceEditor.tsx`) for anything
   that renders an `AuthField[]` — it turns a connector manifest into a validated
   form, so a new source needs zero bespoke UI.
@@ -89,9 +103,17 @@ overhaul.
 cd webui
 npm install
 npm run dev          # http://localhost:5173, proxies /api -> :8088
-npm run build        # tsc --noEmit + vite build -> dist/  (MUST stay clean)
+npm run build        # versioned Help Center + tsc --noEmit + Vite -> dist/
+npm run docs:check   # validate the generated Help Center against VERSION
+npm run build:app    # app-only typecheck + Vite when docs are intentionally unchanged
 npm run typecheck    # type check only
+npm run lint         # ESLint + accessibility rules
+npm run gates        # design/contract gates
+npm test             # Vitest suite
 ```
+
+The current verified baseline is **1,960 backend tests** and **1,412 web tests
+across 243 files**. Counts may rise; every command above must remain green.
 
 ## 3b. Archived Kibana plugin (`archive/kibana-plugin/`)
 
@@ -243,9 +265,11 @@ A new `SourceType` enum value (`constants.py`) and (for receivers) the right
    && python -m pytest -q`. Fully offline (fake ES + mock LLM, no network or keys).
    This includes `tests/test_route_auth_coverage.py`, so a new `/api` route that
    bypasses the auth gate fails CI.
-2. **Web UI build** — `cd webui && npm ci && npm run build` (`tsc --noEmit && vite
-   build`). Fails on a type error or a build break; also catches accidental new npm
-   deps via the committed `package-lock.json`.
+2. **Web UI build** — installs the pinned documentation toolchain, tests the bundle
+   contract, then runs `cd webui && npm ci && npm run build` (version-matched MkDocs
+   Help Center + `tsc --noEmit` + Vite). It fails on documentation/version drift, a
+   type error, or a build break, and catches accidental new npm dependencies through
+   the committed `package-lock.json`.
 
 An aggregate **`CI passed`** check depends on both. To enforce it:
 

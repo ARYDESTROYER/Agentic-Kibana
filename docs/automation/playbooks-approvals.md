@@ -11,13 +11,14 @@ change case status.
 
 ## Select and run a playbook
 
-Open a case and choose **Run playbook**. TLSOC matches playbooks against rule IDs,
+Open a case and choose **Run playbook**. Agentic SOC matches playbooks against rule IDs,
 entity type, MITRE techniques, minimum event count, and tags; priority and version
 make selection deterministic when multiple procedures match. Running one starts a
 case-context re-investigation, so it can consume model budget.
 
-Reading the catalog requires `playbooks:read`; execution requires `playbooks:run`.
-Reloading the on-disk catalog is an administrative Settings operation.
+Reading/opening the catalog requires `playbooks:read`; execution requires
+`playbooks:run`. Creating, editing, or reloading operator files requires
+`playbooks:manage` (built-in `super_admin` and `soc_manager`).
 
 Before running:
 
@@ -25,6 +26,32 @@ Before running:
 2. review any outbound or destructive step as a human action outside the agent;
 3. verify cost and model availability; and
 4. record material results in the case timeline, thread, or tasks.
+
+## Browse and manage procedures
+
+Open **Intelligence → Playbooks**. Every card identifies its ownership:
+
+- **Bundled** procedures ship with Agentic SOC. You can open and copy their plain Markdown,
+  but they are protected from runtime edits so an upgrade has a stable reference set.
+- **Operator** procedures live in the configured playbook directory. A principal with
+  `playbooks:manage` can open **New playbook**, create a slug-bound Markdown file, and
+  edit it later from **Open source → Edit**.
+
+The editor stores plain UTF-8 Markdown; it does not render operator text as HTML. IDs
+must be lowercase slugs (`a-z`, `0-9`, `_`, `-`, maximum 64 characters), and the
+front-matter `id` must match the selected ID. The backend bounds documents to 256 KiB,
+rejects traversal and symbolic-link targets, writes through an atomic replacement, and
+reloads the registry only after the candidate validates. A failed replacement restores
+the prior operator file. The client never receives a server filesystem path.
+
+Create/update/reload operations append a `playbook` event to the durable audit log.
+Deleting files is intentionally not exposed in v0.1; retire a procedure by removing it
+through controlled deployment/configuration management and reloading the registry.
+
+If Playbooks is disabled in Settings, the catalog remains manageable but procedures are
+not injected into investigations. This is useful for preparing a change before enabling
+it. Changing a playbook affects future selection or explicit re-investigation only; it
+does not rewrite historical case decisions.
 
 ## Case automation and proposals
 

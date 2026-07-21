@@ -1,5 +1,5 @@
 # =============================================================================
-# TLSOC Agentic Triage Suite — service block to ADD to TLSOCDockerDeploy.
+# Agentic SOC — service block to ADD to TLSOCDockerDeploy.
 #
 # HOW TO USE (see DEPLOY.md): copy the `tlsoc-backend` (and optional
 # `tlsoc-redis`) entries below INTO the `services:` map of

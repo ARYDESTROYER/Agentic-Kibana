@@ -10,7 +10,7 @@
  * Fully mocked (offline); no #3 / runtime behaviour touched.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { act, render, screen, waitFor, fireEvent } from '@testing-library/react';
 
 const { listCasesMock } = vi.hoisted(() => ({ listCasesMock: vi.fn() }));
 
@@ -80,8 +80,10 @@ function renderCases() {
 
 describe('Cases controls (round-6 #0/#6)', () => {
   beforeEach(() => {
+    vi.useRealTimers();
     listCasesMock.mockReset().mockResolvedValue({ cases: CASES, total: CASES.length });
     window.localStorage.clear();
+    window.location.hash = '#/cases';
   });
 
   it('sort direction is a true two-way toggle with a way back to newest (#6)', async () => {
@@ -122,5 +124,26 @@ describe('Cases controls (round-6 #0/#6)', () => {
     // fixed positioning, and the bar lives directly under <body>.
     expect(bar.closest('[class~="@container"]')).toBeNull();
     expect(document.body.contains(bar)).toBe(true);
+  });
+
+  it('announces a short handoff, then opens the exact case in Case Manager', async () => {
+    renderCases();
+    await waitFor(() => expect(screen.getByText('Alpha')).toBeInTheDocument());
+    vi.useFakeTimers();
+
+    fireEvent.click(screen.getByRole('button', { name: 'TLSOC-001' }));
+    const status = screen.getByRole('status');
+    expect(status).toHaveTextContent('Taking you to Case Manager…');
+    expect(status).toHaveTextContent('Opening TLSOC-001');
+    expect(screen.getByRole('progressbar', { name: 'Opening selected case in Case Manager' })).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/cases');
+
+    act(() => vi.advanceTimersByTime(499));
+    expect(window.location.hash).toBe('#/cases');
+    act(() => vi.advanceTimersByTime(1));
+
+    expect(window.location.hash).toBe('#/case_manager?caseId=case-001');
+    expect(screen.queryByTestId('case-manager-handoff')).not.toBeInTheDocument();
+    vi.useRealTimers();
   });
 });

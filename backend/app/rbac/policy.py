@@ -54,12 +54,16 @@ RESOURCES: dict[str, list[str]] = {
     "settings": ["read", "manage"],
     "users": ["manage"],
     "proposals": ["read", "approve"],
-    "playbooks": ["read", "run"],
+    "playbooks": ["read", "run", "manage"],
     "rag": ["read", "manage"],
     "memory": ["read", "manage"],
     "cost": ["view"],
     "audit": ["view"],
     "metrics": ["view"],
+    # Portable application-state export. Deliberately NOT settings-like: only the
+    # two platform-owner roles receive it by default; read-only analysts/auditors do
+    # not inherit bulk data extraction merely because they can view settings.
+    "data_export": ["export"],
     # --- Round-3 Wave-1 narrow resources (split out of ``settings``) --- #
     "notifications": ["read", "manage"],   # provider catalog / preview / test-send / channel secret
     "branding": ["read", "manage"],        # org white-label (logo / accent / org name)
@@ -127,6 +131,7 @@ _SOC_MANAGER: dict[str, list[str]] = {
     "cost": ["view"],
     "audit": ["view"],
     "metrics": ["view"],
+    "data_export": ["export"],
     **_settings_like([ALL]),
 }
 

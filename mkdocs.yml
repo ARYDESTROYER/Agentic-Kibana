@@ -1,6 +1,6 @@
-site_name: TLSOC Agentic Triage Suite
-site_description: Vendor-neutral, self-hosted security alert triage with deterministic decisions and auditable AI.
-site_url: https://arydestroyer.github.io/Agentic-Kibana/
+site_name: Agentic SOC Help Center
+site_description: Version-matched product, administration, operations, reference, and release documentation for Agentic SOC.
+site_url: !ENV [TLSOC_DOCS_SITE_URL, "https://arydestroyer.github.io/Agentic-Kibana/"]
 repo_url: https://github.com/ARYDESTROYER/Agentic-Kibana
 repo_name: ARYDESTROYER/Agentic-Kibana
 edit_uri: !ENV [TLSOC_DOCS_EDIT_URI, "edit/Testing/docs/"]
@@ -89,7 +89,7 @@ extra:
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/ARYDESTROYER/Agentic-Kibana
-      name: TLSOC on GitHub
+      name: Agentic SOC on GitHub
   status:
     new: Recently added
     deprecated: Deprecated
@@ -110,55 +110,51 @@ exclude_docs: |
   research/
 
 nav:
-  - Introduction: index.md
-  - Getting started:
-      - Overview: getting-started/index.md
-      - Quickstart: getting-started/quickstart.md
+  - Use the product:
+      - Help Center home: index.md
+      - Get started:
+          - Choose a path: getting-started/index.md
+          - Quickstart: getting-started/quickstart.md
+          - First-run setup: getting-started/first-run.md
+          - Demo Mode: getting-started/demo.md
+          - Your first case: getting-started/first-case.md
+      - User and analyst guide:
+          - Start a shift: analyst/overview.md
+          - Cases: analyst/cases.md
+          - Case Manager: analyst/case-manager.md
+          - Investigation: analyst/investigation.md
+          - Logs and search: analyst/logs-search.md
+          - Collaboration: analyst/collaboration.md
+          - Campaigns: analyst/campaigns.md
+          - Analytics: analyst/analytics.md
+      - Automation:
+          - Overview: automation/index.md
+          - Detection rules: automation/rules.md
+          - Tuning and baselines: automation/tuning-baselines.md
+          - Playbooks and approvals: automation/playbooks-approvals.md
+      - Threat intelligence:
+          - Knowledge and memory: intelligence/knowledge-memory.md
+          - Enrichment: intelligence/enrichment.md
+          - MITRE and threat context: intelligence/mitre-threat-context.md
+  - Administer:
+      - Console administration:
+          - Settings: administration/settings.md
+          - Users and RBAC: administration/users-rbac.md
+          - Authentication: administration/authentication.md
+          - Models and spend: administration/models-spend.md
+          - Notifications: administration/notifications.md
+          - Customization: administration/customization.md
+          - Reset controls: administration/reset.md
+      - Connect data sources:
+          - Source overview: sources/index.md
+          - Support matrix: sources/support-matrix.md
+          - Pull connectors: sources/pull.md
+          - HTTP and syslog: sources/http-syslog.md
+          - Queues and object stores: sources/queues-object-stores.md
+          - Feeds and field mapping: sources/feeds-mapping.md
+          - Custom connectors: sources/custom-connectors.md
+  - Deploy and operate:
       - Install: getting-started/install.md
-      - First-run setup: getting-started/first-run.md
-      - Demo Mode: getting-started/demo.md
-      - Your first case: getting-started/first-case.md
-  - Concepts:
-      - Architecture: concepts/architecture.md
-      - Terminology: concepts/terminology.md
-      - OCSF normalization: concepts/ocsf.md
-      - Deterministic decisions: concepts/deterministic-decisions.md
-      - State, audit, and cost: concepts/state-audit-cost.md
-      - Ingestion and investigation: architecture/ingestion.md
-  - Sources:
-      - Overview: sources/index.md
-      - Support matrix: sources/support-matrix.md
-      - Pull connectors: sources/pull.md
-      - HTTP and syslog: sources/http-syslog.md
-      - Queues and object stores: sources/queues-object-stores.md
-      - Feeds and field mapping: sources/feeds-mapping.md
-      - Custom connectors: sources/custom-connectors.md
-  - Analyst guide:
-      - Overview: analyst/overview.md
-      - Cases: analyst/cases.md
-      - Investigation: analyst/investigation.md
-      - Logs and search: analyst/logs-search.md
-      - Collaboration: analyst/collaboration.md
-      - Campaigns: analyst/campaigns.md
-      - Analytics: analyst/analytics.md
-  - Automation:
-      - Overview: automation/index.md
-      - Detection rules: automation/rules.md
-      - Tuning and baselines: automation/tuning-baselines.md
-      - Playbooks and approvals: automation/playbooks-approvals.md
-  - Intelligence:
-      - Knowledge and memory: intelligence/knowledge-memory.md
-      - Enrichment: intelligence/enrichment.md
-      - MITRE and threat context: intelligence/mitre-threat-context.md
-  - Administration:
-      - Settings: administration/settings.md
-      - Users and RBAC: administration/users-rbac.md
-      - Authentication: administration/authentication.md
-      - Models and spend: administration/models-spend.md
-      - Notifications: administration/notifications.md
-      - Customization: administration/customization.md
-      - Reset controls: administration/reset.md
-  - Operations:
       - Deployment: operations/deployment.md
       - Configuration: operations/configuration.md
       - Security hardening: operations/security.md
@@ -166,19 +162,28 @@ nav:
       - Upgrades: operations/upgrades.md
       - Troubleshooting: operations/troubleshooting.md
   - Reference:
-      - API: reference/api.md
-      - Configuration: reference/configuration.md
-      - Permissions: reference/permissions.md
-      - Compatibility: reference/compatibility.md
-      - Security invariants: reference/security.md
-  - Development:
-      - Overview: development/index.md
-      - Backend: development/backend.md
-      - Web console: development/webui.md
-      - Extensions: development/extensions.md
-      - Testing and contracts: development/testing.md
-  - Releases:
-      - TLSOC 0.1: releases/0.1.md
-      - Channels and versioning: releases/channels.md
+      - Product concepts:
+          - Architecture: concepts/architecture.md
+          - Terminology: concepts/terminology.md
+          - OCSF normalization: concepts/ocsf.md
+          - Deterministic decisions: concepts/deterministic-decisions.md
+          - State, audit, and cost: concepts/state-audit-cost.md
+          - Ingestion and investigation: architecture/ingestion.md
+      - Contracts:
+          - API: reference/api.md
+          - Configuration: reference/configuration.md
+          - Permissions: reference/permissions.md
+          - Compatibility: reference/compatibility.md
+          - Security invariants: reference/security.md
+      - Develop and extend:
+          - Overview: development/index.md
+          - Backend: development/backend.md
+          - Web console: development/webui.md
+          - Console UI standard: development/ui-standard.md
+          - Extensions: development/extensions.md
+          - Testing and contracts: development/testing.md
+  - Releases and versions:
+      - Agentic SOC 0.1: releases/0.1.md
       - Documentation versions: releases/documentation-versions.md
+      - Channels and versioning: releases/channels.md
       - Known limitations: releases/known-limitations.md

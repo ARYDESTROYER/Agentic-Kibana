@@ -1,11 +1,11 @@
 ---
 title: API reference
-description: Curated TLSOC API endpoint groups, authentication, pagination, realtime events, and OpenAPI discovery for version 0.1.
+description: Curated Agentic SOC API endpoint groups, authentication, pagination, realtime events, and OpenAPI discovery for version 0.1.
 ---
 
 # API reference
 
-The **TLSOC API** is the FastAPI service behind the TLSOC Console. This page covers
+The **Agentic SOC API** is the FastAPI service behind the Agentic SOC Console. This page covers
 the public HTTP surface in application version **0.1.0** and documentation line
 **0.1**. The API is mounted at `/api`; the service root is `/`.
 
@@ -35,7 +35,7 @@ environment.
 
 ## Base URL and JSON
 
-The TLSOC Console uses relative `/api/*` URLs. External clients should use the same
+The Agentic SOC Console uses relative `/api/*` URLs. External clients should use the same
 HTTPS origin exposed by the deployment proxy:
 
 ```text
@@ -96,13 +96,14 @@ the exact request model and every operation under a prefix.
 | Case collaboration | `/api/cases/{case_id}/thread*`, `/tasks*`, `/activity`, `/comment`, `/assign`, `/tags`, `/notify` | Discussion, reactions, tasks, ownership, activity, and manual notification |
 | Workspace | `POST /api/chat`, `POST /api/investigate`, `POST /api/overview`, `GET /api/search`, `/scans`, `/personas` | Console chat, entity investigation, cross-surface search, scan queues, and personas |
 | Detection and automation | `/api/rules*`, `/api/tuning*`, `/api/baseline*`, `/api/campaigns*`, `/api/batch*`, `/api/proposals*` | Rule lifecycle, safe preview/version rollback, recommendations, baselines, campaigns, batch jobs, and approvals |
-| Playbooks | `GET /api/playbooks`, `POST /api/playbooks/reload`, `GET /api/playbooks/selection/{case_id}`, `POST /api/cases/{case_id}/run-playbook` | Catalog, deterministic selection, hot reload, and case execution |
+| Playbooks | `GET/POST /api/playbooks`, `GET/PUT /api/playbooks/{playbook_id}`, `POST /api/playbooks/reload`, `GET /api/playbooks/selection/{case_id}`, `POST /api/cases/{case_id}/run-playbook` | Catalog/open, protected operator-file management, deterministic selection, hot reload, and case execution |
 | Knowledge and memory | `/api/rag/*`, `/api/memory*`, `/api/runbooks`, `POST /api/threat-context/import` | Import/search/delete knowledge, manage operator memory, and inspect runbooks |
 | Enrichment and MITRE | `/api/enrichment/*`, `/api/mitre/coverage*`, `GET /api/cases/{case_id}/threat-context` | IOC enrichment, provider configuration, ATT&CK coverage, and Navigator export |
 | Dashboards and metrics | `/api/dashboards*`, `/api/metrics*`, `/api/feedback/stats`, `/api/usage/summary`, `/api/cost/estimate` | Personal dashboards, posture/noise metrics, usage, feedback, and cost estimates |
 | Standup and handoff | `/api/standup*` | Shift report, acknowledgements, and action items |
 | Notifications | `/api/notifications/providers`, `/channels/*`, `/preview`, `/test`, `/prefs`, `/inbox*` | Channel catalog/secrets, safe previews, tests, per-user preferences, and in-app inbox |
 | Preferences and presentation | `/api/settings*`, `/api/prefs/*`, `/api/branding`, `/api/terminology`, `/api/views*`, `/api/budget*`, `/api/llm/*`, `/api/models` | Organization/user preferences, saved views, model routing/pricing, branding, and budget controls |
+| Portable data export | `POST /api/admin/export` | Download selected, bounded, secret-free application state for offline analysis (`data_export:export`) |
 | Audit and realtime | `GET /api/audit`, `GET /api/events` | Append-only action history and server-sent event updates |
 | Demo and reset | `/api/demo/*`, `POST /api/admin/reset` | Isolated synthetic demonstration lifecycle and privileged tiered reset |
 
@@ -116,6 +117,17 @@ operation for the endpoint being called.
 Source and log browse limits are server-bounded. Treat every returned log field,
 raw record, case-derived string, and search result as untrusted data when presenting
 it in another system.
+
+## Case clustering explanation
+
+`GET /api/cases/{case_id}/threat-context` includes an additive `clustering` object.
+It is a read-only projection of persisted case facts; it never re-runs correlation,
+changes a cluster signature, scores risk, or participates in the case decision. The
+object reports availability, input/source counts, a source breakdown, correlation
+mode/threshold/window/grouping/reason, opened-case status/verdict, and bounded related
+cases. Up to 12 member references are returned as stable one-way hashes, with a
+truncation count; raw source identifiers and alert payloads are excluded. Consumers
+must tolerate `available: false` or incomplete fields for older cases.
 
 ## Realtime events
 
@@ -137,6 +149,21 @@ Secret-setting routes accept values but never return them. Subsequent reads expo
 only configured booleans or configured field names. See the
 [Configuration reference](configuration.md) before automating setup.
 
+## Portable application export
+
+`POST /api/admin/export` accepts `scopes` (`all`, `cases`, `audit`, `usage`,
+`configuration`, `automation`, or `knowledge`) and `limit_per_scope` (1–5000;
+default 1000). It returns a canonical `application/json` attachment with a per-scope
+count/total/truncation manifest. `limit_per_scope` caps the whole selected scope;
+grouped automation and knowledge collections are sampled fairly within that cap. The
+server never traverses environment/source credentials,
+users, sessions, password/MFA material, browser tokens, or upstream raw logs; a final
+recursive sanitizer removes credential-shaped fields and common token/private-key
+patterns. Raw knowledge chunks are also excluded. Exports are hard-limited to 25 MiB;
+use fewer scopes or a lower item cap when the server returns HTTP 413. The response is
+not an import/restore format. The default permission is limited to `super_admin` and
+`soc_manager` through `data_export:export`, and each request is audited.
+
 ## Compatibility expectations
 
 The 0.1 API favors additive fields and stable existing paths, but it is still a
@@ -144,4 +171,7 @@ pre-1.0 contract. Pin clients to an application patch version, tolerate unknown
 response fields, regenerate typed clients when the OpenAPI snapshot changes, and
 test against the `Testing` branch before promoting the accepted source tree to
 `main`/Stable and re-running the gate on the resulting commit.
+The current remote has not yet provisioned literal `main`; legacy/default
+`claude/main` must not be treated as Stable without a deliberate repository-wide
+release-contract change.
 See [Compatibility](compatibility.md) and [Documentation versions](../releases/documentation-versions.md).

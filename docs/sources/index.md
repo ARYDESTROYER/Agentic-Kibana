@@ -1,11 +1,11 @@
 ---
 title: Connect sources
-description: Add, validate, monitor, and safely expand a TLSOC 0.1 source.
+description: Add, validate, monitor, and safely expand an Agentic SOC 0.1 source.
 ---
 
 # Connect sources
 
-This guide applies to **TLSOC 0.1** and is for operators and integrators. A source is
+This guide applies to **Agentic SOC 0.1** and is for operators and integrators. A source is
 one configured connector instance: a particular cluster, sender, broker, bucket, or
 file input with its own identity, transport, feeds, mappings, and secret presence.
 
@@ -13,11 +13,11 @@ file input with its own identity, transport, feeds, mappings, and secret presenc
 
 | Path | Who initiates delivery | Built-in examples |
 | --- | --- | --- |
-| Pull | TLSOC polls a read/search API | Elasticsearch, OpenSearch, Wazuh indexer |
-| HTTP push | The source posts to TLSOC | Generic webhook, Splunk HEC-compatible receiver |
+| Pull | Agentic SOC polls a read/search API | Elasticsearch, OpenSearch, Wazuh indexer |
+| HTTP push | The source posts to Agentic SOC | Generic webhook, Splunk HEC-compatible receiver |
 | Socket | The source connects to a listener | RFC 3164/5424 syslog over UDP or TCP |
-| Queue or stream | TLSOC consumes a broker | Kafka, SQS, Kinesis, Event Hubs, Pub/Sub, RabbitMQ, NATS, MQTT, Redis Streams |
-| Object or file | TLSOC reads new objects or file content | S3, GCS, Azure Blob, local file/directory |
+| Queue or stream | Agentic SOC consumes a broker | Kafka, SQS, Kinesis, Event Hubs, Pub/Sub, RabbitMQ, NATS, MQTT, Redis Streams |
+| Object or file | Agentic SOC reads new objects or file content | S3, GCS, Azure Blob, local file/directory |
 
 See the [support matrix](support-matrix.md) before choosing a connector. Reserved
 vendor names in the API do not imply a built-in runtime connector.
@@ -27,7 +27,7 @@ vendor names in the API do not imply a built-in runtime connector.
 1. Create a stable source ID and descriptive display name.
 2. Configure the smallest useful scope: one test index, alert feed, queue, bucket
    prefix, or authenticated sender.
-3. Supply secret values through the source secret flow. TLSOC persists configured
+3. Supply secret values through the source secret flow. Agentic SOC persists configured
    field names, not the values.
 4. Test a pull connector before saving. Save and exercise a push or broker receiver;
    it has no meaningful generic one-shot connection probe.
@@ -63,7 +63,7 @@ Use source health and coverage to answer:
 The per-source log view is bounded. Pull sources run a scoped read; push sources show
 a recent process-local live tail. Neither replaces the authoritative source archive.
 
-## TLSOC 0.1 boundaries
+## Agentic SOC 0.1 boundaries
 
 Operate one backend replica. Runtime-entered source secrets are memory-only. HTTP
 push has no durable receipt inbox before processing, and several receivers have
@@ -76,4 +76,3 @@ boundary in the [support matrix](support-matrix.md).
 - [HTTP and syslog](http-syslog.md)
 - [Queues and object stores](queues-object-stores.md)
 - [Feeds and field mapping](feeds-mapping.md)
-

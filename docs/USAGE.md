@@ -1,4 +1,4 @@
-# USAGE.md — Using TLSOC Agentic Triage Suite
+# USAGE.md — Using Agentic SOC
 
 A deep, example-driven guide to operating the suite once it is deployed (see
 `DEPLOY.md`) and the standalone web UI is up. Everything here maps 1:1 to the
@@ -46,15 +46,52 @@ surface into **six top-level nav groups**:
 | Group | What lives there |
 |---|---|
 | **Overview** | Dashboard (the Security Command Center), Dashboards (custom, §21), Standup (§7) — each a full page |
-| **Triage** | Cases (§3), **Case Manager** (§3), Campaigns (§16), Logs (a unified cross-source log browser, §2a), Workspace → **Chat** (§5) and **Investigate** (§4) as left-nav children, Automated scans (§6), Approvals |
+| **Triage** | Cases (§3), **Case Manager** (§3), Campaigns (§16), Logs (a unified cross-source log browser, §2a), Workspace → **Chat** (§5) and **Entity investigation** (§4) as left-nav children, Approvals |
 | **Intelligence** | Knowledge (§9), Memory (§10), Playbooks |
 | **Analytics** | Metrics, Cost (§8), Models (§22), Baseline (§17), Batch jobs (§22) |
 | **Notifications** | Inbox (the in-app notification inbox, §23) |
 | **Platform** | Sources (§2, standalone — not inside Settings), Audit log (§32), Auto-tuning (§15), Settings (§25, with Users and Roles as children) |
 
+The pinned **Documentation** utility at the bottom of the rail opens the
+version-matched Help Center bundled with this application at `/docs/0.1/`. That
+installed copy is authoritative for the controls and behavior in the running build;
+public Stable and Development documentation are secondary destinations for upgrade
+planning and preview. Lazy destinations immediately show a route-labelled
+skeleton/progress state rather than a blank page; reduced-motion users receive the
+same status without animation.
+
 Every analytics/triage surface calls its backend endpoints directly; every
 endpoint below is also usable via `curl` (§33). RBAC (`<Can>` guards) hides an
 item a signed-in user's role can't reach; with auth off, everything shows.
+
+### Security Command Center dashboard
+
+**Overview → Dashboard** is the shift landing page. One time-range control scopes
+the five primary KPIs: **Open Cases**, **Critical / High**, **Escalated to Human**,
+**False Positive Rate**, and **Auto-resolved**. Open Cases includes all non-terminal
+statuses (`new`, `open`, `needs_human`, `investigating`, `escalated`, `on_hold`).
+Critical / High spans both open and resolved cases in the window and states the
+split as `N open + M resolved`; it never silently drops an unknown lifecycle.
+
+The next row uses the available height for a current-open-queue **Active Risk
+Index**, Open-above-Resolved severity rings, and exactly four **Latest Cases**.
+Hovering or keyboard-focusing a latest row reveals bounded case detail without
+changing the selection. Open/Resolved controls drill into their lifecycle scopes;
+the combined Critical/High tile opens the selected-window case list without applying
+one misleading single-severity filter.
+
+The **Noise Reduction** ribbon follows alerts ingested → after clustering → cases
+opened → auto-cleared by AI → escalated → closed by human, with the six text labels
+and values aligned below the larger flow. Burndown and the compact MTTD / first-human-
+response summary live below; full MTTA, MTTR, dwell, and other detail live under
+**Deeper analytics**. The page opens at **Last 24 hours** with visibility-aware
+**LIVE** refresh every five seconds; choose Off, 5 seconds, 30 seconds, 1 minute, or
+5 minutes when another cadence is appropriate. **Expand** opens Noise Reduction in a
+near-fullscreen, horizontally scrollable view: the aggregate funnel remains the complete
+volume view, and a lazy bounded section shows the newest persisted redacted alert →
+deterministic cluster → opened case → current/terminal-outcome lineages. Coverage, store-
+page, and sample truncation notices remain visible. Raw alert identifiers and payloads are
+not exposed; alerts that never formed a case remain aggregate counts only.
 
 ---
 
@@ -247,28 +284,46 @@ The triage workbench. The cases table (`GET /api/cases?limit=100`) shows **Entit
 filtering (`?status=escalated`), per-surface filtering (`?surface=automated_scan`),
 and per-entity filtering (`?entity=10.10.1.152`).
 
-### Case Manager (additive workspace)
+### Case Manager (canonical detail workspace)
 
 **Case Manager** sits directly beneath Cases in the Triage rail. It is the newer,
 split-pane way to work the same case data while the table-based Cases surface remains
 available during the migration. The left queue supports **Active / All**, search,
-severity/status filters, latest/highest-risk sorting, quick Critical/High counts, and
-live refresh. The right pane embeds the canonical CaseDetail workflow: the same six
+severity/status filters, latest/highest-risk sorting, and manual refresh. The right
+pane embeds the canonical CaseDetail workflow: the same six
 tabs, lifecycle confirmations, deterministic decision card, RBAC gates, reinvestigate,
 playbooks, exports, notifications, collaboration/tasks/activity, and case-scoped chat.
 Its reference-matched header keeps only **Share**, **Take Action**, and the pane-close
 control at the upper-right; every lifecycle and operational command is consolidated
-inside **Take Action**. The legacy Cases drawer retains its existing toolbar and footer.
+inside **Take Action**. Timeline and Investigation are already tabs and are not
+repeated in that menu. Opening a row or deep link on **Cases** now announces a short
+handoff and opens that exact record in Case Manager; `caseId` stays in the URL across
+refresh, history, and bookmarks instead of opening a second detail drawer.
 At tablet/mobile widths the selected case replaces the queue and a **Cases** back control
 returns to the list. Counts explicitly distinguish the loaded 200-case window from the
 backend total when those differ.
+
+At desktop width, drag the divider between queue and detail. It defaults to 400 px,
+stays between 320 and 680 px, and preserves at least 560 px for detail. Focus the
+divider and use Left/Right Arrow in 24-pixel steps (48 with Shift), Home/End for the
+bounds, or double-click to reset. The chosen width is stored in the browser.
+
+The complete operator contract—including loaded/visible selection scope, every
+bulk action and permission, confirmations, per-case eligibility, progress, and
+partial-failure behavior—is maintained in
+[`docs/analyst/case-manager.md`](analyst/case-manager.md). Do not assume Case
+Manager selection behaves exactly like the older table bulk bar.
+
+In short, its current menu is **Acknowledge · Assign · Add tag · Set status · Set
+disposition · Reinvestigate · Resolve**. Raw Close is omitted. Successful cases
+leave the selection; failed cases stay selected with their error for retry.
 
 **Two-axis taxonomy.** A case carries both a lifecycle **status** and an analyst
 **disposition** — they are independent.
 
 - **status** (where the case is in its lifecycle): `new` (candidate, pre-LLM),
   `open` (investigated, awaiting an analyst), `investigating` (actively worked),
-  `escalated` (flagged for senior / Tier-3), `on_hold` (paused), `resolved` (worked
+  `escalated` (marked for analyst escalation), `on_hold` (paused), `resolved` (worked
   to completion, pending final close), `closed` (terminal). `needs_human` is
   **retained as a deprecated alias** of "open · awaiting analyst" — the
   deterministic `decide()` still uses it internally, and old stored cases load
@@ -282,14 +337,21 @@ backend total when those differ.
 ### Case detail + lifecycle
 
 Opening a case loads the **stored** case by id (`GET /api/cases/{id}`) — it does
-**not** re-investigate. `CaseDetail` renders **six tabs**: **Overview** (the
-verdict/status/confidence/risk badges, entity, rules, evidence, MITRE techniques,
-recommended action, reproduce query, provenance split into "Reported by source" vs
-"Our assessment" with a disagreement delta), **Timeline** (the "what happened"
-narrative — see §3's Timeline note below), **Investigation** (the AI assessment,
+**not** re-investigate. `CaseDetail` renders **six tabs**: **Overview** (a compact
+decision brief, signal profile, persisted risk-factor values, source/agent/code
+provenance, entities, attack story, ownership, and history), **Timeline** (the
+"what happened" narrative with Risk Assigned and Decision — see §11), **Investigation** (the AI assessment,
 the pinned deterministic `DecisionCard`, and the full agent trace — see §11),
 **Threat** (§12's threat-context panel), **Collab** (§18's threads/tasks), and
 **Chat** (a case-scoped chat follow-up, §5).
+
+The Threat tab includes **How this case was clustered**, a read-only projection of
+persisted facts: Input alerts → Correlation cluster → Opened case. Hover or focus a
+node for source counts, grouping, threshold/window, current status/verdict, and
+bounded related-case links. Alert references are stable one-way hashes and are
+limited to 12; raw source identifiers and payloads are never returned. Older cases
+may show limited or unavailable cluster metadata rather than an invented
+reconstruction.
 
 **Analyst actions** go through `POST /api/cases/{id}/action` with
 `{ "action": "...", "note": "...", "analyst": "..." }` (plus the optional fields
@@ -301,7 +363,7 @@ noted below):
 | `confirm_fp` | `closed` | analyst confirms a false positive (sets disposition `false_positive` if still undetermined) |
 | `resolve` | `resolved` | worked to completion, pending final close |
 | `reopen` | `open` | reopen a closed/resolved case |
-| `escalate` | `escalated` | flag for senior / Tier-3 (optional `level` raises `escalation_level`) |
+| `escalate` | `escalated` | mark the case Escalated for analyst action |
 | `deescalate` | `open` | undo an escalation |
 | `hold` | `on_hold` | pause the case (awaiting info / third party) |
 | `resume` | `open` | take a held case off hold |
@@ -310,7 +372,7 @@ noted below):
 | `acknowledge` | `investigating` | mark the case as being worked (the first-response clock stops here) |
 
 The body may carry `status` (for `set_status`), `disposition` (for
-`set_disposition`), `level` (for `escalate`), `reason` (recorded as `status_reason`
+`set_disposition`), `reason` (recorded as `status_reason`
 on `hold` / `resolve` / `set_status`), and the existing `resolution` / `assignee` /
 `priority` / `tags`. A **transition guard** rejects illegal moves — e.g. leaving a
 terminal status (`closed` / `resolved`) is only legal via `reopen` (a `400`
@@ -344,11 +406,11 @@ evidence is usable.
 
 ---
 
-## 4. Investigate (Surface)
+## 4. Entity investigation (Surface)
 
-A left-nav child under **Workspace** (alongside Chat, §5 — they share one chat
-engine, not a segmented control). Choose **IP / User / Host**, type a value, and
-Investigate. This POSTs `/api/investigate` with
+A left-nav child under **Workspace** (alongside Chat, §5). Choose **IP / User /
+Host**, type a value, and run an entity investigation. The visible workflow explains
+the job: scope telemetry → analyze evidence → create a case. This POSTs `/api/investigate` with
 `{ "entity": { "type": "ip", "value": "10.10.1.152" }, "source_surface": "investigate" }`.
 The backend pulls in-scope events for that entity (same scope + suppression
 filters the poller uses), correlates them into a cluster, and runs the full
@@ -385,8 +447,8 @@ empty-state, not a red error).
 ## 5. Chat (Surface)
 
 A read-only natural-language console (`POST /api/chat`), the **Chat** child under
-**Workspace** (the same left-nav host as Investigate, §4 — **ONE** chat engine, two
-entry points). Type a question; the agent may turn your intent into a single
+**Workspace** (the same left-nav host as **Entity investigation**, §4 — **ONE** chat
+engine, two entry points). Type a question; the agent may turn your intent into a single
 read-only structured query, render the first 50 hits as a table, and produce a
 **two-turn analysis**: the first model turn decides the query, then the engine
 builds a compact, fenced-UNTRUSTED aggregate of the hits and re-prompts the model
@@ -406,7 +468,13 @@ silently errors.
 
 ---
 
-## 6. Automated scans (Surface)
+## 6. Automated scan data (legacy surface)
+
+**Automated scans is no longer a primary navigation destination.** It duplicated the
+same autonomous-case lifecycle that Case Manager now presents with better filtering,
+selection, actions, and complete case detail. Existing `#/scans` bookmarks and the API
+remain compatible for this release, but operators should use **Triage → Case Manager**
+for the active queue and **Cases** for the complete record.
 
 The background-investigation queue (`GET /api/scans?limit=100`). **`background_scan_enabled`
 now defaults ON** (Round 10 — comprehensive ingestion, §33), so this queue is live
@@ -613,8 +681,13 @@ Every case can explain itself, right where you're already looking: `CaseDetail`'
   `trace.include_prompts` is true (default on).
 
 The separate **Timeline** tab is deliberately narrower: it is ONLY the "what
-happened" narrative — a 6-stage story (input → correlate → risk → triage →
-investigate → decide), backed by `GET /api/cases/{id}/stages`. Use Investigation
+happened" narrative — a 6-stage story (input → correlate → **Risk Assigned** → triage →
+investigate → **Decision**), backed by `GET /api/cases/{id}/stages`. Expanding Risk
+Assigned reconstructs the arithmetic from persisted factor values and current
+configured weights; it preserves the recorded score and warns when historical
+weights cannot be attributed exactly. In Case Manager, the terminal marker alone
+pulses. If the Investigate sentence already repeats the verdict/confidence chips,
+that duplicate sentence is suppressed. Use Investigation
 to audit *how* a verdict was reached and confirm the close/escalate was a
 deterministic policy outcome; use Timeline to see the sequence of events at a
 glance.
@@ -632,6 +705,14 @@ close/escalate outcome (non-negotiable #3). An unknown `playbook_id` returns `40
 List the catalog first with `GET /api/playbooks`. In the UI, open a case's
 **Investigation** tab and use **Run playbook** (pick from the catalog); the
 resulting re-investigation renders in place.
+
+Manage procedures under **Intelligence → Playbooks**. Any user with
+`playbooks:read` can browse and open the plain Markdown source. Bundled procedures
+are visibly protected; `playbooks:manage` adds **New playbook** and **Edit** for
+operator-owned files. Creates and updates are slug/path constrained, bounded to
+256 KiB UTF-8, atomically written, hot-reloaded, and append-only audited. There is
+no runtime delete endpoint in v0.1. Editing guidance never changes the deterministic
+case-decision authority.
 
 **Threat context** (`GET /api/cases/{id}/threat-context`) assembles a defensive,
 **fail-open** panel for the case (each section degrades independently if its source
@@ -979,12 +1060,33 @@ local endpoint is driven by `base_url` alone, and the gateway falls back to
 `OPENAI_API_KEY` if one happens to be set. None of this is a real spend risk:
 the model is priced at $0 regardless.
 
-### Batch jobs — discounted async inference
+### Discounted inference — live Flex and asynchronous Batch
 
-**Batch jobs** (under **Analytics**) is a **read-only** window onto the durable
-async batch-inference registry: low-urgency investigations can be routed through
-a provider's discounted batch API (Anthropic Message Batches, OpenAI Batch, or
-OpenAI `service_tier="flex"`) instead of a synchronous call.
+**Analytics → Batch jobs** controls two independent cost paths. Both preserve the
+same prompt, verdict, one-ledger-row rule, and deterministic case decision.
+
+**Live Flex preference (default on).** Compatible alert/case inference on the
+`automated_scan` and `investigate` surfaces prefers the official OpenAI Flex service
+tier. Eligibility is deliberately narrow: the provider allow-list must contain
+`openai`, the selected provider must be OpenAI without a custom/Azure-compatible
+base URL, and the model family must be GPT-5, o3, or o4-mini. Chat, standup,
+embeddings, and provider/model tests stay interactive standard service. Unsupported
+providers, endpoints, and model families use standard service before a provider call
+and are never labelled or priced as discounted.
+
+Flex is best-effort capacity. With **Standard fallback** enabled (the default), an
+OpenAI 429 or a Flex/service-tier-specific 400 is retried once without
+`service_tier="flex"`; that result is recorded and priced as standard. Disable the
+fallback only when waiting/failing is preferable to paying the standard rate. The
+usage record reports the `processing_tier` and discount actually returned—not merely
+the tier requested.
+
+**Asynchronous Batch queue (opt-in).** `batch.enabled` separately routes eligible
+low-urgency event-detection candidates through Anthropic Message Batches or OpenAI
+Batch. The severity floor and provider allow-list apply only to that delayed funnel;
+turning it off does not disable the live Flex preference above. **Batch jobs** is a
+read-only view of the durable job registry, while users with model-management
+permission can edit the two routing policies on the same page.
 
 | Action | Endpoint |
 |---|---|
@@ -993,10 +1095,10 @@ OpenAI `service_tier="flex"`) instead of a synchronous call.
 | Read / update batch config | `GET`/`PUT /api/batch/config` |
 
 Submit / poll / retrieve is driven out-of-band by the batch service, not this
-router — you only observe progress here (submitted → polling → retrieved).
-Results are billed **exactly once per result** (deduped by the provider's
-`custom_id`) at the batch discount rate (0.5×); this page never records a ledger
-row itself, and nothing here calls `decide()`.
+router—you observe progress here (submitted → polling → retrieved). Provider results
+can arrive out of order, so retrieval is keyed by `custom_id`. Results are billed
+**exactly once per result** at the batch discount rate (0.5×); this page never writes
+a usage row itself, and nothing here calls `decide()`.
 
 ### Budget gate — a pre-flight spend ceiling
 
@@ -1233,7 +1335,7 @@ Large subtrees can be fetched section-by-section with `GET
 /api/settings/{section}`, and `GET /api/settings/schema` returns the
 form-generation schema.
 
-**Layout: five Settings groups, 25 sections** (`webui/src/soc/pages/settings/
+**Layout: five Settings groups, 26 sections** (`webui/src/soc/pages/settings/
 settings-sections-meta.ts`, the single source of truth the rail, the deep-link
 router, and the Cmd-K "jump to a setting" search all derive from):
 
@@ -1243,7 +1345,12 @@ router, and the Cmd-K "jump to a setting" search all derive from):
 | **General** | Data scope · Models · Detection · Detection & rules (§14) · Cases (case-ID format, below) · SLA, priority & suppression · Automation (master switch, §14) · Standup |
 | **Integrations** | Alerting & notifications (§23) · Enrichment (§19) · Knowledge & threat context (§9, §12) |
 | **Security & access** | Users · Roles & permissions (§24's custom roles) · Single sign-on & policy (§24) · Active sessions (§27) · Secret keys |
-| **Organization** | Branding · Advanced (caps, kill switch, background-scan/auto-forward allowlist, the autopilot dial + risk floor + budget backstop, §33, read-only lock) · All settings (a schema-generated long tail) · Experimental & Demo (§28) · Danger zone (§28's tiered reset) |
+| **Organization** | Branding · Advanced (caps, kill switch, background-scan/auto-forward allowlist, the autopilot dial + risk floor + budget backstop, §33, read-only lock) · All settings (a schema-generated long tail) · Experimental & Demo (§28) · Data export · Danger zone (§28's tiered reset) |
+
+The page uses one searchable section rail, one active-section heading, and flat
+divider-led setting groups. It deliberately avoids a card around the whole page and
+then more cards around every field group; dialogs and contained editors keep their
+own boundary where one is functionally useful.
 
 RBAC hides a section a role can't reach (and auto-jumps off a hidden active
 section); with auth/RBAC off, everything shows. Every section still round-trips
@@ -1269,6 +1376,32 @@ returned. Covered: `es_api_key`, `es_mgmt_api_key`, `openai_api_key`,
 `anthropic_api_key`, `litellm_api_key` (§22), the enrichment-provider keys (§19),
 and `embedding_api_key`. Per-source secrets show as `configured_secrets` on each
 source.
+
+### Portable application-state export
+
+**Settings → Organization → Data export** downloads a bounded, canonical JSON
+snapshot for offline support or analysis. Choose all safe scopes or a subset of
+`cases`, `audit`, `usage`, `configuration`, `automation`, and `knowledge`, then set
+`limit_per_scope` from 1–5000 (default 1000). For grouped scopes the cap applies to
+the whole scope: automation fairly samples proposals, tuning state, campaigns,
+Batch jobs, and rule versions; knowledge fairly samples operator memory, document
+metadata, and custom-model metadata. The manifest reports count, total when known,
+and truncation for each scope.
+
+This export intentionally excludes environment/source credentials, users and
+sessions, password/MFA material, browser tokens, upstream raw logs, and raw knowledge
+chunks; a final recursive sanitizer also removes credential-shaped fields and common
+secret patterns. The response is capped at 25 MiB. It is **not** an import format,
+database dump, or backup/restore substitute. Every request is audited and requires
+`data_export:export`, granted by default to `super_admin` and `soc_manager` and
+available to a deliberately configured custom role.
+
+```bash
+curl -sS -b cookies.txt -X POST localhost:8088/api/admin/export \
+  -H 'content-type: application/json' \
+  -d '{"scopes":["cases","audit","automation"],"limit_per_scope":1000}' \
+  --output agentic-soc-export.json
+```
 
 ### Polling & detection
 
@@ -1488,7 +1621,7 @@ configured case-number format, so an ID prefix is not the isolation boundary.
 |---|---|---|
 | Status | `GET /api/demo/status` | `{mode, run_id, history_days, tick_seconds, …}` (`demo:read`) |
 | Enable | `POST /api/demo/enable` | seed synthetic data; start the simulator (`demo:manage`) |
-| Generate incident | `POST /api/demo/incident` | emit one cooldown-aware four-source storyline (`demo:manage`) |
+| Generate incident | `POST /api/demo/incident` | emit one cooldown-aware five-source storyline (`demo:manage`) |
 | Reset | `POST /api/demo/reset` | delete this run + re-seed from the same seed (`demo:manage`) |
 | Disable / clear | `POST /api/demo/disable` | stop the tick + **hard-delete** demo data by `run_id` (`demo:manage`) |
 
@@ -1500,7 +1633,7 @@ configured case-number format, so an ID prefix is not the isolation boundary.
   (phishing → cred-access → lateral → exfil, RDP brute force, SQLi → webshell,
   impossible-travel, ransomware beacon, insider staging).
 - **`live`** additionally runs a jittered background **simulator** (`tick_seconds` ≈
-  10, `tick_jitter`, `incident_rate`) with four independently visible,
+  10, `tick_jitter`, `incident_rate`) with five independently visible,
   protocol-compatible sources. It guarantees an initial cross-source storyline,
   then emits bounded benign traffic and scheduled detections so the live tail,
   source health, correlation, and investigations keep moving during a demo.
@@ -1513,7 +1646,8 @@ configured case-number format, so an ID prefix is not the isolation boundary.
 | Splunk-compatible | HEC event envelopes (`access_combined`) | HEC Enterprise Security-style risk finding |
 | QRadar-compatible | RFC-syslog-carried LEEF 2.0 | `/api/siem/offenses`-shaped finding |
 | Wazuh-compatible | `archives.json`-shaped records | `alerts.json`-shaped record with a synthetic rule |
-| Syslog | RFC 5424 plus occasional RFC 3164 | TLSOC raises a correlated detection; no vendor alert is invented |
+| Syslog | RFC 5424 plus occasional RFC 3164 | Agentic SOC raises a correlated detection; no vendor alert is invented |
+| Microsoft Entra ID / Active Directory | Graph `auditLogs/signIns` and Identity Protection-shaped JSON | Entra-native risky-sign-in / identity alert |
 
 These records are independently authored synthetic data, labelled protocol-compatible,
 and passed through the same receiver/parser → OCSF boundary as production input. The
@@ -1525,10 +1659,15 @@ curl -s -b cookies.txt localhost:8088/api/demo/status
 curl -s -b cookies.txt -X POST localhost:8088/api/demo/enable \
   -H 'content-type: application/json' \
   -d '{"mode":"live","seed":1337,"history_days":14,"tick_seconds":10,"alert_interval_seconds":120,"incident_rate":0.05}'
-curl -s -b cookies.txt -X POST localhost:8088/api/demo/incident  # coherent 4-source attack
+curl -s -b cookies.txt -X POST localhost:8088/api/demo/incident  # coherent 5-source attack
 curl -s -b cookies.txt -X POST localhost:8088/api/demo/reset      # re-seed, same seed
 curl -s -b cookies.txt -X POST localhost:8088/api/demo/disable    # exit + hard-delete
 ```
+
+A successful manual incident emits exactly eight native records across the five
+sources: four source-native alerts (Splunk, QRadar, Wazuh, and Entra) plus four
+syslog events that produce at least one Agentic SOC correlation detection. The
+response attributes records, native alerts, and system detections per source.
 
 **While demo is engaged** the app shell shows an amber **Demo banner** with *Reset*
 and *Exit & clear*; demo rows carry a `SAMPLE` badge; cost tiles read "(simulated)";
@@ -1638,7 +1777,9 @@ Each table persists its own **column state** (order / hidden / widths) per user 
 **all-empty body** to clear the override and revert to that table's default columns.
 Theme mode, pinned view ids, and last-list-state live on your personal bucket via
 `GET/PUT /api/prefs/user` (a partial patch — only the fields you send change):
-`theme_mode` is `light` | `dark` | `system` and overrides the org `default_theme`.
+the compact **System / Light / Dark** segmented control writes `theme_mode` as
+`system` | `light` | `dark` and overrides the org `default_theme`. System follows
+the organization default when one is set, otherwise the device preference.
 
 ### Terminology
 
@@ -1702,9 +1843,13 @@ transition fails only that row):
 ```bash
 curl -s -b cookies.txt -X POST localhost:8088/api/cases/bulk \
   -H 'content-type: application/json' \
-  -d '{"ids":["case-a","case-b","case-c"],"action":"escalate","level":2,"analyst":"alice"}'
+  -d '{"ids":["case-a","case-b","case-c"],"action":"escalate","analyst":"alice"}'
 # -> { "results":[ {"id":"case-a","ok":true}, {"id":"case-b","ok":false,"error":"..."}, ... ] }
 ```
+
+This API/table workflow is distinct from the newer Case Manager toolbar. See the
+[Case Manager guide](analyst/case-manager.md) for its exact current selection and
+bulk-action contract.
 
 ### Audit viewer
 
@@ -1844,7 +1989,7 @@ curl -s localhost:8088/api/cases/case-abc123/stages                # the 6-stage
 # hold/resume/set_status/set_disposition/acknowledge); illegal moves -> 400
 curl -s -X POST localhost:8088/api/cases/case-abc123/action \
   -H 'content-type: application/json' \
-  -d '{"action":"escalate","level":2,"note":"paging on-call","analyst":"alice"}'
+  -d '{"action":"escalate","note":"paging on-call","analyst":"alice"}'
 curl -s -X POST localhost:8088/api/cases/case-abc123/action \
   -H 'content-type: application/json' \
   -d '{"action":"set_disposition","disposition":"true_positive","analyst":"alice"}'
@@ -1857,6 +2002,18 @@ curl -s -X POST localhost:8088/api/cases/case-abc123/investigate
 curl -s -X POST localhost:8088/api/cases/case-abc123/run-playbook \
   -H 'content-type: application/json' \
   -d '{"playbook_id":"brute-force-login","analyst":"alice"}'
+
+# Browse/open playbooks (playbooks:read)
+curl -s localhost:8088/api/playbooks
+curl -s localhost:8088/api/playbooks/brute_force_login
+
+# Create/update operator Markdown (playbooks:manage). Bundled ids return 403 on PUT.
+curl -s -X POST localhost:8088/api/playbooks \
+  -H 'content-type: application/json' \
+  -d '{"id":"credential_response","content":"---\nid: credential_response\nname: Credential response\nversion: 1\n---\n## Procedure\n1. Validate the signal.\n"}'
+curl -s -X PUT localhost:8088/api/playbooks/credential_response \
+  -H 'content-type: application/json' \
+  -d '{"content":"---\nid: credential_response\nname: Credential response\nversion: 2\n---\n## Procedure\n1. Validate and contain.\n"}'
 
 # Threat context for a case (IOC reputation + MITRE + related cases; fail-open)
 curl -s localhost:8088/api/cases/case-abc123/threat-context
@@ -2089,9 +2246,11 @@ rule), and **entity baseline** (§17) as a pure producer — it learns from day 
 (the warm-up gauge + a silent-source/volume-flood detector) but still never
 triggers an investigation by itself.
 
-**Still opt-in:** batch inference (§22), `budget.on_exceed: "block"`, any
-`run_playbook` / `notify` action on a case-automation rule (§14), and
-baseline-driven auto-investigation — baseline stays advisory-only (#3/#4).
+**Still opt-in:** the asynchronous Batch queue (§22), any `run_playbook` / `notify`
+action on a case-automation rule (§14), and baseline-driven auto-investigation —
+baseline stays advisory-only (#3/#4). The separate compatible OpenAI live Flex
+preference is on by default and falls back truthfully to standard service when
+configured to do so.
 
 ### Migration — an announcement, not a silent flip
 

@@ -1,12 +1,12 @@
 ---
 title: OCSF normalization
-description: Understand the canonical TLSOC 0.1 event shape, field mapping, severity, provenance, and lossless source data.
+description: Understand the canonical Agentic SOC 0.1 event shape, field mapping, severity, provenance, and lossless source data.
 ---
 
 # OCSF normalization
 
-This page applies to **TLSOC 0.1** and is for source integrators and operators
-validating field mapping. TLSOC pins its canonical event subset to **OCSF 1.4.0**.
+This page applies to **Agentic SOC 0.1** and is for source integrators and operators
+validating field mapping. Agentic SOC pins its canonical event subset to **OCSF 1.4.0**.
 
 Every connector converts its native record into the same event model before
 correlation, risk, investigation, or case management sees it. This keeps the engine
@@ -48,14 +48,14 @@ the deterministic risk engine projects severity onto its 0–100 input range. De
 the correct source scale when the source uses 0–10, 0–16, or 0–100 values; otherwise
 the generic fallback has to infer the scale.
 
-Do not compare a source's raw severity number directly with TLSOC risk. They are
+Do not compare a source's raw severity number directly with Agentic SOC risk. They are
 different fields with different purposes.
 
 ## Lossless does not mean trusted
 
 `raw_data` preserves the original source record. `unmapped` preserves fields that
 were not mapped into the canonical subset. Both are attacker-influenceable data.
-When their values enter a model prompt, TLSOC wraps them in explicit untrusted-data
+When their values enter a model prompt, Agentic SOC wraps them in explicit untrusted-data
 fences. They never become instructions merely because they were stored.
 
 ## Validate a mapping
@@ -73,7 +73,7 @@ The source editor's sample analyzer is deterministic. It flattens a pasted sampl
 suggests field names, and does not persist the sample. An operator must review and
 save the mapping.
 
-## TLSOC 0.1 boundaries
+## Agentic SOC 0.1 boundaries
 
 The model is a pragmatic OCSF subset, not the full taxonomy or a published OCSF
 conformance profile. Mapping coverage varies by source, and immutable mapping

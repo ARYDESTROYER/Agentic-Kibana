@@ -23,9 +23,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
-from ..engine.metrics import posture_metrics
+from ..engine.clustering_explain import build_case_lineage
+from ..engine.metrics import _window_filter, posture_metrics
 from ..engine.mitre_coverage import compute_mitre_coverage, navigator_layer
 from ..engine.noise_counters import build_noise_reduction
 from ..state import AppState
@@ -121,6 +122,53 @@ async def metrics_noise_reduction(
         prefs=getattr(state, "prefs", None),
         generated_at=iso_now(),
     )
+
+
+@router.get("/metrics/noise-reduction/lineage")
+async def metrics_noise_reduction_lineage(
+    window_hours: int = 24,
+    limit: int = Query(default=12, ge=1, le=25),
+    state: AppState = Depends(get_state),
+    _metrics_permission=Depends(require_permission("metrics", "view")),
+    _cases_permission=Depends(require_permission("cases", "read")),
+) -> dict[str, Any]:
+    """Bounded redacted alert → cluster → case → outcome lineages.
+
+    This lazy drill-down complements the aggregate Noise Reduction endpoint.  It
+    reuses the persisted Threat Context clustering projection, returns only the
+    newest ``limit`` cases in the selected window, and never returns raw alert ids
+    or payloads.  A store-page cap is reported explicitly so the Console cannot
+    imply that a bounded sample represents every historical case.
+
+    Read-only/advisory: no correlation is re-run and no value here participates in
+    risk scoring or the deterministic close/escalate decision (#3).
+    """
+    cases, store_total = await _load_cases(state)
+    wh = max(0, int(window_hours))
+    window_cases = _window_filter(cases, window_hours=wh)
+    rows = [build_case_lineage(case) for case in window_cases[:limit]]
+    store_truncated = store_total > len(cases)
+    return {
+        "window_hours": wh,
+        "generated_at": iso_now(),
+        "rows": rows,
+        "meta": {
+            "returned": len(rows),
+            # This is deliberately named as a count inside the fetched store page:
+            # when the store itself was truncated, it is only a lower bound.
+            "window_cases_in_fetched_page": len(window_cases),
+            "fetched_cases": len(cases),
+            "store_total": store_total,
+            "limit": limit,
+            "truncated": len(window_cases) > limit or store_truncated,
+            "store_truncated": store_truncated,
+        },
+        "limitations": (
+            "Rows are a bounded newest-case sample. Alert references are stable one-way "
+            "identifiers for persisted case inputs; raw alerts and alerts that never formed "
+            "a case are represented only by the aggregate counters."
+        ),
+    }
 
 
 @router.get("/mitre/coverage")

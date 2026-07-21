@@ -1,14 +1,23 @@
 ---
 title: Testing
-description: Backend, Console, API-contract, version, documentation, and release validation gates for TLSOC 0.1.
+description: Backend, Console, API-contract, version, documentation, and release validation gates for Agentic SOC 0.1.
 ---
 
 # Testing
 
-TLSOC changes are accepted on `Testing` only after the relevant offline, contract,
+Agentic SOC changes are accepted on `Testing` only after the relevant offline, contract,
 build, and documentation gates pass. Stable promotion moves that accepted source
 tree through a protected pull request to `main`; the resulting commit is gated again
 before application version `v0.1.0` is tagged.
+
+The verified local baseline for this documentation update is **1,982 backend tests**
+and **1,468 Console tests across 248 files**. Counts rise as coverage is added; the
+commands and zero-failure result are the contract, not a frozen target.
+
+The current remote has no literal `main`; it exposes `Testing` and legacy/default
+`claude/main`. Repository provisioning and branch protection must be completed before
+the Stable half of this workflow can run. Do not reinterpret `claude/main` as Stable
+without changing the workflow and all release references consistently.
 
 ## Backend suite
 
@@ -86,18 +95,25 @@ MkDocs/Mike documentation line (`0.1`).
 
 ## Documentation
 
-Install the pinned documentation dependencies and use strict mode:
+Use the same version-matched bundler the Console build invokes:
 
 ```bash
-. backend/.venv/bin/activate
-pip install -r docs/requirements.txt
-mkdocs build --strict
+cd webui
+npm run docs:bundle
+npm run docs:check
+npm run build
 ```
 
-Strict mode catches missing pages, invalid internal links, and configuration warnings.
+The wrapper runs MkDocs in strict mode and reuses `TLSOC_DOCS_PYTHON`, a compatible
+backend/current interpreter, or an automatically bootstrapped ignored `.docs-venv`.
+The final `npm run build` is the canonical docs-plus-application acceptance gate;
+`npm run build:app` alone is insufficient for release acceptance. Strict mode catches
+missing pages, invalid internal links, and configuration warnings.
 Review the rendered desktop and narrow layouts, dark/light themes, search, navigation,
-code copy, and the 0.1 version selector. Internal development records are deliberately
-excluded from the public documentation build.
+code copy, the installed `/docs/0.1/` base path, and the public 0.1 version selector.
+Confirm that **Use the product** is the default navigation path and that in-app links
+stay on the application origin. Internal development records are deliberately excluded
+from the Help Center build.
 
 ## Deployment-shape checks
 
@@ -123,9 +139,11 @@ Before promoting `Testing` to Stable:
 3. Resolve every failure on `Testing`; do not patch only the Stable branch.
 4. Promote the accepted source tree to `main` without content changes, then run the
    release gate again on the resulting `main` commit.
-5. Create the immutable `v0.1.0` tag and publish matching artifacts/documentation
-   from that verified commit.
-6. Verify `/api/health/build-info`, image metadata, and the 0.1 Stable docs selector.
+5. Build and stamp the verified commit with the correct channel, exact SHA, build
+   date, and source URL.
+6. Create the immutable `v0.1.0` tag and publish matching artifacts by digest and
+   the matching versioned documentation from that verified commit.
+7. Verify `/api/health/build-info`, image metadata, and the 0.1 Stable docs selector.
 
 See [Development](index.md), [Compatibility](../reference/compatibility.md), and
 [Release channels](../releases/channels.md).

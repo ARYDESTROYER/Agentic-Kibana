@@ -1,11 +1,11 @@
 ---
 title: Ingestion and investigation
-description: The TLSOC 0.1 ingestion and investigation flow, its explicit operating boundaries, and the durability and scale roadmap.
+description: The Agentic SOC 0.1 ingestion and investigation flow, its explicit operating boundaries, and the durability and scale roadmap.
 ---
 
 # Ingestion and investigation
 
-TLSOC treats **events**, **detections**, **alerts**, **cases**, and **campaigns** as
+Agentic SOC treats **events**, **detections**, **alerts**, **cases**, and **campaigns** as
 different records. Keeping those boundaries explicit prevents alert duplication,
 keeps source provenance intact, and lets every raw event receive cheap deterministic
 processing without sending every event to a model.
@@ -80,7 +80,7 @@ campaign references cases rather than merging their histories.
 ### Identity and duplicate prevention
 
 At-least-once delivery is the realistic contract across HTTP retries, brokers,
-object stores, and pull windows. TLSOC should make retries harmless with layered,
+object stores, and pull windows. Agentic SOC should make retries harmless with layered,
 versioned identities:
 
 | Identity | Stable inputs | Purpose |

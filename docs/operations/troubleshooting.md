@@ -1,6 +1,6 @@
 ---
 title: Troubleshooting
-description: Diagnose TLSOC 0.1 startup, readiness, authentication, source, model, notification, and UI failures.
+description: Diagnose Agentic SOC 0.1 startup, readiness, authentication, source, model, notification, and UI failures.
 ---
 
 # Troubleshooting
@@ -17,7 +17,7 @@ the selected state store failed its usable/write-path probe.
 - PostgreSQL: verify URL, DNS, TLS, credentials, database existence, and write rights.
 - SQLite: verify the directory is writable and the file is not on unsuitable shared
   storage.
-- Elasticsearch state: verify TLS/CA and the management key's rights to TLSOC-owned
+- Elasticsearch state: verify TLS/CA and the management key's rights to Agentic SOC-owned
   indices. Do not substitute the read-only log key.
 
 ## Login fails

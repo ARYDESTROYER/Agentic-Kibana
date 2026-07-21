@@ -69,6 +69,7 @@ import { EnrichmentSection } from './enrichment';
 import { AdvancedSection } from './advanced';
 import { AdvancedSchemaSection } from './advanced-schema';
 import { OrgSecuritySection } from './security';
+import { DataExportSection } from './data-export';
 
 // Embedded page bodies re-hosted as Settings sub-sections (unchanged wiring).
 import { AccountInner } from '@/soc/pages/Account';
@@ -216,6 +217,7 @@ const SECTION_COMPONENTS: Record<string, SectionRenderer> = {
     h(AdvancedSection, { prefs: ctx.prefs, update: ctx.update, onNavigate: ctx.onNavigate }),
   advanced_all: (ctx) => h(AdvancedSchemaSection, { prefs: ctx.prefs, update: ctx.update }),
   demo: () => h(DemoModeSection),
+  data_export: () => h(DataExportSection),
   danger: () => h(DangerZone),
 };
 

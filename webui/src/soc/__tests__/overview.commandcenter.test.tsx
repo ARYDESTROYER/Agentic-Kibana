@@ -125,6 +125,16 @@ describe('Overview — Security Command Center', () => {
     expect(hero).toHaveTextContent('Security Command Center');
   });
 
+  it('opens on Last 24 hours with LIVE refresh visibly active', async () => {
+    render(<Overview onNavigate={vi.fn()} />);
+    await screen.findByTestId('page-hero');
+
+    expect(screen.getByRole('button', { name: 'Time range: Last 24 hours' })).toBeInTheDocument();
+    const live = screen.getByRole('combobox', { name: 'Auto-refresh interval: LIVE' });
+    expect(live).toBeInTheDocument();
+    expect(live.querySelector('.animate-pulse.bg-success')).not.toBeNull();
+  });
+
   it('mounts the Active Risk Index (#1) as its own flat cell in the instrument band', async () => {
     render(<Overview onNavigate={vi.fn()} />);
     const hero = await screen.findByTestId('page-hero');

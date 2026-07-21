@@ -25,6 +25,7 @@ import { RouterProvider, useRoute } from './router';
 import { AppShell } from './AppShell';
 import { ErrorBoundary } from './ErrorBoundary';
 import { renderRoute } from './registry';
+import { navLabel } from './nav';
 
 // Login + the first-run Wizard stay EAGER — they own first paint (the login gate
 // and the OOBE flow), so we don't want a chunk fetch in front of them. Neither pulls
@@ -170,7 +171,7 @@ const Boot: React.FC = () => {
               fallback mirrors the page chrome so navigation never white-screens.
               Keyed by `page` so each route shows its own fresh fallback. The route
               table (soc/registry.ts) maps the id → lazy chunk + config props. */}
-          <React.Suspense key={page} fallback={<PageSkeleton />}>
+          <React.Suspense key={page} fallback={<PageSkeleton label={navLabel(page)} />}>
             {renderRoute(page, { opts, onRerunWizard })}
           </React.Suspense>
         </ErrorBoundary>

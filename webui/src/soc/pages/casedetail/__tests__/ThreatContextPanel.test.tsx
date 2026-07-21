@@ -43,6 +43,31 @@ const BACKEND_REAL_PANEL = {
     networks: [],
   },
   generated_at: '2026-07-20T10:46:00Z',
+  clustering: {
+    available: true,
+    cluster_id: 'b8d8524f531bac1234567890',
+    input_count: 3,
+    input_refs: ['alert-19d7d077fa2b', 'alert-cb98f03bc0ea', 'alert-41ea9e6cae0b'],
+    source_count: 1,
+    source_breakdown: { 'demo-splunk': 3 },
+    correlation: {
+      mode: 'threshold',
+      threshold: 3,
+      window_seconds: 300,
+      group_by: 'ip',
+      observed_count: 3,
+      matched_rule: 'LP-ES-RISK-1001',
+      reason: '3 matching alerts for the same IP within 5 minutes.',
+    },
+    opened_case: {
+      case_id: 'c1',
+      display_id: 'CASE-000001',
+      status: 'escalated',
+      verdict: 'true_positive',
+    },
+    related_cases: [{ case_id: 'c-prior', relationship: 'same_entity_history' }],
+    limitations: 'Alert references are redacted stable identifiers; raw alert payloads are not returned.',
+  },
 } as unknown as ThreatContextPanelData;
 
 describe('ThreatContextPanel — asset context', () => {
@@ -170,6 +195,11 @@ describe('ThreatContextPanel — Case Manager presentation', () => {
     expect(within(criticalityRow as HTMLElement).getByText('4')).toBeInTheDocument();
     expect(screen.getByText('Internal asset')).toBeInTheDocument();
     expect(screen.getByText('No')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'How this case was clustered' })).toBeInTheDocument();
+    expect(screen.getByText('3 matched signals')).toBeInTheDocument();
+    expect(screen.getByText('cluster-b8d8524f531b')).toBeInTheDocument();
+    expect(screen.getByText('CASE-000001')).toBeInTheDocument();
+    expect(screen.queryByText(/raw-1/i)).toBeNull();
   });
 
   it('has no axe violations with populated backend-real threat context', async () => {

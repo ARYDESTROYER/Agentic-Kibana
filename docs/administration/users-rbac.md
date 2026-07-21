@@ -1,11 +1,11 @@
 ---
 title: Users and RBAC
-description: Manage TLSOC users, built-in roles, custom roles, and least-privilege access.
+description: Manage Agentic SOC users, built-in roles, custom roles, and least-privilege access.
 ---
 
 # Users and RBAC
 
-TLSOC 0.1 provides local users, six built-in roles, custom roles, and deny-wins
+Agentic SOC 0.1 provides local users, six built-in roles, custom roles, and deny-wins
 permission overrides. RBAC is enforced only when authentication and RBAC are enabled.
 
 ## Built-in roles
@@ -52,6 +52,13 @@ Before assigning a custom role:
 Avoid broad `*` grants. Object/row-level scope is an opt-in capability and is not a
 default tenant-isolation boundary in version 0.1.
 
+Treat `data_export:export` as a privileged data-access grant. It permits a bounded
+portable snapshot across selected cases, audit, usage, configuration, automation,
+and knowledge metadata. The built-in grant is limited to `super_admin` and
+`soc_manager`; add it to a custom role only when that operator is authorized to read
+all records in the selected scopes. Export remains audited and secret-free, but it is
+not row-scoped to the requesting analyst.
+
 ## Account and session response
 
 Administrators can revoke an individual session, revoke all sessions for a user, or
@@ -61,7 +68,7 @@ changing another administrator's role.
 
 ## Limitations
 
-- TLSOC does not yet expose a complete API-key lifecycle for automation clients.
+- Agentic SOC does not yet expose a complete API-key lifecycle for automation clients.
 - Custom role quality depends on operator testing; there is no policy-as-code release
   pipeline in 0.1.
 - Authentication is off by default in the base configuration. RBAC alone cannot

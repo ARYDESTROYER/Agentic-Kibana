@@ -22,7 +22,7 @@ import pytest
 import pytest_asyncio
 
 from app.config import ModelConfig, Secrets
-from app.constants import SourceSurface, Verdict
+from app.constants import CaseStatus, SourceSurface, Verdict
 from app.engine import case_manager, demo_generator as gen
 from app.engine.demo_runtime import DemoStack
 from app.es.fake import InMemoryESClient
@@ -91,6 +91,10 @@ def test_seeded_historical_spread_is_identical() -> None:
     assert any(c.notifications_sent for c in a)
     assert any(c.automation_actions for c in a)
     assert any(c.comments for c in a)
+    escalated = [c for c in a if c.status == CaseStatus.ESCALATED]
+    assert escalated
+    assert all(c.recommended_action == "Escalate." for c in escalated)
+    assert all("tier" not in c.recommended_action.lower() for c in a)
 
 
 def test_seeded_case_risk_factors_reconcile_with_default_weights() -> None:
@@ -973,7 +977,7 @@ async def test_demo_status_reports_capability_signal(demo_state: AppState) -> No
     for key in ("proposals_open", "campaigns_found", "tuning_events", "rag_chunks", "sources"):
         assert key in st
     assert st["sources"] == [
-        "demo-splunk", "demo-qradar", "demo-wazuh", "demo-syslog",
+        "demo-splunk", "demo-qradar", "demo-wazuh", "demo-syslog", "demo-entra-id",
     ]
     # ALL capabilities must show live signal on a fresh enable — not just RAG. This is the
     # core "everything is on and working" showcase (the guard that was previously too weak,
@@ -1005,7 +1009,7 @@ async def test_capability_signal_is_purged_on_disable(demo_state: AppState) -> N
 
 @pytest.mark.asyncio
 async def test_source_logs_demo_segment_returns_rows() -> None:
-    # The 4 native demo sources advertise can_browse=true; browsing each must serve a
+    # The 5 native demo sources advertise can_browse=true; browsing each must serve a
     # bounded standards-faithful page, not 404 through the real prefs.sources lookup.
     from contextlib import asynccontextmanager
 
@@ -1035,7 +1039,9 @@ async def test_source_logs_demo_segment_returns_rows() -> None:
         # Before demo: an unknown source id 404s (the segment id is NOT in prefs.sources).
         assert c.get("/api/sources/demo-splunk/logs").status_code == 404
         assert c.post("/api/demo/enable", json={"mode": "seeded", "seed": 1337}).status_code == 200
-        for sid in ("demo-splunk", "demo-qradar", "demo-wazuh", "demo-syslog"):
+        for sid in (
+            "demo-splunk", "demo-qradar", "demo-wazuh", "demo-syslog", "demo-entra-id",
+        ):
             r = c.get(f"/api/sources/{sid}/logs?limit=25")
             assert r.status_code == 200, (sid, r.text)
             data = r.json()

@@ -8,6 +8,39 @@
     rel="stylesheet"
     href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&amp;family=Unbounded:wght@700;800;900&amp;display=swap"
   >
+  <meta name="color-scheme" content="light dark">
+  <script>
+    (() => {
+      let mode = "system";
+      try {
+        const saved = window.localStorage.getItem("soc.theme");
+        if (saved === "light" || saved === "dark" || saved === "system") mode = saved;
+      } catch (_) {
+        /* Storage may be unavailable in a hardened browser; system remains safe. */
+      }
+
+      const systemDark = Boolean(
+        window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches,
+      );
+      const dark = mode === "dark" || (mode === "system" && systemDark);
+      const scheme = dark ? "slate" : "default";
+      const root = document.documentElement;
+
+      // Stamp the same effective mode as the Console before body/CSS paint. Material's
+      // own palette engine still owns the accessible toggle and per-page attributes.
+      root.dataset.tlsocTheme = dark ? "dark" : "light";
+      root.style.colorScheme = dark ? "dark" : "light";
+      __md_set("__palette", {
+        index: dark ? 0 : 1,
+        color: {
+          media: "",
+          scheme,
+          primary: dark ? "black" : "white",
+          accent: "lime",
+        },
+      });
+    })();
+  </script>
 {% endblock %}
 
 {% block announce %}
@@ -15,15 +48,15 @@
   <div
     class="tlsoc-marquee"
     role="status"
-    aria-label="{{ 'Stable' if is_stable else 'Testing' }} documentation for TLSOC {{ config.extra.docs_version }}"
+    aria-label="{{ 'Stable' if is_stable else 'Testing' }} documentation for Agentic SOC {{ config.extra.docs_version }}"
   >
     <div class="tlsoc-marquee__track">
       {% for _ in range(12) %}
         <span class="tlsoc-marquee__item"{% if not loop.first %} aria-hidden="true"{% endif %}>
           {% if is_stable %}
-            STABLE DOCUMENTATION — TLSOC {{ config.extra.docs_version }}
+            STABLE DOCUMENTATION — AGENTIC SOC {{ config.extra.docs_version }}
           {% else %}
-            TESTING CHANNEL — TLSOC {{ config.extra.docs_version }} — PROMOTES TO STABLE ON MAIN
+            TESTING CHANNEL — AGENTIC SOC {{ config.extra.docs_version }} — PROMOTES TO STABLE ON MAIN
           {% endif %}
           <span class="tlsoc-marquee__dot">■</span>
         </span>
@@ -33,7 +66,7 @@
 {% endblock %}
 
 {% block outdated %}
-  You are viewing an older TLSOC documentation version.
+  You are viewing an older Agentic SOC documentation version.
   <a href="{{ config.extra.stable_docs_url }}">Open the Stable documentation.</a>
 {% endblock %}
 

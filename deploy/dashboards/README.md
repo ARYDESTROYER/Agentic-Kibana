@@ -1,6 +1,6 @@
-# TLSOC Dashboards & Data Views
+# Agentic SOC Dashboards & Data Views
 
-Pre-built Kibana 8.12 saved objects for TLSOC Agentic Triage Suite.
+Pre-built Kibana 8.12 saved objects for Agentic SOC's legacy ELK attachment mode.
 
 > **Mode-B (legacy ELK merge) only.** These dashboards are relevant only when the
 > backend joins an existing Kibana as a read-only consumer

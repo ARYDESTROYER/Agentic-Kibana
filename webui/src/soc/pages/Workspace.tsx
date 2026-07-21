@@ -2,7 +2,7 @@
  * Workspace — the host for the agent's interactive surfaces (Chat, Investigate).
  *
  *   - Chat:        the conversational assistant (ONE chat engine — AGENTS.md).
- *   - Investigate: an ad-hoc, agentic investigation on an IP / user / host.
+ *   - Entity investigation: an ad-hoc, agentic investigation on an IP / user / host.
  *
  * The redundant in-page "Chat | Investigate" segmented strip was removed (task: the
  * left-nav Workspace group already exposes a clickable child for BOTH, so an in-page
@@ -10,7 +10,7 @@
  * the `tab` route opt (forced by the `chat` / `investigate` routes and by
  * `navigate('chat', { tab })`); the host owns the single PageHeader (each sub-page
  * renders `embedded`), and the header title/icon reflect the active sub-view so a
- * left-nav "Chat"/"Investigate" click lands on a correctly-titled page.
+ * left-nav "Chat"/"Entity investigation" click lands on a correctly-titled page.
  */
 import { MessageSquare, Search } from 'lucide-react';
 import { useNavigateOptional, type Navigate } from '@/soc/router';
@@ -36,10 +36,10 @@ export default function Workspace({ onNavigate, tab }: WorkspaceProps = {}) {
       <PageHeader
         icon={isInvestigate ? Search : MessageSquare}
         eyebrow="Agent workspace"
-        title={isInvestigate ? 'Investigate' : 'Chat'}
+        title={isInvestigate ? 'Entity investigation' : 'Chat'}
         description={
           isInvestigate
-            ? 'Launch an ad-hoc, agentic investigation on an IP, user, or host — it queries your logs, summarizes, and explains.'
+            ? 'Check one IP, user, or host across the selected log window. Matching evidence is correlated, investigated, and saved as a case.'
             : 'Talk to the SOC agent — it queries your logs, summarizes findings, and explains its reasoning.'
         }
       />

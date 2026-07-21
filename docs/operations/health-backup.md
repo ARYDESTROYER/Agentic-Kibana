@@ -1,6 +1,6 @@
 ---
 title: Health, backup, and restore
-description: Monitor TLSOC health, capture release identity, and protect application state and secrets.
+description: Monitor Agentic SOC health, capture release identity, and protect application state and secrets.
 ---
 
 # Health, backup, and restore
@@ -13,7 +13,7 @@ orchestrator decision you are making.
 | Endpoint | Meaning | Expected use |
 |---|---|---|
 | `/api/health/live` | The process can serve requests | Restart/liveness probe |
-| `/api/health/ready` | TLSOC can use the selected state store, including a bounded write-path probe | Traffic/readiness gate; returns 503 when unavailable |
+| `/api/health/ready` | Agentic SOC can use the selected state store, including a bounded write-path probe | Traffic/readiness gate; returns 503 when unavailable |
 | `/api/health` | Backward-compatible aggregate status used by the web UI | Human/UI summary |
 | `/api/health/build-info` | Version, release channel, commit/build metadata, state backend, and OCSF version | Support and deployment inventory |
 
@@ -28,13 +28,18 @@ notification tests for those dependencies.
 - PostgreSQL roles/extensions and schema when using the standalone stack.
 - The SQLite database file only after quiescing writes or using a consistent database
   backup mechanism.
-- TLSOC-owned Elasticsearch indices and their templates when using ES state.
+- Agentic SOC-owned Elasticsearch indices and their templates when using ES state.
 - Deployment configuration, CA material, JWT/MFA keys, and all external secrets in a
   separate protected secret backup.
 - The exact application version, commit SHA, image digests, and Compose configuration.
 
 Redis is an optimization/cache and is not the authoritative application backup.
 Upstream logs remain in their source systems and require their own retention/backup.
+
+**Settings → Organization → Data export** is a support/analysis snapshot, not a
+backup. It is intentionally bounded, omits credentials, users/sessions, raw upstream
+logs, and raw knowledge chunks, and has no matching import/restore endpoint. Use the
+selected state backend's consistent dump or snapshot mechanism for recovery.
 
 ## Backup procedure
 
@@ -55,7 +60,7 @@ destinations from the restore environment.
 
 ## Limitations
 
-TLSOC 0.1 has no built-in backup scheduler or complete versioned database migration
+Agentic SOC 0.1 has no built-in backup scheduler or complete versioned database migration
 framework. A successful dump is not sufficient evidence; test a full restore and retain
 upstream data long enough to replay after failure.
 

@@ -10,9 +10,11 @@
 /**
  * Navigation options threaded through `Navigate` (router.tsx / App.tsx) so
  * deep-links / drill-throughs can pre-seed a destination page's filters/tab.
- * All fields optional and additive; carried in-memory (never persisted).
+ * All fields are optional and additive. Most are carried in memory only; `caseId`
+ * is serialized for Cases / Case Manager so an exact selected-case handoff survives
+ * refresh and browser history.
  *
- * `section`/`anchor` (Round-5 Sett-C) are the exception: for the `settings` page they
+ * `section`/`anchor` (Round-5 Sett-C) are also serialized: for the `settings` page they
  * are serialized into the URL hash (`#/settings?s=<section>&a=<anchor>`) so a Cmd-K
  * jump / card-level deep-link survives a full hashchange. They are ignored for every
  * other page.

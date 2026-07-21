@@ -105,6 +105,10 @@ USAGE_MAPPING = {
         "currency": {"type": "keyword"},
         "latency_ms": {"type": "long"},
         "outcome": {"type": "keyword"},
+        "cache_read_tokens": {"type": "long"},
+        "cache_write_tokens": {"type": "long"},
+        "batch": {"type": "boolean"},
+        "processing_tier": {"type": "keyword"},
     }
 }
 

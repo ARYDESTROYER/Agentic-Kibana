@@ -1,11 +1,11 @@
 ---
 title: Security hardening
-description: Apply least privilege, authentication, transport, prompt-safety, and operational controls to TLSOC 0.1.
+description: Apply least privilege, authentication, transport, prompt-safety, and operational controls to Agentic SOC 0.1.
 ---
 
 # Security hardening
 
-TLSOC processes attacker-influenced security telemetry and can call external model and
+Agentic SOC processes attacker-influenced security telemetry and can call external model and
 enrichment providers. Treat the backend, state store, credentials, and outbound network
 as a security boundary.
 
@@ -26,7 +26,7 @@ as a security boundary.
 
 For Elasticsearch-compatible sources, the investigation key must be read-only and
 limited to approved log patterns. A separate management key may read/write only
-TLSOC-owned state indices. Never use a cluster superuser or `kibana_system`.
+Agentic SOC-owned state indices. Never use a cluster superuser or `kibana_system`.
 
 Apply the same principle to queue, object-store, cloud, and webhook credentials. A
 receiver should access only the subscription, bucket/prefix, stream, or endpoint it
@@ -46,7 +46,7 @@ web UI does not automatically complete; test it before enabling.
 
 ## Untrusted data and AI
 
-Log-derived, source-derived, and user-influenceable values are untrusted. TLSOC fences
+Log-derived, source-derived, and user-influenceable values are untrusted. Agentic SOC fences
 them in prompts and escapes them in the UI/template paths. Operator-imported knowledge
 is also untrusted unless it belongs to a built-in verified corpus.
 

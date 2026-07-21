@@ -209,7 +209,7 @@ def _heat_color(count: int, max_count: int) -> str:
 def navigator_layer(
     cases: list[Case],
     *,
-    name: str = "TLSOC case coverage",
+    name: str = "Agentic SOC case coverage",
     window_hours: int | None = None,
     store_total: int | None = None,
     fetched_count: int | None = None,
@@ -252,7 +252,7 @@ def navigator_layer(
         )
 
     desc = (
-        f"TLSOC agentic-triage case coverage ({coverage['covered_techniques']}/"
+        f"Agentic SOC case coverage ({coverage['covered_techniques']}/"
         f"{coverage['total_techniques']} techniques)"
     )
     if window_hours:

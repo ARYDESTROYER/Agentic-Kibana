@@ -24,8 +24,10 @@
  *
  * HOVER-TO-EXPAND (Task 6): the shell can render the COLLAPSED rail in a `floating`
  * mode where it reserves only a 64px footprint but is allowed to render wider and
- * float OVER the page content when the shell hover/focus-expands it (the shell flips
- * the `collapsed` prop transiently, without touching the persisted pref). In that mode
+ * float OVER the page content when the shell pointer-hover expands it (the shell flips
+ * the `collapsed` prop transiently, without touching the persisted pref). Keyboard
+ * focus stays on the stable icon rail and uses its labelled buttons/inline fly-outs.
+ * In floating mode
  * the expanded drawer gets a drop shadow (`floating && !collapsed`); the shell wrapper
  * owns the z-index so the overlay survives the collapse-back animation.
  *
@@ -50,7 +52,9 @@ import { api } from '@/lib/api';
 import { useAuth } from '../auth';
 import { usePrefs } from '../prefs';
 import {
+  NAV_FOOTER_ITEMS,
   NAV_GROUPS,
+  navVisible,
   navParentOf,
   type NavChild,
   type NavGroup,
@@ -221,16 +225,19 @@ function filterGroups(groups: NavGroup[], has: HasPerm): NavGroup[] {
   return groups
     .map((g) => ({
       ...g,
-      items: g.items
-        .filter((it) => !it.perm || has(it.perm.resource, it.perm.action))
-        .map((it) => ({
-          ...it,
-          children: (it.children ?? []).filter(
-            (c) => !c.perm || has(c.perm.resource, c.perm.action),
-          ),
-        })),
+      items: filterItems(g.items, has),
     }))
     .filter((g) => g.items.length > 0);
+}
+
+/** Apply the registry's single visibility authority to items and their leaves. */
+function filterItems(items: NavItem[], has: HasPerm): NavItem[] {
+  return items
+    .filter((item) => navVisible(item, has))
+    .map((item) => ({
+      ...item,
+      children: (item.children ?? []).filter((child) => navVisible(child, has)),
+    }));
 }
 
 /* -------------------------------------------------------------------------- */
@@ -279,7 +286,8 @@ const ExpandedItem: React.FC<{
   open: boolean;
   onNavigate: (id: PageId) => void;
   onToggleGroup: (id: string) => void;
-}> = ({ item, page, open, onNavigate, onToggleGroup }) => {
+  reducedMotion?: boolean;
+}> = ({ item, page, open, onNavigate, onToggleGroup, reducedMotion = false }) => {
   const Icon = item.icon as LucideIcon;
   const children = item.children ?? [];
   const hasChildren = children.length > 0;
@@ -307,7 +315,8 @@ const ExpandedItem: React.FC<{
           aria-current={selfActive ? 'page' : undefined}
           data-testid={`nav-${item.id}`}
           className={cn(
-            'flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm transition-colors',
+            'relative flex w-full items-center gap-2.5 overflow-hidden rounded-md px-2.5 py-2 text-left text-sm',
+            reducedMotion ? 'transition-none' : 'transition-colors duration-150',
             // scroll-my-1: keep a focused leaf off the scroll edge (§2.4.11).
             'scroll-my-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
             selfActive
@@ -315,6 +324,9 @@ const ExpandedItem: React.FC<{
               : 'text-muted-foreground hover:bg-muted hover:text-foreground',
           )}
         >
+          {selfActive ? (
+            <span className="absolute inset-y-1 left-0 w-0.5 rounded-r bg-primary" aria-hidden />
+          ) : null}
           <Icon className="h-4 w-4 shrink-0" aria-hidden />
           <span className="truncate">{item.label}</span>
         </button>
@@ -326,10 +338,14 @@ const ExpandedItem: React.FC<{
     <li>
       <div
         className={cn(
-          'flex items-center rounded-md transition-colors',
+          'relative flex items-center overflow-hidden rounded-md',
+          reducedMotion ? 'transition-none' : 'transition-colors duration-150',
           trailActive && !open ? 'bg-primary/[0.06] dark:bg-accent/70' : '',
         )}
       >
+        {trailActive ? (
+          <span className="absolute inset-y-1 left-0 z-10 w-0.5 rounded-r bg-primary" aria-hidden />
+        ) : null}
         {/* Primary destination — navigating ALSO opens the group (destinations are
             never hidden behind the disclosure). */}
         <button
@@ -367,7 +383,8 @@ const ExpandedItem: React.FC<{
         >
           <ChevronRight
             className={cn(
-              'h-4 w-4 transition-transform duration-200 motion-reduce:transition-none',
+              'h-4 w-4',
+              reducedMotion ? 'transition-none' : 'transition-transform duration-200 ease-premium',
               open ? 'rotate-90' : '',
             )}
             aria-hidden
@@ -398,7 +415,8 @@ const CollapsedItem: React.FC<{
   item: NavItem;
   page: PageId;
   onNavigate: (id: PageId) => void;
-}> = ({ item, page, onNavigate }) => {
+  reducedMotion?: boolean;
+}> = ({ item, page, onNavigate, reducedMotion = false }) => {
   const Icon = item.icon as LucideIcon;
   const children = item.children ?? [];
   const hasChildren = children.length > 0;
@@ -453,7 +471,8 @@ const CollapsedItem: React.FC<{
       aria-current={selfActive && !idIsAlsoChild ? 'page' : undefined}
       data-testid={`nav-${item.id}`}
       className={cn(
-        'relative flex h-10 w-10 items-center justify-center rounded-lg transition-colors',
+        'relative flex h-10 w-10 items-center justify-center rounded-lg',
+        reducedMotion ? 'transition-none' : 'transition-[color,background-color,transform] duration-150 ease-premium',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface',
         selfActive
           ? 'bg-primary text-primary-foreground shadow-glow dark:bg-accent dark:text-primary dark:shadow-none'
@@ -464,7 +483,7 @@ const CollapsedItem: React.FC<{
     >
       <Icon className="h-5 w-5" aria-hidden />
       {/* Active-trail indicator for a collapsed PARENT whose child is current. */}
-      {trailActive && !selfActive ? (
+      {trailActive ? (
         <span
           className="absolute -left-2 top-1/2 h-5 w-1 -translate-y-1/2 rounded-full bg-primary"
           aria-hidden
@@ -520,7 +539,8 @@ const CollapsedItem: React.FC<{
         style={{ position: 'fixed', top: pos.top, left: pos.left }}
         className={cn(
           'z-50 w-52 rounded-lg border border-border bg-popover p-1.5 text-popover-foreground shadow-elev2',
-          'pointer-events-none opacity-0 transition-opacity duration-100 motion-reduce:transition-none',
+          'pointer-events-none opacity-0',
+          reducedMotion ? 'transition-none' : 'transition-opacity duration-100',
           'group-hover:pointer-events-auto group-hover:opacity-100',
           'group-focus-within:pointer-events-auto group-focus-within:opacity-100',
         )}
@@ -570,7 +590,7 @@ export interface NavSidebarProps {
   collapsed: boolean;
   /**
    * TASK 6 — the sidebar is in "floating footprint" mode: the shell reserves only a
-   * 64px rail footprint, but this sidebar may render WIDER than that (hover/focus
+   * 64px rail footprint, but this sidebar may render WIDER than that (pointer-hover
    * expand) and float OVER the page content. When set, the expanded-on-hover drawer
    * gets a drop shadow so it reads as an overlay; layering is handled by the shell
    * wrapper's z-index (so the elevation survives the collapse-back animation without
@@ -591,6 +611,8 @@ export interface NavSidebarProps {
   toggleSlot?: React.ReactNode;
   /** Layout override for hosts such as the mobile off-canvas Sheet. */
   className?: string;
+  /** Disable width/fade/chevron transitions for an OS reduced-motion preference. */
+  reducedMotion?: boolean;
 }
 
 /**
@@ -610,10 +632,15 @@ export function NavSidebar({
   productName,
   toggleSlot,
   className,
+  reducedMotion = false,
 }: NavSidebarProps) {
   const { hasPermission } = useAuth();
   const groups = React.useMemo(
     () => filterGroups(NAV_GROUPS, hasPermission),
+    [hasPermission],
+  );
+  const footerItems = React.useMemo(
+    () => filterItems(NAV_FOOTER_ITEMS, hasPermission),
     [hasPermission],
   );
 
@@ -633,13 +660,18 @@ export function NavSidebar({
 
   return (
     <aside
+      data-nav-state={collapsed ? 'collapsed' : 'expanded'}
+      data-reduced-motion={reducedMotion ? 'true' : 'false'}
       className={cn(
         // Springy `--motion-ease-premium` easing on the rail-width settle. motion.dev's
         // spring/`layoutId` continuity is deliberately NOT used here: NavSidebar is on the
         // eager AppShell first-paint graph, and statically importing motion.dev would drag
         // its runtime onto the entry chunk (breaking the <400 kB budget). Full spring/
         // shared-layout on the nav is deferred to a lazy-boundary follow-up.
-        'sticky top-0 flex h-screen shrink-0 flex-col border-r border-border bg-surface transition-[width] duration-200 ease-premium motion-reduce:transition-none',
+        'sticky top-0 flex h-screen shrink-0 flex-col border-r border-border bg-surface',
+        reducedMotion
+          ? 'transition-none'
+          : 'transition-[width,box-shadow] duration-200 ease-premium',
         collapsed ? 'w-16 items-center' : 'w-60',
         // TASK 6 — while a floating rail is expanded over the content (hover/focus), give
         // the drawer a drop shadow so it reads as an overlay above the page. Only when it
@@ -666,7 +698,7 @@ export function NavSidebar({
         </span>
         {!collapsed ? (
           <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
-            {productName || 'TLSOC'}
+            {productName || 'Agentic SOC'}
           </span>
         ) : null}
         {!collapsed ? toggleSlot : null}
@@ -677,45 +709,87 @@ export function NavSidebar({
         <div className="flex w-full justify-center py-2">{toggleSlot}</div>
       ) : null}
 
-      <nav
-        className={cn(
-          'flex flex-1 flex-col overflow-y-auto overflow-x-hidden py-3',
-          collapsed ? 'items-center gap-1' : 'gap-3 px-2',
-        )}
-      >
-        {groups.map((group, gi) =>
-          collapsed ? (
-            <React.Fragment key={group.id}>
-              {gi > 0 ? <Separator className="my-1 w-6" /> : null}
-              {group.items.map((item) => (
+      <nav className="flex min-h-0 flex-1 flex-col" aria-label="Console destinations">
+        <div
+          className={cn(
+            'flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden py-3',
+            collapsed ? 'items-center gap-1' : 'gap-3 px-2',
+            !reducedMotion && 'animate-fade-in',
+          )}
+        >
+          {groups.map((group, gi) =>
+            collapsed ? (
+              <React.Fragment key={group.id}>
+                {gi > 0 ? <Separator className="my-1 w-6" /> : null}
+                {group.items.map((item) => (
+                  <CollapsedItem
+                    key={item.id}
+                    item={item}
+                    page={page}
+                    onNavigate={navigate}
+                    reducedMotion={reducedMotion}
+                  />
+                ))}
+              </React.Fragment>
+            ) : (
+              <div key={group.id} className="space-y-0.5">
+                <p className="px-2.5 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                  {group.label}
+                </p>
+                <ul className="space-y-0.5">
+                  {group.items.map((item) => (
+                    <ExpandedItem
+                      key={item.id}
+                      item={item}
+                      page={page}
+                      open={openGroups.has(item.id)}
+                      onNavigate={navigate}
+                      onToggleGroup={onToggleGroup}
+                      reducedMotion={reducedMotion}
+                    />
+                  ))}
+                </ul>
+              </div>
+            ),
+          )}
+        </div>
+
+        {footerItems.length > 0 ? (
+          <div
+            data-testid="nav-footer"
+            className={cn(
+              'shrink-0 border-t border-border bg-surface py-2',
+              collapsed ? 'flex justify-center' : 'px-2',
+              !reducedMotion && 'animate-fade-in',
+            )}
+          >
+            {collapsed ? (
+              footerItems.map((item) => (
                 <CollapsedItem
                   key={item.id}
                   item={item}
                   page={page}
                   onNavigate={navigate}
+                  reducedMotion={reducedMotion}
                 />
-              ))}
-            </React.Fragment>
-          ) : (
-            <div key={group.id} className="space-y-0.5">
-              <p className="px-2.5 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-                {group.label}
-              </p>
+              ))
+            ) : (
               <ul className="space-y-0.5">
-                {group.items.map((item) => (
+                {footerItems.map((item) => (
                   <ExpandedItem
                     key={item.id}
                     item={item}
                     page={page}
-                    open={openGroups.has(item.id)}
+                    open={false}
                     onNavigate={navigate}
                     onToggleGroup={onToggleGroup}
+                    reducedMotion={reducedMotion}
                   />
                 ))}
               </ul>
-            </div>
-          ),
-        )}
+            )}
+          </div>
+        ) : null}
       </nav>
     </aside>
   );

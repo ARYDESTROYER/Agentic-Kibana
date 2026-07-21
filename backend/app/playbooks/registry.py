@@ -14,15 +14,52 @@ good live set (validate-then-swap).
 from __future__ import annotations
 
 import logging
+import os
+import re
+import tempfile
+import threading
 from pathlib import Path
 
 from ..models import Cluster
-from .loader import load_playbooks
+from .loader import load_playbooks, parse_playbook
 from .manifest import Playbook
 
 logger = logging.getLogger("tlsoc.playbooks.registry")
 
 _NO_MATCH = "no_playbook_matched"
+
+# These files ship with the application and are reference procedures, not mutable
+# operator state.  An operator can view them (or copy their Markdown into a new
+# operator-owned id), but the management API never overwrites them.  A configured
+# override directory contains operator files only, so this protection is applied
+# by ``AppState`` solely when the registry points at the packaged default directory.
+DEFAULT_BUNDLED_PLAYBOOK_FILES = frozenset(
+    {
+        "brute_force_login.md",
+        "phishing_reported_email.md",
+        "suspicious_outbound_connection.md",
+    }
+)
+
+MAX_PLAYBOOK_BYTES = 256 * 1024
+_PLAYBOOK_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+_RESERVED_PLAYBOOK_IDS = frozenset({"readme", "index"})
+
+
+class PlaybookManagementError(ValueError):
+    """Base class for safe operator-file management failures."""
+
+
+class PlaybookConflictError(PlaybookManagementError):
+    """The requested id/path already exists and must not be overwritten."""
+
+
+class PlaybookProtectedError(PlaybookManagementError):
+    """A mutation targeted a packaged, read-only playbook."""
+
+
+class PlaybookNotFoundError(PlaybookManagementError):
+    """A requested playbook is not loaded."""
 
 
 def _cluster_rule_set(cluster: Cluster) -> set[str]:
@@ -116,9 +153,18 @@ def select_playbook(cluster: Cluster, playbooks: list[Playbook]) -> tuple[Playbo
 class PlaybookRegistry:
     """A directory-backed registry of playbooks with atomic hot reload."""
 
-    def __init__(self, directory: Path) -> None:
+    def __init__(
+        self,
+        directory: Path,
+        *,
+        protected_filenames: frozenset[str] | set[str] | None = None,
+    ) -> None:
         self._directory = Path(directory)
         self._playbooks: list[Playbook] = []
+        self._protected_filenames = frozenset(protected_filenames or ())
+        # Reload and file replacement form one process-local transaction.  RLock is
+        # intentional because create/update call reload while already holding it.
+        self._lock = threading.RLock()
 
     def reload(self) -> dict:
         """Reload from disk ATOMICALLY (validate-then-swap).
@@ -128,43 +174,253 @@ class PlaybookRegistry:
         good live set. Returns a summary
         ``{"loaded": int, "skipped": [{"file","reason"}], "ids": [...]}``.
         """
-        skipped: list[dict[str, str]] = []
-        try:
-            base = self._directory
-            md_files = sorted(base.glob("*.md")) if base.is_dir() else []
-            loaded = load_playbooks(base)
-            loaded_paths = {pb.source_path for pb in loaded}
-            for path in md_files:
-                if str(path) not in loaded_paths:
-                    skipped.append({"file": str(path), "reason": "invalid_or_unparseable"})
-        except Exception as exc:  # noqa: BLE001 — never let a reload crash the caller
-            logger.warning("Playbook reload failed for %s: %s", self._directory, exc)
-            return {
-                "loaded": len(self._playbooks),
-                "skipped": [{"file": str(self._directory), "reason": str(exc)}],
-                "ids": [pb.id for pb in self._playbooks],
-            }
+        with self._lock:
+            skipped: list[dict[str, str]] = []
+            try:
+                base = self._directory
+                md_files = (
+                    [p for p in sorted(base.glob("*.md")) if p.stem.lower() not in {"readme", "index"}]
+                    if base.is_dir()
+                    else []
+                )
+                loaded = load_playbooks(base)
+                loaded_paths = {pb.source_path for pb in loaded}
+                for path in md_files:
+                    if str(path) not in loaded_paths:
+                        skipped.append({"file": path.name, "reason": "invalid_or_unparseable"})
+            except Exception as exc:  # noqa: BLE001 — never let a reload crash the caller
+                logger.warning("Playbook reload failed for %s: %s", self._directory, exc)
+                return {
+                    "loaded": len(self._playbooks),
+                    # The summary is an API response as well as an internal result.
+                    # Keep filesystem paths and raw OS exception text in the log only.
+                    "skipped": [{"file": "<playbook-directory>", "reason": "reload_failed"}],
+                    "ids": [pb.id for pb in self._playbooks],
+                }
 
-        # Validate-then-swap: the live set only changes after a clean load.
-        self._playbooks = loaded
-        return {
-            "loaded": len(loaded),
-            "skipped": skipped,
-            "ids": [pb.id for pb in loaded],
-        }
+            # Validate-then-swap: the live set only changes after a clean load.
+            self._playbooks = loaded
+            return {
+                "loaded": len(loaded),
+                "skipped": skipped,
+                "ids": [pb.id for pb in loaded],
+            }
 
     def load(self) -> dict:
         """Alias for ``reload`` (initial load)."""
         return self.reload()
 
     def all(self) -> list[Playbook]:
-        return list(self._playbooks)
+        with self._lock:
+            return list(self._playbooks)
 
     def get(self, id: str) -> Playbook | None:
-        for pb in self._playbooks:
-            if pb.id == id:
-                return pb
+        with self._lock:
+            for pb in self._playbooks:
+                if pb.id == id:
+                    return pb
         return None
+
+    # ------------------------------------------------------------- management
+
+    def metadata(self, playbook: Playbook) -> dict[str, object]:
+        """Return non-sensitive file ownership metadata for the API catalog.
+
+        Full server paths are deliberately never returned.  ``editable`` reflects
+        both ownership and directory replace permission; the mutation path repeats
+        every check and remains authoritative if filesystem permissions change.
+        """
+        path = self._safe_existing_source(playbook)
+        protected = path.name in self._protected_filenames
+        directory_writable = self._directory_writeable()
+        return {
+            "source_type": "bundled" if protected else "operator",
+            "protected": protected,
+            "editable": bool(not protected and directory_writable),
+            "file_name": path.name,
+        }
+
+    def read_document(self, playbook_id: str) -> tuple[Playbook, str]:
+        """Read one loaded Markdown document after path-containment checks."""
+        with self._lock:
+            playbook = self.get(playbook_id)
+            if playbook is None:
+                raise PlaybookNotFoundError(playbook_id)
+            path = self._safe_existing_source(playbook)
+            try:
+                raw = path.read_bytes()
+            except OSError as exc:
+                raise PlaybookManagementError("playbook file could not be read") from exc
+            if len(raw) > MAX_PLAYBOOK_BYTES:
+                raise PlaybookManagementError(
+                    f"playbook exceeds the {MAX_PLAYBOOK_BYTES // 1024} KiB management limit"
+                )
+            try:
+                return playbook, raw.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise PlaybookManagementError("playbook must be UTF-8 Markdown") from exc
+
+    def create_operator(self, playbook_id: str, content: str) -> tuple[Playbook, dict]:
+        """Atomically create one operator-owned ``<id>.md`` and hot-reload it."""
+        with self._lock:
+            self._validate_id(playbook_id)
+            self._validate_content_size(content)
+            self._ensure_directory()
+            target = self._safe_target(playbook_id)
+            if target.exists() or self.get(playbook_id) is not None:
+                raise PlaybookConflictError(f"playbook {playbook_id!r} already exists")
+            candidate = self._parse_candidate(playbook_id, content, target)
+            self._atomic_write(target, content)
+            try:
+                summary = self.reload()
+                loaded = self.get(playbook_id)
+                if loaded is None or self._safe_existing_source(loaded) != target:
+                    raise PlaybookManagementError("new playbook did not load cleanly")
+                return loaded, summary
+            except Exception:
+                # The file did not exist before this transaction; a failed reload is
+                # rolled back so disk and the live registry stay aligned.
+                try:
+                    target.unlink(missing_ok=True)
+                finally:
+                    self.reload()
+                raise
+
+    def update_operator(self, playbook_id: str, content: str) -> tuple[Playbook, dict]:
+        """Atomically replace one editable operator Markdown file and hot-reload."""
+        with self._lock:
+            self._validate_id(playbook_id)
+            self._validate_content_size(content)
+            current = self.get(playbook_id)
+            if current is None:
+                raise PlaybookNotFoundError(playbook_id)
+            target = self._safe_existing_source(current)
+            if target.name in self._protected_filenames:
+                raise PlaybookProtectedError(f"playbook {playbook_id!r} is bundled and read-only")
+            if not self._directory_writeable():
+                raise PlaybookProtectedError("the configured playbook directory is read-only")
+            self._parse_candidate(playbook_id, content, target)
+            try:
+                previous = target.read_text(encoding="utf-8")
+            except OSError as exc:
+                raise PlaybookManagementError("playbook file could not be read") from exc
+            self._atomic_write(target, content)
+            try:
+                summary = self.reload()
+                loaded = self.get(playbook_id)
+                if loaded is None or self._safe_existing_source(loaded) != target:
+                    raise PlaybookManagementError("updated playbook did not load cleanly")
+                return loaded, summary
+            except Exception:
+                # Restore the exact previous document atomically if anything between
+                # replacement and validate/reload fails.
+                try:
+                    self._atomic_write(target, previous)
+                finally:
+                    self.reload()
+                raise
+
+    def _resolved_directory(self) -> Path:
+        return self._directory.expanduser().resolve(strict=False)
+
+    def _ensure_directory(self) -> Path:
+        root = self._resolved_directory()
+        try:
+            root.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise PlaybookManagementError("configured playbook directory is not writable") from exc
+        if not root.is_dir():
+            raise PlaybookManagementError("configured playbook path is not a directory")
+        return root
+
+    def _directory_writeable(self) -> bool:
+        root = self._resolved_directory()
+        return root.is_dir() and os.access(root, os.W_OK)
+
+    def _safe_target(self, playbook_id: str) -> Path:
+        root = self._resolved_directory()
+        raw_target = root / f"{playbook_id}.md"
+        if raw_target.is_symlink():
+            raise PlaybookManagementError("symbolic-link playbook targets are not editable")
+        target = raw_target.resolve(strict=False)
+        try:
+            target.relative_to(root)
+        except ValueError as exc:
+            raise PlaybookManagementError("playbook path escapes the configured directory") from exc
+        return target
+
+    def _safe_existing_source(self, playbook: Playbook) -> Path:
+        if not playbook.source_path:
+            raise PlaybookManagementError("playbook has no managed source file")
+        root = self._resolved_directory()
+        source = Path(playbook.source_path)
+        if source.is_symlink():
+            raise PlaybookManagementError("symbolic-link playbook sources are not manageable")
+        path = source.resolve(strict=False)
+        try:
+            path.relative_to(root)
+        except ValueError as exc:
+            raise PlaybookManagementError("playbook source escapes the configured directory") from exc
+        return path
+
+    @staticmethod
+    def _validate_id(playbook_id: str) -> None:
+        if not isinstance(playbook_id, str) or _PLAYBOOK_ID_RE.fullmatch(playbook_id) is None:
+            raise PlaybookManagementError(
+                "playbook id must be a lowercase slug (letters, numbers, '_' or '-', max 64)"
+            )
+        if playbook_id in _RESERVED_PLAYBOOK_IDS:
+            raise PlaybookManagementError(
+                f"playbook id {playbook_id!r} is reserved for directory documentation"
+            )
+
+    @staticmethod
+    def _validate_content_size(content: str) -> None:
+        if not isinstance(content, str) or not content.strip():
+            raise PlaybookManagementError("playbook Markdown is required")
+        if "\x00" in content:
+            raise PlaybookManagementError("playbook Markdown may not contain NUL bytes")
+        if len(content.encode("utf-8")) > MAX_PLAYBOOK_BYTES:
+            raise PlaybookManagementError(
+                f"playbook exceeds the {MAX_PLAYBOOK_BYTES // 1024} KiB management limit"
+            )
+
+    @staticmethod
+    def _parse_candidate(playbook_id: str, content: str, target: Path) -> Playbook:
+        candidate = parse_playbook(content, fallback_id=playbook_id, source_path=str(target))
+        if candidate is None:
+            raise PlaybookManagementError("playbook front matter is invalid")
+        if candidate.id != playbook_id:
+            raise PlaybookManagementError(
+                f"front-matter id {candidate.id!r} must match {playbook_id!r}"
+            )
+        return candidate
+
+    def _atomic_write(self, target: Path, content: str) -> None:
+        root = self._ensure_directory()
+        fd = -1
+        tmp_path: Path | None = None
+        try:
+            fd, tmp_name = tempfile.mkstemp(
+                prefix=f".{target.name}.", suffix=".tmp", dir=str(root)
+            )
+            tmp_path = Path(tmp_name)
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+                fd = -1
+                handle.write(content)
+                if not content.endswith("\n"):
+                    handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.chmod(tmp_path, 0o640)
+            os.replace(tmp_path, target)
+        except OSError as exc:
+            raise PlaybookManagementError("playbook file could not be written atomically") from exc
+        finally:
+            if fd >= 0:
+                os.close(fd)
+            if tmp_path is not None and tmp_path.exists():
+                tmp_path.unlink(missing_ok=True)
 
     def select(self, cluster: Cluster) -> tuple[Playbook | None, str]:
         return select_playbook(cluster, self.all())

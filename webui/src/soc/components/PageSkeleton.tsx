@@ -20,39 +20,56 @@ export interface PageSkeletonProps {
    * flash-then-vanish on resolve.
    */
   kpis?: number;
+  /** Human route name shown while its lazy chunk loads. */
+  label?: string;
 }
 
-export const PageSkeleton: React.FC<PageSkeletonProps> = ({ kpis = 4 }) => (
-  <div className="space-y-6" aria-busy="true" aria-label="Loading page">
-    {/* Slim top progress hint */}
-    <LoadingBar className="max-w-xs" label="Loading page" />
+export const PageSkeleton: React.FC<PageSkeletonProps> = ({ kpis = 4, label = 'page' }) => {
+  const loadingLabel = `Loading ${label}`;
+  return (
+    <div
+      data-testid="route-loading-fallback"
+      className="min-h-[24rem] space-y-6"
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+      aria-label={loadingLabel}
+    >
+      {/* A contextual route-progress band keeps the shell informative on a cold chunk. */}
+      <div className="flex items-center gap-3" data-testid="route-loading-status">
+        <LoadingBar className="max-w-xs flex-1" label={loadingLabel} />
+        <span className="shrink-0 text-xs font-medium text-muted-foreground">
+          {loadingLabel}…
+        </span>
+      </div>
 
-    {/* Header block — mirrors PageHeader's DEFAULT (dense) chrome so the header
-        doesn't visibly snap when the real page resolves: icon chip h-7 w-7, gap-3. */}
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-      <div className="flex min-w-0 items-start gap-3">
-        <Skeleton className="mt-0.5 h-7 w-7 shrink-0 rounded-md" />
-        <div className="space-y-2">
-          <Skeleton className="h-2.5 w-20" />
-          <Skeleton className="h-5 w-56" />
-          <Skeleton className="h-3 w-72" />
+      {/* Header block — mirrors PageHeader's DEFAULT (dense) chrome so the header
+          doesn't visibly snap when the real page resolves: icon chip h-7 w-7, gap-3. */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <Skeleton className="mt-0.5 h-7 w-7 shrink-0 rounded-md" />
+          <div className="space-y-2">
+            <Skeleton className="h-2.5 w-20" />
+            <Skeleton className="h-5 w-56" />
+            <Skeleton className="h-3 w-72" />
+          </div>
         </div>
+        <Skeleton className="h-9 w-28 rounded-md" />
       </div>
-      <Skeleton className="h-9 w-28 rounded-md" />
+
+      {/* A row of KPI-tile placeholders (omitted for form pages via kpis={0}). */}
+      {kpis > 0 ? (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {Array.from({ length: kpis }).map((_, i) => (
+            <SkeletonCard key={i} lines={2} />
+          ))}
+        </div>
+      ) : null}
+
+      {/* A taller content card (table / detail body) */}
+      <SkeletonCard lines={6} withIcon={false} />
     </div>
-
-    {/* A row of KPI-tile placeholders (omitted for form pages via kpis={0}). */}
-    {kpis > 0 ? (
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {Array.from({ length: kpis }).map((_, i) => (
-          <SkeletonCard key={i} lines={2} />
-        ))}
-      </div>
-    ) : null}
-
-    {/* A taller content card (table / detail body) */}
-    <SkeletonCard lines={6} withIcon={false} />
-  </div>
-);
+  );
+};
 
 export default PageSkeleton;

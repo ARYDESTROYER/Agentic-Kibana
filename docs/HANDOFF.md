@@ -6,19 +6,46 @@
 > source of truth for *where we are*, *how to run it*, *what's done*, and *what's next*.
 > Everything in here is verified against the repo as of the date below — not from memory.
 
-- **Repo:** `ARYDESTROYER/Agentic-Kibana`  ·  **Working branch:** `Testing`  ·  **Date:** 2026-07-19
-- **Status:** Round 10 is committed. On top of it, a **backend deep-audit hardening pass
+- **Repo:** `ARYDESTROYER/Agentic-Kibana`  ·  **Working branch:** `Testing`  ·  **Date:** 2026-07-22
+- **Status:** Round 10 and the additive Security Command Center / Case Manager work are
+  integrated on `Testing`. A **backend deep-audit hardening pass
   (2026-07-14/15)** fixed **47 verified findings** (0 crit / 10 high / 24 med / 13 low)
   from a 24-auditor + adversarial-verify Workflow — **one atomic commit per finding, no
-  co-author**, on `Testing` (`c5516e5`→`abd0385`), **local only (not tagged or pushed)**.
+  co-author**, on `Testing` (`c5516e5`→`abd0385`).
   The current product version is **`0.1.0`**. `Testing` is the permanent integration and
   acceptance branch; the accepted source tree is promoted through a protected pull request
   to the Stable `main` branch, the resulting commit is re-verified, and that commit is tagged
   `v0.1.0`; see `docs/releases/channels.md`.
-- **Verification:** green at **1957 backend tests** and **1350 web tests across 240 files**,
+- **Branch-topology gap:** the remote currently exposes `Testing` and legacy/default
+  `claude/main`, but no literal `main`. `claude/main` is not implicitly Stable. Before the
+  first Stable publication, the owner must create/rename and protect `main`, make it default,
+  and require the documented gates—or deliberately update every workflow and release
+  reference to one different canonical Stable branch.
+- **Release identity UI:** the top-right badge always reads
+  `v0.1.0 · Testing|Stable`; its popover reconciles build-time Console and public backend
+  build-info. Any known version/channel/SHA mismatch downgrades to Testing. Local demo auto-
+  derives Stable only on literal `main`; Docker release builds must stamp channel/SHA/date.
+- **Current Console contract:** the shared rail and route-loading states follow
+  `docs/development/ui-standard.md`; Automated Scans is a hidden compatibility route,
+  the targeted Workspace job is **Entity investigation**, Settings uses the flat
+  searchable command-center frame, and the bottom Documentation utility opens the
+  same-origin, version-matched Help Center at `/docs/<major.minor>/`. Installed docs
+  are authoritative for that build; Latest Stable/GitHub are secondary upgrade or
+  source views, and Development remains preview-only.
+- **Current feature integration:** Cases is still the table-oriented list, but an
+  opened row hands the exact case to the canonical Case Manager detail workspace;
+  its desktop split is accessible and persisted. Overview defaults to
+  visibility-aware LIVE refresh and has an expanded Noise Reduction view with a lazy,
+  bounded redacted alert→cluster→case→outcome drill-down beneath the aggregate flow.
+  Threat Context exposes a redacted persisted cluster-formation explanation. Demo
+  Mode has five sources including Entra ID. The API also provides audited,
+  permission-gated portable analysis export and guarded default-preference OpenAI
+  Flex for supported live case/alert work, with truthful standard fallback.
+- **Verification:** green at **1982 backend tests** and **1468 web tests across 248 files**,
   with production build, lint/design gates, packaging, version, Compose, and strict docs
-  checks passing. Read the latest `Journal.md` entry (2026-07-19)
-  and `CHANGELOG.md` `[Unreleased]` for command-level evidence + the finding list. The
+  checks passing. Read the latest `Journal.md` entry, the active `CHANGELOG.md`
+  `[Unreleased]` section, and the dated Development snapshots for command-level
+  evidence + the finding list. The
   deterministic `decide()` authority was verified clean by the audit and remains untouched;
   the 12 non-negotiables remain mandatory.
 
@@ -26,7 +53,7 @@
 
 ## 1. What this is (30-second orientation)
 
-**TLSOC Agentic Triage Suite** is a vendor-agnostic agentic SOC triage system: it ingests
+**Agentic SOC** is a vendor-agnostic agentic SOC triage system: it ingests
 security alerts from pluggable sources, normalises to OCSF, correlates + risk-scores
 deterministically, runs a two-tier LLM investigation, and turns the result into audited,
 cost-metered, human-reviewable **cases** — with a deterministic close/escalate policy that an LLM
@@ -48,17 +75,23 @@ can never override.
 cd backend
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt        # greenlet is pinned, so a fresh install is green
-python -m pytest -q                         # -> 1957 passed (rises each round; see Journal.md)
+python -m pytest -q                         # -> 1982 passed (rises each round; see Journal.md)
 ```
 
 ### WebUI build + tests + lint
 ```bash
 cd webui
 npm install
-npm run build      # tsc --noEmit && vite build -> clean (entry 287.45 kB, gzip 85.00 kB)
-npx vitest run     # -> 1350 passed / 240 files
+npm run build      # version-matched MkDocs Help Center + tsc --noEmit + Vite
+npm run docs:check # verify the generated docs artifact matches VERSION
+npm run build:app  # app-only typecheck + Vite when docs are intentionally unchanged
+npx vitest run     # -> 1468 passed / 248 files
 npm run lint       # eslint -> 0 errors, 0 warnings; 20 jsx-a11y rules are enforced at error
 ```
+The docs wrapper first honors `TLSOC_DOCS_PYTHON`, then reuses a compatible existing
+Python environment when available, and otherwise bootstraps the ignored
+`.docs-venv/` from pinned `docs/requirements.txt`; a normal build does not require a
+manual MkDocs install.
 
 ### Run the demo locally (the fastest way to SEE everything)
 ```bash
@@ -66,7 +99,8 @@ npm run lint       # eslint -> 0 errors, 0 warnings; 20 jsx-a11y rules are enfor
 # Preflights both ports, then starts the backend (:8088) + webui (:5173) on 127.0.0.1.
 # AUTH is enabled. Open http://127.0.0.1:5173 and log in as Admin / Admin@123.
 # The script completes local setup and enables the deterministic, isolated, $0 live
-# four-source demo with a forced mock LLM. Keys are unused until demo exit.
+# five-source demo (Splunk, QRadar, Wazuh, syslog, Entra ID) with a forced mock LLM.
+# Keys are unused until demo exit.
 # Set DEMO_MODE=seeded for a static run.
 # "Exit & clear" in Demo Mode reverts it.
 ```
@@ -88,7 +122,7 @@ backend/app/
   models.py        Pydantic contracts (Case, User(+profile/MFA/SSO), Session, SavedView, ...)
   api/routes.py    THE base FastAPI router (incl. /sources, /auth+/users, /sessions,
                    /account/me, /demo/*, /proposals, /settings/schema).  api/deps.py =
-                   auth/RBAC gates (+ custom-role union). **20 `routes_*.py` feature
+                   auth/RBAC gates (+ custom-role union). **21 `routes_*.py` feature
                    routers total**, ALL auto-discovered at boot
                    (`main.py::discover_feature_routers()` walks `app.api.routes_*`, needs
                    only a top-level `router: APIRouter` — no manual registration):
@@ -107,7 +141,9 @@ backend/app/
                    (`/notifications/*`), routes_prefs (`/branding`, `/prefs/*`,
                    `/terminology`, `/views*`), routes_rag (`/rag/*`, `/memory*`),
                    routes_search (`/search`, `/audit`). None of those paths remain in
-                   `routes.py`, and there is no `/branding/presets` endpoint.
+                   `routes.py`, and there is no `/branding/presets` endpoint. Current
+                   integration adds routes_export (`POST /api/admin/export`,
+                   `data_export:export`).
   auth/            passwords (PBKDF2) · tokens (stdlib HS256 JWT, sid/tv claims) · service ·
                    mfa (RFC-6238 TOTP) · oidc (SSO code-exchange)
   rbac/policy.py   the role->resource->action permission matrix + can()
@@ -140,20 +176,29 @@ webui/src/
   soc/pages/       Login, Cases (Round-9c: 6-tile summary strip + monogram Assignee column),
                    CaseManager (additive Active/All split-pane queue using the shared
                    CaseDetail orchestrator in embedded mode; reference-matched top-right
-                   Share/Take Action/close controls; legacy Cases remains),
+                   Share/Take Action/close controls; selection + permission-gated bulk work;
+                   Acknowledge/Assign/Add tag/Set status/Set disposition/Reinvestigate/Resolve;
+                   successes deselect, failures remain selected; accessible persisted
+                   desktop queue resize; the Cases table hands opened rows to this
+                   canonical detail workspace; operator contract in
+                   `docs/analyst/case-manager.md`),
                    CaseDetail (Round-5 split from a 4210-line god-file into ~1529 LOC +
                    sub-components; **6 tabs**: overview | timeline | investigation | threat |
                    collab | chat — Round 9/9b split the old Investigation tab into a
-                   "Timeline" [ONLY the what-happened narrative: input → correlate → risk →
-                   triage → investigate → decide] and "Investigation" [the AI's assessment +
+                   "Timeline" [ONLY the what-happened narrative: input → correlate → Risk
+                   Assigned → triage → investigate → Decision; current-weight reconstruction
+                   from persisted factors with mismatch warning; Case Manager terminal marker
+                   alone pulses] and "Investigation" [the AI's assessment +
                    the pinned deterministic `DecisionCard` + a collapsible full ReAct trace];
                    there is NO standalone "Why" tab or "Agent trace" tab — both live inside
                    Investigation),
                    Dashboards (Round-5 custom dashboards), Settings (Round-5 data-driven registry;
                    the 2673-line hub -> a section-registry + pages/settings/* files, 5 groups,
                    Security promoted to top-level), Account, Sessions, Users, Security, Audit,
-                   Workspace(Chat+Investigate), Analytics(Metrics tabs+Cost), Home(Overview+Standup),
-                   Intelligence(Knowledge+Memory+Catalog), Scans + Round-3 Models, Roles, Inbox, ...
+                   Workspace(Chat+Entity investigation), Analytics(Metrics tabs+Cost),
+                   Home(Overview+Standup), Intelligence(Knowledge+Memory+Playbooks),
+                   Docs + a hidden legacy Scans compatibility route + Round-3 Models,
+                   Roles, Inbox, ...
   soc/pages/settings/  Round-5 — one file per Settings section (general/security/models/detection/
                    cases/automation/enrichment/knowledge/keys/standup/advanced/...) driven by
                    settings-sections.ts (the registry) — replaces the old god-file
@@ -452,8 +497,8 @@ change this round.
 
 ### Round 9c (`20118a7` → `2cc94c5`, PR #27, 2026-07-06, historical) — dashboard from scratch + honest timing
 The dashboard rebuilt from scratch (Prisma/XSIAM-style): real **MTTD**
-(`Case.first_seen_millis` → case creation) and **MTTR-as-first-human-response** (the ACK
-clock — NOT dwell; a same-round bug where an AI auto-close was miscounted as a human response
+(`Case.first_seen_millis` → case creation) and first-human-response from the **ACK/MTTA
+clock** — NOT dwell; a same-round bug where an AI auto-close was miscounted as a human response
 was caught and fixed); a burndown chart; the Noise-Reduction ribbon extended with a terminal
 "closed by human" stage; the Cases list rebuilt (a 6-tile summary strip, a monogram Assignee
 column). No research folder — see `Journal.md`'s Round-9c entry.
@@ -505,7 +550,8 @@ case linking/merge, an integrations marketplace.
 | Round-3 design + what-shipped (extend a feature) | `docs/research/2026-06-round3/PROPOSAL.md` · `IMPLEMENTATION.md` |
 | Round-4 design + what-shipped (extend a feature) | `docs/research/2026-07-round4/PROPOSAL.md` · `IMPLEMENTATION.md` |
 | Round-5 design + what-shipped (UI/UX + rules + dashboards + coupling) | `docs/research/2026-07-round5/PROPOSAL.md` · `DESIGN_STANDARD.md` · `IMPLEMENTATION.md` |
-| The design standard (color tokens, primitives, card grammar) — READ before touching webui | `docs/research/2026-07-round5/DESIGN_STANDARD.md` |
+| The current Console UI contract — READ before touching webui | `docs/development/ui-standard.md` |
+| Round-5 design history (color/token/primitives rationale) | `docs/research/2026-07-round5/DESIGN_STANDARD.md` |
 | Round-6 what-shipped (fleet glitch-hunt, 464 findings) | `docs/research/2026-07-round6/IMPLEMENTATION.md` |
 | Round-7 design + what-shipped (Security Command Center + Noise-Reduction funnel) | `docs/research/2026-07-round7/` |
 | Round-8 what-shipped (UI cleanup + glitch fixes) | `docs/research/2026-07-round8/` |

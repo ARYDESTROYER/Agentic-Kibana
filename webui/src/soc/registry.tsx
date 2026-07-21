@@ -61,6 +61,7 @@ import {
   Layers,
   Activity,
   Columns3,
+  BookOpenText,
 } from 'lucide-react';
 
 /* -------------------------------------------------------------------------- */
@@ -101,7 +102,8 @@ export type PageId =
   | 'campaigns'
   | 'tuning'
   | 'batchjobs'
-  | 'baseline';
+  | 'baseline'
+  | 'docs';
 
 export type NavGroupId =
   | 'overview'
@@ -164,6 +166,12 @@ export interface FeatureNode {
    * excluded from the derived NAV_GROUPS/NAV_ITEMS but still contribute to PAGE_IDS.
    */
   hidden?: boolean;
+  /**
+   * Where a visible destination appears in the shell. `main` (default) participates
+   * in the normal grouped, scrollable rail; `footer` is pinned beneath that list for
+   * durable help/support destinations. Both remain registry-derived and routable.
+   */
+  navPlacement?: 'main' | 'footer';
   /**
    * Unified visibility predicate over the three axes. Defaults (via
    * {@link featureEnabled}) to the RBAC axis only, so existing features behave exactly
@@ -257,10 +265,19 @@ export const FEATURES: FeatureNode[] = [
     group: 'triage',
     children: [
       { id: 'chat', label: 'Chat', icon: MessageSquare },
-      { id: 'investigate', label: 'Investigate', icon: SearchIcon },
+      { id: 'investigate', label: 'Entity investigation', icon: SearchIcon },
     ],
   },
-  { id: 'scans', label: 'Automated scans', icon: ScanLine, group: 'triage' },
+  {
+    // The old Automated Scans dashboard repeated the same autonomous-case state
+    // already exposed more completely by Case Manager. Keep the id + lazy route for
+    // bookmarked links, but remove it from the primary information architecture.
+    id: 'scans',
+    label: 'Automated scans (legacy)',
+    icon: ScanLine,
+    group: 'triage',
+    hidden: true,
+  },
   { id: 'approvals', label: 'Approvals', icon: CheckCircle2, group: 'triage' },
 
   /* ---- Intelligence ---------------------------------------------------- */
@@ -355,6 +372,13 @@ export const FEATURES: FeatureNode[] = [
       { id: 'roles', label: 'Roles', icon: KeyRound, perm: { resource: 'roles', action: 'manage' } },
     ],
   },
+  {
+    id: 'docs',
+    label: 'Docs',
+    icon: BookOpenText,
+    group: 'platform',
+    navPlacement: 'footer',
+  },
 
   /* ---- Hidden-but-routable consolidated sub-pages ---------------------- *
    * Round-2 W4 / Round-3 disclosure: these keep their PageId + App.renderPage
@@ -363,7 +387,7 @@ export const FEATURES: FeatureNode[] = [
    * `group` here is only a bookkeeping home — hidden features never enter a rail
    * group. Order mirrors the old HIDDEN_ROUTE_IDS list for stability.            */
   { id: 'dashboard', label: 'Dashboard', icon: Gauge, group: 'overview', hidden: true },
-  { id: 'investigate', label: 'Investigate', icon: SearchIcon, group: 'triage', hidden: true },
+  { id: 'investigate', label: 'Entity investigation', icon: SearchIcon, group: 'triage', hidden: true },
   { id: 'cost', label: 'Cost', icon: DollarSign, group: 'analytics', hidden: true },
   { id: 'models', label: 'Models', icon: Cpu, group: 'analytics', hidden: true },
   { id: 'standup', label: 'Standup', icon: CalendarDays, group: 'overview', hidden: true },
@@ -447,6 +471,7 @@ const Campaigns = React.lazy(() => import('./pages/Campaigns'));
 const Tuning = React.lazy(() => import('./pages/Tuning'));
 const BatchJobs = React.lazy(() => import('./pages/BatchJobs'));
 const BaselineStats = React.lazy(() => import('./pages/Baseline'));
+const Docs = React.lazy(() => import('./pages/Docs'));
 
 /** The context a route render thunk may read (never `onNavigate` — pages use `useNavigate`). */
 export interface RouteRenderCtx {
@@ -531,6 +556,7 @@ export const ROUTES: Record<PageId, RouteDef> = {
   tuning: { element: Tuning },
   batchjobs: { element: BatchJobs },
   baseline: { element: BaselineStats },
+  docs: { element: Docs },
 
   /* ---- Host-tab leaves: route THROUGH the host with a forced tab (see rule above) --- */
   investigate: { element: Workspace, render: () => <Workspace tab="investigate" /> },

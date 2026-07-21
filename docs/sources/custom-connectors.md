@@ -1,11 +1,11 @@
 ---
 title: Custom connectors
-description: Extend TLSOC 0.1 with an out-of-tree connector that preserves manifests, OCSF, provenance, secrets, and retry behavior.
+description: Extend Agentic SOC 0.1 with an out-of-tree connector that preserves manifests, OCSF, provenance, secrets, and retry behavior.
 ---
 
 # Custom connectors
 
-This guide applies to **TLSOC 0.1** and is for Python integrators building a source
+This guide applies to **Agentic SOC 0.1** and is for Python integrators building a source
 adapter outside the core repository. Installed connector packages are discovered
 through the `tlsoc.connectors` entry-point group.
 
@@ -13,8 +13,8 @@ through the `tlsoc.connectors` entry-point group.
 
 Subclass one of the two public connector shapes:
 
-- `PullConnector` when TLSOC drives a read/search API; or
-- `PushReceiver` when TLSOC owns a listener, consumes a broker, watches a stream, or
+- `PullConnector` when Agentic SOC drives a read/search API; or
+- `PushReceiver` when Agentic SOC owns a listener, consumes a broker, watches a stream, or
   reads objects asynchronously.
 
 Both inherit `Connector`, expose a manifest, and normalize native records to OCSF.

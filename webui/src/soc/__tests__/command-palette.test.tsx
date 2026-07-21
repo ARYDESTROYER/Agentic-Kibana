@@ -88,6 +88,7 @@ describe('CommandPalette (W7c)', () => {
     expect(screen.getAllByText('Cases').length).toBeGreaterThan(0);
     expect(screen.getByText('Go to Settings')).toBeInTheDocument();
     expect(screen.getByText('New chat')).toBeInTheDocument();
+    expect(document.querySelector('[cmdk-item][data-value="nav-docs"]')).toBeTruthy();
   });
 
   it('lists Settings section jump targets (Round-5 Sett-C)', async () => {

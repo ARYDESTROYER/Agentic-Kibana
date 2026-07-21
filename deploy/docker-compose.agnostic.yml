@@ -1,12 +1,12 @@
 # =============================================================================
-# TLSOC Agentic Triage Suite — self-contained, vendor-agnostic deployment (NO Elasticsearch
+# Agentic SOC — self-contained, vendor-agnostic deployment (NO Elasticsearch
 # required for the app's own state). Brings up:
 #   * tlsoc-postgres : PostgreSQL + pgvector — the app's OWN state (cases/audit/
 #                      usage/config/cursor/RAG). This replaces the tlsoc-agent-*
 #                      Elasticsearch indices.
 #   * tlsoc-redis    : enrichment + dedup cache (optional but recommended).
 #   * tlsoc-backend  : FastAPI + LangGraph agent (state_backend=postgres).
-#   * tlsoc-webui    : TLSOC Console, the standalone React SPA (nginx) — the first-run
+#   * tlsoc-webui    : Agentic SOC, the standalone React SPA (nginx) — the first-run
 #                      wizard + console. Talks to the backend via /api proxy.
 #
 # Your SIEM/EDR/XDR is NOT part of this stack — you connect to it from the UI's
@@ -159,8 +159,11 @@ services:
 
   tlsoc-webui:
     build:
-      context: ../webui
-      dockerfile: Dockerfile
+      # Root context is deliberate: the image compiles the version-matched
+      # MkDocs Help Center alongside the Console. Root .dockerignore keeps the
+      # context limited to VERSION, docs/overrides, the builder, and webui.
+      context: ..
+      dockerfile: webui/Dockerfile
       args:
         TLSOC_VERSION: ${TLSOC_VERSION:-0.1.0}
         TLSOC_RELEASE_CHANNEL: ${TLSOC_RELEASE_CHANNEL:-testing}

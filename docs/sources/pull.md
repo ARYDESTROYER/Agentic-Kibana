@@ -1,12 +1,12 @@
 ---
 title: Pull sources
-description: Configure read-only Elasticsearch, OpenSearch, and Wazuh sources in TLSOC 0.1.
+description: Configure read-only Elasticsearch, OpenSearch, and Wazuh sources in Agentic SOC 0.1.
 ---
 
 # Pull sources
 
-This guide applies to **TLSOC 0.1** and is for operators connecting Elasticsearch,
-OpenSearch, or a Wazuh indexer. TLSOC polls each enabled source and feed on its own
+This guide applies to **Agentic SOC 0.1** and is for operators connecting Elasticsearch,
+OpenSearch, or a Wazuh indexer. Agentic SOC polls each enabled source and feed on its own
 cursor and also uses a primary pull source for ad-hoc read-only investigation queries.
 
 ## Supported connectors
@@ -22,10 +22,10 @@ Use the [support matrix](support-matrix.md) for exact current limits.
 ## Least-privilege credential
 
 The source credential should have only read and index-metadata access on the exact
-patterns TLSOC needs. Never supply an Elastic superuser, `kibana_system`, an
+patterns Agentic SOC needs. Never supply an Elastic superuser, `kibana_system`, an
 OpenSearch administrator, or a Wazuh administrator.
 
-When the TLSOC state backend is Elasticsearch, its application-state management
+When the Agentic SOC state backend is Elasticsearch, its application-state management
 credential is separate from the source read credential. Do not combine them.
 
 ## Configure the source
@@ -64,7 +64,7 @@ After saving:
 - confirm repeated polling attaches new evidence rather than creating a duplicate
   open case for the same active signature.
 
-## TLSOC 0.1 boundaries
+## Agentic SOC 0.1 boundaries
 
 The OpenSearch-compatible offset fallback is not claimed exactly-once while a live
 index refreshes. Late-arrival acceptance is bounded by time, page count, and recent-ID

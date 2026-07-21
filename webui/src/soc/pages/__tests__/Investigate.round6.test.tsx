@@ -66,6 +66,16 @@ describe('Investigate — Round-6 sweep', () => {
   });
   afterEach(() => sessionStorage.clear());
 
+  it('explains that an entity investigation scopes telemetry, analyzes it, and creates a case', () => {
+    renderPage();
+    expect(screen.getByRole('heading', { name: 'Entity investigation' })).toBeInTheDocument();
+    const workflow = screen.getByRole('region', { name: 'Entity investigation workflow' });
+    expect(workflow).toHaveTextContent('1. Scope telemetry');
+    expect(workflow).toHaveTextContent('2. Analyze evidence');
+    expect(workflow).toHaveTextContent('3. Create a case');
+    expect(screen.getByText(/result is saved to Cases/i)).toBeInTheDocument();
+  });
+
   it('renders the entity-type switch as an accessible SegmentedControl (radiogroup)', () => {
     renderPage();
     // SegmentedControl is a single-select value picker built on Radix RadioGroup, so

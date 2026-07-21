@@ -13,7 +13,7 @@ from app.config import Preferences, ThreatContextConfig
 from app.constants import CaseStatus, EntityType, SourceSurface, Verdict
 from app.engine import mitre
 from app.engine import threat_context as tc
-from app.models import Case, Entity, EvidenceItem
+from app.models import Case, Entity, EvidenceItem, TriggerReason
 from app.state import AppState
 from app.tools.enrich import EnrichTool
 
@@ -84,6 +84,41 @@ async def test_assemble_full_panel(app_state: AppState) -> None:
     assert panel.asset_context["entity"] == "ip:8.8.8.8"
     assert panel.asset_context["is_internal"] is False
     assert panel.generated_at
+
+
+@pytest.mark.asyncio
+async def test_clustering_explanation_is_truthful_stable_and_redacted(app_state: AppState) -> None:
+    case = _case(case_id="clustered")
+    case.member_event_keys = ["source-a:index-a:raw-1", "source-a:index-a:raw-2"]
+    case.source_id = "source-a"
+    case.trigger_reason = TriggerReason(
+        rule_value="modsec_sqli",
+        mode="threshold",
+        n=2,
+        window_seconds=300,
+        group_by="ip",
+        observed_count=2,
+        window_start=1_720_000_000_000,
+        window_end=1_720_000_050_000,
+        entity="ip:203.0.113.5",
+        rule_values=["modsec_sqli"],
+        sentence="2 matching alerts for the same IP within 5 minutes.",
+    )
+
+    first = await tc.assemble(case, app_state.prefs, enrich=None)
+    second = await tc.assemble(case, app_state.prefs, enrich=None)
+    cluster = first.clustering
+
+    assert cluster["available"] is True
+    assert cluster["input_count"] == 2
+    assert cluster["correlation"]["threshold"] == 2
+    assert cluster["correlation"]["window_seconds"] == 300
+    assert cluster["opened_case"]["case_id"] == "clustered"
+    assert cluster["input_refs"] == second.clustering["input_refs"]
+    serialized = str(cluster)
+    assert "raw-1" not in serialized and "raw-2" not in serialized
+    assert all(ref.startswith("alert-") for ref in cluster["input_refs"])
+    assert "raw alert payloads are not returned" in cluster["limitations"].lower()
 
 
 @pytest.mark.asyncio

@@ -18,6 +18,7 @@ Fully offline (fake ES + no LLM). Advisory only — nothing here is read by
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -37,7 +38,7 @@ from app.constants import (
 )
 from app.engine import noise_counters as EN
 from app.engine.priority import severity_scale_for_source
-from app.models import Case, Entity, RawEvent
+from app.models import Case, Entity, RawEvent, TriggerReason
 from app.state import AppState
 from app.stores.noise_counters import NoiseCounterStore
 
@@ -394,3 +395,108 @@ async def test_noise_reduction_endpoint_truncation_and_warmup(metrics_client, ap
     ingested = next(s for s in body["stages"] if s["key"] == "ingested")
     assert ingested["total"] is None
     assert body["reduction"]["overall_pct"] == "—"
+
+
+@asyncio_mark
+async def test_noise_reduction_lineage_is_windowed_bounded_and_redacted(
+    metrics_client,
+    app_state,
+) -> None:
+    now = datetime.now(timezone.utc)
+    cases = [
+        _case(
+            "lineage-auto",
+            status=CaseStatus.CLOSED,
+            verdict=Verdict.FALSE_POSITIVE,
+            decision_by=DecisionBy.AGENT,
+        ),
+        _case(
+            "lineage-escalated",
+            status=CaseStatus.ESCALATED,
+            verdict=Verdict.TRUE_POSITIVE,
+            escalation_level=1,
+        ),
+        _case("lineage-awaiting", status=CaseStatus.OPEN),
+    ]
+    native_ids = ["native-alert-alpha", "native-alert-bravo", "native-alert-charlie"]
+    for index, case in enumerate(cases):
+        created_at = (now - timedelta(minutes=index)).isoformat()
+        case.created_at = created_at
+        case.updated_at = created_at
+        case.case_number = f"CASE-{index + 1:06d}"
+        case.member_event_ids = [native_ids[index], f"{native_ids[index]}-second"]
+        case.source_id = "entra-demo"
+        case.source_breakdown = {"entra-demo": 2}
+        case.trigger_reason = TriggerReason(
+            rule_value="Impossible travel",
+            mode="threshold",
+            n=2,
+            observed_count=2,
+            window_seconds=300,
+            group_by="user",
+            sentence="Two sign-ins matched inside the configured window.",
+        )
+        await app_state.cases.save(case)
+
+    # Outside the selected window: never appears in the drill-down.
+    old = _case("lineage-old", status=CaseStatus.CLOSED)
+    old.created_at = (now - timedelta(days=3)).isoformat()
+    old.updated_at = old.created_at
+    old.member_event_ids = ["native-alert-too-old"]
+    await app_state.cases.save(old)
+
+    response = metrics_client.get(
+        "/api/metrics/noise-reduction/lineage?window_hours=24&limit=2"
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["window_hours"] == 24
+    assert body["meta"]["returned"] == 2
+    assert body["meta"]["window_cases_in_fetched_page"] == 3
+    assert body["meta"]["truncated"] is True
+    assert [row["case_id"] for row in body["rows"]] == [
+        "lineage-auto",
+        "lineage-escalated",
+    ]
+
+    first = body["rows"][0]
+    assert first["clustering"]["input_count"] == 2
+    assert all(
+        ref.startswith("alert-") for ref in first["clustering"]["input_refs"]
+    )
+    assert first["clustering"]["correlation"]["threshold"] == 2
+    assert first["outcome"] == {
+        "key": "auto_cleared",
+        "label": "Auto-cleared by AI",
+        "funnel_stage": "auto_cleared",
+        "terminal": True,
+        "status": "closed",
+        "verdict": "FALSE_POSITIVE",
+        "disposition": "",
+        "decision_by": "agent",
+    }
+    encoded = json.dumps(body)
+    for native_id in [*native_ids, "native-alert-too-old"]:
+        assert native_id not in encoded
+
+
+@asyncio_mark
+async def test_noise_reduction_lineage_reports_open_case_as_non_terminal(
+    metrics_client,
+    app_state,
+) -> None:
+    case = _case("lineage-open", status=CaseStatus.OPEN)
+    case.created_at = datetime.now(timezone.utc).isoformat()
+    case.updated_at = case.created_at
+    case.member_event_ids = ["private-native-id"]
+    await app_state.cases.save(case)
+
+    response = metrics_client.get(
+        "/api/metrics/noise-reduction/lineage?window_hours=24&limit=12"
+    )
+    assert response.status_code == 200
+    outcome = response.json()["rows"][0]["outcome"]
+    assert outcome["key"] == "awaiting_analyst"
+    assert outcome["label"] == "Awaiting analyst"
+    assert outcome["funnel_stage"] == "escalated"
+    assert outcome["terminal"] is False

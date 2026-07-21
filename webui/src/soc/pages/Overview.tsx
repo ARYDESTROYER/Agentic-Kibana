@@ -119,7 +119,7 @@ interface OverviewProps {
 /**
  * The backend's complete non-terminal lifecycle taxonomy
  * (`constants.OPEN_CASE_STATUSES`). Keep this byte-for-byte aligned: a case awaiting
- * human review or escalated to Tier 3 is still OPEN until it reaches resolved/closed.
+ * human review or marked Escalated is still OPEN until it reaches resolved/closed.
  */
 const OPEN_STATUSES = new Set([
   'new',
@@ -729,7 +729,7 @@ export default function Overview({ onNavigate }: OverviewProps) {
 
   // ----- Time range + auto-refresh (the CONTROL BAR state) ---------------- //
   const [range, setRange] = React.useState<TimeRange>(DEFAULT_RANGE);
-  const [refresh, setRefresh] = React.useState<RefreshValue>('off');
+  const [refresh, setRefresh] = React.useState<RefreshValue>('live');
   const hours = React.useMemo(() => rangeHours(range), [range]);
   /** The `window` (hours) carried on every drill-through so the case list matches. */
   const navWindow = hours;
@@ -1446,6 +1446,7 @@ export default function Overview({ onNavigate }: OverviewProps) {
                   onStageClick={onStageClick}
                   hidden={noiseHidden}
                   onToggleHidden={toggleNoiseHidden}
+                  expandable
                   variant="flat"
                   className="w-full"
                 />

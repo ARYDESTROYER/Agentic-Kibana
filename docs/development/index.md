@@ -1,12 +1,12 @@
 ---
 title: Development
-description: Repository orientation, contribution flow, invariants, and development entry points for TLSOC 0.1.
+description: Repository orientation, contribution flow, invariants, and development entry points for Agentic SOC 0.1.
 ---
 
 # Development
 
-TLSOC Agentic Triage Suite 0.1 is developed as one repository containing the
-TLSOC API, TLSOC Console, deployment assets, and versioned documentation.
+Agentic SOC 0.1 is developed as one repository containing the
+Agentic SOC API, Agentic SOC Console, deployment assets, and versioned documentation.
 
 ## Contribution flow
 
@@ -21,6 +21,11 @@ Do not develop directly on `main`. `Testing` is the integration and acceptance
 channel, not a different edition of the product. Package/API/image metadata uses
 Semantic Version **0.1.0**; public documentation uses the **0.1** line.
 
+The current remote has `Testing` and legacy/default `claude/main`, but no literal
+`main`. Repository owners must provision and protect the documented Stable branch
+before the first promotion, or consistently change all workflows and release
+references to one other canonical name. `claude/main` is not implicitly Stable.
+
 See [Release channels](../releases/channels.md) for the promotion contract.
 
 ## Repository map
@@ -30,7 +35,7 @@ See [Release channels](../releases/channels.md) for the promotion contract.
 | `backend/app/` | FastAPI application, agents, deterministic engine, connectors, OCSF, auth, stores, notifications, and provider integrations |
 | `backend/tests/` | Offline backend regression and contract tests |
 | `backend/playbooks/` | Operator-authored deterministic-selection playbooks |
-| `webui/src/` | React/TypeScript TLSOC Console |
+| `webui/src/` | React/TypeScript Agentic SOC Console |
 | `webui/scripts/` | Design gates and OpenAPI/type-generation tooling |
 | `deploy/` | Standalone and legacy-merge Compose definitions |
 | `docs/` | Public MkDocs documentation and source content |
@@ -49,6 +54,9 @@ The archived Kibana plugin is not built, tested, or shipped. New UI work belongs
 - optional Docker/Compose for deployment-shape validation.
 
 Start with [Backend development](backend.md) or [Console development](webui.md).
+Before changing any routed Console page or shared shell component, read the current
+[Console UI standard](ui-standard.md); it is the enforceable migration contract, while
+older round-specific design documents are historical rationale.
 
 ## Architecture rules for every change
 

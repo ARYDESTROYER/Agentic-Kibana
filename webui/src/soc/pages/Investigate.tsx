@@ -27,6 +27,8 @@ import {
   Clock,
   Telescope,
   History,
+  Database,
+  ShieldCheck,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -499,15 +501,46 @@ export default function Investigate({ onNavigate, embedded = false }: Investigat
         <PageHeader
           icon={Telescope}
           eyebrow="Ad-hoc triage"
-          title="Investigate"
-          description="Run an ad-hoc, agentic investigation on an IP, user, or host."
+          title="Entity investigation"
+          description="Check one entity against in-scope telemetry and save the resulting analysis as a case."
           actions={viewCasesAction}
         />
       )}
 
+      <section
+        aria-label="Entity investigation workflow"
+        className="grid border-y border-border md:grid-cols-3 md:divide-x md:divide-border"
+      >
+        {[
+          {
+            icon: Database,
+            title: '1. Scope telemetry',
+            body: 'Search configured sources for one IP, user, or host in the selected lookback.',
+          },
+          {
+            icon: ShieldCheck,
+            title: '2. Analyze evidence',
+            body: 'Correlate matching events, enrich context, score risk, and explain the assessment.',
+          },
+          {
+            icon: Save,
+            title: '3. Create a case',
+            body: 'Persist the result in the shared case queue for review, assignment, and action.',
+          },
+        ].map(({ icon: Icon, title, body }) => (
+          <div key={title} className="flex min-w-0 gap-3 px-1 py-4 md:px-5">
+            <Icon className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{body}</p>
+            </div>
+          </div>
+        ))}
+      </section>
+
       {/* Form */}
-      <Card>
-        <CardContent className="p-6">
+      <section className="border-b border-border pb-6">
+        <div className="py-1">
           {/* items-start keeps the controls aligned to the top of the row so the
               entity-value validation message (which grows the cell) never shifts
               the Lookback/Run cells down (they top-align, not bottom-align). */}
@@ -589,8 +622,8 @@ export default function Investigate({ onNavigate, embedded = false }: Investigat
               </Button>
             </div>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
       {/* Loading */}
       {loading ? (
@@ -645,18 +678,18 @@ export default function Investigate({ onNavigate, embedded = false }: Investigat
 
       {/* Idle empty state */}
       {!loading && !result && !error && !noEvents ? (
-        <Card>
+        <div className="border-b border-border pb-2">
           <EmptyState
             icon={Telescope}
-            title="Investigate an entity"
+            title="Start with an entity"
             description={`Pick an entity type, enter a value (e.g. ${selected.placeholder.replace(
               'e.g. ',
               '',
             )}), and run an investigation over ${lookbackLabelFor(
               lookback,
-            ).toLowerCase()}.`}
+            ).toLowerCase()}. This is an explicit analyst action and the result is saved to Cases.`}
           />
-        </Card>
+        </div>
       ) : null}
 
       {/* Recent (this session) */}

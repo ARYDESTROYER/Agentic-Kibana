@@ -1,6 +1,6 @@
 ---
 title: Source support matrix
-description: Connector availability, dependencies, acknowledgement boundaries, and validation status for TLSOC 0.1.
+description: Connector availability, dependencies, acknowledgement boundaries, and validation status for Agentic SOC 0.1.
 ---
 
 # Source support matrix
@@ -20,7 +20,7 @@ certified this release or that its transport durability has passed a live matrix
 
 All sources should be validated against a non-production tenant and a synthetic
 alert before wider rollout. Packaging and offline contract tests do not constitute
-live-vendor certification for TLSOC `0.1.0`.
+live-vendor certification for Agentic SOC `0.1.0`.
 
 ## Pull sources
 

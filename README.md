@@ -1,4 +1,4 @@
-# TLSOC Agentic Triage Suite
+# Agentic SOC
 
 > A source-available, self-hosted **agentic AI SOC triage** system. It ingests
 > alerts/logs from **any** SIEM/EDR/XDR, normalises everything to **OCSF**,
@@ -11,29 +11,49 @@
 > **Current release line:** application `0.1.0`, documentation `0.1`. Integrated
 > work lands on `Testing`; the accepted source tree promotes through a protected
 > pull request to `main` / **Stable**, whose verified commit receives `v0.1.0`.
+> The current remote exposes `Testing` and legacy/default `claude/main`, but no
+> literal `main` or release tag. The owner must provision/protect `main` (or change
+> every workflow and release reference consistently) before the first Stable
+> publication; `claude/main` is not implicitly Stable.
 
 > **New here? Start with [`docs/HANDOFF.md`](docs/HANDOFF.md)** — the authoritative
 > onboarding doc (what's built, how to run it, where everything lives).
 
-It builds on the prior **TLSOC Agentic Triage Suite** (an ELK/Kibana-coupled
+It builds on the former **TLSOC prototype** (the historical
+ELK/Kibana-coupled
 backend + Kibana plugin) but is now **product-agnostic**: it works against
 Elasticsearch, OpenSearch, Wazuh, Splunk-HEC, syslog, Kafka, cloud queues, object
 stores, plain webhooks, and more — and ships its **own standalone web UI** so it
 no longer depends on Kibana at all. The UI is a self-hosted **Vite + React +
 Tailwind + shadcn** SPA (the old `@elastic/eui` UI has been retired).
 
-**Public documentation:** start at [`docs/index.md`](docs/index.md). Each release
-line has its own selector entry and URL; version `0.1` describes app `0.1.x`.
-`Testing` builds a strict review artifact, while `main` publishes Stable docs and
-moves the `stable` / `latest` aliases. See
-[`docs/releases/channels.md`](docs/releases/channels.md).
+**Product documentation:** open **Documentation** in the Console to use the
+same-origin Help Center bundled with that exact application build (for 0.1.x,
+`/docs/0.1/`). It combines user/analyst, administrator, deployment/operations,
+reference, and release guidance in one searchable portal. The source begins at
+[`docs/index.md`](docs/index.md); GitHub and the public Stable site are secondary
+source/upgrade destinations. `Testing` builds a strict review artifact, while
+`main` publishes Stable docs and moves the `stable` / `latest` aliases. See
+[`docs/releases/documentation-versions.md`](docs/releases/documentation-versions.md).
+
+The Console's always-visible top-right release badge reads
+`vX.Y.Z · Testing|Stable`; its popover shows separate Console/backend version,
+channel, SHA, and build time. Stable is explicit and fail-safe: mismatched build
+identities downgrade the visible channel to Testing.
+
+Analysts moving to the new split-pane workflow should use the dedicated
+[`Case Manager` operator guide](docs/analyst/case-manager.md). It documents queue
+scope, selection, bulk-action permissions and partial failures, the six-tab case
+workspace, and coexistence with the legacy Cases table.
 
 **Engineering docs:** deploy → [`DEPLOY.md`](DEPLOY.md) · use → [`docs/USAGE.md`](docs/USAGE.md)
 · ingestion → [`docs/INGESTION.md`](docs/INGESTION.md) · architecture →
 [`docs/AGNOSTIC_ARCHITECTURE.md`](docs/AGNOSTIC_ARCHITECTURE.md) · environments →
 [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md) · fix →
 [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) · security →
-[`SECURITY.md`](SECURITY.md) · contribute → [`CONTRIBUTING.md`](CONTRIBUTING.md).
+[`SECURITY.md`](SECURITY.md) · Console UI contract →
+[`docs/development/ui-standard.md`](docs/development/ui-standard.md) · contribute →
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## What it is
 
@@ -102,12 +122,14 @@ the deterministic close/escalate decision and never alter it. See
   gate, and the close/escalate decision are deterministic code; only the verdict
   comes from the LLM, and investigation is tiered (cheap router → strong
   investigator) to control spend.
-- **Cost ledger + batch/flex.** 100% of LLM calls pass through one gateway that records
-  token usage and cost on every call (exactly one ledger write per call, #6). Round 4
-  applies prompt-cache and batch pricing (cache read 0.1× / write 1.25×–2×; Batch 0.5×) and
-  adds a `BatchProvider` SPI (Anthropic Message Batches + OpenAI Batch, plus OpenAI `flex`)
-  keyed idempotently by `custom_id`, with a broadened, correctly-priced model catalog
-  (`claude-opus-4-8` fixed to $5/$25).
+- **Cost ledger + discounted inference.** 100% of LLM calls pass through one gateway
+  that records tokens, actual processing tier, and cost (exactly one usage row per
+  resolved call, #6). True asynchronous Batch stays opt-in for latency-tolerant EVENT
+  work. Independently, compatible live case/alert calls prefer official OpenAI Flex by
+  default; unsupported providers/models remain standard, and unavailable Flex capacity
+  can retry once at standard service. The ledger applies the discount only when the
+  provider actually returns `flex` or `batch`, so a fallback is never mislabeled or
+  undercharged. Prompt-cache pricing remains provider-aware.
 - **RAG with management & visibility.** Resolved cases are indexed as retrievable
   baseline memory so future investigations learn from prior analyst decisions
   (backed by pgvector or an ES dense-vector store, depending on the state backend).
@@ -119,10 +141,18 @@ the deterministic close/escalate decision and never alter it. See
   **Memory** page or conversationally in Chat ("remember:" / "forget"); they are
   injected into investigations and chat as a DISTINCT **TRUSTED** context block —
   but **never override the deterministic close/escalate decision**.
-- **Case explainability.** Every case exposes a "Why" view (`GET /api/cases/{id}/
-  rationale`): the agent's reasoning, the knowledge (RAG/runbook) and operator memory
-  it used, the exact commands/queries it ran, enrichment, MITRE — and, prominently,
-  the **deterministic** close/escalate rationale.
+- **Case explainability.** Every case exposes rationale
+  (`GET /api/cases/{id}/rationale`) in the six-tab detail workspace: Overview
+  separates the decision brief, signal profile, persisted risk-factor values, and
+  source/agent/code provenance; Timeline tells the input-to-Decision story and
+  reconstructs Risk Assigned from persisted factors and current weights while
+  flagging any historical-weight mismatch; Investigation contains
+  the agent assessment, knowledge/memory, commands, enrichment, MITRE context, and
+  the pinned **deterministic** close/escalate rationale.
+  Threat Context adds a redacted **alert → correlation cluster → opened case**
+  diagram from persisted facts. Its hover/focus details explain contributing sources,
+  observed/threshold counts, window, grouping rule, and related cases without returning
+  raw alert identifiers or payloads.
 - **Choice of state backend** (`STATE_BACKEND`): `elasticsearch` (default),
   `postgres` (asyncpg + pgvector), or `sqlite`. The app's own state
   (cases/audit/usage/config/cursor/RAG) lives there; with **postgres or sqlite no
@@ -162,8 +192,9 @@ the deterministic close/escalate decision and never alter it. See
   (TTL / idle / absolute / sudo window) is UI-editable.
 - **Demo Mode (reversible, isolated, $0).** A first-class tenant state
   (`off` / `seeded` / `live`): project-owned synthetic facts are serialized as
-  Splunk-compatible HEC, QRadar-compatible LEEF/offenses, Wazuh JSON, and RFC
-  syslog, then enter the REAL parser → OCSF → correlation/investigation pipeline.
+  Splunk-compatible HEC, QRadar-compatible LEEF/offenses, Wazuh JSON, RFC syslog,
+  and Microsoft Entra ID / Active Directory sign-in and Identity Protection JSON,
+  then enter the REAL parser → OCSF → correlation/investigation pipeline.
   Demo-generated workload writes land in a SEPARATE in-memory store with a
   deterministic mock LLM, so the demo is free, isolated, bounded, and one-flip
   reversible—even when real provider keys are configured. Seeded scenarios
@@ -201,6 +232,25 @@ the deterministic close/escalate decision and never alter it. See
   (`POST /api/cases/bulk`) that run each id through the EXACT single-case human action path
   (`_perform_case_action`) — never `decide()` — audited per id and partial-failure
   tolerant; and an **audit viewer** (`GET /api/audit`) over the append-only trail.
+- **Portable, permission-gated analysis export.** **Settings → Organization → Data
+  export** downloads selected cases, audit, usage, non-secret configuration,
+  automation state, and safe knowledge metadata in a bounded canonical JSON envelope.
+  `data_export:export` is granted only to `super_admin` and `soc_manager` by default;
+  every request is audited. Credentials, users/sessions, MFA/password material,
+  upstream raw logs, and raw knowledge chunks are excluded. This is an analysis/support
+  artifact, not a substitute for a consistent state-backend and secret backup.
+- **Case Manager with an additive queue migration.** A reference-matched split-pane
+  workspace under **Triage → Case Manager** combines an Active/All queue,
+  search/filter/sort,
+  multi-selection, permission-gated bulk work, and the complete six-tab case detail
+  without duplicating Timeline/Investigation in Take Action. On desktop, its accessible
+  divider resizes the queue by pointer or keyboard and persists that preference; compact
+  layouts replace the queue with the selected detail and provide a back control. The
+  full-width Cases table remains available for search, columns, and selection, while
+  opening a row performs a short announced handoff to that exact record in Case Manager,
+  the canonical detail workspace. Current bulk work is Acknowledge, Assign,
+  Add tag, Set status, Set disposition, Reinvestigate, and Resolve; successes clear
+  from selection while failures remain selected with their reason.
 - **Two-axis case taxonomy + custom case IDs.** Lifecycle **status**
   (`new` / `investigating` / `escalated` / `on_hold` / `resolved`, plus the retained
   `open` / `needs_human` / `closed`) and analyst **disposition**
@@ -256,11 +306,12 @@ the deterministic close/escalate decision and never alter it. See
   resolved-case → RAG knowledge loop lets future investigations learn from closures.
 - **Settings-centric information architecture.** A single Settings surface
   (`GET /api/settings/schema`), reached as its own **Platform** nav item, is the home
-  for nearly all configuration — organised into **5 groups × 25 sections**: Account
+  for nearly all configuration — organised into **5 groups × 26 sections**: Account
   (profile, account security, sessions, personal customization), General (sources,
   models, detection/rules, cases, automation, standup), Integrations (notifications,
   enrichment, knowledge), Security & access (users, roles, security, admin sessions,
-  keys), and Organization (appearance/branding, advanced, demo, danger zone) — not a
+  keys), and Organization (appearance/branding, advanced, demo, data export, danger
+  zone) — not a
   "Personal Account vs. Organization" two-scope split. Near-duplicate top-level pages
   were consolidated into tabbed surfaces, with RBAC hiding sections the signed-in role
   can't see. Everything rides `GET/PUT /api/settings` (deep-merge + validate).
@@ -293,15 +344,26 @@ the deterministic close/escalate decision and never alter it. See
   `FEATURES[]` registry derives the nav, routes, and command palette, and `React.lazy`
   code-splitting brought the entry bundle to **264 kB** — none of which changes any API path
   or the deterministic decision.
-- **The Security Command Center + Noise-Reduction funnel (Rounds 7–9c).** The Overview is a
-  **Security Command Center**: a masthead + a 5-tile alert/case KPI strip (LLM spend was
-  dropped from the hero, demoted to a "Deeper analytics" tripwire), a bigger **Active Risk
-  Index** card with a `(?)` explainer, real **MTTD** (first-event → case-open) and
-  **MTTR-as-first-human-response** (the ACK clock — an AI auto-close is never counted as a
-  human response) with trend deltas, and a burndown chart. A durable-counter **Noise
+- **The Security Command Center + Noise-Reduction funnel (Rounds 7–10).** The Overview is a
+  **Security Command Center**: selected-window controls and five operational KPIs — Open
+  Cases, Critical / High (open + resolved split stated), Escalated to Human, False Positive
+  Rate, and Auto-resolved. The instrument row holds a current-open-queue **Active Risk
+  Index**, Open above Resolved severity composition, and exactly four Latest Cases with
+  hover/focus detail. Open/Resolved drill into their queue scopes; the combined
+  Critical/High card opens the selected window without faking a two-value severity filter.
+  The dashboard starts in visibility-aware **LIVE** mode (five-second cadence, paused
+  while the tab is hidden), with Off and explicit 5s/30s/1m/5m choices available.
+  Lower down, real
+  **MTTD** (first-event → case-open) and **Respond/MTTA-as-first-human-response**
+  (the ACK clock — an AI auto-close is never counted as a human response) with trend
+  deltas, and a burndown chart. A durable-counter **Noise
   Reduction** ribbon (`GET /api/metrics/noise-reduction`) flows `ingested → clustered → cases
   → auto-cleared by AI → escalated → closed (by human)`, showing exactly how far the AI cut
-  raw alert volume down to cases and how the survivors were disposed of. Every triage value
+  raw alert volume down to cases and how the survivors were disposed of. **Expand** opens
+  the aggregate flow in a near-fullscreen inspection view and lazily adds a bounded
+  newest-case lineage table: redacted alert inputs → deterministic cluster → opened case
+  → current or terminal outcome. Counter, store-page, and sample truncation stay explicit;
+  raw alert identifiers and payloads are never returned. Every triage value
   carries a `source | ai | code` **provenance** tag; the case view is retold as a clean story
   (facts → AI assessment → the pinned deterministic `DecisionCard`); feedback is captured at
   close; auto-closed cases are badged as such — all additive, `decide()` byte-identical.
@@ -309,9 +371,12 @@ the deterministic close/escalate decision and never alter it. See
   Management" `DataTable` (search/filter/"+ New"/columns-gear/bulk-select/inline Enabled
   switch/Status/Last Event via `GET /api/sources/health`) instead of a card layout. **Cases**
   is a dense incident-summary list (a 6-tile summary strip, a monogram Assignee column).
-- **CaseDetail Timeline vs. Investigation (Round 9/9b).** The case view splits "what
-  happened" (a **Timeline** narrative: input → correlate → risk → triage → investigate →
-  decide) from "why" (an **Investigation** tab: the AI's assessment, the pinned deterministic
+- **CaseDetail Timeline vs. Investigation (Round 9–10).** The case view splits "what
+  happened" (a **Timeline** narrative: input → correlate → Risk Assigned → triage → investigate →
+  Decision; risk reconstructs current-weight arithmetic from persisted factors and
+  flags any historical-weight mismatch; only Case Manager's terminal marker pulses)
+  from "why" (an **Investigation** tab: the AI's assessment without duplicate verdict/confidence,
+  the pinned deterministic
   `DecisionCard`, and the full ReAct trace) — six tabs total
   (`overview | timeline | investigation | threat | collab | chat`).
 - **Local / self-hosted LLM provider (Round 9).** Add any OpenAI-compatible endpoint
@@ -383,8 +448,7 @@ TLS/CA mounts, push-receiver port publishing, and the legacy ELK path, see
 **Legacy path:** to merge into an existing ELK stack as a read-only consumer, use
 [`deploy/docker-compose.tlsoc.yml`](deploy/docker-compose.tlsoc.yml). The Kibana
 plugin itself is **archived** (`archive/kibana-plugin/`) — this path attaches the
-backend + standalone webui to your existing Kibana/ELK stack, it does not install
-the plugin.
+backend to your existing ELK stack; run the supported standalone web UI separately.
 
 ## Connectors / how data gets in
 
@@ -478,13 +542,13 @@ advisory only and never feeds the deterministic close/escalate decision.
 
 ## Status & verification
 
-Verified offline (backend re-verified 2026-07-15 after a backend deep-audit hardening
-pass — **47 findings fixed**, one atomic commit each): **1942 backend tests green** (0
-failures; fake/in-memory backends + mock LLM, no network — an autouse `conftest` network
+Verified offline after the backend deep-audit hardening pass (**47 findings fixed**, one
+atomic commit each) and current UI integration. The 2026-07-22 baseline is **1982 backend
+tests green** (0 failures; fake/in-memory backends + mock LLM, no network — an autouse `conftest` network
 guard keeps the enrichment tests offline); the standalone **web UI builds clean** (`tsc` +
-Vite, entry chunk **285.91 kB** — a lazy `motion` chunk of **83.85 kB** sits off the
-critical path, never modulepreloaded) with a dev-only Vitest harness (**1349 tests** / 240
-files, unchanged — the audit pass touched no webui code); eslint clean (**0 errors, 0
+Vite, entry chunk **294.80 kB** — a lazy `motion` chunk of **83.85 kB** sits off the
+critical path, never modulepreloaded) with a dev-only Vitest harness (**1468 tests** / 248
+files); eslint clean (**0 errors, 0
 warnings**, with 20 `jsx-a11y` rules at error). Generated API contracts, all five design
 gates, the distribution smoke tests, version/Compose contracts, and strict public docs
 build are also green. The deterministic close/escalate authority (`decide()`) was verified
@@ -503,8 +567,8 @@ backstopped by a default-enabled $10/day budget ceiling (over-budget → `NEEDS_
 never a silent close, #3), an auto-adopt migration + one-time banner for existing tenants,
 per-source coverage observability (`GET /api/sources/coverage`, per-source last-poll
 health), and lazy `motion.dev` page-transition animation) followed **Round 9c** (the
-dashboard rebuilt from scratch: real **MTTD** + **MTTR-as-first-human-response** off the
-ACK clock, a burndown chart, a terminal "closed by human" noise stage, a cleaner Cases
+dashboard rebuilt from scratch: real **MTTD** + first-human-response from the **ACK/MTTA**
+clock, a burndown chart, a terminal "closed by human" noise stage, a cleaner Cases
 list) followed **Round 9b** (hover-to-expand sidebar, the noise-reduction ribbon restored +
 polished, a CaseDetail Timeline/Investigation redesign, a wider case sheet) followed
 **Round 9** (an 11-ask UI/UX overhaul: removed redundant in-page tab strips, a QRadar-style

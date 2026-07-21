@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to the **TLSOC Agentic Triage Suite** are documented here.
+All notable changes to **Agentic SOC** are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -10,7 +10,106 @@ to a legacy ELK stack as a read-only consumer (the archived Kibana plugin additi
 targeted **8.12.2**; it is now frozen and no longer version-stamped going forward).
 History is reconstructed from `git log`.
 
-## [Unreleased] — 2026-07-17 — Auth-lockout hardening
+## [Unreleased]
+
+**Current development snapshot (2026-07-22): Security Command Center, canonical
+Case Manager detail, portable export, and version-matched Help Center.**
+
+### Added
+
+- An additive **Triage → Case Manager** split-pane workspace: Active/All queue,
+  search/filter/sort, responsive embedded six-tab case detail, top-right Share /
+  Take Action / close controls, multi-selection, and permission-gated bulk work.
+  The established Cases page remains available while capability parity is phased in.
+- Case Manager bulk actions are Acknowledge, Assign, Add tag, Set status,
+  Set disposition, Reinvestigate, and Resolve. Successful cases leave the
+  selection; per-case failures remain selected with their reason for retry. Raw
+  Close is intentionally omitted from the bulk menu.
+- An always-visible `vX.Y.Z · Testing|Stable` Console badge with a provenance
+  popover for separate Console/backend channel, SHA, and build time. An identity
+  mismatch can only downgrade the session to Testing.
+- A dedicated operator contract at `docs/analyst/case-manager.md` covering queue
+  scope, action authority, confirmations, permissions, audit, and partial failures.
+- A compact persisted System / Light / Dark appearance selector, an in-app Docs
+  destination with bundled-version guidance, and a current Console UI standard for
+  page structure, flat surfaces, navigation, motion/loading, themes, and accessibility.
+- A permission-gated **Intelligence → Playbooks** manager for browsing/opening plain
+  Markdown and creating/editing operator-owned procedures. Bundled procedures remain
+  protected; mutations are slug/path-contained, size-bounded, atomically reloaded,
+  append-only audited, and recommendation-only with deterministic decisions untouched.
+- A redacted **alert → correlation cluster → opened case** explanation on the case
+  Threat Context tab. It projects persisted input counts, opaque stable references,
+  source breakdown, matched rule/window/grouping/threshold, opened-case status, and
+  related cases without returning raw source identifiers or payloads.
+- A bounded **Settings → Organization → Data export** workflow and
+  `POST /api/admin/export` for a canonical, selectable application-state JSON bundle.
+  The dedicated `data_export:export` permission defaults to `super_admin` and
+  `soc_manager`; every request is audited, while credentials, users/sessions,
+  password/MFA material, upstream raw logs, and raw knowledge chunks are excluded.
+- Microsoft Entra ID / Active Directory is the fifth isolated Demo Mode source,
+  exercising synthetic Graph `auditLogs/signIns` and Identity Protection vocabulary
+  alongside Splunk, QRadar, Wazuh, and syslog.
+
+### Changed
+
+- The Security Command Center now uses one selected-window lifecycle story across
+  five primary KPIs, puts Open before Resolved, uses the current open queue for
+  Active Risk, limits Latest Cases to four with hover/focus detail, and keeps the
+  Noise Reduction and response-timing views in a denser command-center layout.
+  It defaults to visibility-aware **LIVE** refresh at a five-second cadence and can
+  expand Noise Reduction into a near-fullscreen aggregate inspection view with
+  counter-coverage and truncation caveats.
+- Opening a record from the full-width Cases table now shows a short announced
+  handoff and opens that exact case in Case Manager, the canonical detail workspace.
+  The desktop queue/detail divider is pointer- and keyboard-resizable, bounded,
+  resettable, and persisted locally; compact layouts retain the queue-to-detail back path.
+- Case Overview separates the decision brief, signal profile, persisted risk
+  factors, source/agent/code provenance, entity context, and attack story. Timeline
+  labels the stored score event **Risk Assigned**, reconstructs it from persisted
+  factors and current weights while flagging a historical-weight mismatch,
+  calls the terminal stage **Decision**, suppresses duplicate Investigation
+  verdict/confidence, and pulses only the Case Manager terminal marker.
+- The case Take Action menu no longer repeats the visible Timeline and Investigation
+  tabs.
+- Release documentation now distinguishes the intended permanent
+  `Testing` → protected `main` / Stable contract from the current remote topology
+  (`Testing` + legacy/default `claude/main`, with no literal `main`).
+- The redundant Automated Scans page has left primary navigation (its route/API remain
+  compatible for bookmarked links); Workspace now calls the targeted workflow
+  **Entity investigation** and explains its scope → analysis → case lifecycle.
+- Settings now uses a wider, searchable, divider-led command-center layout with one
+  active-section heading instead of nested card chrome. Shared route loading and the
+  navigation rail use the same reduced-motion-aware transition language.
+- Auto-tuning tables now reserve stable column widths, wrap long rule identifiers,
+  and keep their supporting side rail separate only at genuinely wide viewports, so
+  every row starts on the same grid without squeezing the primary data. Workspace's
+  targeted flow is consistently labelled **Entity investigation** and explains the
+  telemetry → correlation → saved-case outcome.
+- The false-positive auto-close policy note is shown only for a false-positive/benign
+  case where it can still explain an active or manual outcome. True-positive and
+  needs-human cases no longer inherit the irrelevant sentence, and an already
+  AI-auto-closed false positive no longer displays the contradictory disabled-policy
+  note. The embedded Case Manager outcome also drops its redundant top divider.
+- Compatible official OpenAI case/alert calls now prefer live Flex processing by
+  default, independently of the opt-in asynchronous Batch event funnel. Unsupported
+  endpoints/models stay standard; eligible Flex capacity failures can retry at
+  standard service, and the single usage row records and prices only the tier actually
+  returned.
+- **Agentic SOC** is now the operator-facing product name. The `TLSOC` compatibility
+  namespace remains unchanged for existing environment variables, containers/images,
+  indices, cookies/storage, headers, entry points, packages, and wire/API identifiers.
+- The canonical Console build now generates the version-matched same-origin Help
+  Center before typecheck/Vite. Installed documentation is authoritative for that
+  build; public Stable and Development remain explicitly separate secondary views.
+
+### Verification
+
+- Current baseline: **1,968 backend tests** and **1,441 web tests across 246 files**;
+  release/version, generated-contract, Compose, lint/design, build, and strict-docs
+  checks remain part of promotion acceptance.
+- Focused Case Manager bulk-action and release-badge coverage is **21/21** green.
+
+## Development snapshot — 2026-07-17 — Auth-lockout hardening
 
 Fixes a total, silent authentication lockout: a transient empty read from the
 `UserStore` (its loader swallows read errors and degrades to `[]`) used to flow through
@@ -40,7 +139,7 @@ untouched.
   concurrent write (the observed "rename did not persist"). (Fully closing the
   cross-writer prefs lost-update still needs config-store CAS — tracked separately.)
 
-## [Unreleased] — 2026-07-15 — Backend deep-audit hardening
+## Development snapshot — 2026-07-15 — Backend deep-audit hardening
 
 A multi-agent deep audit of the backend (24 subsystem auditors over ~200 files /
 63k LOC, every finding adversarially re-verified against the source) produced **47
@@ -115,7 +214,7 @@ is untouched and no LLM/playbook path can drive close/escalate.
   build` clean, `npm run lint` 0 errors. Working tree clean; **no co-author trailer** on
   any of the 48 commits; **not pushed**.
 
-## [0.1.0] — 2026-07-19 — Testing release foundation
+## Development snapshot — 2026-07-19 — 0.1.0 Testing release foundation
 
 This Version 0.1 foundation is implemented on `Testing` but **not yet tagged or
 promoted to the Stable `main` branch**.
@@ -165,7 +264,7 @@ kept explicit in `docs/releases/known-limitations.md`.
   be cut until the license and remaining blockers in the public limitation register
   are resolved or deliberately reclassified.
 
-## [Unreleased] — 2026-07-09 — Round 10: Autopilot & Comprehensive Ingestion + motion.dev
+## Development snapshot — 2026-07-09 — Round 10: Autopilot & Comprehensive Ingestion + motion.dev
 
 A **behavior-changing** round — **the suite now reads and reasons over everything, and
 self-tunes, BY DEFAULT.** Built research (vendor + industry-standards) → code (5
@@ -268,7 +367,7 @@ entry. Developed directly on `Testing` and subsequently committed.
 
 ---
 
-## [Unreleased] — 2026-07-06 — Round 9c: dashboard rebuilt from scratch, real MTTD + first-response MTTR, cleaner Cases
+## Development snapshot — 2026-07-06 — Round 9c: dashboard rebuilt from scratch, real MTTD + first-response MTTR, cleaner Cases
 
 A third follow-up round on user feedback, referencing Prisma Cloud "Cloud Security
 Operations Dashboard" and Cortex XSIAM screenshots for visual language. A BE-metrics-
@@ -303,7 +402,7 @@ warnings)** / all 5 design gates pass. Developed on `claude/ui-ux-improvements-7
 HEAD). See `Journal.md:1474-1482` — Rounds 9/9b/9c have no `docs/research/` folder
 (done efficiency-first, without the research-brief fan-out).
 
-## [Unreleased] — 2026-07-05 — Round 9b: dashboard reimagine, hover-to-expand sidebar, CaseDetail Timeline/Investigation split
+## Development snapshot — 2026-07-05 — Round 9b: dashboard reimagine, hover-to-expand sidebar, CaseDetail Timeline/Investigation split
 
 A second follow-up round on user feedback to Round 9, run efficiency-first (3 focused
 disjoint-file agents, no research fan-out). Shipped (commits `71153f2` → `283aa59` →
@@ -328,7 +427,7 @@ clean (entry 279.3 kB) / lint 0 errors**; backend pytest unaffected (unchanged f
 Round 9's 1696). Developed on `claude/ui-ux-improvements-7nq5be`, merged into `Testing`
 via **PR #26** (`749bce6`). See `Journal.md:1467-1472`.
 
-## [Unreleased] — 2026-07-05 — Round 9: 11-ask UI/UX overhaul + local LiteLLM model provider
+## Development snapshot — 2026-07-05 — Round 9: 11-ask UI/UX overhaul + local LiteLLM model provider
 
 An 11-ask UI/UX overhaul on a new branch `claude/ui-ux-improvements-7nq5be` (created
 off `Testing` HEAD `1ab98f2`), built via a 12-agent research + codebase-mapping fan-out
@@ -372,7 +471,7 @@ Vitest (227 files) / build clean (entry 278.7 kB) / lint 0 errors (3 warnings)**
 design gates + `tsc` clean. Merged into `Testing` via **PR #25** (`a69233b`). See
 `Journal.md:1457-1466`.
 
-## [Unreleased] — 2026-07-05 — Round 8: UI cleanup + glitch fixes (from user feedback)
+## Development snapshot — 2026-07-05 — Round 8: UI cleanup + glitch fixes (from user feedback)
 
 A follow-up polish round on `feature/round7-ui-overhaul` (commits `58745fa`, `f56f812`)
 driven by user screenshots. Process: opus plan fleet → **sonnet-only** research fleet →
@@ -390,7 +489,7 @@ rebuild from a case's stored evidence when the log window has aged out. Additive
 **byte-identical**; ZERO new deps. Green: **pytest ✓ / Vitest 1238 / lint 0 errors / build ✓**.
 See `docs/research/2026-07-round8/IMPLEMENTATION.md`.
 
-## [Unreleased] — 2026-07-05 — Round 7: Security Command Center overhaul + Noise-Reduction funnel
+## Development snapshot — 2026-07-05 — Round 7: Security Command Center overhaul + Noise-Reduction funnel
 
 A UI/UX + product round (12 user changes + 1 feature) on `feature/round7-ui-overhaul`
 (commits `850600f` → `1b9ac90` → `e40f0bc` → `7355a9a`). Built by a ~130-agent pipeline
@@ -405,7 +504,7 @@ by AI** badge; and a real motion system (count-up/reveal). Additive; `decide()` 
 zero new runtime deps. The final adversarial QA caught + fixed 8 real bugs (incl. two
 funnel-correctness bugs the green tests had masked). See `docs/research/2026-07-round7/`.
 
-## [Unreleased] — 2026-07-02 — Round 6: fleet glitch-hunt + integration polish (464 adversarially-verified findings fixed)
+## Development snapshot — 2026-07-02 — Round 6: fleet glitch-hunt + integration polish (464 adversarially-verified findings fixed)
 
 A sixth round driven by a ~500-agent Opus fleet: every webui source file audited
 (155 units incl. 12 thematic deep-dives + 4 API-contract audits), every finding
@@ -421,7 +520,7 @@ recommended automation; #3-safe). Additive wire changes only; `decide()`
 byte-identical. Green: **1613 pytest / 1051 Vitest (199 files) / lint 0 errors /
 entry 281.6 kB / zero new deps**. See `docs/research/2026-07-round6/IMPLEMENTATION.md`.
 
-## [Unreleased] — 2026-07-02 — Round 5: UI/UX overhaul (cohesive color system + ONE shadcn/Radix design standard), Settings declutter, denser wide dashboard + compact hero, rules customization, custom dashboards, loose coupling, a11y + adversarial audit
+## Development snapshot — 2026-07-02 — Round 5: UI/UX overhaul (cohesive color system + ONE shadcn/Radix design standard), Settings declutter, denser wide dashboard + compact hero, rules customization, custom dashboards, loose coupling, a11y + adversarial audit
 
 A fifth multi-wave round — **"UI/UX overhaul + rules customization + custom dashboards +
 loose coupling"** — delivering **9 goals (G1–G9)** plus a **16-dimension adversarial audit**
@@ -540,7 +639,7 @@ on the `Testing` branch.
 
 ---
 
-## [Unreleased] — 2026-07-01 — Round 4: multi-source poller fix, adaptive threshold auto-tuning, two-tier alert/event ingestion + campaign correlation + entity baseline, batch/flex + corrected model catalog, unified logs, tiered reset + fresh OOBE, login white-label
+## Development snapshot — 2026-07-01 — Round 4: multi-source poller fix, adaptive threshold auto-tuning, two-tier alert/event ingestion + campaign correlation + entity baseline, batch/flex + corrected model catalog, unified logs, tiered reset + fresh OOBE, login white-label
 
 A fourth multi-wave round — **"fix the logic, fine-tune the product"** — delivering **3
 confirmed bug fixes + 12 user requests** across 7 waves (W0–W6). Every wave was **additive**
@@ -684,7 +783,7 @@ build` is GREEN with the Vitest harness expanded **205 → 273 specs** (eslint c
 
 ---
 
-## [Unreleased] — 2026-06-30 — Round 3: shared KV substrate, EnrichmentProvider SPI, custom-role/deny RBAC, SSE EventBus, posture/MITRE-coverage metrics, shift report, in-app notifications, Models page + BudgetGate, case collaboration, triage chips + trace
+## Development snapshot — 2026-06-30 — Round 3: shared KV substrate, EnrichmentProvider SPI, custom-role/deny RBAC, SSE EventBus, posture/MITRE-coverage metrics, shift report, in-app notifications, Models page + BudgetGate, case collaboration, triage chips + trace
 
 A third multi-wave round delivering **12 user requests** ("useful, distinctive, fine-grained")
 across Waves 0–4 plus one ship-regardless security fix. Every wave was **additive** with
@@ -784,7 +883,7 @@ and `docs/research/2026-06-round3/IMPLEMENTATION.md`. Developed on the `Testing`
 
 ---
 
-## [Unreleased] — 2026-06-30 — Round 2: account/sessions, Settings IA, Demo Mode, per-feed sources, email + customization
+## Development snapshot — 2026-06-30 — Round 2: account/sessions, Settings IA, Demo Mode, per-feed sources, email + customization
 
 A second multi-wave round focused on operator experience: a redesigned login + account
 self-service, real sessions with an access policy, a Settings-centric information
@@ -936,7 +1035,7 @@ only ever RECOMMEND/relabel and all untrusted text stays fenced (#9). New here? 
 
 ---
 
-## [Unreleased] — 2026-06-29 — Agentic SOC overhaul (Waves 1–7)
+## Development snapshot — 2026-06-29 — Agentic SOC overhaul (Waves 1–7)
 
 A seven-wave SOC overhaul: multi-user identity + RBAC, MFA + SSO, a two-axis case
 taxonomy + custom case IDs, pluggable notifications, multi-source / cross-source
@@ -1043,7 +1142,7 @@ additive layer and run only *after* the deterministic decision. Developed on the
 
 ---
 
-## [Unreleased] — 2026-06-24 — HITL proposal approvals, white-screen fix + error boundary, cost/branding
+## Development snapshot — 2026-06-24 — HITL proposal approvals, white-screen fix + error boundary, cost/branding
 
 Backend offline suite **395 tests green** (was 380); webui `npm run build` GREEN +
 a new dev-only Vitest harness; no new runtime npm deps. Additive; the 12 non-negotiables
@@ -1082,7 +1181,7 @@ the `Testing` branch.
 
 ---
 
-## [Unreleased-prev] — 2026-06-23 — Deep source customizability, no-IP fix, UI standardization + chat rebuild
+## Development snapshot — 2026-06-23 — Deep source customizability, no-IP fix, UI standardization + chat rebuild
 
 Backend offline suite **380 tests green** (was 364); webui `npm run build` GREEN,
 no new npm deps. Additive; the spine and the 12 non-negotiables intact (#3 the
@@ -1132,7 +1231,7 @@ idempotency). Developed on the `Testing` branch.
 
 ---
 
-## [Unreleased-prev] — 2026-06-23 — UI polish, filtering, in-case chat, reinvestigate + icon fix
+## Development snapshot — 2026-06-23 — UI polish, filtering, in-case chat, reinvestigate + icon fix
 
 Backend offline suite **364 tests green** (was 349); webui `npm run build` GREEN,
 no new npm deps. Additive; the spine and the 12 non-negotiables are intact
@@ -1216,7 +1315,7 @@ Developed on the `Testing` branch.
   rebuild/shutdown. Sources with no overrides keep using the shared global client
   (no behaviour change).
 
-## [Unreleased] — 2026-06-22 — Case explainability, RAG management & visibility, agent memory + dashboards/collaboration
+## Development snapshot — 2026-06-22 — Case explainability, RAG management & visibility, agent memory + dashboards/collaboration
 
 Backend offline suite **340 tests green** (was 310); webui `npm run build` GREEN
 (2330 modules), no new npm deps. Additive; the spine and the 12 non-negotiables are
@@ -1289,7 +1388,7 @@ intact. Developed on the `Testing` branch.
   `dangerouslySetInnerHTML` (non-negotiable #9 upheld). A review pass fixed one
   invalid EUI icon.
 
-## [Unreleased] — 2026-06-22 — Wave 3: metrics, feedback loop, collaboration, white-label UI + CI
+## Development snapshot — 2026-06-22 — Wave 3: metrics, feedback loop, collaboration, white-label UI + CI
 
 Backend offline suite **310 tests green**; webui builds clean. Additive; spine
 untouched. Developed on the `Testing` branch.
@@ -1326,7 +1425,7 @@ untouched. Developed on the `Testing` branch.
   fade-ins, `prefers-reduced-motion` support. Fixed the dead Scans card click and
   the Cases stat-tile/total mismatch.
 
-## [Unreleased] — 2026-06-21 — Wave 2: Markdown playbooks + optional auth
+## Development snapshot — 2026-06-21 — Wave 2: Markdown playbooks + optional auth
 
 Backend offline suite **300 tests green**; webui builds clean. Additive; the spine
 (typed OCSF, StateStore, one LLM gateway, durable cursor) is untouched.
@@ -1364,7 +1463,7 @@ Backend offline suite **300 tests green**; webui builds clean. Additive; the spi
 - Runbooks are now the RAG **knowledge** corpus only; per-cluster procedure
   injection is owned by the new playbook system.
 
-## [Unreleased] — 2026-06-21 — Vigil-inspired overhaul (Wave 1) + plugin archived
+## Development snapshot — 2026-06-21 — Vigil-inspired overhaul (Wave 1) + plugin archived
 
 A deep end-to-end study of the open-source **Vigil** AI-SOC (10 Opus research
 agents; see `docs/VIGIL_STUDY.md`) drove an additive overhaul that keeps our
@@ -1450,7 +1549,7 @@ green**; standalone web UI builds clean (`tsc` + Vite).
   the primary UI; the plugin and the legacy `deploy/docker-compose.tlsoc.yml`
   (merge-into-ELK) path remain for existing ELK deployments.
 
-## [Unreleased]
+## Development snapshot — pre-standardized work-order cycle
 
 Work-order cycle (live status in [`ROADMAP.md`](ROADMAP.md); session notes in
 [`Journal.md`](Journal.md)). 8.19.12 zip rebuilt + verified; backend
@@ -1653,5 +1752,3 @@ TrustLab / IIT Bombay ELK pipeline.
 - **Coordination & context docs** (commit `a9db0af`): `CLAUDE.md` (master
   context), `Journal.md` (work diary), `ROADMAP.md` (live work tracking),
   `docs/ENVIRONMENT.md` (the two environments).
-
-[Unreleased]: https://claude.ai/code/session_01JxMk6xXxXEgQ1JKUnD7EF6

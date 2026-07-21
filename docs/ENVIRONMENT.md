@@ -6,6 +6,13 @@
 There are **two distinct environments**. Confusing them causes most build/deploy
 pain, so they are documented separately.
 
+> **Branch topology (2026-07-20):** the remote exposes `Testing` and
+> legacy/default `claude/main`; it does not yet expose the protected literal
+> `main` required by the Testing → Stable release contract. `claude/main` is not
+> implicitly Stable. A repository owner must provision the documented branch and
+> protection, or deliberately update every workflow and release reference to a
+> different canonical name, before the first Stable build.
+
 > The suite is **vendor-agnostic**: the backend (FastAPI+LangGraph) plus a
 > **standalone web UI** (`webui/`, Vite+React+TS+**Tailwind+shadcn/Radix** — EUI was
 > removed in the UI overhaul) are the primary artifacts; the Kibana plugin is
@@ -85,16 +92,21 @@ built/tested/shipped by default) — where its zips can still be rebuilt manuall
   so no Postgres is needed in the sandbox.
 - **Web UI (primary surface):** builds fully (the npm registry is reachable).
   ```bash
-  cd webui && npm install && npm run build   # = tsc --noEmit && vite build
+  cd webui && npm install && npm run build
+  # Builds the installed /docs/<major.minor>/ Help Center first, then tsc + Vite.
+  # The docs wrapper reuses backend/.venv or bootstraps ignored .docs-venv/ from
+  # docs/requirements.txt. Use npm run build:app only for an app-only check.
   ```
-  The clean `tsc + vite` build (a `dist/` bundle) **is the check** here — there is
+  The clean documentation + `tsc + vite` build (one `dist/` artifact) **is the
+  check** here — there is
   no browser to render it in this sandbox. A dev-only **Vitest** harness
   (`npm run test`; see `Journal.md` for the current spec count) covers
   render/regression of every major surface (Settings, Demo Mode, command palette,
   customization, the nav sidebar, Roles editor, Models page, Metrics tabs, CaseDetail
   tabs + trace timeline, Inbox, Detection & Rules, custom dashboards, and more) and
-  runs in the CI gate. **Zero new webui runtime deps** have been added since the
-  Round-5 baseline.
+  runs in the CI gate. The only deliberate runtime addition since the Round-5
+  baseline is the lazy `motion` package used for route/tab/KPI animation; it is
+  split out of the entry chunk.
 - **Plugin (archived, opt-in revival only):** still buildable manually if you
   revive it — see `archive/kibana-plugin/BUILD.md`. Verify **statically**:
   `tsc --noEmit` clean, `unzip -l` shows
@@ -159,8 +171,9 @@ CA under `./certs/`) as a **read-only consumer**:
   listens on `8088`, and runs `STATE_BACKEND=elasticsearch` (own-state in
   `tlsoc-agent-*` via `ES_MGMT_API_KEY`).
 - `tlsoc-redis` (optional) — enrichment cache.
-- The **archived** Kibana plugin's pre-built zip (`archive/kibana-plugin/dist/`)
-  installed into the existing `kibana` container.
+- Run the supported standalone web UI separately. The archived Kibana plugin is
+  frozen and is not built, tested, or shipped; reviving it is an unsupported local
+  exercise.
 - Logs land in `all-logs-*` (the wizard default data view may be
   `fosstlsoc-logs-*` — confirm on the live stack and set it in Settings).
 
@@ -179,6 +192,14 @@ prefixed Docker build/runtime metadata rather than `Secrets` fields:
 | `TLSOC_RELEASE_CHANNEL` | `testing` | Independent promotion stamp; use `stable` only for the accepted main/tag build |
 | `TLSOC_BUILD_SHA` | `unknown` | Exact source revision |
 | `TLSOC_BUILD_DATE` | `unknown` | Reproducible-build timestamp supplied by the builder |
+| `TLSOC_SOURCE_URL` | repository URL in each Dockerfile | Canonical source URL embedded in OCI image metadata; the reference Compose files do not map an `.env` override |
+
+The Console compiles the same version/channel/SHA/date stamp and always displays
+`vX.Y.Z · Testing|Stable` in the shell. Its popover reconciles that immutable
+Console identity with `/api/health/build-info`; a version, channel, or known-SHA
+mismatch fails safe to Testing. `scripts/run-demo.sh` derives Stable only for a
+literal `main` checkout and defaults every other branch/detached state to Testing
+unless an explicit release-build override is supplied.
 
 | `.env` (compose) | Backend env (`Secrets`) | Purpose |
 |---|---|---|
@@ -291,7 +312,8 @@ env and all **default-off** (no behavior change unless you wire a model to one i
 A bundled `llm/model_registry.json` carries context-window / max-output / modality /
 capability + input/output/cache pricing for the catalog; operators override prices
 per model via the `PriceOverlayStore` (KV, no migration). An optional pre-flight
-**`BudgetGate`** (daily/monthly ceilings on `Preferences.budget`, default off) checks
+**`BudgetGate`** (daily/monthly ceilings on `Preferences.budget`, default on with a
+$10/day blocking backstop) checks
 `estimate_cost` BEFORE the call; over budget it raises so the investigator fails safe
 to **NEEDS_HUMAN** — never a silent close (#3), and the ledger still writes exactly
 once per real call (#6).
@@ -358,7 +380,8 @@ byte-for-byte — the migration never re-overwrites a deliberate choice. A **fre
 install** simply starts at the defaults above with no banner at all.
 
 **Still opt-in (unchanged defaults):** `batch.enabled` (§2.6 covers the batch/flex LLM
-paths), `budget.on_exceed="block"`, any `run_playbook`/`notify` action on a
+paths), changing the default blocking budget to warning-only, any
+`run_playbook`/`notify` action on a
 case-automation rule, and baseline-driven auto-investigation — baseline stays a pure
 advisory producer that never calls `decide()` or forwards to investigation by itself
 (#3/#4).

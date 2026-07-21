@@ -1198,7 +1198,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
                       <AutoClosedBadge status={c.status} decisionBy={c.decision_by} />
                       {typeof c.escalation_level === 'number' && c.escalation_level > 0 ? (
                         <Badge variant="critical" className="gap-1">
-                          <Bell className="h-3 w-3" /> L{c.escalation_level}
+                          <Bell className="h-3 w-3" /> Escalated
                         </Badge>
                       ) : null}
                       {/* Campaign membership (#51) — plain text (#9); clicking deep-links

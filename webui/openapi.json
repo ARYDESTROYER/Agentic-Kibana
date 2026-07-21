@@ -347,7 +347,7 @@
             "type": "string"
           },
           "org_name": {
-            "default": "TLSOC",
+            "default": "Agentic SOC",
             "title": "Org Name",
             "type": "string"
           },
@@ -359,7 +359,7 @@
             "type": "array"
           },
           "product_name": {
-            "default": "Agentic Triage",
+            "default": "",
             "title": "Product Name",
             "type": "string"
           },
@@ -533,7 +533,9 @@
                 "type": "null"
               }
             ],
-            "title": "Level"
+            "deprecated": true,
+            "description": "Deprecated compatibility input for older clients. The case enters the single Escalated state; operator surfaces do not display numbered tiers.",
+            "title": "Legacy escalation compatibility value"
           },
           "note": {
             "default": "",
@@ -739,7 +741,9 @@
           },
           "escalation_level": {
             "default": 0,
-            "title": "Escalation Level",
+            "deprecated": true,
+            "description": "Legacy storage compatibility: zero means not escalated and any positive value means Escalated. Operator surfaces do not display numbered tiers.",
+            "title": "Escalated compatibility flag",
             "type": "integer"
           },
           "evidence": {
@@ -1085,7 +1089,9 @@
                 "type": "null"
               }
             ],
-            "title": "Level"
+            "deprecated": true,
+            "description": "Deprecated compatibility input for older clients. The case enters the single Escalated state; operator surfaces do not display numbered tiers.",
+            "title": "Legacy escalation compatibility value"
           },
           "note": {
             "default": "",
@@ -1874,6 +1880,37 @@
           }
         },
         "title": "DashboardWidget",
+        "type": "object"
+      },
+      "DataExportRequest": {
+        "description": "Selectable export request. ``all`` expands to every safe application scope.",
+        "properties": {
+          "limit_per_scope": {
+            "default": 1000,
+            "maximum": 5000.0,
+            "minimum": 1.0,
+            "title": "Limit Per Scope",
+            "type": "integer"
+          },
+          "scopes": {
+            "items": {
+              "enum": [
+                "all",
+                "cases",
+                "audit",
+                "usage",
+                "configuration",
+                "automation",
+                "knowledge"
+              ],
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Scopes",
+            "type": "array"
+          }
+        },
+        "title": "DataExportRequest",
         "type": "object"
       },
       "DecisionBy": {
@@ -2869,6 +2906,45 @@
           }
         },
         "title": "OverviewRequest",
+        "type": "object"
+      },
+      "PlaybookCreateRequest": {
+        "description": "Create one operator-owned Markdown playbook.",
+        "properties": {
+          "content": {
+            "maxLength": 262144,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "content"
+        ],
+        "title": "PlaybookCreateRequest",
+        "type": "object"
+      },
+      "PlaybookUpdateRequest": {
+        "description": "Replace one operator-owned Markdown playbook; the id remains immutable.",
+        "properties": {
+          "content": {
+            "maxLength": 262144,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "title": "PlaybookUpdateRequest",
         "type": "object"
       },
       "PricingBody": {
@@ -4675,8 +4751,8 @@
     }
   },
   "info": {
-    "description": "Vendor-neutral TLSOC Agentic Triage Suite API. It consumes source data read-only and owns only TLSOC application state.",
-    "title": "TLSOC API",
+    "description": "Vendor-neutral Agentic SOC API. It consumes source data read-only and owns only Agentic SOC application state.",
+    "title": "Agentic SOC API",
     "version": "0.1.0"
   },
   "openapi": "3.1.0",
@@ -4823,6 +4899,43 @@
           }
         },
         "summary": "Account Permissions"
+      }
+    },
+    "/api/admin/export": {
+      "post": {
+        "description": "Download a bounded, secret-free, canonical JSON snapshot of selected state.",
+        "operationId": "export_application_data_api_admin_export_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DataExportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Application Data"
       }
     },
     "/api/admin/reset": {
@@ -9323,6 +9436,60 @@
         "summary": "Metrics Noise Reduction"
       }
     },
+    "/api/metrics/noise-reduction/lineage": {
+      "get": {
+        "description": "Bounded redacted alert → cluster → case → outcome lineages.\n\nThis lazy drill-down complements the aggregate Noise Reduction endpoint.  It\nreuses the persisted Threat Context clustering projection, returns only the\nnewest ``limit`` cases in the selected window, and never returns raw alert ids\nor payloads.  A store-page cap is reported explicitly so the Console cannot\nimply that a bounded sample represents every historical case.\n\nRead-only/advisory: no correlation is re-run and no value here participates in\nrisk scoring or the deterministic close/escalate decision (#3).",
+        "operationId": "metrics_noise_reduction_lineage_api_metrics_noise_reduction_lineage_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "window_hours",
+            "required": false,
+            "schema": {
+              "default": 24,
+              "title": "Window Hours",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 12,
+              "maximum": 25,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Metrics Noise Reduction Lineage Api Metrics Noise Reduction Lineage Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Metrics Noise Reduction Lineage"
+      }
+    },
     "/api/metrics/posture": {
       "get": {
         "description": "The rich security-posture rollup over the last ``window_hours``, computed over\nup to the most-recent 5000 cases (the response's ``truncated`` flag is True when\nthe store held more).\n\n``compare=prev`` adds period-over-period deltas vs the immediately-preceding\nequal-length window. SLA targets come from ``Preferences.sla`` (advisory; #3).",
@@ -9964,6 +10131,44 @@
           }
         },
         "summary": "Playbooks"
+      },
+      "post": {
+        "description": "Create an operator Markdown file, atomically reload it, and audit the change.\n\nThe front-matter id must equal ``body.id``.  IDs are slug/path constrained and\na create never overwrites any existing file or bundled playbook.  Playbook text\nremains recommendation-only context; this endpoint never touches ``decide()``.",
+        "operationId": "playbooks_create_api_playbooks_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlaybookCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Playbooks Create Api Playbooks Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Playbooks Create"
       }
     },
     "/api/playbooks/reload": {
@@ -10025,6 +10230,96 @@
           }
         },
         "summary": "Playbook Selection"
+      }
+    },
+    "/api/playbooks/{playbook_id}": {
+      "get": {
+        "description": "Open one playbook as plain UTF-8 Markdown plus parsed catalog metadata.",
+        "operationId": "playbook_detail_api_playbooks__playbook_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "playbook_id",
+            "required": true,
+            "schema": {
+              "title": "Playbook Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Playbook Detail Api Playbooks  Playbook Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Playbook Detail"
+      },
+      "put": {
+        "description": "Atomically update an operator playbook. Bundled playbooks are read-only.",
+        "operationId": "playbook_update_api_playbooks__playbook_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "playbook_id",
+            "required": true,
+            "schema": {
+              "title": "Playbook Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlaybookUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Playbook Update Api Playbooks  Playbook Id  Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Playbook Update"
       }
     },
     "/api/poll": {

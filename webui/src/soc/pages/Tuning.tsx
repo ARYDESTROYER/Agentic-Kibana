@@ -378,18 +378,29 @@ export function TuningInner({ onNavigate }: TuningProps) {
         id: 'rule_id',
         header: 'Rule ID',
         lockVisible: true,
-        cell: (r) => <InlineCode>{r.rule_id}</InlineCode>,
+        width: '15rem',
+        headerClassName: 'min-w-[15rem]',
+        className: 'min-w-[15rem] max-w-[18rem]',
+        cell: (r) => (
+          <InlineCode className="inline-block max-w-full whitespace-normal break-words leading-relaxed">
+            {r.rule_id}
+          </InlineCode>
+        ),
       },
       {
         id: 'samples',
         header: 'Samples',
         align: 'right',
+        width: '7rem',
+        className: 'min-w-[7rem]',
         cell: (r) => <span className="tabular-nums">{fmtNumber(r.total)}</span>,
       },
       {
         id: 'observed',
         header: 'Observed FP rate',
         align: 'right',
+        width: '9rem',
+        className: 'min-w-[9rem]',
         cell: (r) => (
           <span className="tabular-nums">{fmtPercent(observedFpRate(r.total, r.fp))}</span>
         ),
@@ -398,6 +409,8 @@ export function TuningInner({ onNavigate }: TuningProps) {
         id: 'wilson',
         header: 'Wilson lower bound (95%)',
         align: 'right',
+        width: '12rem',
+        className: 'min-w-[12rem]',
         cell: (r) => (
           <span className="font-medium tabular-nums">{fmtPercent(r.fp_rate)}</span>
         ),
@@ -405,6 +418,8 @@ export function TuningInner({ onNavigate }: TuningProps) {
       {
         id: 'knob',
         header: 'Current threshold / knob',
+        width: '13rem',
+        className: 'min-w-[13rem]',
         cell: (r) => {
           const rec = recByRule.get(r.rule_id);
           if (!rec) return <span className="text-muted-foreground">{DASH}</span>;
@@ -421,6 +436,8 @@ export function TuningInner({ onNavigate }: TuningProps) {
       {
         id: 'change',
         header: 'Proposed change (Δ)',
+        width: '12rem',
+        className: 'min-w-[12rem]',
         cell: (r) => {
           const rec = recByRule.get(r.rule_id);
           if (!rec) return <span className="text-muted-foreground">{DASH}</span>;
@@ -440,6 +457,8 @@ export function TuningInner({ onNavigate }: TuningProps) {
       {
         id: 'shadow',
         header: 'Shadow result',
+        width: '11rem',
+        className: 'min-w-[11rem]',
         cell: (r) => {
           const rec = recByRule.get(r.rule_id);
           if (!rec) return <span className="text-muted-foreground">{DASH}</span>;
@@ -450,6 +469,8 @@ export function TuningInner({ onNavigate }: TuningProps) {
         id: 'last_tuned',
         header: 'Last tuned (UTC)',
         align: 'right',
+        width: '12rem',
+        className: 'min-w-[12rem]',
         cell: (r) => (
           <span className="text-xs text-muted-foreground tabular-nums">
             {fmtUtc(lastTunedByRule.get(r.rule_id))}
@@ -459,6 +480,8 @@ export function TuningInner({ onNavigate }: TuningProps) {
       {
         id: 'state',
         header: 'State',
+        width: '10rem',
+        className: 'min-w-[10rem]',
         cell: (r) =>
           r.over_target ? (
             <Badge variant="high">
@@ -483,9 +506,14 @@ export function TuningInner({ onNavigate }: TuningProps) {
         id: 'rule_id',
         header: 'Rule',
         lockVisible: true,
+        width: '18rem',
+        headerClassName: 'min-w-[18rem]',
+        className: 'min-w-[18rem] max-w-[22rem]',
         cell: (r) => (
           <div className="flex flex-col gap-0.5">
-            <InlineCode>{r.rule_id}</InlineCode>
+            <InlineCode className="inline-block max-w-full whitespace-normal break-words leading-relaxed">
+              {r.rule_id}
+            </InlineCode>
             <span className="text-xs text-muted-foreground">
               {KIND_LABELS[r.kind] ?? humanizeToken(r.kind)}
             </span>
@@ -565,7 +593,14 @@ export function TuningInner({ onNavigate }: TuningProps) {
         id: 'rule_id',
         header: 'Rule',
         lockVisible: true,
-        cell: (r) => <InlineCode>{r.rule_id}</InlineCode>,
+        width: '15rem',
+        headerClassName: 'min-w-[15rem]',
+        className: 'min-w-[15rem] max-w-[18rem]',
+        cell: (r) => (
+          <InlineCode className="inline-block max-w-full whitespace-normal break-words leading-relaxed">
+            {r.rule_id}
+          </InlineCode>
+        ),
       },
       {
         id: 'target',
@@ -753,9 +788,9 @@ export function TuningInner({ onNavigate }: TuningProps) {
             ))}
           </section>
 
-          <div className="grid items-start gap-4 xl:grid-cols-3">
+          <div className="grid items-start gap-4 2xl:grid-cols-[minmax(0,1fr)_22rem]">
             {/* Left: rules + detail */}
-            <div className="space-y-4 xl:col-span-2">
+            <div className="min-w-0 space-y-4">
               {/* Proposed changes (SAFE recommendations, per-row Apply) */}
               <section className="space-y-3">
                 <div className="flex items-center gap-2">

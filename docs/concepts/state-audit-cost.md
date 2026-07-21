@@ -1,23 +1,23 @@
 ---
 title: State, audit, and cost
-description: Understand where TLSOC 0.1 stores its own data and how actions and model spend remain reviewable.
+description: Understand where Agentic SOC 0.1 stores its own data and how actions and model spend remain reviewable.
 ---
 
 # State, audit, and cost
 
-This page applies to **TLSOC 0.1** and is for operators and administrators planning
+This page applies to **Agentic SOC 0.1** and is for operators and administrators planning
 storage, retention, accountability, and spend controls.
 
-## Source data and TLSOC state are different
+## Source data and Agentic SOC state are different
 
-TLSOC reads security events through connectors. Its own bookkeeping is stored behind
+Agentic SOC reads security events through connectors. Its own bookkeeping is stored behind
 a `StateStore` abstraction.
 
 | State backend | Intended use | Important note |
 | --- | --- | --- |
 | PostgreSQL + pgvector | Recommended self-contained stack | Stores relational/KV state and vector knowledge without Elasticsearch |
 | SQLite | Single-node development and evaluation | Simple local state; not a scale-out profile |
-| Elasticsearch | Legacy attachment or existing Elasticsearch operations | Requires a separate management credential for TLSOC-owned indices |
+| Elasticsearch | Legacy attachment or existing Elasticsearch operations | Requires a separate management credential for Agentic SOC-owned indices |
 
 The state backend contains cases, configuration, cursors, usage, audit data, users,
 sessions, collaboration, and knowledge. Selecting it does not select or migrate the
@@ -26,7 +26,7 @@ explicit migration.
 
 ## Audit trail
 
-TLSOC records agent and operator actions in an append-oriented audit trail. Examples
+Agentic SOC records agent and operator actions in an append-oriented audit trail. Examples
 include prompts, read-only queries, tool calls, context assembly, verdicts,
 deterministic decisions, errors, polling, scans, lifecycle actions, and explicit
 memory edits.
@@ -56,7 +56,7 @@ Provider-side budgets and rate limits remain the final billing boundary.
 
 Persisted configuration stores secret presence, not secret values. Environment
 variables provide the durable boot-time secret path. Values entered through the UI
-or runtime secret endpoints are memory-only in TLSOC 0.1 and disappear on restart.
+or runtime secret endpoints are memory-only in Agentic SOC 0.1 and disappear on restart.
 
 Do not include `.env`, access tokens, API keys, or raw notification credentials in
 backups, support bundles, screenshots, or audit annotations.
@@ -69,9 +69,9 @@ After onboarding or an incident exercise:
 2. verify a case persists across an ordinary restart;
 3. verify a state-changing action appears in Audit;
 4. verify a model call appears once in Cost; and
-5. compare the provider invoice with the TLSOC ledger.
+5. compare the provider invoice with the Agentic SOC ledger.
 
-## TLSOC 0.1 boundaries
+## Agentic SOC 0.1 boundaries
 
 SQL setup uses idempotent schema creation rather than an ordered migration ledger.
 Backup, restore, forward-upgrade, interrupted-migration, and downgrade guarantees
@@ -82,5 +82,5 @@ state.
 
 - [Architecture](architecture.md)
 - [Deterministic decisions](deterministic-decisions.md)
-- [Install TLSOC](../getting-started/install.md)
+- [Install Agentic SOC](../getting-started/install.md)
 - [Configuration and secrets](../operations/configuration.md)

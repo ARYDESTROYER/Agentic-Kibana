@@ -26,6 +26,7 @@ import {
   Bell,
   Brush,
   Database,
+  DatabaseBackup,
   FileText,
   FlaskConical,
   Globe,
@@ -448,6 +449,15 @@ export const SETTINGS_SECTIONS_META: SectionMeta[] = [
     keywords: ['demo', 'experimental', 'sample', 'synthetic', 'sandbox', 'simulated', 'seed', 'try it', 'preview'],
   },
   {
+    id: 'data_export',
+    group: 'organization',
+    title: 'Data export',
+    blurb: 'Download a selectable, secret-free Agentic SOC analysis bundle.',
+    icon: DatabaseBackup,
+    perm: { resource: 'data_export', action: 'export' },
+    keywords: ['export', 'download', 'backup', 'portable', 'analysis bundle', 'cases', 'audit', 'usage', 'configuration'],
+  },
+  {
     id: 'danger',
     group: 'organization',
     // Gate on `users:manage` to match BOTH the DangerZone body's own <Can> guard and the
@@ -538,6 +548,7 @@ export type SectionId =
   | 'advanced'
   | 'advanced_all'
   | 'demo'
+  | 'data_export'
   | 'danger';
 
 /** Fast id → section META lookup (used by the search/jump helpers below). */

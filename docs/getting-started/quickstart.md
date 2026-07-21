@@ -1,6 +1,6 @@
 ---
 title: Quickstart
-description: Choose a TLSOC 0.1 checkout, run the deterministic demo, or bring up the standalone evaluation stack.
+description: Choose an Agentic SOC 0.1 checkout, run the deterministic demo, or bring up the standalone evaluation stack.
 ---
 
 # Quickstart
@@ -11,9 +11,11 @@ real source with persistent application state.
 
 !!! info "Choose the matching channel"
 
-    `Testing` contains integrated candidates. `main` is Stable, and an immutable
-    `v0.1.0` tag identifies the released app artifact after promotion. Do not treat
-    an untagged Testing checkout as a Stable release.
+    `Testing` contains integrated candidates. Under the release contract, `main`
+    holds only accepted Stable source and immutable `v0.1.0` identifies the released
+    artifact. The current remote has not yet provisioned literal `main` or the tag;
+    legacy/default `claude/main` is not a Stable substitute. Today, use Testing only
+    as an unreleased preview.
 
 ## Get the source
 
@@ -33,8 +35,10 @@ real source with persistent application state.
     cd Agentic-Kibana
     ```
 
-    The Stable command applies after `v0.1.0` is published from `main`. Check the
-    repository release list rather than creating or moving the tag yourself.
+    The Stable command applies only after `v0.1.0` is published from the protected
+    `main` branch. Check the repository release list rather than creating or moving
+    the tag yourself. After that promotion, users pulling `main` receive the last
+    accepted Stable tree; candidate work remains isolated on `Testing`.
 
 ## Option A: deterministic demo
 
@@ -67,8 +71,8 @@ behaviour, or [Your first case](first-case.md) for the analyst walkthrough.
 
 ## Option B: standalone stack
 
-The standalone deployment contains PostgreSQL + pgvector for TLSOC state, Redis
-for enrichment caching, the FastAPI backend, and the nginx-served TLSOC Console.
+The standalone deployment contains PostgreSQL + pgvector for Agentic SOC state, Redis
+for enrichment caching, the FastAPI backend, and the nginx-served Agentic SOC Console.
 Your SIEM or event source is connected separately and is not modified.
 
 ### Requirements
@@ -123,7 +127,11 @@ curl --fail http://localhost:8080/api/health/build-info
   unavailable dependency returns HTTP `503`.
 - **Build info** reports version and build identity without exposing secrets.
 
-Complete [first-run setup](first-run.md), then follow [Install TLSOC](install.md)
+Open **Documentation** from the bottom of the Console rail and verify it opens the
+same-origin `/docs/0.1/` Help Center. This installed guide is the operator authority
+for the running build; public Stable/Development material is secondary.
+
+Complete [first-run setup](first-run.md), then follow [Install Agentic SOC](install.md)
 for topology, production ingress, and provider options.
 
 ## Connect one narrow source

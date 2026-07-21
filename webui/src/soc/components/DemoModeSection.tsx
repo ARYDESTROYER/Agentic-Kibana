@@ -38,7 +38,7 @@ const MODES: Array<{ value: Exclude<DemoMode, 'off'>; label: string; help: strin
   {
     value: 'live',
     label: 'Live',
-    help: 'Recommended: seed history and continuously stream four native-format sources.',
+    help: 'Recommended: seed history and continuously stream five native-format sources.',
   },
 ];
 
@@ -125,7 +125,7 @@ export function DemoModeSection() {
       await refresh();
       if (result.triggered) {
         toast.success(
-          `${result.scenario_name || 'Synthetic incident'}: ${result.native_alerts} native alert${result.native_alerts === 1 ? '' : 's'} + ${result.system_detections} TLSOC detection${result.system_detections === 1 ? '' : 's'}.`,
+          `${result.scenario_name || 'Synthetic incident'}: ${result.native_alerts} native alert${result.native_alerts === 1 ? '' : 's'} + ${result.system_detections} Agentic SOC detection${result.system_detections === 1 ? '' : 's'}.`,
         );
       } else {
         const wait = Math.max(1, Math.ceil(result.cooldown_seconds || 0));
@@ -280,7 +280,7 @@ export function DemoModeSection() {
               min={0}
               max={200}
               onChange={setEventRatePerSecond}
-              description="Logical four-source throughput; recent raw buffers stay bounded."
+              description="Logical five-source throughput; recent raw buffers stay bounded."
             />
             <NumberField
               label="Seed"
@@ -385,7 +385,7 @@ export function DemoModeSection() {
                     <p className="mt-2 text-xs tabular-nums text-muted-foreground">
                       {source.events_total ?? 0} events · {source.alerts_total ?? 0} native alert{source.alerts_total === 1 ? '' : 's'}
                       {(source.system_detections_total ?? 0) > 0
-                        ? ` · ${source.system_detections_total} TLSOC detection${source.system_detections_total === 1 ? '' : 's'}`
+                        ? ` · ${source.system_detections_total} Agentic SOC detection${source.system_detections_total === 1 ? '' : 's'}`
                         : ''}
                     </p>
                   </div>
@@ -404,7 +404,7 @@ export function DemoModeSection() {
               </AlertTitle>
               <AlertDescription>
                 {lastIncident.triggered
-                  ? `${lastIncident.events} native records across four sources produced ${lastIncident.native_alerts} vendor alert${lastIncident.native_alerts === 1 ? '' : 's'} and ${lastIncident.system_detections} TLSOC detection${lastIncident.system_detections === 1 ? '' : 's'}.`
+                  ? `${lastIncident.events} native records across five sources produced ${lastIncident.native_alerts} vendor alert${lastIncident.native_alerts === 1 ? '' : 's'} and ${lastIncident.system_detections} Agentic SOC detection${lastIncident.system_detections === 1 ? '' : 's'}.`
                   : lastIncident.reason}
               </AlertDescription>
             </Alert>

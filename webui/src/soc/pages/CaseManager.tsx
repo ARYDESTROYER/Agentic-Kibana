@@ -12,13 +12,19 @@
 import * as React from 'react';
 import {
   ArrowDownUp,
+  Check,
+  ChevronDown,
   ChevronLeft,
+  CircleSlash,
   Columns3,
+  Eye,
   Inbox,
   LoaderCircle,
   RefreshCw,
   Search,
   SlidersHorizontal,
+  Tag as TagIcon,
+  UserCheck,
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -27,10 +33,26 @@ import { api } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { errorMessage } from '@/lib/errorMessage';
 import { humanizeAge, humanizeToken } from '@/lib/format';
-import type { Case } from '@/lib/types';
+import type { Case, CaseActionInput } from '@/lib/types';
 
 import { Button } from '@/ui/button';
 import { Checkbox } from '@/ui/checkbox';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/ui/dropdown-menu';
 import { Input } from '@/ui/input';
 import {
   Select,
@@ -47,6 +69,7 @@ import { PageContainer } from '@/soc/components/PageContainer';
 import { Can, ProtectedRoute } from '@/soc/components/Can';
 import { ConfirmDialog } from '@/soc/components/ConfirmDialog';
 import { SeverityBadge, StatusBadge, severityBand } from '@/soc/components/badges';
+import { useAuth } from '@/soc/auth';
 import { useRoute } from '@/soc/router';
 import { CaseDetail } from './CaseDetail';
 
@@ -54,10 +77,46 @@ const LIST_LIMIT = 200;
 const TERMINAL_STATUSES = new Set(['closed', 'resolved']);
 const ANY_SEVERITY = '__any_severity__';
 const ANY_STATUS = '__any_status__';
-const REINVESTIGATE_CONCURRENCY = 3;
+const BULK_CONCURRENCY = 3;
+const SPLIT_STORAGE_KEY = 'soc.caseManager.queueWidth';
+const SPLIT_MIN_QUEUE_PX = 320;
+const SPLIT_MAX_QUEUE_PX = 680;
+const SPLIT_MIN_DETAIL_PX = 560;
+const SPLIT_HANDLE_PX = 9;
+const SPLIT_DEFAULT_QUEUE_PX = 400;
+const SPLIT_KEYBOARD_STEP_PX = 24;
 
 type QueueMode = 'active' | 'all';
 type QueueSort = 'updated_desc' | 'risk_desc' | 'created_desc' | 'title_asc';
+type ConfirmableBulkAction = 'acknowledge' | 'resolve' | 'reinvestigate';
+type BulkFormAction = 'assign' | 'tag' | 'status' | 'disposition';
+
+interface BulkOperation {
+  targets: Case[];
+  progressLabel: string;
+  resultVerb: string;
+  run: (item: Case) => Promise<Case>;
+}
+
+interface BulkFailure {
+  caseLabel: string;
+  reason: string;
+}
+
+const BULK_STATUSES = [
+  { value: 'open', label: 'Open' },
+  { value: 'investigating', label: 'Investigating' },
+  { value: 'on_hold', label: 'On hold' },
+  { value: 'escalated', label: 'Escalated' },
+] as const;
+
+const BULK_DISPOSITIONS = [
+  { value: 'true_positive', label: 'True positive' },
+  { value: 'false_positive', label: 'False positive' },
+  { value: 'benign', label: 'Benign' },
+  { value: 'suspicious', label: 'Suspicious' },
+  { value: 'duplicate', label: 'Duplicate' },
+] as const;
 
 const SEVERITY_BAR: Record<string, string> = {
   critical: 'bg-critical',
@@ -66,6 +125,32 @@ const SEVERITY_BAR: Record<string, string> = {
   low: 'bg-low',
   info: 'bg-info',
 };
+
+function clampQueueWidth(value: number, maximum = SPLIT_MAX_QUEUE_PX): number {
+  const safeMaximum = Math.max(SPLIT_MIN_QUEUE_PX, Math.min(SPLIT_MAX_QUEUE_PX, maximum));
+  return Math.round(Math.min(safeMaximum, Math.max(SPLIT_MIN_QUEUE_PX, value)));
+}
+
+function readQueueWidth(): number {
+  try {
+    const raw = window.localStorage?.getItem(SPLIT_STORAGE_KEY);
+    if (raw === null || raw === undefined || raw.trim() === '') return SPLIT_DEFAULT_QUEUE_PX;
+    const value = Number(raw);
+    return Number.isFinite(value)
+      ? clampQueueWidth(value)
+      : SPLIT_DEFAULT_QUEUE_PX;
+  } catch {
+    return SPLIT_DEFAULT_QUEUE_PX;
+  }
+}
+
+function persistQueueWidth(value: number): void {
+  try {
+    window.localStorage?.setItem(SPLIT_STORAGE_KEY, String(value));
+  } catch {
+    /* Storage is a convenience; resizing remains fully functional without it. */
+  }
+}
 
 function isActiveCase(c: Case): boolean {
   return !TERMINAL_STATUSES.has((c.status || '').toLowerCase());
@@ -211,6 +296,7 @@ export interface CaseManagerProps {
 
 export default function CaseManager({ initialCaseId }: CaseManagerProps) {
   const route = useRoute();
+  const { username: currentUser } = useAuth();
   const routeCaseId = initialCaseId ?? route.opts?.caseId;
 
   const [cases, setCases] = React.useState<Case[]>([]);
@@ -229,15 +315,116 @@ export default function CaseManager({ initialCaseId }: CaseManagerProps) {
     () => new Set(),
   );
   const [dismissedSelection, setDismissedSelection] = React.useState(false);
-  const [reinvestigateConfirmOpen, setReinvestigateConfirmOpen] = React.useState(false);
+  const [pendingBulkAction, setPendingBulkAction] =
+    React.useState<ConfirmableBulkAction | null>(null);
+  const [bulkFormAction, setBulkFormAction] = React.useState<BulkFormAction | null>(null);
+  const [bulkFormValue, setBulkFormValue] = React.useState('');
   const [bulkBusy, setBulkBusy] = React.useState(false);
-  const [bulkProgress, setBulkProgress] = React.useState<{ done: number; total: number } | null>(
-    null,
-  );
+  const [bulkProgress, setBulkProgress] = React.useState<{
+    done: number;
+    total: number;
+    label: string;
+  } | null>(null);
   const [bulkOutcome, setBulkOutcome] = React.useState<
     { kind: 'success' | 'warning'; message: string } | null
   >(null);
   const [detailRevision, setDetailRevision] = React.useState(0);
+  const splitFrameRef = React.useRef<HTMLDivElement>(null);
+  const splitDragRef = React.useRef<{
+    pointerId: number;
+    startX: number;
+    startWidth: number;
+  } | null>(null);
+  const [maxQueueWidth, setMaxQueueWidth] = React.useState(SPLIT_MAX_QUEUE_PX);
+  const [queueWidth, setQueueWidth] = React.useState(readQueueWidth);
+  const queueWidthRef = React.useRef(queueWidth);
+  const [resizingSplit, setResizingSplit] = React.useState(false);
+
+  const updateQueueWidth = React.useCallback(
+    (value: number, persist = false) => {
+      const next = clampQueueWidth(value, maxQueueWidth);
+      queueWidthRef.current = next;
+      setQueueWidth(next);
+      if (persist) persistQueueWidth(next);
+    },
+    [maxQueueWidth],
+  );
+
+  React.useEffect(() => {
+    const frame = splitFrameRef.current;
+    if (!frame || typeof ResizeObserver === 'undefined') return;
+
+    const measure = () => {
+      const width = frame.getBoundingClientRect().width;
+      if (width <= 0) return;
+      const nextMaximum = Math.max(
+        SPLIT_MIN_QUEUE_PX,
+        Math.min(SPLIT_MAX_QUEUE_PX, width - SPLIT_MIN_DETAIL_PX - SPLIT_HANDLE_PX),
+      );
+      setMaxQueueWidth(nextMaximum);
+      setQueueWidth((current) => {
+        const next = clampQueueWidth(current, nextMaximum);
+        queueWidthRef.current = next;
+        return next;
+      });
+    };
+
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(frame);
+    return () => observer.disconnect();
+  }, []);
+
+  const startSplitResize = React.useCallback(
+    (event: React.PointerEvent<HTMLButtonElement>) => {
+      if (event.button !== 0) return;
+      splitDragRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startWidth: queueWidthRef.current,
+      };
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+      setResizingSplit(true);
+      event.preventDefault();
+    },
+    [],
+  );
+
+  const moveSplitResize = React.useCallback(
+    (event: React.PointerEvent<HTMLButtonElement>) => {
+      const drag = splitDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      updateQueueWidth(drag.startWidth + event.clientX - drag.startX);
+    },
+    [updateQueueWidth],
+  );
+
+  const finishSplitResize = React.useCallback(
+    (event: React.PointerEvent<HTMLButtonElement>) => {
+      const drag = splitDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      splitDragRef.current = null;
+      event.currentTarget.releasePointerCapture?.(event.pointerId);
+      setResizingSplit(false);
+      persistQueueWidth(queueWidthRef.current);
+    },
+    [],
+  );
+
+  const resizeSplitWithKeyboard = React.useCallback(
+    (event: React.KeyboardEvent<HTMLButtonElement>) => {
+      let next: number | null = null;
+      const step = event.shiftKey ? SPLIT_KEYBOARD_STEP_PX * 2 : SPLIT_KEYBOARD_STEP_PX;
+      if (event.key === 'ArrowLeft') next = queueWidthRef.current - step;
+      if (event.key === 'ArrowRight') next = queueWidthRef.current + step;
+      if (event.key === 'Home') next = SPLIT_MIN_QUEUE_PX;
+      if (event.key === 'End') next = maxQueueWidth;
+      if (next === null) return;
+      event.preventDefault();
+      updateQueueWidth(next, true);
+    },
+    [maxQueueWidth, updateQueueWidth],
+  );
 
   const loadCases = React.useCallback(async () => {
     setLoading(true);
@@ -288,15 +475,6 @@ export default function CaseManager({ initialCaseId }: CaseManagerProps) {
   React.useEffect(() => {
     if (status !== ANY_STATUS && !statuses.includes(status)) setStatus(ANY_STATUS);
   }, [status, statuses]);
-
-  const severityCounts = React.useMemo(() => {
-    const counts = { critical: 0, high: 0 };
-    for (const item of scopedCases) {
-      const band = caseSeverity(item);
-      if (band === 'critical' || band === 'high') counts[band] += 1;
-    }
-    return counts;
-  }, [scopedCases]);
 
   const visibleCases = React.useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -364,7 +542,9 @@ export default function CaseManager({ initialCaseId }: CaseManagerProps) {
   const clearBulkSelection = React.useCallback(() => {
     setSelectedCaseIds(new Set());
     setBulkOutcome(null);
-    setReinvestigateConfirmOpen(false);
+    setPendingBulkAction(null);
+    setBulkFormAction(null);
+    setBulkFormValue('');
   }, []);
 
   // Open the newest visible active case on first arrival, mirroring the reference's
@@ -399,59 +579,13 @@ export default function CaseManager({ initialCaseId }: CaseManagerProps) {
     });
   }, []);
 
-  // Bulk reinvestigation intentionally loops the canonical per-case endpoint. Each
-  // call re-enters the full investigation pipeline and deterministic decide() path;
-  // no lifecycle state is written directly here. Chunked Promise.allSettled keeps
-  // LLM-backed work bounded while allowing later cases to proceed after failures.
-  const runBulkReinvestigate = React.useCallback(async () => {
-    const targets = selectedCases;
-    if (targets.length === 0 || bulkBusy) return;
-
-    setBulkBusy(true);
-    setBulkOutcome(null);
-    setBulkProgress({ done: 0, total: targets.length });
-    const toastId = toast.loading(`Reinvestigating 0/${targets.length}…`);
-    const succeeded = new Map<string, Case>();
-    const failures: Array<{ caseLabel: string; reason: string }> = [];
-    let done = 0;
-
-    try {
-      for (let start = 0; start < targets.length; start += REINVESTIGATE_CONCURRENCY) {
-        const batch = targets.slice(start, start + REINVESTIGATE_CONCURRENCY);
-        const results = await Promise.allSettled(
-          batch.map((item) => api.reinvestigateCase(item.case_id)),
-        );
-        results.forEach((result, index) => {
-          const target = batch[index];
-          if (result.status === 'fulfilled') succeeded.set(target.case_id, result.value);
-          else {
-            failures.push({
-              caseLabel: target.case_number || target.case_id,
-              reason: errorMessage(result.reason, 'Unknown error'),
-            });
-          }
-        });
-        done += batch.length;
-        setBulkProgress({ done, total: targets.length });
-        toast.loading(`Reinvestigating ${done}/${targets.length}…`, { id: toastId });
-      }
-
-      if (succeeded.size > 0) {
-        setCases((current) =>
-          current.map((item) => succeeded.get(item.case_id) ?? item),
-        );
-        setSelectedCaseIds((current) => {
-          const next = new Set(current);
-          for (const id of succeeded.keys()) next.delete(id);
-          return next;
-        });
-        if (selectedCaseId && succeeded.has(selectedCaseId)) {
-          // CaseDetail owns its own fetch state; remount only when the open case was
-          // authoritatively changed by this bulk run so its full workspace refreshes.
-          setDetailRevision((current) => current + 1);
-        }
-      }
-
+  const reportBulkOutcome = React.useCallback(
+    (
+      succeeded: number,
+      failures: BulkFailure[],
+      resultVerb: string,
+      toastId: string | number,
+    ) => {
       if (failures.length > 0) {
         const visibleFailures = failures
           .slice(0, 3)
@@ -459,21 +593,231 @@ export default function CaseManager({ initialCaseId }: CaseManagerProps) {
         if (failures.length > visibleFailures.length) {
           visibleFailures.push(`+${failures.length - visibleFailures.length} more`);
         }
-        const message = `${succeeded.size} reinvestigated, ${failures.length} failed. ${visibleFailures.join('; ')}`;
-        setBulkOutcome({ kind: 'warning', message });
-        toast.warning(`${succeeded.size} reinvestigated, ${failures.length} failed`, {
-          id: toastId,
-        });
-      } else {
-        const message = `${succeeded.size} case${succeeded.size === 1 ? '' : 's'} reinvestigated.`;
-        setBulkOutcome({ kind: 'success', message });
-        toast.success(message, { id: toastId });
+        const summary = `${succeeded} ${resultVerb}, ${failures.length} failed`;
+        setBulkOutcome({ kind: 'warning', message: `${summary}. ${visibleFailures.join('; ')}` });
+        toast.warning(summary, { id: toastId });
+        return;
       }
-    } finally {
-      setBulkBusy(false);
-      setBulkProgress(null);
+
+      const message = `${succeeded} case${succeeded === 1 ? '' : 's'} ${resultVerb}.`;
+      setBulkOutcome({ kind: 'success', message });
+      toast.success(message, { id: toastId });
+    },
+    [],
+  );
+
+  const applySuccessfulCases = React.useCallback(
+    (succeeded: Map<string, Case>) => {
+      if (succeeded.size === 0) return;
+      setCases((current) => current.map((item) => succeeded.get(item.case_id) ?? item));
+      setSelectedCaseIds((current) => {
+        const next = new Set(current);
+        for (const id of succeeded.keys()) next.delete(id);
+        return next;
+      });
+      if (selectedCaseId && succeeded.has(selectedCaseId)) {
+        // CaseDetail owns its own fetch state; remount only when the open case was
+        // authoritatively changed so the complete workspace refreshes.
+        setDetailRevision((current) => current + 1);
+      }
+    },
+    [selectedCaseId],
+  );
+
+  // Status-neutral owner/tag writes and cost-bearing reinvestigation use their
+  // canonical per-case endpoints. The small pool keeps fan-out bounded, each response
+  // replaces its queue record authoritatively, and only successes leave the selection.
+  const runPerCaseBulk = React.useCallback(
+    async ({ targets, progressLabel, resultVerb, run }: BulkOperation) => {
+      if (targets.length === 0 || bulkBusy) return;
+      setBulkBusy(true);
+      setBulkOutcome(null);
+      setBulkProgress({ done: 0, total: targets.length, label: progressLabel });
+      const toastId = toast.loading(`${progressLabel} 0/${targets.length}…`);
+      const succeeded = new Map<string, Case>();
+      const failures: BulkFailure[] = [];
+      let done = 0;
+
+      try {
+        for (let start = 0; start < targets.length; start += BULK_CONCURRENCY) {
+          const batch = targets.slice(start, start + BULK_CONCURRENCY);
+          const results = await Promise.allSettled(
+            batch.map((item) => Promise.resolve().then(() => run(item))),
+          );
+          results.forEach((result, index) => {
+            const target = batch[index];
+            if (result.status === 'fulfilled') succeeded.set(target.case_id, result.value);
+            else {
+              failures.push({
+                caseLabel: target.case_number || target.case_id,
+                reason: errorMessage(result.reason, 'Unknown error'),
+              });
+            }
+          });
+          done += batch.length;
+          setBulkProgress({ done, total: targets.length, label: progressLabel });
+          toast.loading(`${progressLabel} ${done}/${targets.length}…`, { id: toastId });
+        }
+
+        applySuccessfulCases(succeeded);
+        reportBulkOutcome(succeeded.size, failures, resultVerb, toastId);
+      } finally {
+        setBulkBusy(false);
+        setBulkProgress(null);
+      }
+    },
+    [applySuccessfulCases, bulkBusy, reportBulkOutcome],
+  );
+
+  // Lifecycle and disposition changes use the mature POST /cases/bulk contract. The
+  // server validates every selected case and returns one result per id; a mixed-status
+  // selection can therefore partially succeed without the UI inventing transitions.
+  // We refresh from the server after the mutation and retain failed ids for retry.
+  const runLifecycleBulk = React.useCallback(
+    async (input: CaseActionInput, progressLabel: string, resultVerb: string) => {
+      const targets = selectedCases;
+      if (targets.length === 0 || bulkBusy) return;
+      setBulkBusy(true);
+      setBulkOutcome(null);
+      setBulkProgress({ done: 0, total: targets.length, label: progressLabel });
+      const toastId = toast.loading(`${progressLabel} ${targets.length} cases…`);
+
+      try {
+        const response = await api.cases.bulk(
+          targets.map((item) => item.case_id),
+          input,
+        );
+        const returned = new Map((response.results ?? []).map((result) => [result.id, result]));
+        const succeededIds = new Set<string>();
+        const failures: BulkFailure[] = [];
+        for (const target of targets) {
+          const result = returned.get(target.case_id);
+          if (result?.ok) succeededIds.add(target.case_id);
+          else {
+            failures.push({
+              caseLabel: target.case_number || target.case_id,
+              reason: result?.error || 'No result returned by the server',
+            });
+          }
+        }
+
+        setBulkProgress({ done: targets.length, total: targets.length, label: progressLabel });
+        if (succeededIds.size > 0) {
+          setSelectedCaseIds((current) => {
+            const next = new Set(current);
+            for (const id of succeededIds) next.delete(id);
+            return next;
+          });
+          if (selectedCaseId && succeededIds.has(selectedCaseId)) {
+            setDetailRevision((current) => current + 1);
+          }
+        }
+        await loadCases();
+        reportBulkOutcome(succeededIds.size, failures, resultVerb, toastId);
+      } catch (nextError) {
+        const message = errorMessage(nextError, 'Bulk action failed');
+        setBulkOutcome({ kind: 'warning', message });
+        toast.error(message, { id: toastId });
+      } finally {
+        setBulkBusy(false);
+        setBulkProgress(null);
+      }
+    },
+    [bulkBusy, loadCases, reportBulkOutcome, selectedCaseId, selectedCases],
+  );
+
+  const openBulkForm = React.useCallback(
+    (action: BulkFormAction) => {
+      setBulkFormValue(
+        action === 'assign'
+          ? currentUser || ''
+          : action === 'status'
+            ? 'investigating'
+            : action === 'disposition'
+              ? 'true_positive'
+              : '',
+      );
+      setBulkFormAction(action);
+    },
+    [currentUser],
+  );
+
+  const submitBulkForm = React.useCallback(() => {
+    const action = bulkFormAction;
+    const value = bulkFormValue.trim();
+    const targets = selectedCases;
+    if (!action || !value || targets.length === 0 || bulkBusy) return;
+    setBulkFormAction(null);
+    setBulkFormValue('');
+
+    if (action === 'assign') {
+      void runPerCaseBulk({
+        targets,
+        progressLabel: 'Assigning',
+        resultVerb: `assigned to ${value}`,
+        run: (item) => api.caseAssign(item.case_id, value),
+      });
+      return;
     }
-  }, [bulkBusy, selectedCaseId, selectedCases]);
+    if (action === 'tag') {
+      void runPerCaseBulk({
+        targets,
+        progressLabel: 'Adding tag',
+        resultVerb: `tagged ${value}`,
+        run: (item) =>
+          api.caseTags(
+            item.case_id,
+            Array.from(new Set([...(Array.isArray(item.tags) ? item.tags : []), value])),
+          ),
+      });
+      return;
+    }
+    if (action === 'status') {
+      const label = BULK_STATUSES.find((option) => option.value === value)?.label ?? value;
+      void runLifecycleBulk(
+        { action: 'set_status', status: value },
+        'Setting status',
+        `set to ${label}`,
+      );
+      return;
+    }
+    const label =
+      BULK_DISPOSITIONS.find((option) => option.value === value)?.label ?? value;
+    void runLifecycleBulk(
+      { action: 'set_disposition', disposition: value },
+      'Setting disposition',
+      `classified as ${label}`,
+    );
+  }, [bulkBusy, bulkFormAction, bulkFormValue, runLifecycleBulk, runPerCaseBulk, selectedCases]);
+
+  const runConfirmedBulkAction = React.useCallback(() => {
+    const action = pendingBulkAction;
+    setPendingBulkAction(null);
+    if (action === 'acknowledge') {
+      void runLifecycleBulk(
+        { action: 'acknowledge' },
+        'Acknowledging',
+        'acknowledged',
+      );
+      return;
+    }
+    if (action === 'resolve') {
+      void runLifecycleBulk(
+        { action: 'resolve', reason: 'Bulk-resolved by analyst' },
+        'Resolving',
+        'resolved',
+      );
+      return;
+    }
+    if (action === 'reinvestigate') {
+      void runPerCaseBulk({
+        targets: selectedCases,
+        progressLabel: 'Reinvestigating',
+        resultVerb: 'reinvestigated',
+        run: (item) => api.reinvestigateCase(item.case_id),
+      });
+    }
+  }, [pendingBulkAction, runLifecycleBulk, runPerCaseBulk, selectedCases]);
 
   const clearFilters = React.useCallback(() => {
     setSearch('');
@@ -489,6 +833,62 @@ export default function CaseManager({ initialCaseId }: CaseManagerProps) {
           totalCases > cases.length ? ` / ${totalCases.toLocaleString()} total` : ''
         }`;
 
+  const bulkFormConfig = bulkFormAction
+    ? {
+        assign: {
+          title: `Assign ${selectedCases.length} selected case${selectedCases.length === 1 ? '' : 's'}`,
+          description: 'Set an analyst or team owner without changing case status.',
+          label: 'Analyst or team',
+          placeholder: 'e.g. tier-2 or analyst@example.com',
+          submit: 'Assign cases',
+        },
+        tag: {
+          title: `Tag ${selectedCases.length} selected case${selectedCases.length === 1 ? '' : 's'}`,
+          description: 'Append one tag to each case; existing tags are preserved.',
+          label: 'Tag to add',
+          placeholder: 'e.g. needs-review',
+          submit: 'Add tag',
+        },
+        status: {
+          title: `Set status for ${selectedCases.length} selected case${selectedCases.length === 1 ? '' : 's'}`,
+          description: 'The server validates each lifecycle transition independently.',
+          label: 'New status',
+          placeholder: '',
+          submit: 'Set status',
+        },
+        disposition: {
+          title: `Set disposition for ${selectedCases.length} selected case${selectedCases.length === 1 ? '' : 's'}`,
+          description: 'Record the investigative outcome without silently closing a case.',
+          label: 'Disposition',
+          placeholder: '',
+          submit: 'Set disposition',
+        },
+      }[bulkFormAction]
+    : null;
+
+  const bulkConfirmConfig = pendingBulkAction
+    ? {
+        acknowledge: {
+          title: `Acknowledge ${selectedCases.length} case${selectedCases.length === 1 ? '' : 's'}?`,
+          description:
+            'Move each eligible case to INVESTIGATING. The server validates every transition; cases that fail remain selected for retry.',
+          label: 'Acknowledge cases',
+        },
+        resolve: {
+          title: `Resolve ${selectedCases.length} case${selectedCases.length === 1 ? '' : 's'}?`,
+          description:
+            'Mark each eligible case resolved through the canonical analyst lifecycle action. Cases that fail remain selected for retry.',
+          label: 'Resolve cases',
+        },
+        reinvestigate: {
+          title: `Reinvestigate ${selectedCases.length} case${selectedCases.length === 1 ? '' : 's'}?`,
+          description:
+            'Each case re-runs the full AI investigation pipeline and may change its verdict, confidence, and status. This spends LLM tokens per case.',
+          label: 'Reinvestigate',
+        },
+      }[pendingBulkAction]
+    : null;
+
   return (
     <ProtectedRoute resource="cases" action="read">
       <PageContainer
@@ -496,12 +896,25 @@ export default function CaseManager({ initialCaseId }: CaseManagerProps) {
         className="h-[calc(100dvh-7rem)] min-h-0 xl:min-h-[600px]"
         data-testid="case-manager"
       >
-        <div className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)] overflow-hidden border border-border bg-background xl:grid-cols-[minmax(320px,1fr)_minmax(0,2fr)]">
+        <div
+          ref={splitFrameRef}
+          data-testid="case-manager-split-frame"
+          className={cn(
+            'grid h-full min-h-0 grid-cols-[minmax(0,1fr)] overflow-hidden border border-border bg-background',
+            'xl:grid-cols-[var(--case-manager-columns)]',
+            resizingSplit && 'select-none xl:cursor-col-resize',
+          )}
+          style={
+            {
+              '--case-manager-columns': `${queueWidth}px ${SPLIT_HANDLE_PX}px minmax(0, 1fr)`,
+            } as React.CSSProperties
+          }
+        >
           {/* Queue becomes the complete mobile/tablet state until a case is selected. */}
           <aside
             aria-label="Case queue"
             className={cn(
-              'min-h-0 flex-col border-border bg-card/20 xl:flex xl:border-r',
+              'min-h-0 flex-col border-border bg-card/20 xl:flex',
               selectedCaseId ? 'hidden xl:flex' : 'flex',
             )}
           >
@@ -550,30 +963,6 @@ export default function CaseManager({ initialCaseId }: CaseManagerProps) {
                     )}
                   >
                     {mode === 'active' ? 'Active' : 'All'}
-                  </button>
-                ))}
-              </div>
-
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                {(['critical', 'high'] as const).map((band) => (
-                  <button
-                    key={band}
-                    type="button"
-                    aria-pressed={severity === band}
-                    onClick={() => setSeverity((current) => (current === band ? ANY_SEVERITY : band))}
-                    className={cn(
-                      'relative overflow-hidden rounded-[4px] border bg-background px-3 py-2 text-left',
-                      'transition-colors hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                      severity === band && 'border-primary/55 bg-accent/35',
-                    )}
-                  >
-                    <span className={cn('absolute inset-y-0 left-0 w-[3px]', SEVERITY_BAR[band])} aria-hidden />
-                    <span className="block pl-1 text-2xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      {humanizeToken(band)}
-                    </span>
-                    <span className="mt-0.5 block pl-1 text-lg font-semibold tabular-nums text-foreground">
-                      {severityCounts[band].toLocaleString()}
-                    </span>
                   </button>
                 ))}
               </div>
@@ -663,24 +1052,81 @@ export default function CaseManager({ initialCaseId }: CaseManagerProps) {
 
                 {selectedCaseIds.size > 0 ? (
                   <div className="ml-auto flex items-center gap-1.5">
-                    <Can resource="cases" action="reinvestigate">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 rounded-[4px] px-2 text-xs"
-                        disabled={bulkBusy}
-                        onClick={() => setReinvestigateConfirmOpen(true)}
-                      >
-                        {bulkBusy ? (
-                          <LoaderCircle className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
-                        ) : (
-                          <RefreshCw className="mr-1.5 h-3.5 w-3.5" aria-hidden />
-                        )}
-                        {bulkProgress
-                          ? `Reinvestigating ${bulkProgress.done}/${bulkProgress.total}`
-                          : 'Reinvestigate'}
-                      </Button>
-                    </Can>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 max-w-[12rem] rounded-[4px] px-2 text-xs"
+                          disabled={bulkBusy}
+                          aria-label={`Bulk actions for ${selectedCaseIds.size} selected case${selectedCaseIds.size === 1 ? '' : 's'}`}
+                        >
+                          {bulkBusy ? (
+                            <LoaderCircle className="mr-1.5 h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
+                          ) : (
+                            <SlidersHorizontal className="mr-1.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+                          )}
+                          <span className="truncate">
+                            {bulkProgress
+                              ? `${bulkProgress.label} ${bulkProgress.done}/${bulkProgress.total}`
+                              : 'Bulk actions'}
+                          </span>
+                          {!bulkProgress ? (
+                            <ChevronDown className="ml-1 h-3.5 w-3.5 shrink-0" aria-hidden />
+                          ) : null}
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-64 rounded-[4px]">
+                        <DropdownMenuLabel className="space-y-0.5">
+                          <span className="block text-foreground">
+                            {selectedCaseIds.size} selected
+                          </span>
+                          <span className="block text-2xs font-normal leading-4">
+                            Successful cases clear; failures stay selected.
+                          </span>
+                        </DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        <Can resource="cases" action="write">
+                          <DropdownMenuItem onSelect={() => setPendingBulkAction('acknowledge')}>
+                            <Eye aria-hidden />
+                            Acknowledge
+                          </DropdownMenuItem>
+                        </Can>
+                        <Can resource="cases" action="assign">
+                          <DropdownMenuItem onSelect={() => openBulkForm('assign')}>
+                            <UserCheck aria-hidden />
+                            Assign
+                          </DropdownMenuItem>
+                        </Can>
+                        <Can resource="cases" action="write">
+                          <DropdownMenuItem onSelect={() => openBulkForm('tag')}>
+                            <TagIcon aria-hidden />
+                            Add tag
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => openBulkForm('status')}>
+                            <SlidersHorizontal aria-hidden />
+                            Set status
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => openBulkForm('disposition')}>
+                            <CircleSlash aria-hidden />
+                            Set disposition
+                          </DropdownMenuItem>
+                        </Can>
+                        <DropdownMenuSeparator />
+                        <Can resource="cases" action="reinvestigate">
+                          <DropdownMenuItem onSelect={() => setPendingBulkAction('reinvestigate')}>
+                            <RefreshCw aria-hidden />
+                            Reinvestigate
+                          </DropdownMenuItem>
+                        </Can>
+                        <Can resource="cases" action="close">
+                          <DropdownMenuItem onSelect={() => setPendingBulkAction('resolve')}>
+                            <Check aria-hidden />
+                            Resolve
+                          </DropdownMenuItem>
+                        </Can>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                     <Button
                       variant="ghost"
                       size="icon"
@@ -759,6 +1205,38 @@ export default function CaseManager({ initialCaseId }: CaseManagerProps) {
             </div>
           </aside>
 
+          {/* ARIA's focusable separator pattern is a value widget (aria-valuenow +
+              arrow keys). jsx-a11y classifies the role as static despite that spec. */}
+          {/* eslint-disable-next-line jsx-a11y/no-interactive-element-to-noninteractive-role */}
+          <button type="button" role="separator"
+            aria-label="Resize case queue"
+            aria-orientation="vertical"
+            aria-valuemin={SPLIT_MIN_QUEUE_PX}
+            aria-valuemax={Math.round(maxQueueWidth)}
+            aria-valuenow={queueWidth}
+            aria-valuetext={`${queueWidth} pixels`}
+            title="Drag to resize the queue. Use Left and Right arrow keys for precise adjustment."
+            data-testid="case-manager-divider"
+            onPointerDown={startSplitResize}
+            onPointerMove={moveSplitResize}
+            onPointerUp={finishSplitResize}
+            onPointerCancel={finishSplitResize}
+            onKeyDown={resizeSplitWithKeyboard}
+            onDoubleClick={() => updateQueueWidth(SPLIT_DEFAULT_QUEUE_PX, true)}
+            className={cn(
+              'group relative hidden h-full cursor-col-resize items-stretch justify-center touch-none outline-none xl:flex',
+              'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
+            )}
+          >
+            <span
+              className={cn(
+                'h-full w-px bg-border transition-colors group-hover:bg-primary/70 group-focus-visible:bg-primary',
+                resizingSplit && 'w-0.5 bg-primary',
+              )}
+              aria-hidden
+            />
+          </button>
+
           {/* Detail replaces the queue below xl; desktop retains the persistent split. */}
           <section
             aria-label="Selected case workspace"
@@ -807,16 +1285,88 @@ export default function CaseManager({ initialCaseId }: CaseManagerProps) {
           </section>
         </div>
 
-        <ConfirmDialog
-          open={reinvestigateConfirmOpen}
-          onOpenChange={setReinvestigateConfirmOpen}
-          title={`Reinvestigate ${selectedCases.length} case${selectedCases.length === 1 ? '' : 's'}?`}
-          description="Each case re-runs the full AI investigation pipeline and may change its verdict, confidence, and status. This spends LLM tokens per case."
-          confirmLabel="Reinvestigate"
-          onConfirm={() => {
-            setReinvestigateConfirmOpen(false);
-            void runBulkReinvestigate();
+        <Dialog
+          open={bulkFormAction !== null}
+          onOpenChange={(open) => {
+            if (!open) {
+              setBulkFormAction(null);
+              setBulkFormValue('');
+            }
           }}
+        >
+          <DialogContent className="max-w-md rounded-[4px]">
+            <DialogHeader>
+              <DialogTitle>{bulkFormConfig?.title}</DialogTitle>
+              <DialogDescription>{bulkFormConfig?.description}</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2 py-1">
+              <label
+                htmlFor="case-manager-bulk-value"
+                className="text-xs font-medium text-foreground"
+              >
+                {bulkFormConfig?.label}
+              </label>
+              {bulkFormAction === 'status' || bulkFormAction === 'disposition' ? (
+                <Select value={bulkFormValue} onValueChange={setBulkFormValue}>
+                  <SelectTrigger
+                    id="case-manager-bulk-value"
+                    className="rounded-[4px]"
+                    aria-label={bulkFormConfig?.label}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(bulkFormAction === 'status' ? BULK_STATUSES : BULK_DISPOSITIONS).map(
+                      (option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ),
+                    )}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input
+                  id="case-manager-bulk-value"
+                  value={bulkFormValue}
+                  onChange={(event) => setBulkFormValue(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && bulkFormValue.trim()) submitBulkForm();
+                  }}
+                  placeholder={bulkFormConfig?.placeholder}
+                  className="rounded-[4px]"
+                />
+              )}
+              <p className="text-2xs leading-4 text-muted-foreground">
+                Successful cases leave the selection; failed cases stay selected for retry.
+              </p>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setBulkFormAction(null);
+                  setBulkFormValue('');
+                }}
+              >
+                Cancel
+              </Button>
+              <Button onClick={submitBulkForm} disabled={!bulkFormValue.trim() || bulkBusy}>
+                {bulkFormConfig?.submit}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <ConfirmDialog
+          open={pendingBulkAction !== null}
+          onOpenChange={(open) => {
+            if (!open) setPendingBulkAction(null);
+          }}
+          title={bulkConfirmConfig?.title}
+          description={bulkConfirmConfig?.description}
+          confirmLabel={bulkConfirmConfig?.label}
+          onConfirm={runConfirmedBulkAction}
         />
       </PageContainer>
     </ProtectedRoute>

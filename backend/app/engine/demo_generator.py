@@ -54,13 +54,14 @@ from ..models import (
 from ..ocsf import OCSFEvent, ecs_to_ocsf
 
 DEMO_SOURCE_IDS: tuple[str, ...] = (
-    "demo-splunk", "demo-qradar", "demo-wazuh", "demo-syslog",
+    "demo-splunk", "demo-qradar", "demo-wazuh", "demo-syslog", "demo-entra-id",
 )
 DEMO_SOURCE_NAMES: dict[str, str] = {
     "demo-splunk": "Splunk Enterprise Security — HEC",
     "demo-qradar": "IBM QRadar SIEM",
     "demo-wazuh": "Wazuh Manager — endpoint telemetry",
     "demo-syslog": "Network & Linux — RFC 5424 Syslog",
+    "demo-entra-id": "Microsoft Entra ID / Active Directory",
 }
 DEMO_SOURCE_ID = DEMO_SOURCE_IDS[0]
 DEMO_SOURCE_NAME = DEMO_SOURCE_NAMES[DEMO_SOURCE_ID]
@@ -68,7 +69,7 @@ DEMO_INDEX = "tlsoc-demo-logs"
 
 # Legacy narrative segments used to build seeded history. At runtime they resolve
 # through ``NATIVE_RULE_TO_STORY``/the native source aliases; they never enter
-# ``Preferences.sources`` and are not the four rows shown by demo_sources_overlay().
+# ``Preferences.sources`` and are not the five rows shown by demo_sources_overlay().
 SEGMENTS: tuple[str, ...] = ("siem", "xdr", "edr")
 SEGMENT_SOURCE_IDS: dict[str, str] = {
     "siem": "demo-splunk",
@@ -621,6 +622,14 @@ NATIVE_STORY_RULE_IDS: dict[str, dict[str, str]] = {
         "ransomware_beacon": "RANSOMWARE-BURST",
         "insider_staging": "DATA-STAGING",
     },
+    "entra": {
+        "phishing_chain": "Entra ID Protection: credential phishing and account takeover",
+        "rdp_bruteforce": "Entra ID Protection: password spray against privileged account",
+        "sqli_webshell": "Entra ID Protection: workload identity anomaly after web exploit",
+        "impossible_travel": "Entra ID Protection: atypical travel sign-in",
+        "ransomware_beacon": "Entra ID Protection: risky service-principal sign-in",
+        "insider_staging": "Entra ID Protection: anomalous bulk-access sign-in",
+    },
 }
 NATIVE_RULE_TO_STORY: dict[str, str] = {
     native_rule: story_id
@@ -867,7 +876,7 @@ def _hist_case(
         confidence=round(0.5 + rng.random() * 0.49, 2),
         evidence=[EvidenceItem(summary=f"{tmpl['rname']} on {entity_val}.", event_ids=[])],
         mitre=list(tmpl["mitre"]),
-        recommended_action=("Escalate to Tier-3." if st == CaseStatus.ESCALATED
+        recommended_action=("Escalate." if st == CaseStatus.ESCALATED
                             else "No action required." if verdict == Verdict.FALSE_POSITIVE
                             else "Contain and monitor."),
         reproduce_query=f'{et.value} : "{entity_val}"',

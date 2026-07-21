@@ -158,6 +158,40 @@ describe('AppShell top-nav search (W0.10)', () => {
     expect(screen.queryByRole('button', { name: 'Open command palette' })).toBeNull();
   });
 
+  it('keeps the desktop hamburger keyboard-operable and persists its rail state', async () => {
+    renderShell();
+    const collapse = await screen.findByRole('button', { name: 'Collapse navigation' });
+    expect(collapse).toHaveAttribute('aria-keyshortcuts', 'Control+B Meta+B');
+
+    fireEvent.click(collapse);
+    expect(await screen.findByRole('button', { name: 'Expand navigation' })).toBeInTheDocument();
+    await waitFor(() => expect(window.localStorage.getItem('soc.nav.collapsed')).toBe('1'));
+
+    fireEvent.keyDown(window, { key: 'b', ctrlKey: true });
+    expect(await screen.findByRole('button', { name: 'Collapse navigation' })).toBeInTheDocument();
+    await waitFor(() => expect(window.localStorage.getItem('soc.nav.collapsed')).toBe('0'));
+  });
+
+  it('keeps a collapsed-rail destination stable from focus through activation', async () => {
+    window.localStorage.setItem('soc.nav.collapsed', '1');
+    const { onNavigate } = renderShell();
+
+    const frame = await screen.findByTestId('desktop-navigation-frame');
+    const tuning = await screen.findByTestId('nav-tuning');
+    expect(frame).toHaveClass('w-16');
+    expect(tuning.closest('aside')).toHaveAttribute('data-nav-state', 'collapsed');
+
+    // Keyboard focus must not swap the icon rail for a differently laid-out drawer
+    // between pointer-down/focus and click. That DOM replacement previously caused a
+    // click aimed at Auto-tuning to land on a neighbouring destination.
+    fireEvent.focus(tuning);
+    expect(screen.getByTestId('nav-tuning')).toBe(tuning);
+    expect(tuning.closest('aside')).toHaveAttribute('data-nav-state', 'collapsed');
+
+    fireEvent.click(tuning);
+    expect(onNavigate).toHaveBeenCalledWith('tuning');
+  });
+
   it('uses a zero-footprint off-canvas navigation on mobile and closes it after navigation', async () => {
     setMobileViewport(true);
     const { onNavigate } = renderShell();
@@ -174,6 +208,22 @@ describe('AppShell top-nav search (W0.10)', () => {
     fireEvent.click(within(dialog).getByTestId('nav-cases'));
     expect(onNavigate).toHaveBeenCalledWith('cases');
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Primary navigation' })).toBeNull());
+  });
+
+  it('keeps the bottom Docs destination reachable from mobile navigation', async () => {
+    setMobileViewport(true);
+    const { onNavigate } = renderShell();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Open navigation' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Primary navigation' });
+    const docs = within(dialog).getByRole('button', { name: 'Docs' });
+    expect(within(dialog).getByTestId('nav-footer')).toContainElement(docs);
+
+    fireEvent.click(docs);
+    expect(onNavigate).toHaveBeenCalledWith('docs');
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Primary navigation' })).toBeNull(),
+    );
   });
 
   it('opens mobile navigation on the semantic current route instead of Overview', async () => {

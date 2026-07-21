@@ -47,7 +47,16 @@ INTERNAL_ONLY_REFERENCES = {
 
 MARKDOWN_LINK = re.compile(r"(?<!!)\[[^\]]*\]\(([^)]+)\)")
 NAV_TARGET = re.compile(r"^\s*-\s+(?:[^:]+:\s+)?([^\s]+\.md)\s*$")
+TOP_LEVEL_NAV_SECTION = re.compile(r"^  - ([^:]+):(?:\s+.*)?$")
 FENCE = re.compile(r"^\s*(```|~~~)")
+
+EXPECTED_TOP_LEVEL_NAV = [
+    "Use the product",
+    "Administer",
+    "Deploy and operate",
+    "Reference",
+    "Releases and versions",
+]
 
 
 def public_pages() -> set[Path]:
@@ -94,6 +103,21 @@ def nav_pages() -> list[Path]:
     return targets
 
 
+def top_level_nav_sections() -> list[str]:
+    sections: list[str] = []
+    in_nav = False
+    for line in (ROOT / "mkdocs.yml").read_text(encoding="utf-8").splitlines():
+        if line == "nav:":
+            in_nav = True
+            continue
+        if not in_nav:
+            continue
+        match = TOP_LEVEL_NAV_SECTION.match(line)
+        if match:
+            sections.append(match.group(1))
+    return sections
+
+
 def resolved_link(page: Path, raw_target: str) -> Path | None:
     target = raw_target.strip().strip("<>").split(maxsplit=1)[0]
     if not target or target.startswith(("#", "/", "http://", "https://", "mailto:")):
@@ -109,6 +133,15 @@ def main() -> int:
     pages = public_pages()
     navigation = nav_pages()
     nav_counts = Counter(navigation)
+    sections = top_level_nav_sections()
+
+    if sections != EXPECTED_TOP_LEVEL_NAV:
+        failures.append(
+            "top-level nav must keep the Help Center user-first taxonomy: "
+            f"expected {EXPECTED_TOP_LEVEL_NAV!r}, found {sections!r}"
+        )
+    if not navigation or navigation[0] != Path("index.md"):
+        failures.append("Help Center home (docs/index.md) must be the first nav page")
 
     for page in sorted(pages - set(navigation)):
         failures.append(f"public page is missing from nav: docs/{page.as_posix()}")

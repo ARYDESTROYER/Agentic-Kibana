@@ -1,5 +1,44 @@
 (() => {
   const CIRCUMFERENCE = 2 * Math.PI * 11;
+  const CONSOLE_THEME_KEY = "soc.theme";
+  const systemTheme = window.matchMedia?.("(prefers-color-scheme: dark)");
+
+  const readConsoleTheme = () => {
+    try {
+      const saved = window.localStorage.getItem(CONSOLE_THEME_KEY);
+      return saved === "light" || saved === "dark" || saved === "system" ? saved : "system";
+    } catch (_) {
+      return "system";
+    }
+  };
+
+  const writeConsoleTheme = (mode) => {
+    try {
+      window.localStorage.setItem(CONSOLE_THEME_KEY, mode);
+    } catch (_) {
+      /* Storage may be unavailable; the current document can still switch. */
+    }
+
+    // The Console reconciles its local first-paint mirror with the signed-in
+    // user's effective preference. Persist the same choice there as a best-effort
+    // same-origin request so switching inside a guide also survives the return to
+    // the application. A disconnected/legacy backend must never prevent the local
+    // documentation theme from changing.
+    void window.fetch("/api/prefs/user", {
+      method: "PUT",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ theme_mode: mode }),
+    }).catch(() => undefined);
+  };
+
+  const resolveDark = (mode) => mode === "dark" || (mode === "system" && Boolean(systemTheme?.matches));
+
+  const applyRootTheme = (dark) => {
+    const root = document.documentElement;
+    root.dataset.tlsocTheme = dark ? "dark" : "light";
+    root.style.colorScheme = dark ? "dark" : "light";
+  };
 
   const getToggle = (id) => {
     const element = document.getElementById(id);
@@ -38,21 +77,35 @@
 
   const syncThemeSwitch = () => {
     const dark = document.body.getAttribute("data-md-color-scheme") === "slate";
+    applyRootTheme(dark);
     document.querySelectorAll("[data-tlsoc-theme-toggle]").forEach((button) => {
       const label = dark ? "Switch to light mode" : "Switch to dark mode";
       button.setAttribute("aria-label", label);
+      button.setAttribute("aria-pressed", String(dark));
       button.setAttribute("title", label);
       button.setAttribute("data-tlsoc-current-theme", dark ? "dark" : "light");
     });
   };
 
-  const toggleTheme = () => {
-    const dark = document.body.getAttribute("data-md-color-scheme") === "slate";
-    const targetScheme = dark ? "default" : "slate";
+  const setPaletteScheme = (targetScheme, persistedMode) => {
     const input = document.querySelector(
       `.tlsoc-palette-engine input[data-md-color-scheme="${targetScheme}"]`,
     );
-    if (input instanceof HTMLInputElement) input.click();
+    if (!(input instanceof HTMLInputElement)) return;
+    if (persistedMode) writeConsoleTheme(persistedMode);
+    applyRootTheme(targetScheme === "slate");
+    if (!input.checked) input.click();
+    syncThemeSwitch();
+  };
+
+  const toggleTheme = () => {
+    const dark = document.body.getAttribute("data-md-color-scheme") === "slate";
+    setPaletteScheme(dark ? "default" : "slate", dark ? "light" : "dark");
+  };
+
+  const syncFromConsoleTheme = () => {
+    const mode = readConsoleTheme();
+    setPaletteScheme(resolveDark(mode) ? "slate" : "default");
   };
 
   const tocButton = () => document.querySelector("[data-tlsoc-mobile-toc-toggle]");
@@ -161,11 +214,18 @@
     syncDrawerButtons();
     requestReadingUpdate();
   });
+  systemTheme?.addEventListener?.("change", () => {
+    if (readConsoleTheme() === "system") syncFromConsoleTheme();
+  });
+  window.addEventListener("storage", (event) => {
+    if (event.key === CONSOLE_THEME_KEY) syncFromConsoleTheme();
+  });
   new MutationObserver(syncThemeSwitch).observe(document.body, {
     attributes: true,
     attributeFilter: ["data-md-color-scheme"],
   });
   syncDrawerButtons();
+  syncFromConsoleTheme();
   syncThemeSwitch();
   updateReadingState();
 })();

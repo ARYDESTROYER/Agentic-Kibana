@@ -37,6 +37,18 @@ describe('DataTable — SkeletonRow loading state', () => {
     const skeletonRows = container.querySelectorAll('tbody tr[aria-hidden="true"]');
     expect(skeletonRows).toHaveLength(3);
 
+    // The card has a clear indeterminate activity cue in addition to the row
+    // shimmer, while exposing its busy state to assistive technology.
+    const tableCard = container.firstElementChild;
+    expect(tableCard).toHaveAttribute('aria-busy', 'true');
+    expect(
+      screen.getByRole('progressbar', { name: 'Loading Test table' }),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('loading-bar-indicator')).toHaveClass(
+      'motion-safe:animate-bar-indeterminate',
+      'motion-reduce:w-full',
+    );
+
     // Each row mirrors the column set (2 cells, no checkbox).
     const firstRowCells = skeletonRows[0].querySelectorAll('td');
     expect(firstRowCells).toHaveLength(2);

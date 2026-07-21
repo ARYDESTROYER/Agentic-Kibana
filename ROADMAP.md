@@ -4,35 +4,60 @@
 > onboarding doc (run commands, current status, what's done, what's next).
 
 Status legend: ☐ todo · ◐ in-progress · ☑ done. Update this + `Journal.md` as you
-work. The webui is the primary surface (Vite + React + **Tailwind + shadcn/radix**;
+work. The Console is the primary surface (Vite + React + **Tailwind + shadcn/radix**;
 the Kibana plugin is archived). Every item ends with: `pytest -q` green (keep the
-count current), webui tsc+vite + Vitest clean, **#3 `decide()` byte-identical**,
+count current), full `npm run build` (version-matched Help Center + tsc + Vite) and
+Vitest clean, **#3 `decide()` byte-identical**,
 docs + Journal updated, commit + push.
 
 **Current baseline (Version `0.1.0` on `Testing`; promote the accepted source tree to
 the Stable `main` branch, re-run its gates, and tag the resulting commit `v0.1.0`):**
+the remote currently exposes `Testing` and legacy/default `claude/main`, but no literal
+`main`; provisioning/protecting the canonical Stable branch (or consistently changing
+every workflow/release reference) is an explicit promotion blocker. `claude/main` is
+not implicitly Stable. The current console adds the polished selected-window Security
+Command Center and an additive split-pane **Case Manager** (Active/All queue, six-tab
+workspace, selection and permission-gated Acknowledge/Assign/Add tag/Set status/
+Set disposition/Reinvestigate/Resolve) while the legacy Cases table remains. The
+always-visible `vX.Y.Z · Testing|Stable` badge reconciles Console/backend stamps and
+fails mismatches down to Testing.
+The current Console-standardization pass removes Automated Scans from primary
+navigation while preserving compatibility, clarifies the targeted Entity investigation
+workflow, adds a persisted three-mode appearance control and a same-origin,
+version-matched installed Help Center,
+and migrates Settings plus the shared shell/loading states to the flat command-center
+grammar documented in `docs/development/ui-standard.md`.
+Cases remains the full-width table for broad list work, but opening a case now hands
+the exact record to Case Manager, whose desktop queue divider is accessible,
+bounded, and persisted. The dashboard defaults to visibility-aware LIVE refresh and
+adds an expanded aggregate Noise Reduction view. Threat Context explains persisted
+alert-to-cluster-to-case formation; Demo Mode now has five sources including Entra;
+and privileged operators can create a bounded, secret-free portable analysis export.
+Compatible official OpenAI alert/case work prefers live Flex with truthful standard
+fallback, independently of the still-opt-in asynchronous Batch event funnel.
 **Round 10** ("Autopilot & Comprehensive Ingestion + motion.dev" — a **behavior change**:
 `background_scan_enabled` default TRUE + a deterministic risk gate + an `autopilot_profile`
 smart-defaults dial + a default-enabled $10/day budget ceiling + per-source coverage
 observability + lazy `motion.dev` animation) is committed on `Testing`. The current
 release-readiness work layers source-safe ingest, pull correctness, packaging, versioning,
 health, CI, and public documentation on top. **Round 9c** ("dashboard rebuilt
-from scratch" — real MTTD + first-human-response MTTR, a cleaner Cases list; PR #27,
+from scratch" — real MTTD + first-human-response from the ACK/MTTA clock, a cleaner Cases list; PR #27,
 `559ce88`) was on top of **Round 9** (an 11-ask UI/UX overhaul + a local LiteLLM model
 provider; PR #25) and **Round 9b** (dashboard reimagine + case redesign; PR #26) — all
 three developed on `claude/ui-ux-improvements-7nq5be` (created off `Testing` `1ab98f2`) —
 and **Round 8** (UI cleanup + glitch fixes; PR #24), **Round 7** (Security Command Center
 overhaul + Noise-Reduction funnel; PR #23), and **Round 6** (a ~500-agent glitch-hunt, 464
 findings fixed) before them. On top of all of them, a **backend deep-audit hardening
-pass** (`c5516e5`→`abd0385`, 2026-07-14/15, local/not pushed) fixed **47 verified findings**
+pass** (`c5516e5`→`abd0385`, 2026-07-14/15, now present on `origin/Testing`) fixed **47 verified findings**
 (0 crit / 10 high / 24 med / 13 low) from a 24-auditor + adversarial-verify Workflow —
 one atomic commit per finding, no co-author, each with a regression test. The current 0.1
-candidate was re-verified on 2026-07-19: backend **1957 pytest** (0 failures), webui
-**1350 Vitest** across 240 files, build clean (entry chunk **287.45 kB**, a lazy `motion`
+candidate was re-verified on 2026-07-22: backend **1978 pytest** (0 failures), webui
+**1464 Vitest** across 248 files, build clean (entry chunk **294.69 kB**, a lazy `motion`
 chunk **83.85 kB**), eslint **0 errors,
 0 warnings**, `engine/case_manager.py` `decide()` **byte-identical** (verified clean by the
 audit), and the generated-contract, distribution, version, Compose, and strict-docs gates
-pass. See `CHANGELOG.md` `[Unreleased]` for the audit fixes + the full Round 6–10 narrative,
+pass. See `CHANGELOG.md` `[Unreleased]` plus its dated Development snapshots for the
+audit fixes and full Round 6–10 narrative,
 and the "Progress" log below for the per-round summary (Round 10 first).
 
 ## Remaining / backlog
@@ -111,14 +136,15 @@ threads from that round are:
   advisory/display-only; letting it *influence* the risk-gate's `auto_investigate_risk_floor`
   (not just the case view) is scoped but not built, and must stay opt-in (#3/#9 —
   reputation data is source-controlled and would need the same UNTRUSTED treatment).
-- ☐ **Batch as an autopilot default** — LLM Batch/flex economics remain explicit
-  opt-in; folding them into the `autopilot_profile` bundle needs a latency-tolerance
-  story first (batch results are not realtime).
+- ☐ **Async Batch as an autopilot default** — the provider Batch EVENT funnel remains
+  explicit opt-in and still needs a latency-tolerance story. Compatible live OpenAI
+  case/alert calls already prefer Flex independently and fall back truthfully to
+  standard service when allowed; do not conflate that in-band path with async Batch.
 - ☐ **OTEL / scale-out** — unchanged by Round 10; see **Observability / tracing** and
   **Scale-out** above (Section C) / **Epoch E** below.
 
-Each item ends with: `pytest -q` green (keep the count current), webui tsc+vite +
-Vitest clean, **#3 `decide()` byte-identical**, additive + zero new runtime deps
+Each item ends with: `pytest -q` green (keep the count current), full docs+app
+`npm run build` + Vitest clean, **#3 `decide()` byte-identical**, additive + zero new runtime deps
 where possible, docs + Journal updated, commit + push.
 
 ## Shipped (Phase 1)
@@ -756,7 +782,7 @@ storage, and the Kibana-bound UI.
   the Round-5 UI overhaul) is the standalone SPA. The **first-run wizard** is now 4
   steps (Welcome → Sources → Provider keys → Review & finish) driven by connector
   manifests; the reusable dynamic source form is `SourceEditor` +
-  `ConnectorPicker`; a full Sources manager, sectioned Settings (5 groups × 25
+  `ConnectorPicker`; a full Sources manager, sectioned Settings (5 groups × 26
   sections), and every analytics surface (Cases/Chat/Investigate/Automated Scans/
   Standup/Cost/Metrics/Dashboards/Detection & Rules/…) are built out — not preview
   stubs. Served as a static `dist/` bundle behind nginx (`tlsoc-webui`, container

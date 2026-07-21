@@ -14,7 +14,7 @@
  *      hidden-but-routable pages, only humanising a truly-unknown id as a last resort.
  */
 import { describe, it, expect } from 'vitest';
-import { NAV_ITEMS, navLabel } from '../nav';
+import { NAV_FOOTER_ITEMS, NAV_ITEMS, navLabel } from '../nav';
 import { FEATURES, type PageId } from '../registry';
 
 describe('NAV_ITEMS — every rail item carries a real icon', () => {
@@ -53,6 +53,20 @@ describe('navLabel — the registry is the authoritative label source', () => {
       id: 'case_manager',
       label: 'Case Manager',
       perm: { resource: 'cases', action: 'read' },
+    });
+  });
+
+  it('derives Docs as the single pinned footer destination', () => {
+    expect(NAV_FOOTER_ITEMS.map((item) => item.id)).toEqual(['docs']);
+    expect(NAV_ITEMS.some((item) => item.id === 'docs')).toBe(true);
+    expect(navLabel('docs')).toBe('Docs');
+  });
+
+  it('keeps the redundant Automated Scans surface out of primary navigation', () => {
+    expect(NAV_ITEMS.some((item) => item.id === 'scans')).toBe(false);
+    expect(FEATURES.find((feature) => feature.id === 'scans')).toMatchObject({
+      hidden: true,
+      label: 'Automated scans (legacy)',
     });
   });
 

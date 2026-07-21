@@ -31,7 +31,16 @@ export const LoadingBar = React.forwardRef<HTMLDivElement, LoadingBarProps>(
         )}
         {...props}
       >
-        <div className="absolute inset-y-0 left-0 w-1/3 rounded-full bg-accent-bar animate-bar-indeterminate" />
+        <div
+          data-testid="loading-bar-indicator"
+          className={cn(
+            'absolute inset-y-0 left-0 rounded-full bg-accent-bar',
+            // Animate only when the operator has not requested reduced motion. The
+            // reduced state is a full, calm track fill: progress remains visible and
+            // never depends on a near-zero global animation-duration override.
+            'w-1/3 motion-safe:animate-bar-indeterminate motion-reduce:w-full motion-reduce:opacity-60',
+          )}
+        />
       </div>
     );
   },

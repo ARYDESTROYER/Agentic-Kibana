@@ -1,14 +1,14 @@
 ---
 title: Architecture
-description: Follow a TLSOC 0.1 signal from an external source to a human-reviewable case.
+description: Follow an Agentic SOC 0.1 signal from an external source to a human-reviewable case.
 ---
 
 # Architecture
 
-This page applies to **TLSOC 0.1**. It is for evaluators, operators, and integrators
+This page applies to **Agentic SOC 0.1**. It is for evaluators, operators, and integrators
 who need the shipped system boundary before configuring data or automation.
 
-TLSOC is a read-only security-triage layer. It receives or reads security events,
+Agentic SOC is a read-only security-triage layer. It receives or reads security events,
 normalizes them to OCSF, performs deterministic reduction and risk work, admits a
 bounded subset to model-backed investigation, and stores an auditable case. It does
 not replace or modify the upstream SIEM, EDR, queue, or event pipeline.
@@ -17,13 +17,13 @@ not replace or modify the upstream SIEM, EDR, queue, or event pipeline.
 
 | Component | Responsibility |
 | --- | --- |
-| TLSOC Console | Standalone React interface for setup, sources, cases, analytics, administration, and audit |
-| TLSOC API | FastAPI application containing connectors, normalization, engines, agents, policy, auth, and API routes |
+| Agentic SOC Console | Standalone React interface for setup, sources, cases, analytics, administration, and audit |
+| Agentic SOC API | FastAPI application containing connectors, normalization, engines, agents, policy, auth, and API routes |
 | Connector registry | Pull connectors and push receivers that expose one manifest and normalization contract |
 | OCSF boundary | Canonical event subset plus lossless source provenance and unmapped fields |
 | Deterministic engines | Correlation, risk, budget admission, baselines, tuning, campaigns, and case policy |
 | LLM gateway | The only path to a model provider and the usage/cost ledger |
-| StateStore | TLSOC-owned cases, configuration, cursor, usage, audit, users, and knowledge in PostgreSQL, SQLite, or Elasticsearch |
+| StateStore | Agentic SOC-owned cases, configuration, cursor, usage, audit, users, and knowledge in PostgreSQL, SQLite, or Elasticsearch |
 
 ## Shipped signal flow
 
@@ -38,7 +38,7 @@ flowchart LR
     G --> H["Deterministic case policy"]
     E --> I["Case, provenance, audit and metrics"]
     H --> I
-    I --> J["TLSOC Console and notifications"]
+    I --> J["Agentic SOC Console and notifications"]
 ```
 
 Pull connectors are polled per enabled source and feed. Push receivers deliver
@@ -55,7 +55,7 @@ The economical design separates two kinds of work:
 2. The **bounded reasoning plane** enriches and investigates candidates admitted by
    source role, deterministic risk, operator policy, caps, and budget.
 
-This means “TLSOC reads every enabled event” does not mean “every event is sent to a
+This means “Agentic SOC reads every enabled event” does not mean “every event is sent to a
 model.” Below-threshold event candidates remain visible and cost nothing.
 
 ## Trust boundaries
@@ -64,10 +64,10 @@ model.” Below-threshold event candidates remain visible and cost nothing.
 - Push receivers authenticate the sender at their transport boundary.
 - Event-derived text remains untrusted, including raw and unmapped OCSF fields.
 - Model output is advisory; deterministic policy owns close or escalation.
-- TLSOC application state is separate from the source log store.
+- Agentic SOC application state is separate from the source log store.
 - Every model call and state-changing action has a ledger or audit record.
 
-## TLSOC 0.1 boundaries
+## Agentic SOC 0.1 boundaries
 
 The API, receivers, polling, schedules, correlation, and investigation run in one
 backend process. Operate one backend replica. HTTP push processing has no durable

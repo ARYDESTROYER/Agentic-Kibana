@@ -1,21 +1,21 @@
 ---
 title: Terminology
-description: Use the stable TLSOC 0.1 names for telemetry, detections, cases, campaigns, and releases.
+description: Use the stable Agentic SOC 0.1 names for the product, technical compatibility namespace, telemetry, cases, and releases.
 ---
 
 # Terminology
 
-This glossary applies to **TLSOC 0.1**. Use these names in source configuration,
+This glossary applies to **Agentic SOC 0.1**. Use these names in source configuration,
 operator procedures, API integrations, and support requests.
 
 ## Product and release names
 
 | Term | Meaning |
 | --- | --- |
-| **TLSOC Agentic Triage Suite** | Full product name |
-| **TLSOC** | Preferred short product name |
-| **TLSOC Console** | Standalone web interface |
-| **TLSOC API** | Backend application and `/api` surface |
+| **Agentic SOC** | Full and preferred operator-facing product name |
+| **Console** | Standalone Agentic SOC web interface |
+| **Agentic SOC API** | Backend application and `/api` surface |
+| **TLSOC** | Compatibility namespace retained in technical identifiers; not the operator-facing product name |
 | **Testing** | Integration branch and pre-stable validation channel |
 | **Stable** | Supported release channel built from the `main` branch |
 | **0.1** | Documentation and human-facing release line |
@@ -23,20 +23,29 @@ operator procedures, API integrations, and support requests.
 
 Do not use “Bleeding Edge,” `next`, or “alpha” for the active 0.1 release model.
 
+### Technical namespace compatibility
+
+The rename does not alter wire or deployment contracts. Keep existing identifiers
+such as `TLSOC_*` environment variables, `tlsoc-*` containers and images,
+`tlsoc-agent-*` indices, `tlsoc_*` cookies/storage keys, `X-TLSOC-*` headers,
+`tlsoc.connectors` entry points, Python import paths, and existing API fields exactly
+as documented. A copy-only change must never rename one of those values. In prose,
+say **Agentic SOC**, **Console**, or **Agentic SOC API** as appropriate.
+
 ## Security data lifecycle
 
 | Term | Definition |
 | --- | --- |
 | **Source** | One configured connector instance, such as a particular Wazuh indexer or webhook sender |
 | **Feed** | A source-specific stream or index pattern with an `events`, `alerts`, or `ignore` role |
-| **Event** | A source record normalized to the TLSOC OCSF subset |
-| **Detection** | A source-provided or TLSOC-produced finding that identifies suspicious activity |
+| **Event** | A source record normalized to the Agentic SOC OCSF subset |
+| **Detection** | A source-provided or Agentic SOC-produced finding that identifies suspicious activity |
 | **Alert** | A source-native detection feed whose signals are prioritized for investigation |
-| **Candidate** | A correlated record visible in TLSOC but not necessarily admitted to model investigation |
+| **Candidate** | A correlated record visible in Agentic SOC but not necessarily admitted to model investigation |
 | **Case** | The human-reviewable unit containing provenance, evidence, assessment, decision, status, and collaboration |
 | **Campaign** | An advisory grouping that references related case IDs; it does not merge or close cases |
 
-Keep these records distinct. A source alert is not silently relabeled as a TLSOC
+Keep these records distinct. A source alert is not silently relabeled as an Agentic SOC
 detection, and a campaign never rewrites a member case's history.
 
 ## Case terms
@@ -67,7 +76,7 @@ detection, and a campaign never rewrites a member case's history.
 ## Source and state terms
 
 - **Log source** is the external system of record for telemetry.
-- **State backend** is TLSOC's own bookkeeping store. Changing it does not move or
+- **State backend** is Agentic SOC's own bookkeeping store. Changing it does not move or
   select the log source.
 - **Primary source** is the enabled pull source used for the primary ad-hoc query
   surface. A push receiver cannot be primary.

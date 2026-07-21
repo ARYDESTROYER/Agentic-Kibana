@@ -170,7 +170,7 @@ describe('Overview — Security Command Center (rebuild)', () => {
     const range = within(hero).getByRole('button', { name: /Time range: Last 24 hours/i });
     expect(range).toHaveTextContent('Last 24h');
     expect(range).toHaveClass('rounded-[3px]', 'bg-transparent');
-    expect(within(hero).getByRole('combobox', { name: /Auto-refresh interval: Off/i })).toHaveClass(
+    expect(within(hero).getByRole('combobox', { name: /Auto-refresh interval: LIVE/i })).toHaveClass(
       'rounded-[3px]',
       'bg-transparent',
     );

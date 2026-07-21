@@ -1,4 +1,4 @@
-"""API contract tests for the isolated four-source native Demo Mode.
+"""API contract tests for the isolated five-source native Demo Mode.
 
 These tests stay at the public route boundary: source identity, live health,
 coverage, bounded browsing, unified provenance, secret non-disclosure, and teardown
@@ -18,6 +18,9 @@ SOURCE_CONTRACT = {
     "demo-qradar": ("qradar", "push_http", "LEEF 2.0 + REST", "LEEF 2.0 events"),
     "demo-wazuh": ("wazuh", "push_http", "Wazuh JSON", "archives.json events"),
     "demo-syslog": ("syslog", "push_syslog", "RFC 5424 / RFC 3164", "RFC 5424"),
+    "demo-entra-id": (
+        "sentinel", "push_http", "Microsoft Graph / HTTPS", "Entra ID auditLogs/signIns",
+    ),
 }
 
 
@@ -178,7 +181,7 @@ def test_demo_sources_health_and_coverage_are_truthful(client) -> None:
     assert coverage.status_code == 200, coverage.text
     data = coverage.json()
     assert data["demo"] is True
-    assert data["sources_total"] == data["sources_enabled"] == 4
+    assert data["sources_total"] == data["sources_enabled"] == 5
     assert data["sources_silent"] == 0
     assert data["events_per_min"] == 0
     assert data["alerts_triaged_24h"] > 0
@@ -255,7 +258,7 @@ def test_demo_overlay_never_queries_persists_or_discloses_tenant_data(
     assert secret_value not in json.dumps(during)
     # Every default source read is deliberately demo-scoped while active; the real
     # connector/config is neither shown nor invoked.
-    assert client.get("/api/sources/coverage").json()["sources_total"] == 4
+    assert client.get("/api/sources/coverage").json()["sources_total"] == 5
 
     def _real_read_would_be_a_bug(*_args, **_kwargs):
         raise AssertionError("a real source was queried while Demo Mode was active")
@@ -292,9 +295,9 @@ def test_manual_demo_incident_is_cooldown_aware_audited_and_isolated(client) -> 
     result = first.json()
     assert result["triggered"] is True
     assert result["scenario_id"] and result["scenario_name"]
-    assert result["events"] >= 7
-    assert result["native_alerts"] == 3
-    assert set(result["sources"]) == {"splunk", "qradar", "wazuh", "syslog"}
+    assert result["events"] >= 8
+    assert result["native_alerts"] == 4
+    assert set(result["sources"]) == {"splunk", "qradar", "wazuh", "syslog", "entra"}
     assert {
         row["source_id"] for row in result["sources"].values()
     } == set(SOURCE_CONTRACT)
@@ -313,6 +316,7 @@ def test_manual_demo_incident_is_cooldown_aware_audited_and_isolated(client) -> 
     assert health["demo-splunk"]["alerts_emitted"] >= 1
     assert health["demo-qradar"]["alerts_emitted"] >= 1
     assert health["demo-wazuh"]["alerts_emitted"] >= 1
+    assert health["demo-entra-id"]["alerts_emitted"] >= 1
     assert health["demo-syslog"]["alerts_emitted"] == 0
     assert health["demo-syslog"]["system_detections_total"] >= 1
 

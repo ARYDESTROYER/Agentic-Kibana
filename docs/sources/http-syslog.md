@@ -1,12 +1,12 @@
 ---
 title: HTTP and syslog sources
-description: Configure authenticated webhook, HEC-compatible, and network-restricted syslog ingestion in TLSOC 0.1.
+description: Configure authenticated webhook, HEC-compatible, and network-restricted syslog ingestion in Agentic SOC 0.1.
 ---
 
 # HTTP and syslog sources
 
-This guide applies to **TLSOC 0.1** and is for integrators forwarding events directly
-to TLSOC. HTTP uses the TLSOC API listener; syslog binds a separate UDP or TCP port.
+This guide applies to **Agentic SOC 0.1** and is for integrators forwarding events directly
+to Agentic SOC. HTTP uses the Agentic SOC API listener; syslog binds a separate UDP or TCP port.
 
 ## Generic webhook
 
@@ -45,10 +45,10 @@ Use the HEC connector for a Splunk HEC event envelope and `Authorization: Splunk
 ### Delivery contract
 
 Authentication happens before payload parsing. If the batch cannot be persisted,
-TLSOC returns `503` with a retry hint rather than claiming success. The sender must
+Agentic SOC returns `503` with a retry hint rather than claiming success. The sender must
 retain and retry the complete request with stable native event IDs.
 
-TLSOC 0.1 does not yet commit an independent durable receipt before correlation. A
+Agentic SOC 0.1 does not yet commit an independent durable receipt before correlation. A
 process or host failure in that window can lose a pushed record, so keep the sender's
 retry/retention path authoritative.
 

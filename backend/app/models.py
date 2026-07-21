@@ -380,6 +380,9 @@ class ThreatContextPanel(BaseModel):
     ioc_reputation: list[dict[str, Any]] = Field(default_factory=list)   # [{indicator, type, score, is_malicious, country, sources}]
     mitre_techniques: list[dict[str, Any]] = Field(default_factory=list)  # [{id, name, tactics, platforms, url, description}]
     related_cases: list[dict[str, Any]] = Field(default_factory=list)     # [{case_id, verdict, entity, score, snippet}]
+    # Redacted deterministic alert → correlation-cluster → case explanation. Event
+    # identities are one-way stable references; no raw source payload is returned.
+    clustering: dict[str, Any] = Field(default_factory=dict)
     asset_context: dict[str, Any] = Field(default_factory=dict)           # {entity, criticality, is_internal, networks}
     evidence: list[dict[str, Any]] = Field(default_factory=list)          # [{summary, event_ids, query}]
     generated_at: str = Field(default_factory=iso_now)
@@ -1211,9 +1214,18 @@ class Case(BaseModel):
     disposition: Disposition | None = None
     # Free-text reason for the current lifecycle state (why on hold / how resolved).
     status_reason: str = ""
-    # Escalation priority level (0 == not escalated). Set by the escalate action /
-    # the deterministic escalate flag; never changes the close truth table.
-    escalation_level: int = 0
+    # Legacy compatibility flag. Older stored cases and clients use this integer
+    # wire key, but current operator surfaces expose only the Escalated lifecycle
+    # state, never numbered tiers. Any positive value means escalated.
+    escalation_level: int = Field(
+        default=0,
+        title="Escalated compatibility flag",
+        description=(
+            "Legacy storage compatibility: zero means not escalated and any positive "
+            "value means Escalated. Operator surfaces do not display numbered tiers."
+        ),
+        json_schema_extra={"deprecated": True},
+    )
     # Append-only lifecycle transition trail (from→to, by, when, reason).
     status_history: list[StatusHistoryEntry] = Field(default_factory=list)
     # Human-facing DISPLAY id (template-driven, F7). ``case_id`` stays the immutable
@@ -1386,8 +1398,11 @@ class UsageDoc(BaseModel):
     # cache (cheaper) and tokens WRITTEN to the cache (a one-time surcharge).
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
-    # True when this call was served via a provider BATCH API (discounted, async).
+    # True when this call received a provider's discounted Batch/Flex rate. Retained
+    # for backwards-compatible cost math; ``processing_tier`` distinguishes the two.
     batch: bool = False
+    # Actual metered tier: standard | flex | batch. Old rows load as standard.
+    processing_tier: str = "standard"
 
 
 # --------------------------------------------------------------------------- #

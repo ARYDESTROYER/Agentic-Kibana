@@ -160,6 +160,19 @@ describe('useAutoRefresh', () => {
     expect(tick).toHaveBeenCalledTimes(2);
   });
 
+  it('runs LIVE as a visibility-aware five-second dashboard cadence', () => {
+    vi.useFakeTimers();
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+    const tick = vi.fn();
+    renderHook(() => useAutoRefresh('live', tick));
+
+    expect(REFRESH_MS.live).toBe(5_000);
+    vi.advanceTimersByTime(4_999);
+    expect(tick).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(tick).toHaveBeenCalledTimes(1);
+  });
+
   it('does not start when the tab is hidden', () => {
     vi.useFakeTimers();
     vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
@@ -234,5 +247,34 @@ describe('<TimeRangePicker/> render', () => {
     expect(fiveSeconds).toBeInTheDocument();
     fireEvent.click(fiveSeconds);
     expect(onRefreshChange).toHaveBeenCalledWith('5s');
+  });
+
+  it('offers LIVE below 5 minutes and renders its pulsing status indicator', () => {
+    const onRefreshChange = vi.fn();
+    const { rerender, container } = render(
+      <TimeRangePicker
+        value={PRESETS[2]}
+        onChange={() => {}}
+        refresh="off"
+        onRefreshChange={onRefreshChange}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('combobox', { name: 'Auto-refresh interval: Off' }));
+    const live = screen.getByRole('option', { name: 'LIVE' });
+    fireEvent.click(live);
+    expect(onRefreshChange).toHaveBeenCalledWith('live');
+    expect(REFRESH_OPTIONS.at(-1)?.value).toBe('live');
+
+    rerender(
+      <TimeRangePicker
+        value={PRESETS[2]}
+        onChange={() => {}}
+        refresh="live"
+        onRefreshChange={onRefreshChange}
+      />,
+    );
+    expect(screen.getByRole('combobox', { name: 'Auto-refresh interval: LIVE' })).toBeInTheDocument();
+    expect(container.querySelector('.animate-pulse.bg-success')).not.toBeNull();
   });
 });

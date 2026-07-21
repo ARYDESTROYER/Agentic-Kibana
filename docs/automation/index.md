@@ -5,7 +5,7 @@ description: Understand which v0.1 automation is on, what remains opt-in, and wh
 
 # Automation and autopilot
 
-TLSOC v0.1 starts in the **balanced** autopilot profile. It performs broad,
+Agentic SOC v0.1 starts in the **balanced** autopilot profile. It performs broad,
 low-cost deterministic processing and admits selected candidates to metered
 investigation. Autopilot is not permission for a model to close or act outside the
 configured deterministic policy.

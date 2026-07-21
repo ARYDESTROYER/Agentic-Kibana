@@ -184,7 +184,12 @@ def test_batch_config_get_defaults(state_and_client) -> None:
     assert cfg == BatchConfig().model_dump(mode="json")
     assert cfg["enabled"] is False
     # No secret ever appears — only routing knobs (#10).
-    assert set(cfg) == {"enabled", "severity_floor", "providers", "flex"}
+    assert set(cfg) == {
+        "enabled", "severity_floor", "providers", "flex",
+        "prefer_discounted_alerts", "fallback_to_standard",
+    }
+    assert cfg["prefer_discounted_alerts"] is True
+    assert cfg["fallback_to_standard"] is True
 
 
 def test_batch_config_put_deep_merges_and_persists(state_and_client) -> None:

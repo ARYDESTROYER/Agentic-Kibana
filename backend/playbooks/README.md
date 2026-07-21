@@ -138,7 +138,12 @@ its Markdown body for the phased investigation procedure.
 ## API + configuration
 
 - `GET /api/playbooks` — list the loaded catalog (id/name/version/priority/
-  description/match summary).
+  description/match summary plus `bundled|operator` ownership and editability).
+- `GET /api/playbooks/{id}` — open the parsed metadata and plain UTF-8 Markdown.
+- `POST /api/playbooks` / `PUT /api/playbooks/{id}` — create or atomically update
+  an **operator-owned** Markdown file (`playbooks:manage`). IDs are slug/path
+  constrained, content is bounded to 256 KiB, the front-matter id must match, and
+  a successful write reloads the registry and appends an audit event.
 - `POST /api/playbooks/reload` — atomically re-read this directory and hot-swap
   the live registry (validate-then-swap; a broken file never replaces a
   known-good set).
@@ -148,6 +153,13 @@ its Markdown body for the phased investigation procedure.
   directory, `backend/playbooks/`) if you want to point at an operator-owned
   playbook directory instead. `Preferences.playbooks.enabled` (default `true`)
   turns the whole system off if you never want playbook injection.
+
+The three procedures shipped in this directory are protected reference content in
+the runtime editor: browse/copy is allowed, overwrite is not. Files created through
+the Console are operator-owned and editable. Every valid file in a configured
+override directory is treated as operator-owned. Runtime deletion is intentionally
+not exposed in v0.1; use controlled deployment/configuration management to retire a
+file, then reload the registry.
 
 ## Loading order
 

@@ -24,7 +24,7 @@ import { Badge } from '@/ui/badge';
 import { Button } from '@/ui/button';
 import { Input } from '@/ui/input';
 import { Label } from '@/ui/label';
-import { RadioGroup, RadioGroupItem } from '@/ui/radio-group';
+import { SegmentedControl } from '@/soc/components/SegmentedControl';
 import {
   Select,
   SelectTrigger,
@@ -35,9 +35,9 @@ import {
 import { toast } from 'sonner';
 
 const THEME_OPTIONS: Array<{ value: ThemeMode; label: string; icon: typeof Sun }> = [
+  { value: 'system', label: 'System', icon: Monitor },
   { value: 'light', label: 'Light', icon: Sun },
   { value: 'dark', label: 'Dark', icon: Moon },
-  { value: 'system', label: 'System', icon: Monitor },
 ];
 
 /** The high-traffic terminology keys offered in the editor (each defaulted). */
@@ -149,23 +149,20 @@ export const CustomizationSection: React.FC = () => {
             otherwise your device setting.
           </p>
         </div>
-        <RadioGroup
+        <SegmentedControl
+          aria-label="Personal colour mode"
           value={themeMode}
-          onValueChange={(v) => setThemeMode(v as ThemeMode)}
-          className="flex flex-wrap gap-3"
-        >
-          {THEME_OPTIONS.map(({ value, label, icon: Icon }) => (
-            <Label
-              key={value}
-              htmlFor={`theme-${value}`}
-              className="flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 has-[:checked]:border-primary has-[:checked]:ring-1 has-[:checked]:ring-primary"
-            >
-              <RadioGroupItem id={`theme-${value}`} value={value} />
-              <Icon className="size-4" aria-hidden />
-              <span className="text-sm">{label}</span>
-            </Label>
-          ))}
-        </RadioGroup>
+          onValueChange={setThemeMode}
+          size="sm"
+          options={THEME_OPTIONS.map(({ value, label, icon: Icon }) => ({
+            value,
+            // Keep the selector as compact as the reference control while retaining
+            // a complete accessible name for each radio segment.
+            label: <span className="sr-only">{label}</span>,
+            icon: <Icon aria-hidden />,
+          }))}
+          className="max-w-full rounded-md bg-card/60"
+        />
       </section>
 
       {/* ---- Saved views (personal) ----------------------------------------- */}

@@ -1,9 +1,8 @@
 /**
  * Settings layout primitives — for the Round-3 Settings refactor.
  *
- * - `SettingsGrid`   — a responsive card grid (1 → 2 → 3 cols) that the Settings
- *                      pages drop `SettingsCard`s into. A card can span wide.
- * - `SettingsCard`   — a titled section card with an anchor id (for the TOC),
+ * - `SettingsGrid`   — a responsive settings-section grid (1 → 2 → 3 cols).
+ * - `SettingsCard`   — a flat, divider-led section with an anchor id (for the TOC),
  *                      optional description + header actions + footer.
  * - `StickySaveBar`  — a bottom sticky bar with Save / Discard, shown only when a
  *                      page is dirty; respects busy + disabled states.
@@ -28,7 +27,7 @@ export interface SettingsGridProps extends React.HTMLAttributes<HTMLDivElement> 
 }
 
 /**
- * Responsive Settings card grid: 1 col on small, 2 on `lg`, 3 on `2xl`. Settings
+ * Responsive Settings section grid: 1 col on small, 2 on `lg`, 3 on `2xl`. Settings
  * has both an app rail and a section rail, so the third column waits until the
  * content pane itself has enough breathing room; at 1280px an `xl` breakpoint made
  * action-bearing card headers collapse into one-character text columns. Cards flow
@@ -39,7 +38,7 @@ export const SettingsGrid = React.forwardRef<HTMLDivElement, SettingsGridProps>(
   ({ className, children, ...rest }, ref) => (
     <div
       ref={ref}
-      className={cn('grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3', className)}
+      className={cn('grid grid-cols-1 gap-x-8 gap-y-6 lg:grid-cols-2 2xl:grid-cols-3', className)}
       {...rest}
     >
       {children}
@@ -71,8 +70,9 @@ export interface SettingsCardProps extends Omit<React.HTMLAttributes<HTMLDivElem
 }
 
 /**
- * A titled Settings section card. Carries an `id={anchor}` + `scroll-mt` so the
- * sticky header / TOC can deep-link to it. Border-first, token-themed.
+ * A titled Settings section band. Carries an `id={anchor}` + `scroll-mt` so the
+ * sticky header / TOC can deep-link to it. The flat border treatment mirrors the
+ * command-center dashboard and avoids card-inside-card visual weight.
  */
 export const SettingsCard = React.forwardRef<HTMLDivElement, SettingsCardProps>(
   ({ title, anchor, description, icon: Icon, actions, footer, wide, className, children, ...rest }, ref) => (
@@ -80,16 +80,16 @@ export const SettingsCard = React.forwardRef<HTMLDivElement, SettingsCardProps>(
       ref={ref}
       id={anchor}
       className={cn(
-        'flex scroll-mt-24 flex-col overflow-hidden rounded-lg border border-border bg-card',
+        'flex scroll-mt-24 flex-col overflow-hidden border-y border-border bg-transparent',
         wide === 'full' ? 'lg:col-span-2 2xl:col-span-3' : wide ? 'lg:col-span-2' : '',
         className,
       )}
       {...rest}
     >
-      <header className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
+      <header className="flex items-start justify-between gap-3 border-b border-border/70 px-1 py-4">
         <div className="flex min-w-0 items-start gap-3">
           {Icon ? (
-            <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-surface text-primary">
+            <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center border border-border bg-surface text-primary">
               <Icon className="h-4 w-4" aria-hidden />
             </span>
           ) : null}
@@ -102,8 +102,8 @@ export const SettingsCard = React.forwardRef<HTMLDivElement, SettingsCardProps>(
         </div>
         {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
       </header>
-      <div className="flex-1 px-5 py-4">{children}</div>
-      {footer ? <footer className="border-t border-border px-5 py-3 text-xs text-muted-foreground">{footer}</footer> : null}
+      <div className="flex-1 px-1 py-4">{children}</div>
+      {footer ? <footer className="border-t border-border/70 px-1 py-3 text-xs text-muted-foreground">{footer}</footer> : null}
     </section>
   ),
 );

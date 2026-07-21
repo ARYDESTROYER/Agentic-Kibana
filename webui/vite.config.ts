@@ -1,9 +1,17 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import fs from 'node:fs';
 import path from 'node:path';
+import type { Connect, Plugin } from 'vite';
+import {
+  BUNDLED_DOCUMENTATION,
+  resolveDocumentationAlias,
+  resolveDocumentationDirectory,
+} from './docs.config';
+import { resolveBuildReleaseIdentity } from './release.config';
 
 /**
- * Vite config for TLSOC Console.
+ * Vite config for Agentic SOC.
  *
  * In dev, the SPA is served on :5173 and all `/api/*` calls are proxied to the
  * FastAPI backend on :8088, so the browser talks to the backend DIRECTLY (there
@@ -11,9 +19,87 @@ import path from 'node:path';
  * a different backend during development.
  */
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8088';
+const RELEASE_IDENTITY = resolveBuildReleaseIdentity();
+const DEV_DOCS_ROOT = path.resolve(__dirname, 'public/docs');
+const PREVIEW_DOCS_ROOT = path.resolve(__dirname, 'dist/docs');
+
+function docsRequestBoundary(docsRoot: string): Connect.NextHandleFunction {
+  return (request, response, next) => {
+    if (!request.url) return next();
+    const requestUrl = new URL(request.url, 'http://tlsoc.local');
+    if (requestUrl.pathname !== '/docs' && !requestUrl.pathname.startsWith('/docs/')) {
+      return next();
+    }
+
+    const alias = resolveDocumentationAlias(requestUrl.pathname, BUNDLED_DOCUMENTATION);
+    if (alias) {
+      response.statusCode = 307;
+      response.setHeader('Location', `${alias}${requestUrl.search}${requestUrl.hash}`);
+      response.end();
+      return;
+    }
+
+    let decodedPath: string;
+    try {
+      decodedPath = decodeURIComponent(requestUrl.pathname.slice('/docs/'.length));
+    } catch {
+      response.statusCode = 400;
+      response.end('Malformed documentation path');
+      return;
+    }
+    const candidate = path.resolve(docsRoot, decodedPath);
+    const insideDocs = candidate === docsRoot || candidate.startsWith(`${docsRoot}${path.sep}`);
+    if (!insideDocs) {
+      response.statusCode = 400;
+      response.end('Malformed documentation path');
+      return;
+    }
+
+    const exists = fs.existsSync(candidate);
+    const isDirectory = exists && fs.statSync(candidate).isDirectory();
+    const directoryIndex = isDirectory ? path.join(candidate, 'index.html') : undefined;
+    if (directoryIndex && fs.existsSync(directoryIndex)) {
+      const directoryRequest = resolveDocumentationDirectory(requestUrl.pathname);
+      if (directoryRequest.kind === 'redirect') {
+        response.statusCode = 307;
+        response.setHeader(
+          'Location',
+          `${directoryRequest.path}${requestUrl.search}${requestUrl.hash}`,
+        );
+        response.end();
+        return;
+      }
+      // Vite's history fallback treats a directory URL as a React route even
+      // when that directory contains index.html. Point its static middleware at
+      // the concrete MkDocs file so `/docs/<line>/.../` cannot become the SPA.
+      request.url = `${directoryRequest.path}${requestUrl.search}`;
+      return next();
+    }
+    if (exists && !isDirectory) return next();
+
+    response.statusCode = 404;
+    response.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    response.end('Documentation page not found');
+  };
+}
+
+function bundledDocumentationPlugin(): Plugin {
+  return {
+    name: 'tlsoc-bundled-documentation',
+    configureServer(server) {
+      server.middlewares.use(docsRequestBoundary(DEV_DOCS_ROOT));
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(docsRequestBoundary(PREVIEW_DOCS_ROOT));
+    },
+  };
+}
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [bundledDocumentationPlugin(), react()],
+  define: {
+    __TLSOC_RELEASE_IDENTITY__: JSON.stringify(RELEASE_IDENTITY),
+  },
   resolve: {
     alias: { '@': path.resolve(__dirname, 'src') },
   },

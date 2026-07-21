@@ -2,13 +2,14 @@
 
 The original demo generator emits ECS-shaped values.  That remains useful for
 historical fixtures, but a live product tour should exercise the same parsing
-boundary as a real deployment.  This module therefore renders four synthetic,
+boundary as a real deployment.  This module therefore renders five synthetic,
 vendor-native wire contracts and feeds them through the production receivers:
 
 * Splunk HTTP Event Collector envelopes (``access_combined`` and ES risk events),
 * IBM QRadar LEEF 2.0 events and SIEM offense response objects,
 * Wazuh ``archives.json`` events and ``alerts.json`` rule-bearing alerts, and
-* RFC 5424 syslog with structured data.
+* RFC 5424 syslog with structured data, and
+* Microsoft Graph Entra ID sign-in / Identity Protection records.
 
 Every value is deterministic for a caller-supplied ``random.Random`` and is
 synthetic, labelled data.  There is no network access and no additional runtime
@@ -35,7 +36,7 @@ from ..connectors.receivers.syslog import SyslogReceiver
 from ..connectors.receivers.webhook import HECReceiver, WebhookReceiver
 from ..constants import IngestMode, SourceType
 from ..models import Cursor, RawEvent
-from ..utils import now_utc, relative_to_millis, to_millis
+from ..utils import now_utc, relative_to_millis, stable_signature, to_millis
 from . import demo_generator as gen
 from .mitre import technique as mitre_technique
 
@@ -80,7 +81,7 @@ DEMO_SOURCE_SPECS: dict[str, DemoSourceSpec] = {
         ingest_mode=IngestMode.PUSH_HTTP,
         protocol="HEC / HTTPS",
         wire_format="Splunk HEC JSON (access_combined + ES risk)",
-        rate_share=0.30,
+        rate_share=0.24,
     ),
     "qradar": DemoSourceSpec(
         key="qradar",
@@ -91,7 +92,7 @@ DEMO_SOURCE_SPECS: dict[str, DemoSourceSpec] = {
         ingest_mode=IngestMode.PUSH_HTTP,
         protocol="LEEF 2.0 + REST",
         wire_format="LEEF 2.0 events + /api/siem/offenses JSON",
-        rate_share=0.20,
+        rate_share=0.16,
     ),
     "wazuh": DemoSourceSpec(
         key="wazuh",
@@ -102,7 +103,7 @@ DEMO_SOURCE_SPECS: dict[str, DemoSourceSpec] = {
         ingest_mode=IngestMode.PUSH_HTTP,
         protocol="Wazuh JSON",
         wire_format="archives.json events + alerts.json alerts",
-        rate_share=0.30,
+        rate_share=0.24,
     ),
     "syslog": DemoSourceSpec(
         key="syslog",
@@ -113,11 +114,24 @@ DEMO_SOURCE_SPECS: dict[str, DemoSourceSpec] = {
         ingest_mode=IngestMode.PUSH_SYSLOG,
         protocol="RFC 5424 / RFC 3164",
         wire_format="RFC 5424 structured + RFC 3164 BSD syslog",
+        rate_share=0.16,
+    ),
+    "entra": DemoSourceSpec(
+        key="entra",
+        source_id="demo-entra-id",
+        display_name="Microsoft Entra ID / Active Directory",
+        # The existing Microsoft cloud connector enum is Sentinel; the demo wire
+        # contract itself is Graph auditLogs/signIns + Identity Protection JSON.
+        source_type=SourceType.SENTINEL,
+        category="identity",
+        ingest_mode=IngestMode.PUSH_HTTP,
+        protocol="Microsoft Graph / HTTPS",
+        wire_format="Entra ID auditLogs/signIns + Identity Protection JSON",
         rate_share=0.20,
     ),
 }
 
-# Compatibility lookup only.  Iterating DemoSourceMap yields the four new sources,
+# Compatibility lookup only.  Iterating DemoSourceMap yields the five new sources,
 # so no legacy row leaks into the UI/API overlay.
 LEGACY_SOURCE_ALIASES: dict[str, str] = {
     "siem": "splunk",
@@ -163,6 +177,10 @@ _NATIVE_ALERT_RULES: dict[str, tuple[str, str]] = {
     "splunk": ("LP-ES-RISK-0099", "Known scanner raised a low-risk notable"),
     "qradar": ("LP QRadar: low-confidence scanner offense", "Low-confidence scanner offense"),
     "wazuh": ("100190", "Repeated authentication failure from a known scanner"),
+    "entra": (
+        "Entra ID Protection: low-confidence unfamiliar sign-in properties",
+        "Low-confidence unfamiliar sign-in properties",
+    ),
 }
 SOURCE_NATIVE_ALERT_KEYS: tuple[str, ...] = tuple(_NATIVE_ALERT_RULES)
 SYSLOG_DETECTION_RULE_IDS: frozenset[str] = frozenset(
@@ -284,7 +302,7 @@ def render_qradar_leef(signal: NativeSignal) -> str:
         f"ecs-ec {procid} LEEF -"
     )
     leef = (
-        f"LEEF:2.0|LumenPay|TLSOC Demo Sources|1.0|{signal.rule_id}|^|{payload}"
+        f"LEEF:2.0|LumenPay|Agentic SOC Demo Sources|1.0|{signal.rule_id}|^|{payload}"
     )
     return f"{header} {leef}"
 
@@ -450,6 +468,76 @@ def render_rfc3164(signal: NativeSignal) -> str:
     return f"<{pri}>{timestamp} {signal.host} sshd[{procid}]: {_safe_text(msg)}"[:1024]
 
 
+def render_entra_signin(signal: NativeSignal) -> str:
+    """Render a Microsoft Graph ``auditLogs/signIns``-shaped record.
+
+    The payload is offline synthetic data but keeps Entra's native field vocabulary
+    (risk levels/state/detail, Conditional Access status, status/errorCode, device and
+    location objects). ``_demo`` is a bounded extension used only to map the normalized
+    0..100 severity and deterministic rule identity through the generic receiver.
+    """
+    risky = signal.native_alert or signal.severity >= 70
+    obj = {
+        "id": signal.native_id,
+        "createdDateTime": _iso_millis(signal.timestamp_millis),
+        "userDisplayName": signal.user.split("@")[0].replace(".", " ").title(),
+        "userPrincipalName": (
+            signal.user if "@" in signal.user else f"{signal.user}@lumenpay.example"
+        ),
+        "userId": stable_signature("demo-entra-user", signal.user),
+        "ipAddress": signal.source_ip,
+        "appDisplayName": "LumenPay Borrower Operations",
+        "resourceDisplayName": "Microsoft Graph",
+        # Plain-text rendering fallback for the unified log browser. The canonical
+        # Entra status/risk fields remain present below; this bounded extension keeps
+        # the common source browser useful without source-specific UI branching.
+        "message": signal.message,
+        "clientAppUsed": "Browser",
+        "authenticationRequirement": "multiFactorAuthentication",
+        "conditionalAccessStatus": "failure" if risky else "success",
+        "isInteractive": True,
+        "riskDetail": "adminConfirmedCompromised" if risky else "none",
+        "riskLevelAggregated": "high" if risky else "none",
+        "riskLevelDuringSignIn": "high" if risky else "none",
+        "riskState": "atRisk" if risky else "none",
+        "status": {
+            "errorCode": 53003 if risky and signal.outcome == "blocked" else 0,
+            "failureReason": "Blocked by Conditional Access" if signal.outcome == "blocked" else "",
+            "additionalDetails": "MFA requirement satisfied" if signal.outcome == "success" else "",
+        },
+        "deviceDetail": {
+            "deviceId": stable_signature("demo-entra-device", signal.host),
+            "displayName": signal.host,
+            "operatingSystem": "Windows 11",
+            "browser": "Edge 126",
+            "isCompliant": not risky,
+            "isManaged": True,
+            "trustType": "Microsoft Entra joined",
+        },
+        "location": {
+            "city": "Mumbai" if not risky else "Documentation Range",
+            "countryOrRegion": "IN" if not risky else "ZZ",
+            "geoCoordinates": {"latitude": None, "longitude": None},
+        },
+        "appliedConditionalAccessPolicies": [{
+            "displayName": "Require MFA for SOC-sensitive applications",
+            "enforcedGrantControls": ["Mfa"],
+            "result": "failure" if risky else "success",
+        }],
+        "_demo": {
+            "severity": signal.severity,
+            "rule_id": signal.rule_id,
+            "rule_name": signal.rule_name,
+            "message": signal.message,
+            "action": signal.action,
+            "outcome": signal.outcome,
+            "story_id": signal.story_id,
+            "mitre_technique_id": list(signal.techniques),
+        },
+    }
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"))
+
+
 class _SplunkDemoReceiver(HECReceiver):
     source_type = SourceType.SPLUNK
 
@@ -460,6 +548,10 @@ class _QRadarDemoReceiver(WebhookReceiver):
 
 class _WazuhDemoReceiver(WebhookReceiver):
     source_type = SourceType.WAZUH
+
+
+class _EntraDemoReceiver(WebhookReceiver):
+    source_type = SourceType.SENTINEL
 
 
 class NativeDemoSource:
@@ -554,6 +646,20 @@ class NativeDemoSource:
                 "time_field": "timestamp",
             },
         }, connector_id=self.connector_id)
+        self._entra = _EntraDemoReceiver({
+            "auth_mode": "none",
+            "format_hint": "json",
+            "field_mappings_extra": {
+                "source_ip_field": "ipAddress",
+                "user_field": "userPrincipalName",
+                "host_field": "deviceDetail.displayName",
+                "message_field": "message",
+                "severity_field": "_demo.severity",
+                "rule_field": "_demo.rule_id",
+                "rule_name_field": "_demo.rule_name",
+                "time_field": "createdDateTime",
+            },
+        }, connector_id=self.connector_id)
         self._syslog = SyslogReceiver({
             "format_hint": "auto",
             "field_mappings_extra": {
@@ -580,6 +686,8 @@ class NativeDemoSource:
         elif self.spec.key == "wazuh":
             receiver = self._wazuh_alert if native_alert else self._wazuh_archive
             events = receiver.handle_request(body, headers, prefs)
+        elif self.spec.key == "entra":
+            events = self._entra.handle_request(body, headers, prefs)
         else:
             events = self._syslog.parse(body, prefs)
 
@@ -608,6 +716,8 @@ class NativeDemoSource:
             payload = render_qradar_offense(signal) if signal.native_alert else render_qradar_leef(signal)
         elif self.spec.key == "wazuh":
             payload = render_wazuh_alert(signal) if signal.native_alert else render_wazuh_archive(signal)
+        elif self.spec.key == "entra":
+            payload = render_entra_signin(signal)
         else:
             try:
                 ordinal = int(signal.native_id.rsplit("-", 1)[-1])
@@ -649,7 +759,7 @@ class NativeDemoSource:
         )
 
     def record_system_detections(self, count: int) -> None:
-        """Record detections TLSOC raised from this source's raw telemetry."""
+        """Record detections Agentic SOC raised from this source's raw telemetry."""
         self._system_detections_total += max(0, int(count))
 
     def _benign_signal(self, rng: random.Random, ts_millis: int, ordinal: int) -> NativeSignal:
@@ -658,6 +768,7 @@ class NativeDemoSource:
             "qradar": [h for h in self._org.hosts if h.segment in ("siem", "xdr")],
             "wazuh": [h for h in self._org.hosts if h.segment == "edr"],
             "syslog": [h for h in self._org.hosts if h.segment == "xdr"],
+            "entra": list(self._org.hosts),
         }
         hosts = host_pools[self.spec.key] or list(self._org.hosts)
         host = hosts[rng.randrange(len(hosts))]
@@ -668,6 +779,7 @@ class NativeDemoSource:
             "qradar": ("LP-QR-0001", "Allowed application flow", "allow"),
             "wazuh": ("osquery_process_event", "Expected signed process start", "process_start"),
             "syslog": ("SSHD-SESSION", "SSH session accepted", "authentication"),
+            "entra": ("Entra sign-in", "Successful interactive sign-in", "authentication"),
         }
         rule_id, rule_name, action = rules[self.spec.key]
         native_id = f"{self.spec.source_id}-{ts_millis}-{ordinal:04d}"
@@ -750,7 +862,7 @@ class NativeDemoSource:
     ) -> list[RawEvent]:
         """One source's contribution to a coherent incident.
 
-        Splunk/QRadar/Wazuh each produce one native detection.  Syslog produces a
+        Splunk/QRadar/Wazuh/Entra each produce one native detection. Syslog produces a
         four-event raw burst with the same entity/rule; the demo event funnel detects
         that threshold and creates TLSOC's own alert.
         """
@@ -933,7 +1045,7 @@ class NativeDemoSource:
 
 
 class DemoSourceMap(Mapping[str, NativeDemoSource]):
-    """Four-source mapping with non-iterated aliases for legacy demo tests/routes."""
+    """Five-source mapping with non-iterated aliases for legacy demo tests/routes."""
 
     def __init__(self, sources: dict[str, NativeDemoSource]) -> None:
         self._sources = dict(sources)
@@ -955,7 +1067,7 @@ def build_native_demo_sources(
     now_millis: int,
     prime_count: int = 12,
 ) -> DemoSourceMap:
-    """Build and prime the isolated four-source collection."""
+    """Build and prime the isolated five-source collection."""
     sources = {
         key: NativeDemoSource(key, seed=seed)
         for key in DEMO_SOURCE_SPECS

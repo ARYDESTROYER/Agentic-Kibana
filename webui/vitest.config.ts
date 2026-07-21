@@ -2,6 +2,9 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
+import { resolveBuildReleaseIdentity } from './release.config';
+
+const RELEASE_IDENTITY = resolveBuildReleaseIdentity();
 
 /**
  * Vitest config for the webui (dev-only). Kept SEPARATE from `vite.config.ts`
@@ -10,6 +13,9 @@ import path from 'node:path';
  */
 export default defineConfig({
   plugins: [react()],
+  define: {
+    __TLSOC_RELEASE_IDENTITY__: JSON.stringify(RELEASE_IDENTITY),
+  },
   resolve: {
     alias: { '@': path.resolve(__dirname, 'src') },
   },

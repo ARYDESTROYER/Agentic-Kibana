@@ -1,11 +1,11 @@
 ---
 title: First-run setup
-description: Configure identity, sources, model providers, and safe defaults in the TLSOC setup flow.
+description: Configure identity, sources, model providers, and safe defaults in the Agentic SOC setup flow.
 ---
 
 # First-run setup
 
-This guide applies to **TLSOC 0.1** and is for administrators opening a new TLSOC
+This guide applies to **Agentic SOC 0.1** and is for administrators opening a new Agentic SOC
 Console for the first time. The console shows setup instead of the operational
 workspace until the deployment is marked complete.
 
@@ -21,7 +21,7 @@ Have the following ready:
 
 ## 1. Secure the administrator account
 
-When authentication is enabled and no user exists, TLSOC can bootstrap an initial
+When authentication is enabled and no user exists, Agentic SOC can bootstrap an initial
 administrator. If the deployment presents the seeded `Admin` account, replace its
 default password immediately and create named accounts before connecting real data.
 Never retain demo credentials on a shared deployment.

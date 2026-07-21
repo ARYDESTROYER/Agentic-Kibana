@@ -321,6 +321,19 @@
 }
 
 @layer utilities {
+  /* Defined in CSS (rather than only in Tailwind's theme registry) because the
+     shared `.shimmer::after` rule references it directly. Tailwind emits theme
+     keyframes only when their matching utility class is discovered; without this
+     explicit definition every skeleton rendered as a motionless muted block. */
+  @keyframes shimmer {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(100%);
+    }
+  }
+
   /* Thin, subtle scrollbars (both themes). */
   * {
     scrollbar-width: thin;
@@ -341,7 +354,7 @@
     background-clip: padding-box;
   }
   /* Skeleton shimmer sweep used by the Skeleton primitive. A slow, restrained
-     sweep (~1.8s) that reads as "loading" without drawing attention to itself. */
+     highlight that reads as "loading" without turning dense tables into noise. */
   .shimmer::after {
     content: '';
     position: absolute;
@@ -350,10 +363,14 @@
     background: linear-gradient(
       90deg,
       transparent 0%,
-      hsl(var(--muted-foreground) / 0.1) 50%,
+      hsl(var(--muted-foreground) / 0.04) 35%,
+      hsl(var(--foreground) / 0.14) 50%,
+      hsl(var(--muted-foreground) / 0.04) 65%,
       transparent 100%
     );
-    animation: shimmer 1.8s ease-in-out infinite;
+    animation: shimmer 1.65s var(--motion-ease-standard, ease-in-out) infinite;
+    pointer-events: none;
+    will-change: transform;
   }
 }
 

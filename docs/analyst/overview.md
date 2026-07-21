@@ -11,23 +11,48 @@ changing any case or detection policy.
 
 ## Read the page from top to bottom
 
-1. **Decision brief** — scan current risk, SLA pressure, and the highest-value case
-   movement first.
-2. **Case KPIs** — review cases opened and resolved, the open queue, and the
-   needs-human workload for the selected time window.
-3. **Burndown and response timing** — look for backlog growth and changes in MTTD,
-   MTTA, MTTR, or dwell.
-4. **Top open cases** — open a case to see the source facts, investigation, and
-   deterministic decision separately.
-5. **Deeper analytics** — inspect autonomy, connector coverage, case volume,
-   workload, outcomes, top signatures, and top entities.
+1. **Select a time window** — the primary case counts and comparison deltas use the
+   same range. The page opens at **Last 24 hours** with **LIVE** selected. LIVE
+   refreshes every five seconds while the browser tab is visible and pauses while it
+   is hidden. Choose Off, 5 seconds, 30 seconds, 1 minute, or 5 minutes when a
+   different operating cadence is more appropriate.
+2. **Read the five operational KPIs** — Open Cases, Critical / High, Escalated to
+   Human, False Positive Rate, and Auto-resolved. The Open total includes every
+   non-terminal lifecycle (`new`, `open`, `needs_human`, `investigating`,
+   `escalated`, and `on_hold`). Critical / High covers both open and resolved cases
+   in the selected window and states that split explicitly.
+3. **Use the instrument row** — Active Risk Index summarizes pressure across the
+   entire open queue; the Open and Resolved composition rings show severity mix;
+   Latest Cases shows exactly four recent records and reveals bounded detail on
+   hover or keyboard focus.
+4. **Inspect Noise Reduction** — follow the ribbon from alerts ingested through
+   clustering, cases opened, AI auto-clear, escalation, and human closure. Each
+   stage retains its count and percentage without decorative icon noise. Choose
+   **Expand** for a near-fullscreen, horizontally scrollable view. Beneath the aggregate
+   flow, inspect a lazy bounded sample of newest case-forming paths from one-way alert
+   references through the persisted deterministic cluster and opened case to its current
+   or terminal outcome. Coverage, store-page, and sample notices identify every bound
+   instead of presenting partial data as complete.
+5. **Check burndown and response timing** — look for backlog growth and changes in
+   MTTD, MTTA, MTTR, or dwell, then open **Deeper analytics** for autonomy,
+   connector coverage, workload, outcomes, top signatures, and top entities.
+
+The primary Open and Resolved controls drill directly into the matching case scope.
+The combined Critical / High tile opens the selected-window case list without
+pretending that the single-severity Cases filter can express both bands at once; its
+visible open/resolved arithmetic remains the authoritative combined total. A case
+opened from Latest Cases retains its full provenance and deterministic decision.
 
 The dashboard shows an explicit empty or degraded state when there is not enough
 data. A zero is not substituted for a timing metric that has no eligible samples.
+Noise Reduction does not expose raw alert identifiers or payloads. Alerts that never formed
+a case remain represented only by aggregate counters. For the full context around one
+sampled case, follow its Case Manager link and open **Threat context → How this case was
+clustered**.
 
 ## Provenance matters
 
-TLSOC keeps three responsibilities separate:
+Agentic SOC keeps three responsibilities separate:
 
 - **Source says** — fields and detections reported by a connected system.
 - **Agent found** — the model's assessment, supporting evidence, confidence, and
@@ -40,10 +65,11 @@ authorization to close a case.
 
 ## Time and scope
 
-Dashboard values are windowed rollups. Compare the selected period with its previous
-period instead of comparing tiles that use different windows. Timing cards expose
-their sample availability, and source coverage is reported independently of case
-volume: a quiet source and an unread source are not the same condition.
+Selected-window cards are windowed rollups. Active Risk is deliberately a current
+open-queue measure rather than a historical-window total, and its help text states
+that scope. Timing cards expose their sample availability, and source coverage is
+reported independently of case volume: a quiet source and an unread source are not
+the same condition.
 
 The posture endpoints require `metrics:view` where RBAC is enabled. Case drill-down
 requires `cases:read`; source health requires `sources:read`.

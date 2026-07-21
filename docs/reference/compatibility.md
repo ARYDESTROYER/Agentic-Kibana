@@ -1,6 +1,6 @@
 ---
 title: Compatibility
-description: Supported runtimes, state backends, telemetry sources, providers, deployment shapes, and contract expectations for TLSOC 0.1.
+description: Supported runtimes, state backends, telemetry sources, providers, deployment shapes, and contract expectations for Agentic SOC 0.1.
 ---
 
 # Compatibility
@@ -12,22 +12,27 @@ distinguishes implemented support from enum placeholders and archived components
 
 | Component | Version 0.1 baseline | Notes |
 |---|---|---|
-| TLSOC API | Python 3.11 or newer | Dependency pins are in `backend/requirements.txt`; project metadata requires Python `>=3.11` |
-| TLSOC Console | Node 22 for install/build | React 18, Vite 5, TypeScript 5.6, Tailwind, and Radix/shadcn-style primitives |
-| Container frontend | nginx | Serves the compiled SPA and proxies relative `/api/*` requests |
+| Agentic SOC API | Python 3.11 or newer | Dependency pins are in `backend/requirements.txt`; project metadata requires Python `>=3.11` |
+| Agentic SOC Console | Node 22 for install/build | React 18, Vite 5, TypeScript 5.6, Tailwind, and Radix/shadcn-style primitives |
+| Container frontend | nginx | Serves the compiled SPA, version-matched `/docs/<major.minor>/` Help Center, and relative `/api/*` proxy |
 | Event schema | OCSF 1.4.0 | Every connector normalizes before the engine processes an event |
-| Documentation | MkDocs Material with Mike | Public selector uses `0.1`; packages and images use `0.1.0` |
+| Documentation | MkDocs Material; Mike for public publication | Every app serves its installed 0.1 guide at `/docs/0.1/`; the public selector uses `0.1`; packages/images use `0.1.0` |
 
-The TLSOC Console is the only supported primary UI. It does not require Kibana. The
+The Agentic SOC Console is the only supported primary UI. It does not require Kibana. The
 former Kibana plugin is archived, frozen, and excluded from current build/test/release
 workflows.
+
+The same-origin installed Help Center is authoritative for the running build and is
+generated before every canonical Console build. Public Stable documentation is a
+secondary upgrade/comparison surface; Testing documentation is a preview. An
+internet connection is not required to open the installed guide.
 
 ## State backends
 
 | Backend | Supported baseline | Vector behavior | Deployment notes |
 |---|---|---|---|
 | PostgreSQL | 15/16 with pgvector | pgvector-backed retrieval | The reference standalone stack uses the `pg16` image |
-| Elasticsearch | 8.x; client pinned to 8.12.1 and legacy stack target 8.19.12 | TLSOC vector-store implementation for the ES profile | Requires a management key scoped only to `tlsoc-agent-*` |
+| Elasticsearch | 8.x; client pinned to 8.12.1 and legacy stack target 8.19.12 | Agentic SOC vector-store implementation for the ES profile | Requires a management key scoped only to `tlsoc-agent-*` |
 | SQLite | SQLite through `aiosqlite` | SQL/in-process-compatible development path | Single-node file profile; exercised by the offline test suite |
 
 The state backend is independent of telemetry connectors. A PostgreSQL deployment can
@@ -67,7 +72,7 @@ All providers are called through the same usage/cost-ledger gateway. A provider 
 listed does not imply that every model name, region, or account feature has been
 certified; test the configured model from the Console/API.
 
-TLSOC registers 19 enrichment provider classes. Providers are selected by indicator
+Agentic SOC registers 19 enrichment provider classes. Providers are selected by indicator
 kind, enablement, and key availability. Keyless services and Redis/in-memory cache
 fallbacks reduce setup requirements, but third-party service availability, rate limits,
 licensing, and response contracts remain external dependencies.
@@ -76,12 +81,12 @@ licensing, and response contracts remain external dependencies.
 
 | Shape | Application state | Source model | Supported UI |
 |---|---|---|---|
-| Standalone Compose | PostgreSQL/pgvector plus Redis | Add pull/push sources from setup | TLSOC Console behind nginx |
-| Legacy ELK merge | Elasticsearch `tlsoc-agent-*` plus Redis | Read-only connection to the existing log indices | TLSOC Console deployed separately/alongside |
+| Standalone Compose | PostgreSQL/pgvector plus Redis | Add pull/push sources from setup | Agentic SOC Console behind nginx |
+| Legacy ELK merge | Elasticsearch `tlsoc-agent-*` plus Redis | Read-only connection to the existing log indices | Agentic SOC Console deployed separately/alongside |
 | Direct development | Elasticsearch, SQLite, or configured PostgreSQL | Explicit connectors or implicit Elastic defaults | Vite development server |
 
 The legacy merge does not modify Kafka, Logstash, the upstream detection engine,
-Elasticsearch log indices, or Kibana. TLSOC is a read-only consumer of that telemetry
+Elasticsearch log indices, or Kibana. Agentic SOC is a read-only consumer of that telemetry
 path.
 
 ## API and stored-data compatibility
@@ -104,6 +109,10 @@ Persisted Pydantic models generally use defaults/migrations for additive fields,
 shared KV stores avoid a new table for many features. Version 0.1 does not yet provide
 a complete database migration/rollback framework. See [Upgrades](../operations/upgrades.md).
 
+The current remote exposes `Testing` and legacy/default `claude/main`, not literal
+`main`; therefore the Stable promotion prerequisite remains outstanding. A branch
+name containing `main` does not grant Stable provenance.
+
 ## Browser, proxy, and network expectations
 
 No formal per-browser certification matrix is published for 0.1. Use a maintained
@@ -118,7 +127,7 @@ egress, but source and enrichment network paths still depend on configuration.
 
 ## Explicitly unsupported or unverified claims
 
-TLSOC 0.1 does not claim high availability, coordinated horizontal workers,
+Agentic SOC 0.1 does not claim high availability, coordinated horizontal workers,
 multi-tenant row isolation, universal push-transport durability, autonomous write-side
 response, or production certification for every source/provider combination. Review
 [Known limitations](../releases/known-limitations.md) and [Security](security.md)

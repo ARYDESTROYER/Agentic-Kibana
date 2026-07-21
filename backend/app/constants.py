@@ -245,7 +245,7 @@ class CaseStatus(str, Enum):
     OPEN = "open"                  # retained — investigated, awaiting analyst
     NEEDS_HUMAN = "needs_human"    # retained alias of "open · awaiting analyst" (decide() still uses it)
     INVESTIGATING = "investigating"  # an analyst / re-investigation is actively working it
-    ESCALATED = "escalated"        # flagged high-priority for senior / Tier-3
+    ESCALATED = "escalated"        # marked for analyst escalation; never a displayed tier
     ON_HOLD = "on_hold"            # paused (awaiting info / maintenance / third party)
     RESOLVED = "resolved"          # worked to completion, pending final close / audit
     CLOSED = "closed"              # retained — terminal
@@ -328,6 +328,7 @@ class ActionType(str, Enum):
     CONTEXT = "context"        # the injected investigation context (RAG/memory/enrichment) — explainability
     PROPOSAL = "proposal"      # agent drafted / human approved-rejected a HITL proposal
     AUTOMATION = "automation"  # a post-decision threshold-automation action (tag/recommend/notify/run_playbook/request_approval) — NEVER sets status (#3)
+    PLAYBOOK = "playbook"        # operator-authored Markdown playbook create/update/reload (recommendation context only, #3)
     NOTIFICATION = "notification"  # an outbound notification send attempt (email/slack/teams/webhook/...)
     USER_MGMT = "user_mgmt"        # user-management action (create/update/delete/role/password reset)
     AUTH_EVENT = "auth"            # login success/failure, logout, password change (auth events)
@@ -342,6 +343,7 @@ class ActionType(str, Enum):
     # deterministic case decision, #3). ---
     TUNING = "tuning"              # a threshold-tuning suggestion applied / shadow-evaluated
     RESET = "reset"                # an operator reset of cases/sources/factory state
+    DATA_EXPORT = "data_export"    # privileged, secret-free portable application-state export
 
 
 class UserRole(str, Enum):

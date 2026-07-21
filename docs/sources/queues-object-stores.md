@@ -5,7 +5,7 @@ description: Connect broker, stream, object-store, and file receivers while pres
 
 # Queues and object stores
 
-This guide applies to **TLSOC 0.1** and is for operators integrating retained
+This guide applies to **Agentic SOC 0.1** and is for operators integrating retained
 transports. The default full backend image includes the client libraries named by
 the built-in connector manifests; an intentionally lean core build may omit them.
 
@@ -36,18 +36,18 @@ the [support matrix](support-matrix.md) for connector-specific limits.
 
 ## Acknowledgment principle
 
-The source transport should retain a record until TLSOC confirms processing. Kafka
+The source transport should retain a record until Agentic SOC confirms processing. Kafka
 withholds its offset commit after a processing error, and S3 notification mode
 retains a failed queue message. Other transports must be tested against their client
 and provider behavior.
 
-TLSOC uses stable source identities and cursors to make retry safer, but network
+Agentic SOC uses stable source identities and cursors to make retry safer, but network
 exactly-once delivery is not claimed. Idempotent source IDs, retained input, and
 replay procedures remain necessary.
 
 ## Checkpoints and restart
 
-Object-store and Kinesis receivers can attach to the TLSOC cursor store. Broker
+Object-store and Kinesis receivers can attach to the Agentic SOC cursor store. Broker
 offsets or subscriptions may also be durable in the provider. The exact guarantee is
 connector-specific; do not infer a shared durability level from the word “queue.”
 

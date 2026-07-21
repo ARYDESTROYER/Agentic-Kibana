@@ -1,4 +1,4 @@
-# AGENTS.md — TLSOC Agentic Triage Suite (master context for all agents)
+# AGENTS.md — Agentic SOC (master context for all agents)
 
 > **New here? Read [`docs/HANDOFF.md`](docs/HANDOFF.md) first** (where we are, how to
 > run it, what's done/next), then this file.
@@ -16,12 +16,23 @@
 > across sub-agents. If you did work and did not journal it, the work is not done.
 > Sub-agents that cannot commit must return their Journal entry in their final
 > report so the orchestrator appends it. See the Journal format at the bottom.
+>
+> **Journal boundary:** product work, repository decisions, milestones, test results,
+> and blockers belong in the Journal. Ad-hoc questions about a local deployment,
+> localhost URLs/processes, and purely local run/stop/status assistance do **not**.
+> Never record local credentials, tokens, host-specific paths, or transient runtime
+> details in the Journal.
+>
+> **Temporary task memory:** a long-running agent may keep a root `memory.md` scratchpad
+> to survive context compaction. It is local-only, is ignored by Git, contains no
+> secrets, and MUST be deleted when the task is complete. It is never staged,
+> committed, or pushed. `Journal.md` remains the durable repository history.
 
 ---
 
 ## 1. What this is
 
-The **TLSOC Agentic Triage Suite** is a **vendor-agnostic** agentic SOC (Security
+**Agentic SOC** is a **vendor-agnostic** agentic SOC (Security
 Operations Center) triage system. It turns raw alert volume into audited,
 cost-metered, human-reviewable cases. It was **built next to** the original
 TrustLab / IIT Bombay ELK pipeline and still attaches to it cleanly as a
@@ -34,6 +45,14 @@ TrustLab / IIT Bombay ELK pipeline and still attaches to it cleanly as a
 - **Selectable state backend.** The suite's OWN bookkeeping runs on Elasticsearch
   (default), PostgreSQL+pgvector, or SQLite via `STATE_BACKEND`.
 - **Standalone web UI** is the **primary** surface; the Kibana plugin is archived.
+
+**Naming contract:** **Agentic SOC** is the product name shown to operators.
+`TLSOC` remains the compatibility namespace for technical identifiers that cannot be
+renamed casually: `TLSOC_*` environment variables, `tlsoc-*` service/image names,
+`tlsoc-agent-*` indices, `tlsoc_*` storage/cookie names, `X-TLSOC-*` headers,
+`tlsoc.connectors` entry points, existing API fields, and Python/package paths. New
+operator copy says Agentic SOC or Console; do not rename a wire identifier as part of
+a branding or documentation edit.
 
 The original upstream pipeline (when attached, we do NOT modify it):
 ```
@@ -61,7 +80,8 @@ Authoritative companion docs (keep them in sync when you change behavior):
 (deploy), `docs/USAGE.md` (use + examples),
 `docs/TROUBLESHOOTING.md` (failures), `COMPATIBILITY.md` (upstream compatibility),
 `docs/ENVIRONMENT.md` (environments), `docs/VIGIL_STUDY.md` (Vigil study + overhaul
-plan), `ROADMAP.md` (work tracking).
+plan), `docs/development/ui-standard.md` (current Console visual/interaction
+contract), `ROADMAP.md` (work tracking).
 
 ## 2. Target versions
 
@@ -77,7 +97,7 @@ plan), `ROADMAP.md` (work tracking).
 
 ```
 ┌────── PRIMARY surface: standalone Web UI (webui/, Vite+React+Tailwind+shadcn) ─────┐
-│ SPA: Wizard · Chat · Investigate · Automated Scans · Standup · Cost · Settings     │
+│ SPA: Wizard · Chat · Entity Investigation · Case Manager · Standup · Cost · Settings │
 │ api (webui/src/lib) → /api proxy (nginx) ───────────────────────▶ tlsoc-backend    │
 └────────────────────────────────────────────────────────────────────────┬──────────┘
   (LEGACY surface) Kibana plugin → core.http /api/tlsoc/{path*}            │
@@ -115,7 +135,9 @@ backend/app/
                      per-source connector_secrets) + Preferences (UI-editable,
                      incl. sources[] SourceInstance list; Round-4:
                      {threshold_tuning,batch,baseline,campaign} config blocks
-                     (tuning/baseline/campaign ON; batch opt-in) +
+                     (tuning/baseline/campaign ON; async Batch opt-in; compatible
+                     live OpenAI case/alert Flex preference default ON with truthful
+                     standard fallback) +
                      caps.max_concurrent + BrandingConfig.login_*
                      bounded plain-text white-label [validator rejects any `<`, #9];
                      AutomationRule → CaseAutomationRule (alias kept, wire key
@@ -136,7 +158,7 @@ backend/app/
   es/                base (ABC) · client (real, two-key) · fake (in-memory) ·
                      querybuilder · indices (templates + bootstrap)
   llm/               gateway (THE cost-ledger choke point) · providers (Round-4:
-                     cache-token extraction + OpenAI `service_tier='flex'` opt-in +
+                     cache-token extraction + guarded OpenAI `service_tier='flex'` +
                      wired `with_retry`) · pricing (Round-4: `Codex-opus-4-8`
                      corrected $15/$75 → $5/$25 ctx→1M; cache rates applied — read
                      0.1× / write 1.25×[5m]/2×[1h], batch 0.5×; non-cache math
@@ -252,7 +274,7 @@ backend/app/
                      /account/me+/me/avatar, /demo/*, /proposals, /settings/schema;
                      Round-4: acknowledge → INVESTIGATING + GET /api/logs [unified
                      scatter-gather over browse-capable sources] + /cases/{id}/forwarding
-                     + /sources/health) + **20 `routes_*.py` feature routers**, ALL
+                     + /sources/health) + **21 `routes_*.py` feature routers**, ALL
                      auto-discovered at boot (`main.py::discover_feature_routers()` walks
                      `app.api.routes_*`, requires a top-level `router: APIRouter` — no
                      manual registration needed): Round-3's routes_metrics ·
@@ -270,7 +292,9 @@ backend/app/
                      `/branding/presets` endpoint). All paths byte-identical across the
                      decomposition; +`POST /api/triage/preview-decision` [rule Test/Preview
                      that NEVER calls decide()/bills the LLM #3/#6] + typed baseline/
-                     campaign/batch config endpoints.
+                     campaign/batch config endpoints + routes_export [`POST
+                     /api/admin/export`, bounded secret-free
+                     application-state JSON behind `data_export:export`];
                      mounted in main.py · deps (require_auth + require_permission +
                      require_fresh_auth + custom-role union enforcement + session check) ·
                      state.py (DI hub; exposes enrichment_registry + event_bus) · main.py
@@ -278,7 +302,8 @@ backend/playbooks/   operator-authored *.md PLAYBOOKS (+ README) — data, not c
                      dir overridable via Preferences.playbooks.dir
 backend/tests/       offline tests (fake ES + mock LLM; SQL store on SQLite) — green
 webui/               PRIMARY surface: standalone Vite+React+TS+Tailwind+shadcn/Radix SPA
-  package.json       Node 22; Tailwind + Radix primitives; build = tsc --noEmit && vite build
+  package.json       Node 22; Tailwind + Radix primitives; `npm run build` bundles the
+                     version-matched Help Center, then runs tsc --noEmit + Vite
   src/               main.tsx · styles/theme.css (design tokens + Round-3 allow-listed
                      theme tokens + material chrome vars + Round-5: Radix slate+blue base +
                      3 orthogonal semantic axes severity/status/verdict each token/-fg/-text,
@@ -290,6 +315,11 @@ webui/               PRIMARY surface: standalone Vite+React+TS+Tailwind+shadcn/R
                      [custom-dashboard builder/grid/widget registry, LAZY react-grid-layout] ·
                      hooks/*; pages/* incl. Users/Security/Approvals/Knowledge/Memory + Round-3
                      Models/Roles/Inbox + Metrics tabs + CaseDetail chips/trace/collab +
+                     CaseManager (canonical detail workspace; Active/All split-pane
+                     queue, persisted accessible desktop resize, selection +
+                     permission-gated bulk work, full six-tab detail; Cases list
+                     hands an opened row to the exact Case Manager record) +
+                     Docs (same-origin, version-matched Help Center discovery hub) +
                      Round-5 Dashboards.tsx + settings/* data-driven section files [was a
                      2673-line god-file, now a section registry]; components/* incl. Can RBAC
                      guard, MfaSetupCard, QRCode, NotificationsEditor, RiskGauge, palette +
@@ -365,15 +395,19 @@ See `docs/ENVIRONMENT.md` for the full detail. Summary:
   CDNs (`edgedl.me.gvt1.com`, `cdn.playwright.dev`,
   `playwright.download.prss.microsoft.com`), `ci-stats.kibana.dev` (telemetry).
 - **webui (primary surface) builds fully here:** `cd webui && npm install &&
-  npm run build` (= `tsc --noEmit && vite build`); no browser/Playwright needed —
-  the static `dist/` bundle IS the check.
+  npm run build`; this first builds the installed `/docs/<major.minor>/` Help Center
+  from the pinned MkDocs requirements (bootstrapping ignored `.docs-venv/` when
+  needed), then runs `tsc --noEmit && vite build`. `npm run build:app` is the
+  app-only typecheck/Vite command and `npm run docs:check` validates an existing
+  documentation artifact. No browser/Playwright is required for the static gate.
 - **Backend tests run fully offline:** `pytest -q` (fake ES + mock LLM). The SQL
   state backend is testable on **SQLite** (sqlalchemy+aiosqlite) — no Postgres
   needed; asyncpg/pgvector are imported lazily.
 - Kibana source checkouts live in `/tmp` (e.g. `/tmp/kibana-8.19`, bootstrapped).
   Keep them warm; `rm -rf` an unused one if disk is tight (~18-22GB free).
-- **Consequence:** we verify the webui + plugin builds statically (tsc + vite /
-  unzip + manifest checks) and the backend via offline tests; building/running the
+- **Consequence:** we verify the supported webui statically (tsc + vite) and the
+  backend via offline tests; an archived-plugin revival requires its own unsupported
+  unzip/manifest checks. Building/running the
   Docker images (agnostic or legacy compose) is a DEPLOY step.
 
 ### 6b. Deploy target (separate session) — two shapes
@@ -381,12 +415,13 @@ See `docs/ENVIRONMENT.md` for the full detail. Summary:
   (`tlsoc-postgres`) + Redis + `tlsoc-backend` (`STATE_BACKEND=postgres`) +
   `tlsoc-webui` (nginx, port 8080). **No Elasticsearch for the app's own state;**
   connect SIEM/EDR sources from the wizard.
-- **Legacy ELK merge** (`deploy/docker-compose.tlsoc.yml`): `tlsoc-backend`
+- **Existing ELK attachment** (`deploy/docker-compose.tlsoc.yml`): `tlsoc-backend`
   (`STATE_BACKEND=elasticsearch`, own state in `tlsoc-agent-*`) joins an existing
   `TLSOCDockerDeploy` stack (`elasticsearch`/`kibana`/`logstash`/`kafka`, 8.19.12,
   TLS via `./certs/`), reaches `https://elasticsearch:9200` by container name,
   mounts `./certs/ca/ca.crt:ro`; logs in `all-logs-*` (wizard default data view may
-  be `fosstlsoc-logs-*` — confirm live); legacy plugin zip installed into Kibana.
+  be `fosstlsoc-logs-*` — confirm live). Run the supported standalone webui
+  separately; the archived plugin is not built, tested, or shipped.
 - Backend env names are **UNPREFIXED** (`ES_API_KEY`/`STATE_BACKEND`/
   `STATE_DB_URL`/…); compose maps `.env` `TLSOC_*` → them (see ENVIRONMENT.md §2.3).
 - Global secrets via `.env` (`TLSOC_*`); wizard-pushed global secrets are IN-MEMORY
@@ -396,16 +431,17 @@ See `docs/ENVIRONMENT.md` for the full detail. Summary:
 ## 7. Build / run / test cheatsheet
 
 ```bash
-# Backend tests (offline; MUST stay green) — currently 1957 tests (see Journal for the exact current count)
+# Backend tests (offline; MUST stay green) — currently 1982 tests (see Journal for the exact current count)
 cd backend && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements-dev.txt
-python -m pytest -q                         # -> 1957 passed (rises each round; see Journal)
+python -m pytest -q                         # -> 1982 passed (rises each round; see Journal)
 
 # Backend run locally (in-memory store, mock LLM if no keys)
 uvicorn app.main:app --port 8088
 
-# Web UI build + tests + lint (PRIMARY surface; Node 22 — /opt/node22 is fine)
-cd webui && npm install && npm run build   # tsc --noEmit && vite build -> webui/dist/ (entry chunk ~287.45 kB; motion lazy-chunk ~83.85 kB)
-npx vitest run                             # -> 1350 passed / 240 files (see Journal for the current count)
+# Web UI + installed Help Center build, tests, and lint (Node 22)
+cd webui && npm install && npm run build   # MkDocs bundle + tsc --noEmit + Vite -> webui/dist/
+npm run docs:check                         # validate app 0.1.0 ↔ bundled docs 0.1
+npx vitest run                             # -> 1468 passed / 248 files (see Journal for the current count)
 npm run lint                               # 0 errors, 0 warnings; jsx-a11y at error
 
 # One-command demo (backend :8088 AUTH ENABLED + webui dev :5173; login Admin / Admin@123)
@@ -430,8 +466,10 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
   Radix UI** — **NOT @elastic/eui** (EUI was fully removed in the UI overhaul). NO
   new npm deps without a deliberate decision — **zero new deps except the deliberate
   lazy `motion`** (12.42.2, Round 10: route/tab/KPI animation, behind `LazyMotion`/
-  `domAnimation`, never in the entry chunk); the build is `tsc --noEmit && vite
-  build`. (The archived Kibana plugin's old `@kbn/*`/EUI conventions no longer apply.)
+  `domAnimation`, never in the entry chunk). `npm run build` is the supported full
+  artifact build (Help Center + `tsc --noEmit` + Vite); use `npm run build:app`
+  only when intentionally checking the SPA without rebuilding docs. (The archived
+  Kibana plugin's old `@kbn/*`/EUI conventions no longer apply.)
 - **UI design system (the suite's shared look — use it, don't re-roll it):**
   - **Design tokens** live in `webui/src/styles/theme.css` as CSS custom properties
     (dual light/dark "command-center" theme) consumed through Tailwind; semantic
@@ -450,10 +488,33 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
   `/api` proxy forwards arbitrary JSON). Keep `webui/src/lib/types.ts` in sync with
   `models.py`.
 - **Secrets:** env only; UI shows booleans (`configured ✓`) never values.
-- **Tests:** add/keep offline tests; `pytest -q` green (1957) + `npm run build` clean
-  + `vitest run` (1350 / 240 files) + `npm run lint` (0 errors, jsx-a11y at error) before
+- **Tests:** add/keep offline tests; `pytest -q` green (1982) + `npm run build` clean
+  + `vitest run` (1468 / 248 files) + `npm run lint` (0 errors, jsx-a11y at error) before
   every commit. (Counts rise each round — see `Journal.md` for the exact current totals.)
-- **Git:** active branch `Testing`. Commit focused changes; push when asked.
+- **Git:** active branch `Testing`. Commit focused changes; push when asked. The
+  current remote exposes `Testing` and legacy/default `claude/main`, not literal
+  `main`; the owner must provision/protect `main` (or consistently change all
+  release machinery) before the first Stable promotion. Never treat
+  `claude/main` as Stable by implication.
+- **Release identity UI:** the shell always shows `vX.Y.Z · Testing|Stable`; its
+  popover reconciles the immutable Console stamp with public backend build-info.
+  Any known version/channel/SHA mismatch downgrades to Testing. `run-demo.sh`
+  derives Stable only for literal `main`; Docker release builds explicitly stamp
+  `TLSOC_RELEASE_CHANNEL`, SHA, and date.
+- **Release discipline:** every supported release is cut from a fully verified
+  `main` commit and receives exactly one immutable annotated `vX.Y.Z` tag matching
+  the root `VERSION`. A Testing candidate is never tagged Stable. Before promotion,
+  update `VERSION`, `[Unreleased]`/release notes, compatibility/deployment guidance,
+  the matching `docs/releases/` page, and all generated/build metadata in the same
+  candidate. Re-run the complete gate on the resulting `main` commit, then create and
+  push the tag from that exact SHA. Never move or reuse a published tag; issue a new
+  patch version for corrections. Documentation publication follows the same tag and
+  major.minor release line. Keep exactly one active top-level `[Unreleased]` section
+  in `CHANGELOG.md`. In the final frozen release-preparation change, convert its
+  contents to the intended version/date and immediately open a fresh `[Unreleased]`;
+  promote, verify, and tag that exact prepared tree without leaving a Testing snapshot
+  presented as an already-published release. The full checklist is
+  `docs/releases/channels.md`.
 
 ## 9. Sub-agent workflow (how we parallelize)
 
@@ -466,6 +527,9 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
   orchestrator to append, since sub-agents don't commit.
 - The orchestrator owns cross-cutting contracts and integration, reviews diffs,
   runs the final build + tests, commits, pushes, and updates the Journal.
+- Agents may use the ignored root `memory.md` only as temporary task scratch; the
+  orchestrator deletes it before handoff. Local-runtime questions are answered to the
+  user directly and are not converted into Journal milestones.
 
 ## 10. Current status & roadmap
 
@@ -485,11 +549,15 @@ Round 9b via PR #26. Round 10 ("Autopilot & Comprehensive Ingestion + motion.dev
 flips the suite from "opt-in automation" to **comprehensive ingestion + smart-
 autopilot defaults ON out of the box** — see the Round-10 bullet below.
 
-**Current baseline (backend re-verified 2026-07-15 after the deep-audit hardening pass):**
-backend **1942 pytest** passed (0 failures; +55 regression tests over the prior 1887
-baseline); webui **1349 Vitest** specs / 240 files (unchanged — the audit pass touched no
-webui code), build clean (`tsc --noEmit && vite build`), entry
-chunk **285.91 kB** (motion lands in a **LAZY ~83.85 kB** chunk, never
+**Release-topology prerequisite:** the remote currently exposes `Testing` and
+legacy/default `claude/main`, but no literal `main`. Before the first Stable
+promotion, the owner must provision/protect `main` and make it default, or
+deliberately change all workflow and release references to one different canonical
+branch. No current build is Stable solely because `claude/main` exists.
+
+**Current baseline (2026-07-22):** backend **1982 pytest** passed (0 failures);
+webui **1468 Vitest** specs / 248 files, full docs+app build clean, entry
+chunk **294.80 kB** (motion lands in a **LAZY ~83.85 kB** chunk, never
 modulepreloaded); eslint **0 errors, 0 warnings**; **zero new webui runtime
 deps except the deliberate lazy `motion`** (12.42.2). Version 0.1 adds only the
 explicitly pinned connector/SQL packaging dependencies required by its advertised
@@ -582,7 +650,7 @@ a retelling — do not re-derive round detail from here.
   `Journal.md`'s Round-9b entry.
 - **Round 9c** (`20118a7`→`2cc94c5`, PR #27, 2026-07-06, historical) — the dashboard
   rebuilt from scratch (Prisma/XSIAM-style); real **MTTD** (`Case.first_seen_millis` →
-  case creation) and **MTTR-as-first-human-response** (the ACK clock, NOT dwell — a
+  case creation) and first-human-response from the **ACK/MTTA clock** (NOT dwell — a
   same-round bug caught and fixed so an AI auto-close is never counted as a human
   response); a burndown chart; noise-counters gained a terminal "closed by human"
   stage; the Cases list rebuilt (6-tile summary strip, monogram Assignee column). No
@@ -630,7 +698,7 @@ a retelling — do not re-derive round detail from here.
   + drain fairness; MTTA human-ack-only; timestamp/ModSec/severity-scale/batch-cache
   correctness; SSE + cache + rate-limit + lock-registry bounds. **#3 verified clean —
   `decide()` untouched.** Green: 1942 pytest / webui 1349 Vitest unchanged. See the
-  2026-07-15 `Journal.md` entry + the `CHANGELOG.md` `[Unreleased]` section.
+  2026-07-15 `Journal.md` entry + the matching `CHANGELOG.md` Development snapshot.
 
 **Auth is DEFAULT OFF** (`Secrets.auth_enabled`) so the no-auth profile and the
 offline test suite keep working unchanged; `TLSOC_AUTH_ENABLED=true` turns on the

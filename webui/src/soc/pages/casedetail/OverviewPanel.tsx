@@ -171,6 +171,12 @@ function autoCloseSummary(
   const v = (c.verdict || '').toLowerCase();
   const isFp = v.includes('false') || v === 'fp' || v.includes('benign');
   if (!policy.enabled) {
+    // This sentence describes the CURRENT false-positive auto-close policy. It is
+    // relevant only to a case actually assessed as false-positive/benign and still
+    // needing (or having received) human handling. Never attach it to true-positive
+    // or NEEDS_HUMAN verdicts, and do not contradict an already-recorded AI close.
+    // Presentation only — no policy or lifecycle decision changes here.
+    if (!isFp || isAutoClosedByAI(c.status, c.decision_by)) return null;
     return {
       line: 'False-positive auto-close is disabled',
       tag: 'Disabled · held for review',
@@ -351,6 +357,37 @@ const ProvenanceColumn: React.FC<{
     </div>
     <div className="space-y-3">{children}</div>
   </PanelCard>
+);
+
+/**
+ * One inspectable Agent-found fact. The visible row stays as compact as the
+ * dashboard-style provenance column, while the disclosure gives the analyst the
+ * exact persisted evidence behind the count. A real button is used (instead of a
+ * hover-only span) so keyboard and touch operators can inspect the same detail.
+ */
+const AgentFindingMetric: React.FC<{
+  icon: React.ComponentType<{ className?: string }>;
+  label: React.ReactNode;
+  detail: React.ReactNode;
+  tone?: string;
+}> = ({ icon: Icon, label, detail, tone = 'text-muted-foreground' }) => (
+  <Tooltip>
+    <TooltipTrigger asChild>
+      <button
+        type="button"
+        className="group flex w-full items-start gap-2 rounded-sm py-0.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <Icon
+          className={cn('mt-0.5 h-4 w-4 shrink-0 transition-colors group-hover:text-foreground', tone)}
+          aria-hidden
+        />
+        <span className="text-foreground/90 underline-offset-4 group-hover:underline">{label}</span>
+      </button>
+    </TooltipTrigger>
+    <TooltipContent side="top" align="start" className="max-w-[min(28rem,calc(100vw-2rem))] p-3">
+      <div className="space-y-1.5 text-xs leading-relaxed text-popover-foreground">{detail}</div>
+    </TooltipContent>
+  </Tooltip>
 );
 
 /** A labelled, default-closed disclosure for the lower-value sections. */
@@ -769,15 +806,15 @@ const RiskFactorProfile: React.FC<{ factors: RiskFactor[] }> = ({ factors }) => 
             Recorded risk factors
           </span>
         </div>
-        <div className="space-y-2">
+        <div
+          data-testid="risk-factor-grid"
+          className="grid min-w-0 grid-cols-[max-content_minmax(2.5rem,1fr)_2rem] items-center gap-x-2 gap-y-2"
+        >
           {factors.map((factor) => {
             const value = boundedScore(factor.value);
             const rounded = Math.round(value);
             return (
-              <div
-                key={factor.key}
-                className="grid min-w-0 grid-cols-[max-content_minmax(2.5rem,1fr)_2rem] items-center gap-2"
-              >
+              <React.Fragment key={factor.key}>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
@@ -817,7 +854,7 @@ const RiskFactorProfile: React.FC<{ factors: RiskFactor[] }> = ({ factors }) => 
                 <span className="text-right font-mono text-2xs tabular-nums text-foreground">
                   {rounded}
                 </span>
-              </div>
+              </React.Fragment>
             );
           })}
         </div>
@@ -1107,7 +1144,7 @@ export const OverviewPanel: React.FC<{
         data-overview-surface={isCaseManager ? 'flat-summary' : undefined}
         className={cn(
           isCaseManager
-            ? 'relative overflow-hidden rounded-none border-x-0 border-y border-border/70 bg-transparent px-0 py-5 shadow-none'
+            ? 'relative overflow-hidden rounded-none border-x-0 border-b border-t-0 border-border/70 bg-transparent px-0 py-5 shadow-none'
             : 'relative overflow-hidden border-l-2',
           !isCaseManager && {
             'border-l-critical/50': vHead.tone === 'critical',
@@ -1139,7 +1176,7 @@ export const OverviewPanel: React.FC<{
                 {typeof c.escalation_level === 'number' && c.escalation_level > 0 ? (
                   <Badge variant="critical" className="gap-1">
                     <Bell className="h-3 w-3" />
-                    Escalation L{c.escalation_level}
+                    Escalated
                   </Badge>
                 ) : null}
                 <AutoClosedBadge
@@ -1249,7 +1286,7 @@ export const OverviewPanel: React.FC<{
               {typeof c.escalation_level === 'number' && c.escalation_level > 0 ? (
                 <Badge variant="critical" className="gap-1">
                   <Bell className="h-3 w-3" />
-                  Escalation L{c.escalation_level}
+                  Escalated
                 </Badge>
               ) : null}
             </div>
@@ -1403,37 +1440,104 @@ export const OverviewPanel: React.FC<{
             ) : null}
             <ul className="space-y-2 text-sm">
               {evidence.length ? (
-                <li className="flex items-start gap-2">
-                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-info-text" aria-hidden />
-                  <span className="text-foreground/90">
-                    {evidence.length} matching finding{evidence.length === 1 ? '' : 's'} in the logs
-                  </span>
+                <li>
+                  <AgentFindingMetric
+                    icon={CheckCircle2}
+                    tone="text-info-text"
+                    label={
+                      <>
+                        {evidence.length} matching finding{evidence.length === 1 ? '' : 's'} in the logs
+                      </>
+                    }
+                    detail={
+                      <>
+                        <p className="font-semibold">Persisted findings for this case</p>
+                        <ul className="space-y-1">
+                          {evidence.map((item, index) => (
+                            <li key={`${item.summary}-${index}`}>
+                              <span className="font-mono text-muted-foreground">{index + 1}.</span>{' '}
+                              <span>{item.summary || 'Finding recorded without a summary.'}</span>
+                              {item.event_ids?.length ? (
+                                <span className="text-muted-foreground">
+                                  {' '}· {item.event_ids.length} supporting event{item.event_ids.length === 1 ? '' : 's'}
+                                </span>
+                              ) : null}
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    }
+                  />
                 </li>
               ) : null}
               {ruledOut.length ? (
-                <li className="flex items-start gap-2">
-                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden />
-                  <span className="text-foreground/90">
-                    {ruledOut.length} check{ruledOut.length === 1 ? '' : 's'} came back clean — no
-                    additional activity
-                  </span>
+                <li>
+                  <AgentFindingMetric
+                    icon={CheckCircle2}
+                    tone="text-success"
+                    label={
+                      <>
+                        {ruledOut.length} check{ruledOut.length === 1 ? '' : 's'} came back clean — no
+                        additional activity
+                      </>
+                    }
+                    detail={
+                      <>
+                        <p className="font-semibold">Checks recorded as clean</p>
+                        <ul className="space-y-1">
+                          {ruledOut.map((item, index) => (
+                            <li key={`${item.summary}-${index}`}>
+                              <span className="font-mono text-muted-foreground">{index + 1}.</span>{' '}
+                              <span>{item.summary || 'Clean check recorded without a summary.'}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    }
+                  />
                 </li>
               ) : null}
               {relatedCount ? (
-                <li className="flex items-start gap-2">
-                  <Link2 className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-                  <span className="text-foreground/90">
-                    {relatedCount} prior analogous case{relatedCount === 1 ? '' : 's'}
-                  </span>
+                <li>
+                  <AgentFindingMetric
+                    icon={Link2}
+                    label={
+                      <>{relatedCount} prior analogous case{relatedCount === 1 ? '' : 's'}</>
+                    }
+                    detail={
+                      <>
+                        <p className="font-semibold">Related case IDs</p>
+                        <p className="break-all font-mono text-muted-foreground">
+                          {(c.related_case_ids || []).filter((rid) => rid && rid !== c.case_id).join(', ')}
+                        </p>
+                        <p className="text-muted-foreground">
+                          These are persisted cross-source relationships, not merged or duplicated cases.
+                        </p>
+                      </>
+                    }
+                  />
                 </li>
               ) : null}
               {mitre.length ? (
-                <li className="flex items-start gap-2">
-                  <Shield className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-                  <span className="text-foreground/90">
-                    {mitre.length} MITRE technique{mitre.length === 1 ? '' : 's'} mapped — full detail
-                    on the Threat context tab
-                  </span>
+                <li>
+                  <AgentFindingMetric
+                    icon={Shield}
+                    label={
+                      <>
+                        {mitre.length} MITRE technique{mitre.length === 1 ? '' : 's'} mapped — full detail
+                        on the Threat context tab
+                      </>
+                    }
+                    detail={
+                      <>
+                        <p className="font-semibold">Mapped technique IDs</p>
+                        <p className="break-words font-mono text-muted-foreground">{mitre.join(', ')}</p>
+                        <p className="text-muted-foreground">
+                          Open Threat context for names, tactics, reputation, and the clustering path.
+                        </p>
+                      </>
+                    }
+                  />
                 </li>
               ) : null}
               {!evidence.length && !ruledOut.length && !relatedCount && !mitre.length ? (

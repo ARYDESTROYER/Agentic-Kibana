@@ -92,7 +92,7 @@ async def notification_preview(
     base_url = (getattr(cfg, "base_url", "") or "") if cfg else ""
     tpl = getattr(cfg, "templates", None) if cfg else None
     branding = getattr(state.prefs, "branding", None)
-    org_name = (getattr(branding, "org_name", "") or "TLSOC") if branding else "TLSOC"
+    org_name = (getattr(branding, "org_name", "") or "Agentic SOC") if branding else "Agentic SOC"
 
     # Layer an UNSAVED override (from the editor) over the live templates for preview.
     if body is not None and (body.subject or body.html or body.text):

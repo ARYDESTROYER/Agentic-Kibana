@@ -61,6 +61,8 @@ export interface NavItem {
   label: string;
   icon: LucideIcon;
   group: NavGroupId;
+  /** Shell placement derived from the registry (`main` by default). */
+  navPlacement?: 'main' | 'footer';
   /** Optional RBAC gate; the item is hidden unless the user has this grant. */
   perm?: NavPerm;
   /**
@@ -135,6 +137,7 @@ function toNavItem(f: FeatureNode): NavItem {
     group: f.group,
   };
   if (f.perm) item.perm = f.perm;
+  if (f.navPlacement) item.navPlacement = f.navPlacement;
   // Round-6 #42: carry `enabled` through (see toNavChild) so the rail/palette can route
   // visibility through the single featureEnabled authority instead of a perm-only check.
   if (f.enabled) item.enabled = f.enabled;
@@ -150,11 +153,21 @@ function toNavItem(f: FeatureNode): NavItem {
 export const NAV_GROUPS: NavGroup[] = FEATURE_GROUPS.map((g) => ({
   id: g.id,
   label: g.label,
-  items: FEATURES.filter((f) => !f.hidden && f.group === g.id).map(toNavItem),
+  items: FEATURES.filter(
+    (f) => !f.hidden && f.group === g.id && (f.navPlacement ?? 'main') === 'main',
+  ).map(toNavItem),
 })).filter((g) => g.items.length > 0);
 
-/** Flat list of all top-level nav items shown in the rail (lookups + command palette). */
-export const NAV_ITEMS: NavItem[] = NAV_GROUPS.flatMap((g) => g.items);
+/** Visible destinations pinned below the scrollable grouped rail. */
+export const NAV_FOOTER_ITEMS: NavItem[] = FEATURES.filter(
+  (f) => !f.hidden && f.navPlacement === 'footer',
+).map(toNavItem);
+
+/** Flat list of every top-level nav item, including pinned footer destinations. */
+export const NAV_ITEMS: NavItem[] = [
+  ...NAV_GROUPS.flatMap((g) => g.items),
+  ...NAV_FOOTER_ITEMS,
+];
 
 /** Every child (sub-page) across all nav items, flattened (disclosure + lookups). */
 export const NAV_CHILDREN: NavChild[] = NAV_ITEMS.flatMap((i) => i.children ?? []);

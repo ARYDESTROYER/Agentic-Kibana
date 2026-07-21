@@ -459,8 +459,8 @@ def _build_ctx(case: Any, trigger: str, meta: dict[str, Any], *, label: str,
         "confidence": round(float(g("confidence", 0.0) or 0.0), 2),
         "summary": summary,
         # branding scalars (operator-controlled, plain)
-        "org_name": _plain(b.get("org_name") or "TLSOC", 80),
-        "product_name": _plain(b.get("product_name") or "Agentic Triage", 80),
+        "org_name": _plain(b.get("org_name") or "Agentic SOC", 80),
+        "product_name": _plain(b.get("product_name") or "Agentic SOC", 80),
         "accent_color": accent,                       # used inside {{{accent_color}}} (a colour token)
         "footer_text": _plain(b.get("footer_text") or "", 400),
         "support_url": _plain(b.get("support_url") or "", 2000),
@@ -475,7 +475,7 @@ def render(
     trigger: str,
     *,
     base_url: str = "",
-    org_name: str = "TLSOC",
+    org_name: str = "Agentic SOC",
     templates: Any = None,
     branding: Any = None,
 ) -> dict[str, Any]:
@@ -495,7 +495,7 @@ def render(
             else (lambda n, d="": getattr(branding, n, d))
         bdict = {
             "org_name": bget("org_name", org_name) or org_name,
-            "product_name": bget("product_name", "Agentic Triage"),
+            "product_name": bget("product_name", "Agentic SOC"),
             "logo_data_url": bget("logo_data_url", ""),
             "accent_color": bget("accent_color", ""),
             "footer_text": bget("footer_text", ""),

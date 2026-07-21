@@ -37,17 +37,31 @@
  * beziers. Reduced-motion is honoured globally (theme.css neutralises the keyframes).
  */
 import * as React from 'react';
-import { Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, Maximize2 } from 'lucide-react';
 
 import { cn } from '@/lib/cn';
 import { fmtNumber } from '@/lib/format';
-import type { NoiseReduction, NoiseSeverityBreakdown, NoiseStage } from '@/lib/types';
+import { api } from '@/lib/api';
+import type {
+  NoiseLineage,
+  NoiseReduction,
+  NoiseSeverityBreakdown,
+  NoiseStage,
+} from '@/lib/types';
 import { Skeleton } from '@/ui/skeleton';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/ui/hover-card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/ui/dialog';
 import { token, SEVERITY_COLOR, VERDICT_COLOR } from './palette';
 import { CountUp } from './CountUp';
 import { Stagger } from './Stagger';
 import { HelpTip } from './HelpTip';
+import { NoiseLineageView } from './NoiseLineage';
 
 /* ------------------------------------------------------------------------- */
 /* Severity + outcome → token-name maps (routed through the palette authority  */
@@ -608,15 +622,21 @@ export interface NoiseFunnelProps {
   onToggleHidden?: () => void;
   /** `flat` removes card chrome and tightens the flow for the command-center canvas. */
   variant?: 'card' | 'flat';
+  /** Show an accessible near-fullscreen aggregate-flow inspection action. */
+  expandable?: boolean;
+  /** Test/integration seam for the lazy selected-window lineage read. */
+  lineageLoader?: (windowHours: number, limit: number) => Promise<NoiseLineage>;
 }
 
 function Header({
   hidden,
   onToggleHidden,
+  onExpand,
   flat,
 }: {
   hidden?: boolean;
   onToggleHidden?: () => void;
+  onExpand?: () => void;
   flat?: boolean;
 }) {
   return (
@@ -632,20 +652,36 @@ function Header({
         </h3>
         <HelpTip label="What the noise-reduction funnel means" text={NOISE_FUNNEL_HELP_TEXT} />
       </div>
-      {onToggleHidden ? (
-        <button
-          type="button"
-          onClick={onToggleHidden}
-          aria-label={hidden ? 'Show noise funnel' : 'Hide noise funnel'}
-          aria-pressed={hidden ? true : false}
-          className={cn(
-            'inline-flex min-h-6 min-w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors',
-            'hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-          )}
-        >
-          {hidden ? <Eye className="h-4 w-4" aria-hidden /> : <EyeOff className="h-4 w-4" aria-hidden />}
-        </button>
-      ) : null}
+      <div className="flex items-center gap-1">
+        {onExpand && !hidden ? (
+          <button
+            type="button"
+            onClick={onExpand}
+            aria-label="Expand noise reduction flow"
+            className={cn(
+              'inline-flex min-h-7 items-center justify-center gap-1.5 rounded-[3px] border border-border px-2 text-2xs font-medium text-muted-foreground transition-colors',
+              'hover:bg-hover hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            )}
+          >
+            <Maximize2 className="h-3.5 w-3.5" aria-hidden />
+            <span className="hidden sm:inline">Expand</span>
+          </button>
+        ) : null}
+        {onToggleHidden ? (
+          <button
+            type="button"
+            onClick={onToggleHidden}
+            aria-label={hidden ? 'Show noise funnel' : 'Hide noise funnel'}
+            aria-pressed={hidden ? true : false}
+            className={cn(
+              'inline-flex min-h-7 min-w-7 shrink-0 items-center justify-center rounded-[3px] text-muted-foreground transition-colors',
+              'hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            )}
+          >
+            {hidden ? <Eye className="h-4 w-4" aria-hidden /> : <EyeOff className="h-4 w-4" aria-hidden />}
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -681,7 +717,14 @@ export function NoiseFunnel({
   hidden,
   onToggleHidden,
   variant = 'card',
+  expandable = false,
+  lineageLoader,
 }: NoiseFunnelProps) {
+  const [expanded, setExpanded] = React.useState(false);
+  const [lineage, setLineage] = React.useState<NoiseLineage | null>(null);
+  const [lineageLoading, setLineageLoading] = React.useState(false);
+  const [lineageError, setLineageError] = React.useState<string | null>(null);
+  const lineageRequest = React.useRef(0);
   const rawUid = React.useId();
   const uid = React.useMemo(() => rawUid.replace(/[^a-zA-Z0-9_-]/g, ''), [rawUid]);
   const derived = React.useMemo(() => (data ? deriveFunnel(data) : null), [data]);
@@ -700,6 +743,39 @@ export function NoiseFunnel({
         : null,
     [derived, dropSuppressed, dropIgnored, uid, flat],
   );
+  const lineageWindowHours = data?.window_hours ?? 24;
+  const loadLineage = React.useCallback(async () => {
+    const loader = lineageLoader ?? api.noiseReductionLineage;
+    if (typeof loader !== 'function') {
+      setLineageError('Case-lineage inspection is unavailable in this deployment.');
+      return;
+    }
+    const requestId = ++lineageRequest.current;
+    setLineageLoading(true);
+    setLineageError(null);
+    try {
+      const result = await loader(lineageWindowHours, 12);
+      if (requestId === lineageRequest.current) setLineage(result);
+    } catch (error) {
+      if (requestId === lineageRequest.current) {
+        setLineageError(error instanceof Error ? error.message : 'The lineage request failed.');
+      }
+    } finally {
+      if (requestId === lineageRequest.current) setLineageLoading(false);
+    }
+  }, [lineageLoader, lineageWindowHours]);
+
+  React.useEffect(() => {
+    lineageRequest.current += 1;
+    setLineage(null);
+    setLineageError(null);
+    setLineageLoading(false);
+  }, [lineageWindowHours]);
+
+  React.useEffect(() => {
+    if (!expanded || lineage || lineageLoading || lineageError) return;
+    void loadLineage();
+  }, [expanded, lineage, lineageLoading, lineageError, loadLineage]);
 
   if (loading && !derived) return <LoadingState ariaLabel={ariaLabel} className={className} />;
   // Absent data + not loading → render nothing (a missing/off backend simply omits the widget).
@@ -798,19 +874,33 @@ export function NoiseFunnel({
     n === 4 ? 'lg:grid-cols-4' : n === 7 ? 'lg:grid-cols-7' : 'lg:grid-cols-6';
   const dropTotal = dropSuppressed + dropIgnored;
 
-  return (
-    <section
-      className={cn(
-        flat ? 'min-w-0 bg-transparent' : 'min-w-0 rounded-lg border border-border bg-card p-4',
-        className,
-      )}
-      role="group"
-      aria-label={ariaLabel ?? 'Noise reduction funnel'}
-      data-testid="noise-funnel"
-    >
-      <Header hidden={hidden} onToggleHidden={onToggleHidden} flat={flat} />
+  const coverageNote = !data.counters?.available
+    ? 'Durable ingest counters are still warming up, so this view starts at cases opened.'
+    : data.counters?.incomplete
+      ? 'Durable alert counters cover only part of the selected window.'
+      : data.cases_meta?.truncated
+        ? `Case stages are partial: ${fmtNumber(data.cases_meta.fetched)} of ${fmtNumber(data.cases_meta.store_total)} matching cases were tallied.`
+        : 'Every value is an aggregate for the selected time range.';
 
-      {hidden ? null : (
+  return (
+    <>
+      <section
+        className={cn(
+          flat ? 'min-w-0 bg-transparent' : 'min-w-0 rounded-lg border border-border bg-card p-4',
+          className,
+        )}
+        role="group"
+        aria-label={ariaLabel ?? 'Noise reduction funnel'}
+        data-testid="noise-funnel"
+      >
+        <Header
+          hidden={hidden}
+          onToggleHidden={onToggleHidden}
+          onExpand={expandable ? () => setExpanded(true) : undefined}
+          flat={flat}
+        />
+
+        {hidden ? null : (
         <div className={cn('space-y-3', flat ? 'mt-2' : 'mt-3')}>
           {/* Hero — the value-prop headline + the ingested→human cascade. */}
           {headlinePct != null ? (
@@ -965,8 +1055,48 @@ export function NoiseFunnel({
             </p>
           ) : null}
         </div>
-      )}
-    </section>
+        )}
+      </section>
+
+      {expandable ? (
+        <Dialog open={expanded} onOpenChange={setExpanded}>
+          <DialogContent
+            className="h-[min(92vh,960px)] w-[min(96vw,1800px)] max-w-none gap-0 overflow-hidden rounded-[6px] p-0"
+            data-testid="noise-funnel-expanded"
+          >
+            <DialogHeader className="border-b border-border px-6 py-5">
+              <DialogTitle>Noise reduction flow · Last {data.window_hours} hours</DialogTitle>
+              <DialogDescription>
+                Wide selected-window flow with aggregate volume above and inspectable redacted case lineages below.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="min-h-0 overflow-auto px-6 py-5">
+              <div className="min-w-[960px]">
+                <NoiseFunnel
+                  data={data}
+                  animate={false}
+                  ariaLabel="Expanded noise reduction funnel"
+                  onStageClick={onStageClick}
+                  variant="flat"
+                />
+              </div>
+              <div className="mt-5 border-t border-border pt-4 text-xs leading-relaxed text-muted-foreground">
+                <p>{coverageNote}</p>
+                <p className="mt-1">
+                  Aggregate counters represent all ingested alerts. Raw identifiers and payloads are intentionally excluded.
+                </p>
+              </div>
+              <NoiseLineageView
+                data={lineage}
+                loading={lineageLoading}
+                error={lineageError}
+                onRetry={() => void loadLineage()}
+              />
+            </div>
+          </DialogContent>
+        </Dialog>
+      ) : null}
+    </>
   );
 }
 

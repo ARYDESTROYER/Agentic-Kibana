@@ -60,6 +60,8 @@ const DEFAULT_BATCH_CONFIG: Required<BatchConfig> = {
   severity_floor: 3,
   providers: ['anthropic', 'openai'],
   flex: false,
+  prefer_discounted_alerts: true,
+  fallback_to_standard: true,
 };
 
 /** OCSF severity_id 1–6 tick labels for the severity-floor slider. */
@@ -314,8 +316,8 @@ export function BatchJobsInner() {
           <SettingsCard
             anchor="batch-policy"
             icon={Layers}
-            title="Batch policy"
-            description="Route low-urgency investigations through a provider's discounted async batch API. Default off — an off policy keeps every call synchronous."
+            title="Discounted inference"
+            description="Prefer live Flex for compatible alert investigations, with an optional async Batch queue for low-urgency work."
             wide
           >
             {cfg.loading ? (
@@ -328,23 +330,71 @@ export function BatchJobsInner() {
             <fieldset disabled={!canManage} className="space-y-6">
               <Alert>
                 <Info className="h-4 w-4" aria-hidden />
-                <AlertTitle>Batch routing is cost plumbing</AlertTitle>
+                <AlertTitle>Two discounted paths, one decision contract</AlertTitle>
                 <AlertDescription>
-                  It changes only WHERE a low-urgency investigation runs (a slower,
-                  cheaper async queue), never the verdict or the deterministic decision.
-                  Exactly one usage-ledger row is still written per resolved call.
+                  Compatible official OpenAI alert investigations use live Flex by
+                  default. Async Batch remains opt-in for low-urgency work. Unsupported
+                  providers and models stay on standard service, and the usage ledger
+                  records the tier actually returned. Neither path changes verdicts or
+                  deterministic case decisions.
                 </AlertDescription>
               </Alert>
+
+              <div className="grid gap-5 sm:grid-cols-2">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="prefer-discounted-alerts" className="text-sm font-medium">
+                      Prefer discounted alert inference
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Route compatible OpenAI GPT-5, o3 and o4-mini alert work through
+                      the live Flex tier. Chat, standup and model tests remain standard.
+                    </p>
+                  </div>
+                  <Switch
+                    id="prefer-discounted-alerts"
+                    checked={draft.prefer_discounted_alerts}
+                    onCheckedChange={(value) => cfg.update({ prefer_discounted_alerts: value })}
+                  />
+                </div>
+                <div className="flex items-start justify-between gap-4">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="discounted-standard-fallback" className="text-sm font-medium">
+                      Standard fallback
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Keep alert processing moving at the standard tier if Flex is
+                      unavailable. Fallback calls are recorded at standard pricing.
+                    </p>
+                  </div>
+                  <Switch
+                    id="discounted-standard-fallback"
+                    checked={draft.fallback_to_standard}
+                    onCheckedChange={(value) => cfg.update({ fallback_to_standard: value })}
+                  />
+                </div>
+              </div>
+
+              <Separator />
+
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Asynchronous Batch queue
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Optional delayed processing for the low-urgency event-detection funnel.
+                </p>
+              </div>
 
               <div className="flex items-center justify-between gap-4">
                 <div className="space-y-0.5">
                   <Label htmlFor="batch-enabled" className="text-sm font-medium">
                     Enable batch routing
                   </Label>
-                  <p className="text-xs text-muted-foreground">
-                    When on, candidates at or below the severity floor go to the async
-                    batch API (~50% off) instead of a live call.
-                  </p>
+                    <p className="text-xs text-muted-foreground">
+                      When on, candidates at or below the severity floor go to the async
+                      Batch API (~50% off) instead of a live call.
+                    </p>
                 </div>
                 <Switch
                   id="batch-enabled"
@@ -374,7 +424,7 @@ export function BatchJobsInner() {
                     </Label>
                     <p className="text-xs text-muted-foreground">
                       Opt into a provider&apos;s best-effort / flexible tier for a
-                      further discount at the cost of latency.
+                      further discount inside the async event funnel.
                     </p>
                   </div>
                   <Switch
@@ -397,11 +447,11 @@ export function BatchJobsInner() {
 
               <EffectiveConfigPreview
                 summary={
-                  draft.enabled
-                    ? `Batch-route candidates at or below ${SEVERITY_NAME[draft.severity_floor] ?? draft.severity_floor} severity via ${(draft.providers ?? []).length ? (draft.providers ?? []).join(', ') : 'no providers'}${draft.flex ? ' (flexible tier)' : ''}. Higher-severity candidates stay synchronous.`
-                    : 'Batch routing is off — every investigation runs synchronously.'
+                  `${draft.prefer_discounted_alerts ? 'Compatible alert inference prefers live Flex' : 'Live discounted alert inference is off'}${draft.fallback_to_standard ? ' with standard fallback' : ' without standard fallback'}. ${draft.enabled ? `Async Batch also routes candidates at or below ${SEVERITY_NAME[draft.severity_floor] ?? draft.severity_floor} severity via ${(draft.providers ?? []).length ? (draft.providers ?? []).join(', ') : 'no providers'}${draft.flex ? ' (flexible tier)' : ''}.` : 'The separate async Batch queue is off.'}`
                 }
                 lines={[
+                  { label: 'Live alert tier', value: draft.prefer_discounted_alerts ? 'Flex preferred' : 'standard only' },
+                  { label: 'Standard fallback', value: draft.fallback_to_standard ? 'on' : 'off' },
                   { label: 'Severity floor', value: SEVERITY_NAME[draft.severity_floor] ?? String(draft.severity_floor) },
                   { label: 'Providers', value: (draft.providers ?? []).join(', ') || DASH },
                   { label: 'Flexible tier', value: draft.flex ? 'on' : 'off' },

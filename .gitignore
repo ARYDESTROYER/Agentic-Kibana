@@ -12,6 +12,9 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+# Auto-bootstrapped pinned MkDocs toolchain for one-command Console builds.
+/.docs-venv/
+/.docs-venv.lock
 .env.local
 .pytest_cache/
 .coverage
@@ -22,6 +25,8 @@ dist/
 build/
 # MkDocs output (deployed as a Pages artifact, never committed).
 site/
+# Version-matched Help Center copied into Vite's public tree at build time.
+/webui/public/docs/
 *.log
 
 # ---- Node / Kibana plugin build scratch ----
@@ -47,6 +52,9 @@ Thumbs.db
 
 # ---- Round-5 temp / caches (do not commit) ----
 WORK_TRACKER.md
+# Per-session agent scratchpad. It may exist while a long task is active, but must
+# be deleted before handoff and must never enter source control.
+/memory.md
 .vite/
 webui/.vite/
 **/vitest/results.json

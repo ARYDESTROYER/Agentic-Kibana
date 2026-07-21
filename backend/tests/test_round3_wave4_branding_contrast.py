@@ -189,7 +189,7 @@ def test_put_branding_low_contrast_returns_warning_and_correction(client) -> Non
     assert body["org_name"] == "Lemon SOC"
     assert body["accent_color"] == "#ffff00"
     # Existing branding fields are intact (a representative defaulted field).
-    assert body["product_name"] == "Agentic Triage"
+    assert body["product_name"] == ""
     # The new ADDITIVE advisory keys are present + populated.
     assert body["auto_corrected"] == {"--primary-foreground": "#000000"}
     assert isinstance(body["contrast_warnings"], list)

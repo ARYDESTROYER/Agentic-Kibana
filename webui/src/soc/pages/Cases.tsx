@@ -4,7 +4,8 @@
  * Lists recent cases (GET /api/cases, single capped fetch) in a dense DataTable
  * with a filter bar (search + Status/Severity/Assignee selects), client-side
  * sort, pagination, row-selection with a bulk-action bar, and an honest "N of M"
- * count. Clicking a row opens the shared CaseDetail sheet (held via openCaseId).
+ * count. Opening a row performs a short, announced handoff into Case Manager with
+ * that exact case selected; Case Manager is the canonical detail workspace.
  *
  * All narrowing is CLIENT-SIDE over the loaded list. Filter state SELF-HEALS: any
  * selected facet value that no longer exists after a reload is dropped so the list
@@ -36,6 +37,7 @@ import {
   Tag as TagIcon,
   SlidersHorizontal,
   CircleSlash,
+  LoaderCircle,
   Zap,
   type LucideIcon,
 } from 'lucide-react';
@@ -82,6 +84,7 @@ import { LoadError } from '@/soc/components/LoadError';
 import { InlineCode } from '@/soc/components/CodeBlock';
 import { CaseHoverCard } from '@/soc/components/CaseHoverCard';
 import { StartDemoButton } from '@/soc/components/StartDemoButton';
+import { LoadingBar } from '@/soc/components/LoadingBar';
 import { DemoBadge, isDemoCase } from '@/soc/components/DemoBadge';
 import {
   StatusBadge,
@@ -100,7 +103,6 @@ import { ProvenanceTag, severityProvenance } from '@/soc/components/ProvenanceTa
 
 import type { Navigate } from '@/soc/router';
 import { useRoute } from '@/soc/router';
-import { CaseDetail } from '@/soc/pages/CaseDetail';
 // motion.dev (lazy — Cases is a lazy page chunk, off the eager first-paint graph): the
 // bulk-action bar's slide-out EXIT (today it just vanishes). Cases mounts its OWN
 // MotionProvider so the portaled bar animates even on a deep link.
@@ -109,6 +111,7 @@ import { motion, AnimatePresence, MotionProvider, HOUSE_SPRING } from '@/soc/com
 /* --------------------------------------------------------------- helpers --- */
 
 const LIST_LIMIT = 200;
+const CASE_MANAGER_HANDOFF_MS = 500;
 
 /** Stable id for the Cases table's per-user column state (Wave 7). */
 const CASES_TABLE_ID = 'cases';
@@ -511,18 +514,18 @@ const SummaryTile: React.FC<{
     title={title}
     data-testid={testId}
     className={cn(
-      'group relative flex items-center gap-2.5 overflow-hidden rounded-lg border bg-card px-3 py-2.5 text-left',
+      'group relative flex items-center gap-2.5 overflow-hidden rounded-[4px] border bg-background px-3 py-2 text-left',
       'transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
       'focus-visible:ring-offset-2 focus-visible:ring-offset-background',
       active
-        ? 'border-primary/70 bg-accent/40 shadow-elev1'
+        ? 'border-primary/70 bg-accent/35'
         : 'border-border hover:border-primary/40 hover:bg-accent/25',
     )}
   >
     <span className={cn('absolute inset-y-0 left-0 w-1', SUMMARY_BAR[tone])} aria-hidden />
     <span
       className={cn(
-        'ml-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-md',
+        'ml-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-[3px]',
         SUMMARY_CHIP[tone],
       )}
     >
@@ -532,7 +535,7 @@ const SummaryTile: React.FC<{
       <span className="block truncate text-2xs font-medium uppercase tracking-wide text-muted-foreground">
         {label}
       </span>
-      <span className="block text-xl font-semibold leading-tight tabular-nums text-foreground">
+      <span className="block text-lg font-semibold leading-tight tabular-nums text-foreground">
         {count.toLocaleString()}
       </span>
     </span>
@@ -563,6 +566,49 @@ const CountLink: React.FC<{ count: number; onClick?: () => void }> = ({ count, o
     >
       View ({count})
     </button>
+  );
+};
+
+interface CaseManagerHandoffTarget {
+  caseId: string;
+  label: string;
+}
+
+const CaseManagerHandoff: React.FC<{ target: CaseManagerHandoffTarget | null }> = ({ target }) => {
+  if (!target || typeof document === 'undefined') return null;
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-background/88 px-6 backdrop-blur-[2px]"
+      data-testid="case-manager-handoff"
+      aria-busy="true"
+    >
+      <section
+        role="status"
+        aria-live="assertive"
+        aria-atomic="true"
+        className="w-full max-w-sm border border-border bg-background p-5 shadow-elev2"
+      >
+        <div className="flex items-center gap-3">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-[4px] border border-primary/35 bg-primary/10 text-primary">
+            <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden />
+          </span>
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold text-foreground">
+              Taking you to Case Manager…
+            </h2>
+            <p className="mt-1 truncate font-mono text-2xs text-muted-foreground">
+              Opening {target.label}
+            </p>
+          </div>
+        </div>
+        <LoadingBar
+          size="sm"
+          label="Opening selected case in Case Manager"
+          className="mt-4 rounded-none"
+        />
+      </section>
+    </div>,
+    document.body,
   );
 };
 
@@ -614,7 +660,8 @@ export default function Cases({
   const [pageSize, setPageSize] = React.useState(50);
   const [page, setPage] = React.useState(1);
 
-  const [openCaseId, setOpenCaseId] = React.useState<string | null>(null);
+  const [handoffTarget, setHandoffTarget] = React.useState<CaseManagerHandoffTarget | null>(null);
+  const handoffTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [selected, setSelected] = React.useState<string[]>([]);
 
   const [bulkBusy, setBulkBusy] = React.useState(false);
@@ -660,12 +707,31 @@ export default function Cases({
     if (initialSeverity) setFilters((f) => ({ ...f, severity: initialSeverity }));
   }, [initialSeverity]);
 
-  // A drill-through (e.g. a "Related case" link in CaseDetail) can pass a caseId;
-  // open that case's detail sheet. Additive — no-op when absent.
+  const openInCaseManager = React.useCallback(
+    (caseId: string, label?: string) => {
+      if (handoffTimerRef.current) clearTimeout(handoffTimerRef.current);
+      setHandoffTarget({ caseId, label: label || caseId });
+      handoffTimerRef.current = setTimeout(() => {
+        handoffTimerRef.current = null;
+        setHandoffTarget(null);
+        navigate('case_manager', { caseId });
+      }, CASE_MANAGER_HANDOFF_MS);
+    },
+    [navigate],
+  );
+
+  React.useEffect(
+    () => () => {
+      if (handoffTimerRef.current) clearTimeout(handoffTimerRef.current);
+    },
+    [],
+  );
+
+  // A legacy Cases deep link hands off to the canonical Case Manager workspace.
   const routeCaseId = route.opts?.caseId;
   React.useEffect(() => {
-    if (routeCaseId) setOpenCaseId(routeCaseId);
-  }, [routeCaseId]);
+    if (route.page === 'cases' && routeCaseId) openInCaseManager(routeCaseId);
+  }, [openInCaseManager, route.page, routeCaseId]);
 
   const facets = React.useMemo(() => buildFacets(cases), [cases]);
 
@@ -950,9 +1016,9 @@ export default function Cases({
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                setOpenCaseId(c.case_id);
+                openInCaseManager(c.case_id, c.case_number || c.case_id);
               }}
-              className="rounded-sm font-mono text-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="rounded-[3px] font-mono text-xs font-semibold uppercase tracking-wide text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {c.case_number || c.case_id}
             </button>
@@ -967,7 +1033,7 @@ export default function Cases({
       sortable: true,
       cell: (c) => (
         <CaseHoverCard case={c}>
-          <span className="block max-w-[26rem] cursor-pointer truncate font-medium text-foreground">
+          <span className="block max-w-[26rem] cursor-pointer truncate font-semibold text-foreground">
             {c.title || c.case_id}
           </span>
         </CaseHoverCard>
@@ -989,7 +1055,7 @@ export default function Cases({
         // bar even down the margin (Round-8 #2). `justify-center` keeps the StatusBadge
         // vertically centred in the reserved space.
         <div className="flex min-h-[2.25rem] flex-col items-start justify-center gap-1">
-          <StatusBadge status={c.status} />
+          <StatusBadge status={c.status} className="rounded-[3px] px-1.5 text-2xs" />
           <AutoClosedBadge
             status={c.status}
             decisionBy={c.decision_by}
@@ -1039,7 +1105,11 @@ export default function Cases({
       cell: (c) => (
         <CountLink
           count={alertCount(c)}
-          onClick={alertCount(c) > 0 ? () => setOpenCaseId(c.case_id) : undefined}
+          onClick={
+            alertCount(c) > 0
+              ? () => openInCaseManager(c.case_id, c.case_number || c.case_id)
+              : undefined
+          }
         />
       ),
     },
@@ -1051,7 +1121,11 @@ export default function Cases({
       cell: (c) => (
         <CountLink
           count={playbookCount(c)}
-          onClick={playbookCount(c) > 0 ? () => setOpenCaseId(c.case_id) : undefined}
+          onClick={
+            playbookCount(c) > 0
+              ? () => openInCaseManager(c.case_id, c.case_number || c.case_id)
+              : undefined
+          }
         />
       ),
     },
@@ -1063,7 +1137,11 @@ export default function Cases({
       cell: (c) => (
         <CountLink
           count={enrichmentCount(c)}
-          onClick={enrichmentCount(c) > 0 ? () => setOpenCaseId(c.case_id) : undefined}
+          onClick={
+            enrichmentCount(c) > 0
+              ? () => openInCaseManager(c.case_id, c.case_number || c.case_id)
+              : undefined
+          }
         />
       ),
     },
@@ -1086,7 +1164,7 @@ export default function Cases({
         const band = caseSeverityBand(c);
         return (
           <div className="flex items-center gap-1.5">
-            <SeverityBadge severity={band} />
+            <SeverityBadge severity={band} className="rounded-[3px] px-1.5 text-2xs" />
             {band ? (
               <ProvenanceTag
                 kind={severityProvenance(c.severity_source)}
@@ -1204,7 +1282,7 @@ export default function Cases({
   return (
     <MotionProvider>
     <PageContainer
-      variant="wide"
+      variant="fluid"
       // Reserve bottom space whenever the fixed bulk bar is showing so it never
       // covers the last table rows/pager (#3). Keyed to the SAME selection state
       // the bar's own visibility gate reads, so the padding and the bar are always
@@ -1227,7 +1305,7 @@ export default function Cases({
                 ? `${cases.length.toLocaleString()} of ${total.toLocaleString()} cases loaded`
                 : undefined
             }
-            className="inline-flex items-center rounded-md border border-border bg-surface px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground"
+            className="inline-flex items-center rounded-[4px] border border-border bg-surface px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground"
           >
             {truncated
               ? `${cases.length.toLocaleString()} / ${total.toLocaleString()}`
@@ -1242,6 +1320,7 @@ export default function Cases({
             <Button
               variant={oldestFirst ? 'default' : 'outline'}
               size="sm"
+              className="h-8 rounded-[4px] text-xs"
               aria-pressed={oldestFirst}
               aria-label={`Sort by updated time, currently ${oldestFirst ? 'oldest' : 'newest'} first`}
               onClick={() =>
@@ -1255,7 +1334,13 @@ export default function Cases({
               )}
               {oldestFirst ? 'Oldest first' : 'Newest first'}
             </Button>
-            <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 rounded-[4px] text-xs"
+              onClick={() => void load()}
+              disabled={loading}
+            >
               <RefreshCw className={cn('mr-1.5 size-4', loading && 'animate-spin')} aria-hidden />
               Refresh
             </Button>
@@ -1349,7 +1434,7 @@ export default function Cases({
       <Card
         elevation="none"
         className={cn(
-          'space-y-2.5 p-3',
+          'space-y-2.5 rounded-[4px] p-3 shadow-none',
           (loading || Boolean(error)) && cases.length === 0 && 'hidden',
         )}
       >
@@ -1364,12 +1449,12 @@ export default function Cases({
               onChange={(e) => setFilter('search', e.target.value)}
               placeholder="Search cases — ID, title, entity, rule, tags…"
               aria-label="Search cases"
-              className="pl-9"
+              className="h-8 rounded-[4px] pl-9 text-xs"
             />
           </div>
 
           <Select value={filters.status} onValueChange={(v) => setFilter('status', v)}>
-            <SelectTrigger className="w-[11rem]" aria-label="Filter by status">
+            <SelectTrigger className="h-8 w-[11rem] rounded-[4px] text-xs" aria-label="Filter by status">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
@@ -1389,7 +1474,7 @@ export default function Cases({
               value={filters.disposition}
               onValueChange={(v) => setFilter('disposition', v)}
             >
-              <SelectTrigger className="w-[11rem]" aria-label="Filter by disposition">
+              <SelectTrigger className="h-8 w-[11rem] rounded-[4px] text-xs" aria-label="Filter by disposition">
                 <SelectValue placeholder="Disposition" />
               </SelectTrigger>
               <SelectContent>
@@ -1404,7 +1489,7 @@ export default function Cases({
           ) : null}
 
           <Select value={filters.severity} onValueChange={(v) => setFilter('severity', v)}>
-            <SelectTrigger className="w-[10rem]" aria-label="Filter by severity">
+            <SelectTrigger className="h-8 w-[10rem] rounded-[4px] text-xs" aria-label="Filter by severity">
               <SelectValue placeholder="Severity" />
             </SelectTrigger>
             <SelectContent>
@@ -1418,7 +1503,7 @@ export default function Cases({
           </Select>
 
           <Select value={filters.assignee} onValueChange={(v) => setFilter('assignee', v)}>
-            <SelectTrigger className="w-[11rem]" aria-label="Filter by assignee">
+            <SelectTrigger className="h-8 w-[11rem] rounded-[4px] text-xs" aria-label="Filter by assignee">
               <SelectValue placeholder="Assignee" />
             </SelectTrigger>
             <SelectContent>
@@ -1434,7 +1519,7 @@ export default function Cases({
 
           <Popover>
             <PopoverTrigger asChild>
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" className="h-8 rounded-[4px] text-xs">
                 <Clock className="mr-1.5 size-4" aria-hidden />
                 {filters.timeRange === 'all'
                   ? 'Any time'
@@ -1477,6 +1562,7 @@ export default function Cases({
           <Button
             variant={filters.relatedOnly ? 'default' : 'outline'}
             size="sm"
+            className="h-8 rounded-[4px] text-xs"
             onClick={() => setFilter('relatedOnly', !filters.relatedOnly)}
             aria-pressed={filters.relatedOnly}
             title="Show only cases linked across sources"
@@ -1486,7 +1572,7 @@ export default function Cases({
           </Button>
 
           {anyActive ? (
-            <Button variant="ghost" size="sm" onClick={clearAll}>
+            <Button variant="ghost" size="sm" className="h-8 rounded-[4px] text-xs" onClick={clearAll}>
               <X className="mr-1.5 size-4" aria-hidden />
               Clear
             </Button>
@@ -1547,6 +1633,7 @@ export default function Cases({
       {/* Table */}
       {error && cases.length === 0 ? null : <DataTable<Case>
         ariaLabel="Cases"
+        className="rounded-[4px] bg-background shadow-none"
         columns={columns}
         columnState={effectiveColumnState}
         rows={pageRows}
@@ -1569,7 +1656,7 @@ export default function Cases({
         selectable
         selected={selected}
         onSelectedChange={setSelected}
-        onRowClick={(c) => setOpenCaseId(c.case_id)}
+        onRowClick={(c) => openInCaseManager(c.case_id, c.case_number || c.case_id)}
         loading={loading}
         loadingRows={8}
         density="compact"
@@ -1629,15 +1716,7 @@ export default function Cases({
         onClear={() => setSelected([])}
       />
 
-      {/* Case detail sheet */}
-      <CaseDetail
-        caseId={openCaseId}
-        onClose={() => {
-          setOpenCaseId(null);
-          void load();
-        }}
-        onNavigate={navigate}
-      />
+      <CaseManagerHandoff target={handoffTarget} />
 
       {/* One-click row-close confirmation. Close is a REVERSIBLE lifecycle move, so
           this is a plain (non-destructive) confirm — it still posts through the

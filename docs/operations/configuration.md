@@ -1,11 +1,11 @@
 ---
 title: Configuration reference
-description: Understand environment variables, durable preferences, state backends, and secret handling in TLSOC 0.1.
+description: Understand environment variables, durable preferences, state backends, and secret handling in Agentic SOC 0.1.
 ---
 
 # Configuration reference
 
-TLSOC configuration has two authorities: deployment-owned environment settings and
+Agentic SOC configuration has two authorities: deployment-owned environment settings and
 application-owned preferences. Credentials are not ordinary preferences.
 
 ## Environment naming
@@ -34,10 +34,10 @@ a working default rather than a startup error.
 | `STATE_BACKEND` | URL/credential | Intended profile |
 |---|---|---|
 | `postgres` | `STATE_DB_URL=postgresql+asyncpg://...` | Recommended standalone persistence; pgvector supports vector retrieval |
-| `elasticsearch` | management URL/key and TLS settings | TLSOC state in dedicated indices; separate from the read-only log key |
+| `elasticsearch` | management URL/key and TLS settings | Agentic SOC state in dedicated indices; separate from the read-only log key |
 | `sqlite` | `sqlite+aiosqlite:///...` | Single-node evaluation/development |
 
-The state backend stores TLSOC-owned cases, audit, usage, configuration, cursors, users,
+The state backend stores Agentic SOC-owned cases, audit, usage, configuration, cursors, users,
 and knowledge. It does not select or authorize an external log source; connectors own
 that boundary.
 
@@ -72,7 +72,9 @@ universal revision/rollback interface in 0.1.
 - The balanced autopilot profile and several deterministic learning/correlation
   helpers are on.
 - The LLM budget backstop is on at $10/day with blocking behavior.
-- Batch processing remains opt-in.
+- Compatible official OpenAI alert inference prefers live Flex and truthfully falls
+  back to standard service by default; the separate asynchronous Batch queue remains
+  opt-in.
 
 Review each default against the deployment's threat model and operational capacity.
 See [Settings administration](../administration/settings.md),

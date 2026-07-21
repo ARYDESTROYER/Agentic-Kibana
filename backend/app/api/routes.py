@@ -48,6 +48,13 @@ from ..models import (
     TriggerReason,
     validate_avatar,
 )
+from ..playbooks.registry import (
+    MAX_PLAYBOOK_BYTES,
+    PlaybookConflictError,
+    PlaybookManagementError,
+    PlaybookNotFoundError,
+    PlaybookProtectedError,
+)
 from ..state import AppState
 from ..tools.enrich import EnrichTool
 from ..utils import iso_now, now_utc, relative_to_millis, to_millis
@@ -153,12 +160,11 @@ def _release_channel(configured: str | None = None) -> str:
     channel from a prerelease suffix would therefore mislabel Testing builds.
     """
     value = (configured or os.getenv("TLSOC_RELEASE_CHANNEL", "testing")).strip().lower()
-    aliases = {"main": "stable", "test": "testing"}
-    value = aliases.get(value, value)
-    if value not in {"testing", "stable"}:
+    if value == "stable":
+        return "stable"
+    if value != "testing":
         logger.warning("Unknown TLSOC_RELEASE_CHANNEL=%r; reporting testing", value)
-        return "testing"
-    return value
+    return "testing"
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -1820,46 +1826,126 @@ async def reject_proposal(
     return {"ok": True, "proposal": (updated or proposal).model_dump(mode="json")}
 
 
+def _playbook_payload(state: AppState, playbook, *, content: str | None = None) -> dict[str, Any]:
+    """Stable public playbook shape; never exposes the server filesystem path."""
+    payload: dict[str, Any] = {
+        "id": playbook.id,
+        "name": playbook.name,
+        "version": playbook.version,
+        "description": playbook.manifest.description,
+        "priority": playbook.manifest.priority,
+        "match": {
+            "rule_ids": list(playbook.manifest.match.rule_ids),
+            "entity_types": list(playbook.manifest.match.entity_types),
+            "mitre": list(playbook.manifest.match.mitre),
+            "min_event_count": playbook.manifest.match.min_event_count,
+            "any_tags": list(playbook.manifest.match.any_tags),
+        },
+        "suggested_tools": list(playbook.manifest.suggested_tools),
+        "rag_queries": list(playbook.manifest.rag_queries),
+        "escalate_if": playbook.manifest.escalate_if,
+        "suggested_verdict_bias": playbook.manifest.suggested_verdict_bias,
+        **state.playbooks.metadata(playbook),
+    }
+    if content is not None:
+        payload["content"] = content
+        payload["body"] = playbook.body
+    return payload
+
+
+class PlaybookCreateRequest(BaseModel):
+    """Create one operator-owned Markdown playbook."""
+
+    id: str = Field(min_length=1, max_length=64)
+    content: str = Field(min_length=1, max_length=MAX_PLAYBOOK_BYTES)
+
+
+class PlaybookUpdateRequest(BaseModel):
+    """Replace one operator-owned Markdown playbook; the id remains immutable."""
+
+    content: str = Field(min_length=1, max_length=MAX_PLAYBOOK_BYTES)
+
+
+def _raise_playbook_management_http(exc: Exception) -> None:
+    if isinstance(exc, PlaybookNotFoundError):
+        raise HTTPException(status_code=404, detail="playbook not found") from exc
+    if isinstance(exc, PlaybookConflictError):
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if isinstance(exc, PlaybookProtectedError):
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    if isinstance(exc, PlaybookManagementError):
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    raise exc
+
+
 @router.get("/playbooks")
-async def playbooks(state: AppState = Depends(get_state)) -> dict[str, Any]:
+async def playbooks(
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("playbooks", "read")),
+) -> dict[str, Any]:
     pbs = state.playbooks.all()
     return {
         "enabled": state.prefs.playbooks.enabled,
         "count": len(pbs),
-        "playbooks": [
-            {
-                "id": p.id,
-                "name": p.name,
-                "version": p.version,
-                "description": p.manifest.description,
-                "priority": p.manifest.priority,
-                "match": {
-                    "rule_ids": list(p.manifest.match.rule_ids),
-                    "entity_types": list(p.manifest.match.entity_types),
-                    "mitre": list(p.manifest.match.mitre),
-                    "min_event_count": p.manifest.match.min_event_count,
-                    "any_tags": list(p.manifest.match.any_tags),
-                },
-                "suggested_tools": list(p.manifest.suggested_tools),
-                "rag_queries": list(p.manifest.rag_queries),
-            }
-            for p in pbs
-        ],
+        "playbooks": [_playbook_payload(state, p) for p in pbs],
     }
+
+
+@router.post("/playbooks")
+async def playbooks_create(
+    body: PlaybookCreateRequest,
+    request: Request,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("playbooks", "manage")),
+) -> dict[str, Any]:
+    """Create an operator Markdown file, atomically reload it, and audit the change.
+
+    The front-matter id must equal ``body.id``.  IDs are slug/path constrained and
+    a create never overwrites any existing file or bundled playbook.  Playbook text
+    remains recommendation-only context; this endpoint never touches ``decide()``.
+    """
+    state.reload_playbooks()  # also re-points the registry if prefs.dir changed
+    try:
+        playbook, summary = state.playbooks.create_operator(body.id, body.content)
+    except Exception as exc:  # mapped to bounded, non-path-leaking HTTP errors
+        _raise_playbook_management_http(exc)
+        raise AssertionError("unreachable")  # pragma: no cover
+    await state.control_audit.record(
+        action_type=ActionType.PLAYBOOK,
+        surface="playbooks",
+        actor=current_username(request) or "operator",
+        result_summary=f"created operator playbook {playbook.id} v{playbook.version}",
+    )
+    return {"ok": True, "playbook": _playbook_payload(state, playbook), "reload": summary}
 
 
 @router.post("/playbooks/reload")
 async def playbooks_reload(
+    request: Request,
     state: AppState = Depends(get_state),
-    _=Depends(require_permission("settings", "manage")),
+    _=Depends(require_permission("playbooks", "manage")),
 ) -> dict[str, Any]:
     """Hot-reload playbooks from disk (atomic; a broken file never replaces a good
     live set). Returns the load summary."""
-    return state.reload_playbooks()
+    summary = state.reload_playbooks()
+    await state.control_audit.record(
+        action_type=ActionType.PLAYBOOK,
+        surface="playbooks",
+        actor=current_username(request) or "operator",
+        result_summary=(
+            f"reloaded playbooks loaded={summary.get('loaded', 0)} "
+            f"skipped={len(summary.get('skipped', []))}"
+        ),
+    )
+    return summary
 
 
 @router.get("/playbooks/selection/{case_id}")
-async def playbook_selection(case_id: str, state: AppState = Depends(get_state)) -> dict[str, Any]:
+async def playbook_selection(
+    case_id: str,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("cases", "read")),
+) -> dict[str, Any]:
     """Why a given case selected the playbook it did (from the audit trail)."""
     case = await state.cases.get(case_id)
     reason = ""
@@ -1877,6 +1963,45 @@ async def playbook_selection(case_id: str, state: AppState = Depends(get_state))
         "playbook_id": (case.playbook_id if case else ""),
         "reason": reason,
     }
+
+
+@router.get("/playbooks/{playbook_id}")
+async def playbook_detail(
+    playbook_id: str,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("playbooks", "read")),
+) -> dict[str, Any]:
+    """Open one playbook as plain UTF-8 Markdown plus parsed catalog metadata."""
+    try:
+        playbook, content = state.playbooks.read_document(playbook_id)
+    except Exception as exc:
+        _raise_playbook_management_http(exc)
+        raise AssertionError("unreachable")  # pragma: no cover
+    return _playbook_payload(state, playbook, content=content)
+
+
+@router.put("/playbooks/{playbook_id}")
+async def playbook_update(
+    playbook_id: str,
+    body: PlaybookUpdateRequest,
+    request: Request,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("playbooks", "manage")),
+) -> dict[str, Any]:
+    """Atomically update an operator playbook. Bundled playbooks are read-only."""
+    state.reload_playbooks()
+    try:
+        playbook, summary = state.playbooks.update_operator(playbook_id, body.content)
+    except Exception as exc:
+        _raise_playbook_management_http(exc)
+        raise AssertionError("unreachable")  # pragma: no cover
+    await state.control_audit.record(
+        action_type=ActionType.PLAYBOOK,
+        surface="playbooks",
+        actor=current_username(request) or "operator",
+        result_summary=f"updated operator playbook {playbook.id} v{playbook.version}",
+    )
+    return {"ok": True, "playbook": _playbook_payload(state, playbook), "reload": summary}
 
 
 # --------------------------------------------------------------------------- #
@@ -2701,13 +2826,13 @@ async def update_my_avatar(
 # --------------------------------------------------------------------------- #
 def _mfa_issuer(state: AppState) -> str:
     """The authenticator issuer label: Preferences.mfa.issuer → branding.org_name →
-    "TLSOC"."""
+    "Agentic SOC"."""
     mfa = getattr(state.prefs, "mfa", None)
     issuer = (getattr(mfa, "issuer", "") or "").strip()
     if issuer:
         return issuer
     org = (getattr(getattr(state.prefs, "branding", None), "org_name", "") or "").strip()
-    return org or "TLSOC"
+    return org or "Agentic SOC"
 
 
 def _mfa_params(state: AppState) -> tuple[int, int]:
@@ -3529,7 +3654,17 @@ class CaseAction(BaseModel):
     # F8 fields (additive, optional):
     disposition: str | None = None         # set_disposition target (a Disposition value)
     status: str | None = None              # set_status target (a CaseStatus value)
-    level: int | None = None               # escalate level
+    # Deprecated compatibility input retained for older API clients. The Console
+    # intentionally exposes only Escalate/Escalated, never a numbered tier.
+    level: int | None = Field(
+        default=None,
+        title="Legacy escalation compatibility value",
+        description=(
+            "Deprecated compatibility input for older clients. The case enters the single "
+            "Escalated state; operator surfaces do not display numbered tiers."
+        ),
+        json_schema_extra={"deprecated": True},
+    )
 
 
 # Lifecycle status reached by each action. ``None`` = the action does not move the

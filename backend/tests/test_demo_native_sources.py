@@ -1,4 +1,4 @@
-"""High-fidelity four-source Demo Mode contracts and runtime cadence."""
+"""High-fidelity five-source Demo Mode contracts and runtime cadence."""
 
 from __future__ import annotations
 
@@ -34,18 +34,18 @@ def _story(story_id: str = "phishing_chain"):
     return gen._STORYLINE_BY_ID[story_id]
 
 
-def test_four_source_contract_and_legacy_aliases_are_unambiguous() -> None:
-    assert list(DEMO_SOURCE_SPECS) == ["splunk", "qradar", "wazuh", "syslog"]
+def test_five_source_contract_and_legacy_aliases_are_unambiguous() -> None:
+    assert list(DEMO_SOURCE_SPECS) == ["splunk", "qradar", "wazuh", "syslog", "entra"]
     assert {spec.source_id for spec in DEMO_SOURCE_SPECS.values()} == {
-        "demo-splunk", "demo-qradar", "demo-wazuh", "demo-syslog",
+        "demo-splunk", "demo-qradar", "demo-wazuh", "demo-syslog", "demo-entra-id",
     }
     assert {spec.source_type.value for spec in DEMO_SOURCE_SPECS.values()} == {
-        "splunk", "qradar", "wazuh", "syslog",
+        "splunk", "qradar", "wazuh", "syslog", "sentinel",
     }
     mapping = DemoSourceMap({
         key: NativeDemoSource(key) for key in DEMO_SOURCE_SPECS
     })
-    assert list(mapping) == ["splunk", "qradar", "wazuh", "syslog"]
+    assert list(mapping) == ["splunk", "qradar", "wazuh", "syslog", "entra"]
     assert mapping["siem"] is mapping["splunk"]
     assert mapping["xdr"] is mapping["qradar"]
     assert mapping["edr"] is mapping["wazuh"]
@@ -78,7 +78,7 @@ def test_qradar_leef_normals_and_offense_alerts_are_distinct_contracts() -> None
     normal = source.benign_batch_raw(random.Random(6), TS, 1, prefs)[0]
     leef = normal.source["_demo_native"]["payload"]
     assert re.match(r"^<134>1 2026-07-11T16:00:00\.000Z qradar\.soc\.demo\.example ", leef)
-    assert " LEEF:2.0|LumenPay|TLSOC Demo Sources|1.0|LP-QR-0001|^|" in leef
+    assert " LEEF:2.0|LumenPay|Agentic SOC Demo Sources|1.0|LP-QR-0001|^|" in leef
     assert "^devTime=2026-07-11T16:00:00.000Z^" in leef
     assert normal.ip and normal.user and normal.host and normal.rule == "LP-QR-0001"
     assert "_parse_error" not in normal.source
@@ -152,6 +152,28 @@ def test_syslog_emits_both_rfc_variants_and_never_claims_native_alert() -> None:
         for event in burst
     )
     assert source.activity_snapshot()["alerts_total"] == 0
+
+
+def test_entra_signin_and_identity_protection_alert_use_graph_fields() -> None:
+    prefs = Preferences()
+    source = NativeDemoSource("entra")
+    normal = source.benign_batch_raw(random.Random(14), TS, 1, prefs)[0]
+    signin = json.loads(normal.source["_demo_native"]["payload"])
+    assert signin["createdDateTime"] == "2026-07-11T16:00:00.000Z"
+    assert signin["userPrincipalName"].endswith("@lumenpay.example")
+    assert signin["deviceDetail"]["trustType"] == "Microsoft Entra joined"
+    assert signin["riskLevelAggregated"] == "none"
+    assert normal.source_id == "demo-entra-id"
+    assert normal.rule == "Entra sign-in"
+    assert normal.ip == signin["ipAddress"]
+
+    alert = source.storyline_raw(_story("impossible_travel"), random.Random(15), TS, prefs)[0]
+    risky = json.loads(alert.source["_demo_native"]["payload"])
+    assert risky["riskLevelAggregated"] == "high"
+    assert risky["riskState"] == "atRisk"
+    assert risky["_demo"]["rule_id"] == "Entra ID Protection: atypical travel sign-in"
+    assert alert.index_role == "alerts"
+    assert alert.rule == risky["_demo"]["rule_id"]
 
 
 def test_source_health_distinguishes_static_streaming_silent_and_stopped() -> None:
@@ -241,7 +263,7 @@ def test_native_provider_lookup_is_static_and_import_order_independent() -> None
 
 
 @pytest.mark.asyncio
-async def test_manual_incident_is_four_source_zero_network_and_cooldown_aware(
+async def test_manual_incident_is_five_source_zero_network_and_cooldown_aware(
     app_state, monkeypatch,
 ) -> None:
     await app_state.update_prefs(app_state.prefs.model_copy(update={"setup_complete": True}))
@@ -264,25 +286,25 @@ async def test_manual_incident_is_four_source_zero_network_and_cooldown_aware(
         monkeypatch.setattr(source, "search", tracked_search)
 
     result = await simulator.trigger_incident("phishing_chain")
-    assert result["triggered"] is True and result["events"] == 7
-    assert result["native_alerts"] == 3
+    assert result["triggered"] is True and result["events"] == 8
+    assert result["native_alerts"] == 4
     assert result["system_detections"] >= 1
-    assert set(result["sources"]) == {"splunk", "qradar", "wazuh", "syslog"}
+    assert set(result["sources"]) == {"splunk", "qradar", "wazuh", "syslog", "entra"}
     assert result["sources"]["syslog"]["native_alerts"] == 0
     assert result["sources"]["syslog"]["system_detections"] >= 1
     assert all(
         result["sources"][key]["investigated"] >= 1
-        for key in ("splunk", "qradar", "wazuh", "syslog")
+        for key in ("splunk", "qradar", "wazuh", "syslog", "entra")
     )
     assert all(query_calls[key] >= 1 for key in query_calls)
 
     cases, _ = await app_state.cases.list(limit=300)
     incident_rules = {
         gen.NATIVE_STORY_RULE_IDS[key]["phishing_chain"]
-        for key in ("splunk", "qradar", "wazuh", "syslog")
+        for key in ("splunk", "qradar", "wazuh", "syslog", "entra")
     }
     incident_cases = [case for case in cases if incident_rules.intersection(case.rule_ids)]
-    assert len(incident_cases) >= 4
+    assert len(incident_cases) >= 5
     for case in incident_cases:
         assert case.verdict.value == "TRUE_POSITIVE"
         assert "contain" in case.recommended_action.lower()
@@ -292,7 +314,7 @@ async def test_manual_incident_is_four_source_zero_network_and_cooldown_aware(
     again = await simulator.trigger_incident("ransomware_beacon")
     assert again["triggered"] is False and again["cooldown_seconds"] > 0
     snapshot = simulator.runtime_snapshot()
-    assert len(snapshot["sources"]) == 4
+    assert len(snapshot["sources"]) == 5
     assert all(row["buffer_depth"] > 0 for row in snapshot["sources"])
     assert all(row["last_event_millis"] > 0 for row in snapshot["sources"])
     syslog = next(row for row in snapshot["sources"] if row["key"] == "syslog")
@@ -354,7 +376,7 @@ async def test_concurrent_manual_incident_requests_emit_exactly_once(app_state) 
         simulator.trigger_incident("phishing_chain"),
     )
     assert sum(bool(result["triggered"]) for result in results) == 1
-    assert sum(int(result["events"]) for result in results) == 7
+    assert sum(int(result["events"]) for result in results) == 8
     assert simulator.runtime_snapshot()["first_incident_fired"] is True
 
 
@@ -394,7 +416,7 @@ async def test_first_coherent_incident_is_guaranteed_on_default_third_tick(app_s
     third = await simulator.tick_once()
     assert first["story"] == 0 and second["story"] == 0
     assert third["story"] == 1
-    assert third["alerts"] == 3 and third["system_detections"] >= 1
+    assert third["alerts"] == 4 and third["system_detections"] >= 1
     assert simulator.runtime_snapshot()["first_incident_fired"] is True
 
 
@@ -417,4 +439,4 @@ async def test_due_tick_racing_manual_trigger_emits_one_incident(app_state) -> N
         row["events_total"] for row in simulator.runtime_snapshot()["sources"]
     )
     assert int(tick["story"]) + int(bool(manual["triggered"])) == 1
-    assert after - before == 7
+    assert after - before == 8

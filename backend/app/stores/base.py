@@ -259,6 +259,11 @@ class UsageRepository(ABC):
     async def summary(self, window_hours: int = 24, case_id: str | None = None) -> dict[str, Any]:
         """Windowed cost/token summary for the in-plugin cost panel."""
 
+    async def records(self, *, limit: int = 1000) -> list[dict[str, Any]]:
+        """Newest-first, bounded ledger export. The safe default keeps third-party
+        repositories source-compatible; bundled ES/SQL repositories override it."""
+        return []
+
 
 class KVStore(ABC):
     """Single-document key/value persistence for config + cursor.

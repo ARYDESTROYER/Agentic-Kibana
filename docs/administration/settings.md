@@ -1,11 +1,11 @@
 ---
 title: Settings administration
-description: Configure TLSOC 0.1 safely, understand preference scope, and keep secrets out of persisted settings.
+description: Configure Agentic SOC 0.1 safely, understand preference scope, and keep secrets out of persisted settings.
 ---
 
 # Settings administration
 
-TLSOC separates ordinary preferences from credentials. This distinction matters:
+Agentic SOC separates ordinary preferences from credentials. This distinction matters:
 preferences are durable application state, while credentials belong to the secret
 tier and are never returned to the browser.
 
@@ -24,7 +24,7 @@ network you do not fully trust.
 
 | Layer | Examples | Persistence |
 |---|---|---|
-| Environment | state database URL, JWT signing key, provider credentials | supplied by the deployment; never written by TLSOC |
+| Environment | state database URL, JWT signing key, provider credentials | supplied by the deployment; never written by Agentic SOC |
 | Organization preferences | sources, case policy, model routing, budgets, automation, branding | selected `StateStore` |
 | User preferences | theme, saved views, table columns | selected `StateStore`, scoped by user |
 | Runtime secret tier | source, SSO, and notification secrets entered through the UI | memory only; lost when the backend restarts |
@@ -33,6 +33,12 @@ The Settings UI is the preferred editing surface. The API exposes `GET /api/sett
 `GET /api/settings/schema`, and `PUT /api/settings`; writes are validated as a complete
 `Preferences` model. Do not send a stale full settings document from an external
 script: another administrator may have changed a different section in the meantime.
+
+The Console presents one searchable section rail, a single active-section heading,
+and flat divider-led setting groups. Theme selection is a compact **System / Light /
+Dark** control under **Account → Appearance & customization**. Personal theme changes
+apply immediately and follow the signed-in user; System follows the organization
+default when one is configured, otherwise the device preference.
 
 ## Safe administration sequence
 
@@ -59,6 +65,21 @@ point-in-time rollback in version 0.1.
   not discard or silently close the case.
 - **Reset:** reset actions are separate, freshly authenticated, type-to-confirm
   operations. See [Reset and recovery](reset.md).
+
+## Export portable application state
+
+Open **Settings → Organization → Data export** when support or offline analysis
+needs a bounded JSON snapshot. Select all safe scopes or any combination of cases,
+audit, usage, configuration, automation, and knowledge. `limit_per_scope` is an
+aggregate cap for each selected scope (1–5000, default 1000); the returned manifest
+states count, known total, and truncation.
+
+The export excludes environment/source credentials, users and sessions,
+password/MFA material, browser tokens, upstream raw logs, and raw knowledge chunks.
+It is capped at 25 MiB and is not an import format or backup/restore mechanism. Every
+request is audited and requires `data_export:export`, granted by default to
+`super_admin` and `soc_manager`. Use a custom role only after reviewing the exact
+data that the selected scopes disclose.
 
 ## Secrets
 

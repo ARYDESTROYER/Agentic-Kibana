@@ -100,7 +100,7 @@ export function AutomationNudge({ onEnabled, onReview, onDismiss, profile }: Aut
       <AlertTitle>Autopilot is on — this SOC is triaging + improving itself</AlertTitle>
       <AlertDescription>
         <p>
-          TLSOC is reading every alert, risk-scoring every event, and self-tuning nightly
+          Agentic SOC is reading every alert, risk-scoring every event, and self-tuning nightly
           (shadow-checked false-positive tuning{canCampaign ? ' + campaign grouping' : ''})
           under a bounded daily budget. It adjusts what gets investigated, never how a case
           is closed or escalated — that stays deterministic.

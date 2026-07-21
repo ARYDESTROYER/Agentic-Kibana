@@ -4,7 +4,7 @@
  *
  *   - Knowledge: the RAG retrieval corpus (import / inspect / search / delete).
  *   - Memory:    durable operator facts injected into every investigation + chat.
- *   - Catalog:   the read-only Playbooks & Agents (personas + runbooks) catalog.
+ *   - Catalog:   Playbooks management plus the reference agent-persona catalog.
  *
  * The redundant in-page "Knowledge | Memory | Playbooks" segmented strip was removed
  * (task: the left-nav Intelligence group already exposes a clickable child for all
@@ -66,7 +66,7 @@ export default function Intelligence({ onNavigate, tab }: IntelligenceProps = {}
       {view === 'memory' ? (
         <Memory embedded onNavigate={navigate} />
       ) : view === 'catalog' ? (
-        <Catalog embedded />
+        <Catalog embedded defaultTab="playbooks" />
       ) : (
         <Knowledge embedded onNavigate={navigate} />
       )}

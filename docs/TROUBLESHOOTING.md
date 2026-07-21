@@ -1,4 +1,4 @@
-# TROUBLESHOOTING.md — TLSOC Agentic Triage Suite
+# TROUBLESHOOTING.md — Agentic SOC
 
 A consolidated symptom → likely cause → fix → confirm playbook spanning deploy,
 runtime, and usage of the **vendor-agnostic** suite. Each entry tells you how to
@@ -110,8 +110,15 @@ callout at the top of this file); the data you expect is listed by
 **Symptom.** `npm run build` fails; the SPA shows a blank page or 502s on `/api`.
 
 **Likely cause / fix.**
-- **Type errors at build** — `npm run build` runs `tsc --noEmit` first. Run
-  `npm run typecheck` to see the errors; fix and rebuild.
+- **Help Center build errors** — `npm run build` generates the version-matched
+  MkDocs bundle before the SPA. Run `npm run docs:bundle` for the focused failure.
+  The wrapper reuses `TLSOC_DOCS_PYTHON` when explicitly set, then a compatible
+  `backend/.venv` or current Python; otherwise it creates and reuses the ignored
+  root `.docs-venv` from `docs/requirements.txt`. If an explicit
+  `TLSOC_DOCS_PYTHON` lacks MkDocs Material, unset it or point it at the compatible
+  interpreter named in the error.
+- **Type errors at build** — after the documentation bundle, `npm run build` runs
+  `tsc --noEmit`. Run `npm run typecheck` to see the errors; fix and rebuild.
 - **Blank page in production** — the nginx image serves `dist/`; confirm the build
   stage ran (`docker logs tlsoc-webui` shows nginx, not a build error) and that
   `dist/index.html` exists.

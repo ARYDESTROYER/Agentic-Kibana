@@ -1,4 +1,4 @@
-"""Markdown playbook engine for the TLSOC Agentic Triage backend.
+"""Markdown playbook engine for the Agentic SOC backend.
 
 A *playbook* is an operator-authored Markdown file with a YAML-ish front-matter
 manifest (deterministic match criteria + recommendations) and a free-text body of

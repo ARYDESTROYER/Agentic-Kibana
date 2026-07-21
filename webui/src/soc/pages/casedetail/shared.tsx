@@ -165,8 +165,8 @@ export const ALL_ACTIONS: Record<ActionKind, ActionDef> = {
     // NEEDS_HUMAN, which is only reached via the deterministic decide()/verdict path).
     // The paired `deescalate` action clears it.
     confirmBody:
-      'Escalate this case — flag it for a senior / Tier-3 analyst and raise its priority. The status becomes ESCALATED.',
-    help: 'Escalate — flag for a senior / Tier-3 analyst; the status becomes ESCALATED.',
+      'Escalate this case. The status becomes ESCALATED and the case remains open for analyst action.',
+    help: 'Escalate this case; the status becomes ESCALATED.',
     fields: ['assignee', 'priority'],
   },
   reopen: {

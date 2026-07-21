@@ -1,5 +1,5 @@
 /**
- * Typed fetch client for TLSOC Console.
+ * Typed fetch client for Agentic SOC.
  *
  * Every call hits the FastAPI backend at `/api/...`. In dev, Vite proxies `/api`
  * to the backend (see vite.config.ts); in production the SPA is served from the
@@ -41,6 +41,7 @@ import type {
   EffectivePrefs,
   FeedbackStats,
   HealthResponse,
+  BuildInfoResponse,
   LoginResult,
   MfaSetupResult,
   SsoAuthorizeResult,
@@ -49,6 +50,7 @@ import type {
   MemoryResponse,
   Metrics,
   ModelsResponse,
+  NoiseLineage,
   NoiseReduction,
   NotificationPreview,
   NotificationProviders,
@@ -57,6 +59,8 @@ import type {
   NotifyCaseResult,
   OrgCustomization,
   PersonasResponse,
+  PlaybookDetail,
+  PlaybookMutationResponse,
   PlaybooksResponse,
   Preferences,
   AutomationRule,
@@ -872,12 +876,21 @@ export const api = {
       request<RagImportResult>('POST', 'threat-context/import', { body: input }),
   },
 
-  // ---- Personas + playbooks (read-only catalog) ------------------------- //
+  // ---- Personas + playbooks --------------------------------------------- //
   getPersonas: () => request<PersonasResponse>('GET', 'personas'),
   getPlaybooks: () => request<PlaybooksResponse>('GET', 'playbooks'),
+  getPlaybook: (playbookId: string) =>
+    request<PlaybookDetail>('GET', `playbooks/${encodeURIComponent(playbookId)}`),
+  createPlaybook: (input: { id: string; content: string }) =>
+    request<PlaybookMutationResponse>('POST', 'playbooks', { body: input }),
+  updatePlaybook: (playbookId: string, content: string) =>
+    request<PlaybookMutationResponse>('PUT', `playbooks/${encodeURIComponent(playbookId)}`, {
+      body: { content },
+    }),
 
   // ---- Health + setup --------------------------------------------------- //
   health: () => request<HealthResponse>('GET', 'health'),
+  buildInfo: () => request<BuildInfoResponse>('GET', 'health/build-info'),
   setupStatus: () => request<SetupStatus>('GET', 'setup/status'),
   updateSecrets: (secrets: SecretsUpdate) =>
     request<{ ok: boolean; configured: Record<string, boolean> }>('POST', 'setup/secrets', {
@@ -1044,6 +1057,12 @@ export const api = {
   noiseReduction: (windowHours = 24) =>
     request<NoiseReduction>('GET', 'metrics/noise-reduction', {
       query: { window_hours: windowHours },
+    }),
+  // Lazy, bounded detail for the expanded flow. Requires both metrics:view and
+  // cases:read because rows carry case ids; alert identities remain one-way refs.
+  noiseReductionLineage: (windowHours = 24, limit = 12) =>
+    request<NoiseLineage>('GET', 'metrics/noise-reduction/lineage', {
+      query: { window_hours: windowHours, limit },
     }),
 
   // ---- Analytics surfaces ---------------------------------------------- //

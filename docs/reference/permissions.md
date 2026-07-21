@@ -1,12 +1,12 @@
 ---
 title: Permissions
-description: Built-in TLSOC roles, resource-action grants, authorization modes, and custom-role behavior in version 0.1.
+description: Built-in Agentic SOC roles, resource-action grants, authorization modes, and custom-role behavior in version 0.1.
 ---
 
 # Permissions
 
-TLSOC 0.1 authorizes actions with a `resource:action` vocabulary. Six built-in roles
-ship with the TLSOC API. Organization administrators can add custom roles, inherit
+Agentic SOC 0.1 authorizes actions with a `resource:action` vocabulary. Six built-in roles
+ship with the Agentic SOC API. Organization administrators can add custom roles, inherit
 from an existing role, grant narrow actions, and apply explicit denies.
 
 ## Authorization modes
@@ -46,12 +46,13 @@ The names describe defaults, not organizational job titles. Notably, the built-i
 | `sources` | `read`, `manage` | `*` | `*` | `read` | `read` | `read` | `read` |
 | `users` | `manage` | `*` | `manage` | — | — | — | — |
 | `proposals` | `read`, `approve` | `*` | `*` | `read` | `read` | `read`, `approve` | `read` |
-| `playbooks` | `read`, `run` | `*` | `*` | `read`, `run` | `read` | `read`, `run` | `read` |
+| `playbooks` | `read`, `run`, `manage` | `*` | `*` | `read`, `run` | `read` | `read`, `run` | `read` |
 | `rag` | `read`, `manage` | `*` | `*` | `read` | `read` | `read` | `read` |
 | `memory` | `read`, `manage` | `*` | `*` | `read` | `read` | `read` | `read` |
 | `cost` | `view` | `*` | `view` | `view` | `view` | `view` | `view` |
 | `metrics` | `view` | `*` | `view` | `view` | `view` | `view` | `view` |
 | `audit` | `view` | `*` | `view` | — | — | — | `view` |
+| `data_export` | `export` | `*` | `export` | — | — | — | — |
 
 ## Settings and narrow administration grants
 
@@ -101,7 +102,7 @@ assignment of that role as a privileged operation.
 - `GET /api/roles/simulate` evaluates a role against a resource/action request.
 - `PUT /api/users/{username}/roles` changes a user's role.
 
-The TLSOC Console uses permission guards for presentation, but the API is the security
+The Agentic SOC Console uses permission guards for presentation, but the API is the security
 boundary. Non-GET routes are expected to declare an authorization dependency in
 addition to the central authentication gate.
 

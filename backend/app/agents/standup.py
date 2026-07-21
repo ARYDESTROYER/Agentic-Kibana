@@ -54,7 +54,7 @@ _OPEN_FETCH_LIMIT = 500
 # the shift-handoff framing while keeping the same untrusted-data + no-invented-numbers
 # guardrails. The aggregate it summarises is fenced by the caller (#9).
 SHIFT_STANDUP_SYSTEM = (
-    "You are the TLSOC shift-handoff writer. You are handed a COMPACT, pre-aggregated "
+    "You are the Agentic SOC shift-handoff writer. You are handed a COMPACT, pre-aggregated "
     "JSON snapshot of the last period. It LEADS with a 'shift' block — the attention "
     "queue (open / needs-human / escalated cases ranked by urgency), SLA aging (breached "
     "and about-to-breach), per-analyst workload, open action items, and "

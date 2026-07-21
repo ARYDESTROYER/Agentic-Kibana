@@ -40,6 +40,10 @@ import type { Navigate } from '@/soc/router';
 
 import { PanelCard, SectionHeading } from './shared';
 import type { CasePanelPresentation } from './shared';
+import {
+  ClusterFormationDiagram,
+  type ClusterExplanation,
+} from './ClusterFormationDiagram';
 
 /** Canonical MITRE ATT&CK technique URL (id like "T1110" or "T1110.001"). */
 function mitreUrl(id: string, fallback?: string): string {
@@ -147,10 +151,11 @@ export const ThreatContextPanel: React.FC<{
     asset && Array.isArray(asset.networks)
       ? asset.networks.filter((value) => ['string', 'number', 'boolean'].includes(typeof value))
       : [];
+  const clustering = (panel.clustering || null) as ClusterExplanation | null;
   // Related cases + evidence are shown on the Overview tab, not repeated here
   // (Round-7 dedup), so they no longer participate in the "any section" gate.
   const anySection =
-    !!panel.summary || iocs.length > 0 || techniques.length > 0 || !!asset;
+    !!panel.summary || iocs.length > 0 || techniques.length > 0 || !!asset || !!clustering?.available;
 
   if (presentation === 'case-manager') {
     return (
@@ -281,6 +286,8 @@ export const ThreatContextPanel: React.FC<{
             )}
           </PanelCard>
         </div>
+
+        <ClusterFormationDiagram data={clustering} />
 
         {/* Production-only context remains available below the exact reference row. */}
         <div className="grid gap-6 md:grid-cols-2">
@@ -417,6 +424,8 @@ export const ThreatContextPanel: React.FC<{
           ) : null}
         </div>
       </PanelCard>
+
+      <ClusterFormationDiagram data={clustering} />
 
       {/* ---------------------------------------------- IOC reputation */}
       <PanelCard>

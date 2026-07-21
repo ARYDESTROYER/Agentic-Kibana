@@ -12,7 +12,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 
 import { NoiseFunnel, deriveFunnel, ribbonPath } from '../NoiseFunnel';
-import type { NoiseReduction } from '@/lib/types';
+import type { NoiseLineage, NoiseReduction } from '@/lib/types';
 
 /**
  * A well-formed §D payload. The backend folds needs_human + the true_positive residual
@@ -93,6 +93,59 @@ function fixture(overrides: Partial<NoiseReduction> = {}): NoiseReduction {
   };
 }
 
+function lineageFixture(): NoiseLineage {
+  return {
+    window_hours: 24,
+    generated_at: '2026-07-05T00:01:00Z',
+    rows: [
+      {
+        case_id: 'case-lineage-1',
+        display_id: 'CASE-000042',
+        created_at: '2026-07-05T00:00:00Z',
+        severity: 'critical',
+        clustering: {
+          available: true,
+          cluster_id: '4cb33a5bf9d8d6880f',
+          input_count: 2,
+          input_refs: ['alert-a15bb2b03f10', 'alert-75536a9e82bc'],
+          source_count: 1,
+          source_breakdown: { entra: 2 },
+          correlation: {
+            mode: 'threshold',
+            threshold: 2,
+            observed_count: 2,
+            window_seconds: 300,
+            group_by: 'user',
+            matched_rule: 'Impossible travel',
+            reason: 'Two sign-ins matched inside the configured window.',
+          },
+        },
+        outcome: {
+          key: 'auto_cleared',
+          label: 'Auto-cleared by AI',
+          funnel_stage: 'auto_cleared',
+          terminal: true,
+          status: 'closed',
+          verdict: 'FALSE_POSITIVE',
+          disposition: 'false_positive',
+          decision_by: 'agent',
+        },
+      },
+    ],
+    meta: {
+      returned: 1,
+      window_cases_in_fetched_page: 4,
+      fetched_cases: 40,
+      store_total: 40,
+      limit: 12,
+      truncated: true,
+      store_truncated: false,
+    },
+    limitations:
+      'Rows are a bounded newest-case sample. Alert references are stable one-way identifiers.',
+  };
+}
+
 describe('NoiseFunnel', () => {
   it('uses the available flat-dashboard space for a taller flow and lower stage rail', () => {
     render(<NoiseFunnel data={fixture()} animate={false} variant="flat" />);
@@ -106,6 +159,60 @@ describe('NoiseFunnel', () => {
       'lg:grid-cols-6',
     );
     expect(screen.getByTestId('noise-stage-rail')).not.toHaveAttribute('style');
+  });
+
+  it('opens a wide aggregate plus bounded alert-to-outcome lineage inspection', async () => {
+    const loader = vi.fn().mockResolvedValue(lineageFixture());
+    render(
+      <NoiseFunnel
+        data={fixture()}
+        animate={false}
+        variant="flat"
+        expandable
+        lineageLoader={loader}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand noise reduction flow' }));
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Noise reduction flow · Last 24 hours/i })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Expanded noise reduction funnel' })).toBeInTheDocument();
+    expect(screen.getByText(/Raw identifiers and payloads are intentionally excluded/i)).toBeInTheDocument();
+
+    const lineage = await screen.findByRole('region', { name: 'Inspectable case lineages' });
+    expect(loader).toHaveBeenCalledTimes(1);
+    expect(loader).toHaveBeenCalledWith(24, 12);
+    expect(within(lineage).getByTestId('noise-lineage-row')).toBeInTheDocument();
+    expect(within(lineage).getByText('2 persisted signals')).toBeInTheDocument();
+    expect(within(lineage).getByText('cluster-4cb33a5bf9d8')).toBeInTheDocument();
+    expect(within(lineage).getByText('Auto-cleared by AI')).toBeInTheDocument();
+    expect(within(lineage).getAllByText(/bounded newest-case sample/i)).toHaveLength(2);
+
+    const caseLink = within(lineage).getByRole('link', { name: /CASE-000042/i });
+    expect(caseLink).toHaveAttribute('href', '#/case_manager?caseId=case-lineage-1');
+
+    fireEvent.click(within(lineage).getByText('Inspect persisted clustering facts'));
+    expect(within(lineage).getAllByText('alert-a15bb2b03f10').length).toBeGreaterThan(1);
+    expect(within(lineage).getByText('Impossible travel')).toBeInTheDocument();
+  });
+
+  it('shows a retryable lineage error without hiding the aggregate flow', async () => {
+    const loader = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Lineage read denied'))
+      .mockResolvedValueOnce(lineageFixture());
+    render(
+      <NoiseFunnel data={fixture()} animate={false} variant="flat" expandable lineageLoader={loader} />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand noise reduction flow' }));
+    expect(screen.getByRole('group', { name: 'Expanded noise reduction funnel' })).toBeInTheDocument();
+    expect(await screen.findByText('Lineage read denied')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByText('cluster-4cb33a5bf9d8')).toBeInTheDocument();
+    expect(loader).toHaveBeenCalledTimes(2);
   });
 
   it('extends only the flat plot toward the left while keeping its final node fixed', () => {

@@ -278,6 +278,13 @@ async def assemble(
         base.ioc_reputation = ioc if isinstance(ioc, list) else []
         base.mitre_techniques = mitre if isinstance(mitre, list) else []
         base.related_cases = related if isinstance(related, list) else []
+        # Pure/read-only projection of the already-persisted correlation facts. It
+        # never re-runs clustering and hashes member identities before returning them.
+        from .clustering_explain import build_clustering_explanation
+
+        base.clustering = build_clustering_explanation(
+            case, related_cases=base.related_cases,
+        )
         # The asset + evidence sections are pure/local — compute them directly.
         base.asset_context = _asset_section(case, prefs)
         base.evidence = _evidence_section(case)

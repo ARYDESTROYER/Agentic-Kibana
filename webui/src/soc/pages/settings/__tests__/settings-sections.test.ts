@@ -51,6 +51,7 @@ const EXPECTED_IDS = [
   'advanced',
   'advanced_all', // NEW (Round-5 Sett-C: schema-driven "All settings" generic renderer)
   'demo',
+  'data_export',
   'danger', // NEW (Round-5 Sett-B: isolated Danger zone, last)
 ].sort();
 
@@ -129,6 +130,7 @@ describe('grouped rail derivation (Round-5 Sett-B: 5 groups, Security promoted)'
       'advanced',
       'advanced_all',
       'demo',
+      'data_export',
       'danger',
     ]);
     expect(org.sections[org.sections.length - 1].id).toBe('danger');
@@ -169,7 +171,7 @@ describe('SECTION_KEYS is derived from ownedKeys (kills the 3-file hand-sync)', 
   it('leaves the embedded / self-saving sections out of the dirty map', () => {
     // These manage their own save lifecycle (embedded bodies, write-only keys,
     // enrichment's self-contained provider editor, roles matrix, danger-zone resets).
-    for (const id of ['profile', 'account_security', 'sessions', 'customization', 'keys', 'enrichment', 'admin_users', 'roles', 'admin_sessions', 'appearance', 'demo', 'danger']) {
+    for (const id of ['profile', 'account_security', 'sessions', 'customization', 'keys', 'enrichment', 'admin_users', 'roles', 'admin_sessions', 'appearance', 'demo', 'data_export', 'danger']) {
       expect(id in SECTION_KEYS).toBe(false);
     }
   });

@@ -76,6 +76,13 @@ def test_health_live_ready_and_build_info(client, monkeypatch):
     assert promoted.json()["version"] == __version__
     assert promoted.json()["release_channel"] == "stable"
 
+    # Branch names and arbitrary labels never promote an artifact. Promotion is
+    # an explicit build input, so both fail safe to Testing.
+    monkeypatch.setenv("TLSOC_RELEASE_CHANNEL", "main")
+    assert client.get("/api/health/build-info").json()["release_channel"] == "testing"
+    monkeypatch.setenv("TLSOC_RELEASE_CHANNEL", "preview")
+    assert client.get("/api/health/build-info").json()["release_channel"] == "testing"
+
 
 def test_health_readiness_is_truthful_when_state_store_is_down(client, monkeypatch):
     async def down() -> bool:

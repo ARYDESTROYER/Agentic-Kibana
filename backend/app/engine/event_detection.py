@@ -325,7 +325,7 @@ def funnel(
 # Stage (d): build the BATCH of surviving AGGREGATED summaries (one request each).
 # --------------------------------------------------------------------------- #
 _DETECTION_SYSTEM = (
-    "You are the TLSOC event-detection triage classifier. You are given a COMPACT, "
+    "You are the Agentic SOC event-detection triage classifier. You are given a COMPACT, "
     "PRE-AGGREGATED summary of one entity's activity in one time bucket (counts, rates, "
     "a bounded rule/host mix) — never raw logs. Decide whether this aggregate looks like "
     "a genuine security detection worth a full investigation, or benign noise. "

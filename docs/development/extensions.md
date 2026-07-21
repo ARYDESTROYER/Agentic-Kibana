@@ -1,11 +1,11 @@
 ---
 title: Extension points
-description: Add connectors, enrichment providers, notification channels, LLM providers, tools, routes, playbooks, and stores to TLSOC 0.1.
+description: Add connectors, enrichment providers, notification channels, LLM providers, tools, routes, playbooks, and stores to Agentic SOC 0.1.
 ---
 
 # Extension points
 
-TLSOC exposes small registries and interfaces for source, intelligence, delivery, and
+Agentic SOC exposes small registries and interfaces for source, intelligence, delivery, and
 model integrations. Extensions must preserve read-only source access, untrusted-data
 fencing, deterministic decisions, complete audit/cost accounting, and fail-safe human
 review.
@@ -120,6 +120,13 @@ Playbooks are Markdown plus a validated manifest. Selection is deterministic by 
 priority, version, and ID; hot reload validates before replacing the live registry.
 Playbook guidance can recommend tools, RAG queries, escalation conditions, or verdict
 bias, but cannot close/escalate a case or bypass approval.
+
+The supported runtime editor manages only operator-owned UTF-8 `*.md` files under the
+configured playbook directory. Keep IDs slug-bound and identical to front matter; do
+not add an arbitrary path/file API. Writes must remain bounded, contained, atomic,
+reload-validated, and audited. The packaged default procedures are protected reference
+content. Extend the explicit bundled-file set when shipping a new protected procedure;
+files in an operator override directory remain operator-owned.
 
 Runbooks and allowlisted system knowledge are content, not executable code. Keep
 operator-imported material in the untrusted RAG path.

@@ -13,7 +13,7 @@ Posture and ATT&CK endpoints require `metrics:view` when RBAC is enabled.
 
 ## Timing definitions
 
-TLSOC reports distributions, including p50 and p90 where available:
+Agentic SOC reports distributions, including p50 and p90 where available:
 
 | Metric | v0.1 definition |
 |---|---|

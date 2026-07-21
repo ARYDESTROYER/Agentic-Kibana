@@ -1,6 +1,6 @@
 # DEMO.md — Guided demo walkthrough
 
-A crisp, copy-pasteable script for **presenting** TLSOC Agentic Triage Suite.
+A crisp, copy-pasteable script for **presenting Agentic SOC**.
 It brings the suite up locally with **auth enabled** (so the redesigned login,
 6-role RBAC, MFA, sessions, and SSO surfaces are all live) and walks a presenter
 through every headline feature in order. Budget ~25-30 minutes for the full tour
@@ -148,7 +148,7 @@ cursors. It is **fully reversible in one click**.
   - **`live`** — also starts a deterministic background simulator that emits
     standards-faithful Splunk HEC, QRadar LEEF/offense, Wazuh JSON, and RFC
     5424/3164 traffic. Benign activity continuously updates the live tail while
-    scheduled source-native alerts and TLSOC detections advance a shared MITRE
+    scheduled source-native alerts and Agentic SOC detections advance a shared MITRE
     ATT&CK storyline, so visible activity is guaranteed while you present.
 - Notice the amber **Demo banner** pinned in the app shell and the **`SAMPLE`**
   badge on every demo row; cost tiles read **"(simulated)"**. The Sources UI disables
@@ -169,7 +169,7 @@ cursors. It is **fully reversible in one click**.
   higher logical volume is aggregated.
 - Click **Generate incident** to emit one coherent attack immediately: Splunk,
   QRadar, and Wazuh each raise a native alert while raw syslog telemetry crosses
-  TLSOC's own correlation threshold. The control has a short cooldown so a double
+  Agentic SOC's own correlation threshold. The control has a short cooldown so a double
   click cannot duplicate the storyline.
 - **Reset** re-seeds from the same seed (clean slate, same data). **Exit & clear**
   stops the simulator and **hard-deletes everything by `run_id`** across

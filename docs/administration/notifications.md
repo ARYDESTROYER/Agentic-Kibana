@@ -1,11 +1,11 @@
 ---
 title: Notifications
-description: Configure channels, triggers, templates, digests, and delivery tests in TLSOC 0.1.
+description: Configure channels, triggers, templates, digests, and delivery tests in Agentic SOC 0.1.
 ---
 
 # Notifications
 
-TLSOC can deliver email, Resend, Slack, Microsoft Teams, generic webhook,
+Agentic SOC can deliver email, Resend, Slack, Microsoft Teams, generic webhook,
 PagerDuty, Telegram, and in-app notifications. Notifications run after case state is
 saved and never determine whether a case closes or escalates.
 
@@ -26,7 +26,7 @@ saved and never determine whether a case closes or escalates.
 
 ## Templates and safety
 
-TLSOC includes a bounded mustache-style template system. Rendered variables are
+Agentic SOC includes a bounded mustache-style template system. Rendered variables are
 escaped by default, and raw insertion is restricted to trusted keys. Keep subjects
 header-safe, avoid sensitive evidence in broad channels, and preview every template
 after adding user-, case-, or source-derived fields.
@@ -35,7 +35,7 @@ after adding user-, case-, or source-derived fields.
 
 The dispatcher supports condition-based triggers, deduplication, rate limiting, and
 digest behavior. Delivery is best-effort: a downstream outage must not roll back the
-case decision. Monitor both the TLSOC audit/notification state and the receiving
+case decision. Monitor both the Agentic SOC audit/notification state and the receiving
 provider.
 
 In-app notifications are stored per user in a bounded inbox. Users can control their

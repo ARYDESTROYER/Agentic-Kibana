@@ -61,7 +61,7 @@ export interface ResolvedRange {
   toMs: number;
 }
 
-export type RefreshValue = 'off' | '5s' | '30s' | '1m' | '5m';
+export type RefreshValue = 'off' | '5s' | '30s' | '1m' | '5m' | 'live';
 
 /** The relative presets exposed in the picker (DESIGN_STANDARD §4.3). */
 export const PRESETS: readonly TimeRange[] = [
@@ -82,6 +82,7 @@ export const REFRESH_OPTIONS: readonly { value: RefreshValue; label: string }[] 
   { value: '30s', label: '30 seconds' },
   { value: '1m', label: '1 minute' },
   { value: '5m', label: '5 minutes' },
+  { value: 'live', label: 'LIVE' },
 ];
 
 /** Refresh cadence → poll interval in ms (`off` → 0 = never). */
@@ -91,6 +92,10 @@ export const REFRESH_MS: Record<RefreshValue, number> = {
   '30s': 30_000,
   '1m': 60_000,
   '5m': 300_000,
+  // LIVE uses a visibility-aware five-second poll. It is deliberately explicit in
+  // the UI even though the cadence matches 5s: LIVE is the dashboard's default,
+  // continuously-following operating mode rather than an ad-hoc interval choice.
+  live: 5_000,
 };
 
 /* -------------------------------------------------------- ES date-math parse -- */
@@ -405,15 +410,34 @@ export function TimeRangePicker({
             )}
           >
             <RefreshCw
-              className={cn('h-3.5 w-3.5 shrink-0 opacity-70', refresh !== 'off' && 'text-primary')}
+              className={cn(
+                'h-3.5 w-3.5 shrink-0 opacity-70',
+                refresh !== 'off' && refresh !== 'live' && 'text-primary',
+                refresh === 'live' && 'text-success-text',
+              )}
               aria-hidden="true"
             />
+            {refresh === 'live' ? (
+              <i
+                className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-success ring-2 ring-success/20 motion-reduce:animate-none"
+                aria-hidden="true"
+                title="Live dashboard refresh"
+              />
+            ) : null}
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             {REFRESH_OPTIONS.map((o) => (
               <SelectItem key={o.value} value={o.value}>
-                {o.label}
+                <span className="inline-flex items-center gap-2">
+                  {o.value === 'live' ? (
+                    <span
+                      className="h-2 w-2 animate-pulse rounded-full bg-success ring-2 ring-success/20 motion-reduce:animate-none"
+                      aria-hidden="true"
+                    />
+                  ) : null}
+                  {o.label}
+                </span>
               </SelectItem>
             ))}
           </SelectContent>

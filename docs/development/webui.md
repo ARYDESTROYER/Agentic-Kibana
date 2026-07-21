@@ -1,13 +1,13 @@
 ---
 title: Console development
-description: TLSOC Console architecture, design system, API contracts, accessibility, and development workflow for version 0.1.
+description: Agentic SOC Console architecture, design system, API contracts, accessibility, and development workflow for version 0.1.
 ---
 
 # Console development
 
-The TLSOC Console is a standalone React 18 and TypeScript SPA built by Vite. It uses
+The Agentic SOC Console is a standalone React 18 and TypeScript SPA built by Vite. It uses
 Tailwind CSS, shadcn-style wrappers around Radix primitives, and a shared SOC component
-layer. It calls the TLSOC API through relative `/api/*` paths.
+layer. It calls the Agentic SOC API through relative `/api/*` paths.
 
 ## Set up the Console
 
@@ -26,12 +26,24 @@ development target without changing source:
 BACKEND_URL=http://127.0.0.1:9000 npm run dev
 ```
 
+`npm run dev` has a `predev` hook that generates the same version-matched Help
+Center used by production, so the in-app Documentation destination works in local
+development. `npm run build` is likewise the canonical docs-plus-application build:
+it runs `docs:bundle`, then `tsc --noEmit && vite build`. Use `build:app` only for a
+deliberately application-only iteration that is not a release gate.
+
+The docs wrapper honors an explicit `TLSOC_DOCS_PYTHON`, otherwise reuses a
+compatible `backend/.venv` or current interpreter. If neither contains the pinned
+MkDocs Material toolchain, it bootstraps the ignored root `.docs-venv` from
+`docs/requirements.txt` and reuses it. `npm run docs:check` validates the generated
+bundle and installed version metadata without leaving a stale checked-in artifact.
+
 ## Source layout
 
 | Path | Responsibility |
 |---|---|
 | `src/soc/pages/` | Route-level product pages and settings sections |
-| `src/soc/components/` | Reusable TLSOC domain components, charts, editors, guards, and feedback states |
+| `src/soc/components/` | Reusable Agentic SOC domain components, charts, editors, guards, and feedback states |
 | `src/soc/registry.tsx` | Single feature registry that derives navigation, routes, and command-palette entries |
 | `src/soc/AppShell.tsx`, `nav`, `router`, `theme`, `auth` | Application shell, navigation, routing, theming, and session context |
 | `src/ui/` | Low-level shadcn/Radix primitives; wrap and compose these instead of forking |
@@ -57,6 +69,11 @@ under organization branding.
 
 Do not reintroduce Elastic UI or Kibana packages. The archived plugin is not a source
 of current UI patterns.
+
+The enforceable page, surface, motion, loading, navigation, and theme rules are in
+[Console UI standard](ui-standard.md). Read it before changing a routed page or shared
+shell component. The older Round-5 research standard remains useful design history;
+the development standard is the concise current contract.
 
 ## Data and API contracts
 
@@ -99,7 +116,9 @@ npm test
 npm run build
 ```
 
-The production build runs TypeScript checking before Vite. Lint includes React hook
+The production build first generates the version-matched Help Center under
+`/docs/<major.minor>/`, then runs TypeScript checking before Vite. Use
+`npm run build:app` only for a deliberately app-only check. Lint includes React hook
 ordering and accessibility rules. Design gates protect architecture, tokens, bundle
 boundaries, and other repository-wide UI constraints.
 

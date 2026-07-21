@@ -13,9 +13,11 @@
  * pinned DecisionCard; Case Manager consolidates the same projection into CODE DECIDED.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render as testingRender, screen, within } from '@testing-library/react';
 import { axe, toHaveNoViolations } from 'jest-axe';
 import userEvent from '@testing-library/user-event';
+import type { ReactElement } from 'react';
+import { TooltipProvider } from '@/ui/tooltip';
 
 expect.extend(toHaveNoViolations);
 
@@ -28,6 +30,10 @@ vi.mock('@/lib/api', () => ({
 
 import { OverviewPanel, riskFactorBarColor } from '../OverviewPanel';
 import type { Case } from '@/lib/types';
+
+function render(ui: ReactElement) {
+  return testingRender(<TooltipProvider>{ui}</TooltipProvider>);
+}
 
 const CASE = {
   case_id: 'c1',
@@ -90,7 +96,7 @@ describe('OverviewPanel — decision brief (task 7c)', () => {
   it('renders the auto-close note (a quiet inline note, never a role="alert")', () => {
     render(
       <OverviewPanel
-        c={CASE}
+        c={{ ...CASE, verdict: 'false_positive' } as unknown as Case}
         fpPolicy={{ enabled: false, min_confidence: 0.8 }}
         triage={null}
         triageLoading={false}
@@ -103,6 +109,78 @@ describe('OverviewPanel — decision brief (task 7c)', () => {
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
+  it.each(['true_positive', 'needs_human'])(
+    'does not show a disabled false-positive policy note for a %s verdict',
+    (verdict) => {
+      render(
+        <OverviewPanel
+          c={{ ...CASE, verdict } as unknown as Case}
+          fpPolicy={{ enabled: false, min_confidence: 0.8 }}
+          triage={null}
+          triageLoading={false}
+        />,
+      );
+      expect(screen.queryByText('False-positive auto-close is disabled')).toBeNull();
+    },
+  );
+
+  it.each([
+    {
+      label: 'an active false positive',
+      status: 'open',
+      decisionBy: 'agent',
+      expected: true,
+    },
+    {
+      label: 'a needs-human case',
+      status: 'needs_human',
+      decisionBy: 'system',
+      expected: true,
+    },
+    {
+      label: 'a manually resolved false positive',
+      status: 'resolved',
+      decisionBy: 'analyst',
+      expected: true,
+    },
+    {
+      label: 'an AI-resolved false positive',
+      status: 'resolved',
+      decisionBy: 'agent',
+      expected: false,
+    },
+    {
+      label: 'an AI-closed false positive',
+      status: 'closed',
+      decisionBy: 'agent',
+      expected: false,
+    },
+  ])(
+    'shows the disabled-policy note only when applicable for $label',
+    ({ status, decisionBy, expected }) => {
+      render(
+        <OverviewPanel
+          c={{
+            ...CASE,
+            verdict: 'false_positive',
+            status,
+            decision_by: decisionBy,
+          } as unknown as Case}
+          fpPolicy={{ enabled: false, min_confidence: 0.8 }}
+          triage={null}
+          triageLoading={false}
+        />,
+      );
+
+      const note = screen.queryByText('False-positive auto-close is disabled');
+      if (expected) expect(note).toBeInTheDocument();
+      else {
+        expect(note).toBeNull();
+        expect(screen.getByText('Auto-closed by AI')).toBeInTheDocument();
+      }
+    },
+  );
+
   it('does not repeat an identical needs-human verdict and lifecycle status', () => {
     renderOverview({ ...CASE, verdict: 'needs_human', status: 'needs_human' } as unknown as Case);
     expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent(/^Needs human review$/);
@@ -114,6 +192,12 @@ describe('OverviewPanel — decision brief (task 7c)', () => {
     expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent(
       /^Likely a true positive — escalated$/,
     );
+  });
+
+  it('renders the legacy escalation flag only as Escalated, never as a numbered tier', () => {
+    renderOverview({ ...CASE, status: 'open', escalation_level: 3 } as unknown as Case);
+    expect(screen.getByText('Escalated')).toBeInTheDocument();
+    expect(screen.queryByText(/escalation\s+L3|tier[- ]?3/i)).toBeNull();
   });
 });
 
@@ -214,12 +298,14 @@ describe('OverviewPanel — embedded Case Manager composition', () => {
     // one flat summary and divider-led columns, not a stack of independent cards.
     expect(screen.getByTestId('case-manager-decision-summary')).toHaveClass(
       'rounded-none',
-      'border-y',
+      'border-b',
+      'border-t-0',
       'border-border/70',
       'bg-transparent',
       'px-0',
       'py-5',
     );
+    expect(screen.getByTestId('case-manager-decision-summary')).not.toHaveClass('border-y');
     expect(screen.getByTestId('case-manager-decision-summary')).not.toHaveClass('border-l-2');
     const flatColumns = panel?.querySelectorAll('[data-overview-surface="flat-column"]');
     expect(flatColumns).toHaveLength(8);
@@ -288,6 +374,18 @@ describe('OverviewPanel — embedded Case Manager composition', () => {
     expect(within(profile).getByText('Reputation')).toBeInTheDocument();
     expect(within(profile).getAllByText('40').length).toBeGreaterThanOrEqual(1);
     expect(within(profile).queryByText('0–100 each')).toBeNull();
+
+    const factorGrid = within(profile).getByTestId('risk-factor-grid');
+    expect(factorGrid).toHaveClass(
+      'grid-cols-[max-content_minmax(2.5rem,1fr)_2rem]',
+    );
+    const factorBars = within(profile).getAllByRole('progressbar', {
+      name: /risk factor:/i,
+    });
+    expect(factorBars).toHaveLength(5);
+    for (const factorBar of factorBars) {
+      expect(factorBar.parentElement).toBe(factorGrid);
+    }
 
     for (const [label, value] of [
       ['Volume', 40],

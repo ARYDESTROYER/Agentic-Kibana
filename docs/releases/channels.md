@@ -1,14 +1,26 @@
 ---
 title: Release channels and versioning
-description: The standard Testing-to-Stable promotion model, SemVer rules, artifacts, and documentation version policy for TLSOC.
+description: The standard Testing-to-Stable promotion model, SemVer rules, artifacts, and documentation version policy for Agentic SOC.
 ---
 
 # Release channels and versioning
 
-TLSOC has two release channels and two long-lived branches. Work integrates on
-**Testing**. The accepted source tree is then promoted through a protected pull
-request to **Stable** on `main`, and the resulting `main` commit is verified.
-There is no third prerelease branch and no separate release-branch vocabulary.
+Agentic SOC's release contract has two channels and two long-lived branches. Work
+integrates on **Testing**. The accepted source tree is then promoted through a
+protected pull request to **Stable** on `main`, and the resulting `main` commit is
+verified. There is no third prerelease branch and no separate release-branch
+vocabulary.
+
+!!! warning "The Stable branch is not provisioned yet"
+
+    The current remote exposes `Testing` and the legacy/default branch
+    `claude/main`; it does **not** yet expose a literal `main`. `claude/main` is not
+    Stable merely because its name contains `main`. Before the first Stable
+    release, a repository owner must create or rename and protect literal `main`,
+    make it the default, and configure the required promotion gates. If the owner
+    deliberately retains `claude/main` instead, every workflow, link, and release
+    document must be changed consistently before publication. Until then, only
+    Testing candidates exist and no checkout should claim Stable provenance.
 
 ## Channel contract
 
@@ -35,6 +47,12 @@ The branch names and channel names are deliberately different kinds of label:
 Do not use “alpha”, “Bleeding Edge”, “next”, or a generic “production branch” as
 synonyms for these channels.
 
+For operators, this distinction is concrete: after `main` is provisioned, an
+ordinary clone or pull of `main` receives the last accepted Stable source tree,
+never in-progress work from `Testing`. Pulling `Testing` receives the current
+integration candidate and may include changes that have not passed release
+acceptance.
+
 ## Version 0.1 nomenclature
 
 The first standardized release line is documentation version **0.1** and product
@@ -42,9 +60,9 @@ version **0.1.0**.
 
 | Surface | Canonical value |
 | --- | --- |
-| Product | TLSOC Agentic Triage Suite |
-| Operator interface | TLSOC Console |
-| Backend service/API | TLSOC API |
+| Product | Agentic SOC |
+| Operator interface | Agentic SOC Console |
+| Backend service/API | Agentic SOC API |
 | SemVer package and image version | `0.1.0` |
 | Git release tag | `v0.1.0` |
 | Documentation selector and URL line | `0.1` and `/0.1/` |
@@ -73,6 +91,82 @@ Every release starts with a candidate commit on `Testing`:
 6. Let the documentation workflow publish the matching major.minor line and move
    the `stable` and `latest` aliases to it.
 
+Before step 4 can run for the first time, complete the repository-provisioning
+prerequisite above. Do not substitute `claude/main` silently or stamp a Testing
+build as Stable to work around the missing branch.
+
+Use an annotated tag and verify it before pushing:
+
+```bash
+git switch main
+git pull --ff-only origin main
+test "$(cat VERSION)" = "X.Y.Z"
+git tag -a "vX.Y.Z" -m "Agentic SOC X.Y.Z"
+git show --no-patch "vX.Y.Z"
+git push origin "vX.Y.Z"
+```
+
+Replace `X.Y.Z` with the real `VERSION` value. Published tags are immutable; never
+force-update one.
+
+### Changelog discipline
+
+`CHANGELOG.md` has exactly one active top-level **`[Unreleased]`** section during
+normal development. Dated work that is not a published release is a **Development
+snapshot**, not another `[Unreleased]` section and not a bracketed SemVer release.
+
+As part of the final frozen release-preparation change:
+
+1. move the accepted entries out of `[Unreleased]` under `[X.Y.Z]` with the release
+   date;
+2. open a new, empty `[Unreleased]` section above it;
+3. promote and verify that exact prepared tree on `main`; and
+4. tag that exact verified commit immediately.
+
+If promotion is abandoned, revert the prepared release heading rather than leaving
+a Testing snapshot that reads as though it were published. Never keep multiple
+top-level `[Unreleased]` sections as a dated work log; the development journal and
+Development snapshot headings hold that history.
+
+### One-time cleanup of the legacy `claude/main` branch
+
+Do **not** copy `claude/main` over `Testing`, and do not delete it before the new
+Stable branch is protected and verified. The safe first-promotion sequence is:
+
+1. Finish, verify, commit, and push the candidate to `Testing`.
+2. Preserve the current legacy tip under an archive branch before changing defaults:
+
+   ```bash
+   git fetch origin --prune
+   git push origin origin/claude/main:refs/heads/archive/claude-main-2026-07-20
+   ```
+
+3. Bootstrap literal `main` from the current legacy default, then immediately protect
+   it and make pull requests plus the release gate mandatory:
+
+   ```bash
+   git switch --create main --track origin/claude/main
+   git push --set-upstream origin main
+   ```
+
+4. Open the first protected promotion pull request from `Testing` into `main`. Resolve
+   any history-only divergence without dropping accepted `Testing` content; verify the
+   resulting tree and rerun the complete release gate on the merged `main` SHA.
+5. Create the annotated `vX.Y.Z` tag from that verified SHA, publish artifacts/docs,
+   make `main` the repository default, and confirm clones, Pages, branch protections,
+   and the Console badge all identify Stable correctly.
+6. Only then delete the obsolete branch:
+
+   ```bash
+   git push origin --delete claude/main
+   ```
+
+The archive branch is deliberately non-default and can be removed later under the
+repository's retention policy. If the owner does not need an archive branch, use an
+immutable backup tag instead—but preserve the old tip somewhere until the first
+Stable promotion is proven. This is a one-time topology migration; subsequent releases
+always flow `feature → Testing → main → vX.Y.Z` and never recreate `claude/main`.
+
 If a Stable defect is found, fix it through `Testing`, exercise the same gate, and
 promote a patch release. Emergency timing may shorten review windows, but it does
 not reverse the direction of promotion.
@@ -96,9 +190,46 @@ Passing unit tests does not by itself make a commit Stable. The accepted source,
 release metadata, documentation, and published artifacts must describe the same
 thing.
 
+## Build and badge provenance
+
+SemVer and channel are independent. A Testing candidate and the accepted Stable
+build can both report version `0.1.0`; the channel says where that build sits in
+the acceptance lifecycle. Stamp the mutable provenance fields explicitly; keep or
+override the Dockerfile's canonical source URL as appropriate:
+
+| Variable | Purpose |
+| --- | --- |
+| `TLSOC_VERSION` | Product/image SemVer; must match the root `VERSION` file |
+| `TLSOC_RELEASE_CHANNEL` | `testing` for candidates; `stable` only for the verified `main`/tag build |
+| `TLSOC_BUILD_SHA` | Exact source commit |
+| `TLSOC_BUILD_DATE` | Reproducible build timestamp |
+| `TLSOC_SOURCE_URL` | Dockerfile build argument for the canonical source repository URL stored in OCI metadata; the reference Compose files use its repository default |
+
+The authoritative backend value is
+`/api/health/build-info.release_channel`; images also carry
+`dev.tlsoc.release.channel`. The Console always shows a top-right
+`vX.Y.Z · Testing|Stable` badge. Opening it displays the Console and backend
+version, channel, commit, and build time separately. When both identities are
+available, only explicit matching Stable stamps render Stable; a version, channel,
+or known-SHA mismatch immediately downgrades the session badge to Testing. When
+backend build-info is unavailable, the immutable Console build stamp determines the
+visible channel and remains inspectable.
+
+Local `run-demo.sh` derives Stable only from a literal `main` checkout; every
+other branch, detached checkout, or unknown channel fails safe to Testing unless
+an explicit release-build override is supplied. The documentation marquee is a
+separate publication badge controlled by `TLSOC_DOCS_CHANNEL`: the Testing docs
+job leaves it as Testing, while the `main` publication job explicitly sets Stable.
+No badge becomes Stable from SemVer or a similar-looking branch name alone.
+
+CI follows the same rule: `Testing` pushes and pull requests are stamped Testing;
+the protected `main` build and canonical `vX.Y.Z` tag build are stamped Stable.
+Dockerfiles default to Testing, so an operator-built Stable image must supply the
+explicit channel, SHA, and build date rather than relying on a default.
+
 ## Semantic versioning before 1.0
 
-TLSOC uses `MAJOR.MINOR.PATCH` SemVer for code, packages, and images:
+Agentic SOC uses `MAJOR.MINOR.PATCH` SemVer for code, packages, and images:
 
 - increment **PATCH** for backward-compatible fixes within a documentation line;
 - increment **MINOR** for a new pre-1.0 capability set or a compatibility change
@@ -111,14 +242,22 @@ channel labels.
 
 ## Documentation publication
 
-The documentation build follows the same promotion direction:
+Every Console build first generates its own version-matched Help Center under
+`/docs/<major.minor>/`. That installed copy is part of the application artifact and
+is authoritative for operating that exact build. Public publication follows the same
+promotion direction as the source:
 
-- a pull request or push to `Testing` runs a strict build and publishes a review
-  artifact, but does not move the public Stable site;
+- a pull request or push to `Testing` runs a strict docs-plus-app build and can
+  publish a Development review artifact, but does not move the public Stable site;
 - a push to `main` publishes the current major.minor directory with Mike, assigns
   the `stable` and `latest` aliases, and keeps older documentation directories;
 - the site version selector prefers the equivalent page in the selected version
   and falls back to that version's home page when the page did not yet exist.
 
+The application rail opens the installed same-origin guide by default. GitHub and the
+public Stable/Development sites remain explicit secondary links for source editing,
+upgrade comparison, or future-work preview; they never replace installed help
+silently.
+
 See [Documentation versions](documentation-versions.md) for URL, alias, and
-maintenance rules, and [TLSOC 0.1](0.1.md) for this release line.
+maintenance rules, and [Agentic SOC 0.1](0.1.md) for this release line.

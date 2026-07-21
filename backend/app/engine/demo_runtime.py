@@ -11,8 +11,9 @@ Two pieces, both completely SEPARATE from the real state:
   ledgers. The whole thing is garbage-collected when demo is disabled.
 
 * :class:`DemoSimulator` — an asyncio task (mirrors the receiver tasks) that, while
-  demo is in ``live`` mode, drives four standards-faithful sources: Splunk HEC,
-  QRadar LEEF/offenses, Wazuh archive/alert JSON, and RFC 5424/3164 syslog. Benign EVENT
+  demo is in ``live`` mode, drives five standards-faithful sources: Splunk HEC,
+  QRadar LEEF/offenses, Wazuh archive/alert JSON, RFC 5424/3164 syslog, and Microsoft
+  Entra ID sign-in/Identity Protection JSON. Benign EVENT
   traffic is pre-aggregated through the SAME ``event_detection.funnel()`` real EVENT
   feeds use; occasional Splunk/QRadar/Wazuh native alerts enter normal ingest, while a
   syslog incident is raised by TLSOC's own threshold detection.  A coherent attack is
@@ -173,7 +174,7 @@ class DemoStack:
         self._get_prefs = get_prefs
         # An offline cache (no Redis) for the demo enrich tool.
         self._cache = Cache(None)
-        # FOUR standards-faithful source adapters built once + reused by the
+        # FIVE standards-faithful source adapters built once + reused by the
         # pipeline/simulator.  Construction primes their bounded recent rings so Logs
         # and source health are populated before the first background tick.
         from .demo_sources import build_native_demo_sources
@@ -537,7 +538,7 @@ class DemoStack:
                 return 0
 
     def source_runtime_snapshot(self, *, running: bool | None = None) -> dict[str, Any]:
-        """Serializable four-source health/log contract for demo API overlays.
+        """Serializable five-source health/log contract for demo API overlays.
 
         Source adapters own their bounded recent rings and counters; this accessor is
         intentionally read-only so ``state.py``/routes need no knowledge of receiver
@@ -631,7 +632,7 @@ class DemoSimulator:
 
     Each tick gives every source benign traffic through the cheap EVENT funnel.  On a
     deterministic cadence Splunk/QRadar/Wazuh emit their native alert contracts; a
-    four-source storyline is guaranteed during the first 20–30 seconds.  Syslog remains
+    five-source storyline is guaranteed during the first 20–30 seconds. Syslog remains
     raw telemetry and clears a TLSOC correlation threshold instead of claiming a vendor
     alert.  All calls are synchronous against the isolated $0 stack, bounded, and cleanly
     cancellable."""
@@ -748,7 +749,7 @@ class DemoSimulator:
 
     @staticmethod
     def _allocate_source_counts(total: int) -> dict[str, int]:
-        """Deterministically split ``total`` by source shares; give all four traffic."""
+        """Deterministically split ``total`` by source shares; give every source traffic."""
         from .demo_sources import DEMO_SOURCE_SPECS
 
         keys = list(DEMO_SOURCE_SPECS)
@@ -818,10 +819,10 @@ class DemoSimulator:
         force: bool = False,
         scheduled_first: bool = False,
     ) -> dict[str, Any]:
-        """Emit one coherent four-source attack, respecting a short trigger cooldown.
+        """Emit one coherent five-source attack, respecting a short trigger cooldown.
 
         This is the presentation-safe seam for ``POST /api/demo/incident``.  It never
-        reaches a network or real store.  Splunk/QRadar/Wazuh emit native detections;
+        reaches a network or real store. Splunk/QRadar/Wazuh/Entra emit native detections;
         four RFC 5424 syslog records remain events and clear TLSOC's explicit threshold.
         The return value is fully serializable and attributes every count per source.
         """

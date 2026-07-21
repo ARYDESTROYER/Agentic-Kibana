@@ -503,7 +503,7 @@ class NotificationService:
     def _org_name(self, cfg) -> str:
         prefs = self._safe_prefs()
         branding = getattr(prefs, "branding", None)
-        return (getattr(branding, "org_name", "") or "TLSOC") if branding else "TLSOC"
+        return (getattr(branding, "org_name", "") or "Agentic SOC") if branding else "Agentic SOC"
 
     def _branding(self):
         """The live BrandingConfig (or None) — feeds the email shell tokens (logo /

@@ -1,12 +1,13 @@
 /**
  * Tiny hash router for the SOC console.
  *
- * Routes are `#/<pageid>`; an unknown/empty hash resolves to `overview`. Navigation
- * options (`{ caseId?, status?, ... }`) are kept in React state next to the page
- * id — they are intentionally NOT serialized into the URL so deep-links stay
- * clean, but they survive an in-app `navigate(page, opts)` call (e.g. a KPI
- * drill-through that pre-seeds a status filter on Cases). A `hashchange` listener
- * keeps back/forward + direct deep-links in sync.
+ * Routes are `#/<pageid>`; an unknown/empty hash resolves to `overview`. Most
+ * navigation options (`{ status?, severity?, ... }`) live only in React state
+ * next to the page id, so a KPI drill-through can pre-seed Cases without turning
+ * every ephemeral filter into URL state. The selected `caseId` is the deliberate
+ * exception: it is serialized so a Cases → Case Manager handoff, refresh, or
+ * browser-history navigation reopens the exact case. A `hashchange` listener keeps
+ * those durable deep-links and in-memory navigation in sync.
  *
  * Usage:
  *   <RouterProvider><AppShell/></RouterProvider>
@@ -96,6 +97,18 @@ export function settingsSectionHash(section: string, anchor?: string): string {
   return `#/settings?s=${s}${a}`;
 }
 
+/**
+ * Build a page hash while preserving the one operator context that must survive a
+ * refresh: the exact case selected in Cases / Case Manager. Other transient list
+ * filters remain in memory; Settings keeps its dedicated section hash above.
+ */
+export function pageHash(page: PageId, opts?: NavOpts): string {
+  const caseQuery = opts?.caseId
+    ? `?caseId=${encodeURIComponent(opts.caseId)}`
+    : '';
+  return `#/${page}${caseQuery}`;
+}
+
 /** Parse `#/<pageid>` from the location hash; unknown/empty → 'overview'. */
 export function pageFromHash(): PageId {
   try {
@@ -159,7 +172,7 @@ export const RouterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
     setPage(next);
     setOpts(nextOpts);
-    const target = '#/' + next;
+    const target = pageHash(next, nextOpts);
     if (window.location.hash !== target) window.location.hash = target;
   }, []);
 
@@ -175,9 +188,17 @@ export const RouterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
       const next = pageFromHash();
       setPage((prev) => {
-        if (prev === next) return prev;
-        // A URL-driven (back/forward/deep-link) navigation carries only whatever opts the
-        // hash query encodes (e.g. `#/cases?caseId=<id>`) — else none.
+        if (prev === next) {
+          // A same-page case change (e.g. Case Manager queue row A → row B)
+          // changes only the query. Reconcile that explicit durable option, but do
+          // not erase in-memory list filters such as a severity drill-through when
+          // their navigate() hash change settles on the already-updated page.
+          const hashOpts = optsFromHash();
+          if (hashOpts?.caseId) setOpts(hashOpts);
+          return prev;
+        }
+        // Back/forward/direct navigation to a different page carries only durable
+        // options represented in the hash; transient filter state is intentionally reset.
         setOpts(optsFromHash());
         return next;
       });

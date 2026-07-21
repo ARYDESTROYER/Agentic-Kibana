@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# run-demo.sh — one-command LOCAL demo of TLSOC Agentic Triage Suite.
+# run-demo.sh — one-command LOCAL demo of Agentic SOC.
 #
 # Brings up the suite in its "headline-features" demo posture WITHOUT Docker:
 #   * the FastAPI + LangGraph backend (app.main:app) on :8088, with API auth
@@ -33,6 +33,39 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 BACKEND_DIR="${REPO_ROOT}/backend"
 WEBUI_DIR="${REPO_ROOT}/webui"
+
+# --- Release identity --------------------------------------------------------
+# Local source runs share ONE stamp across backend + Vite. Only a literal `main`
+# checkout derives Stable automatically; every other branch/detached state defaults
+# to Testing. An explicit TLSOC_RELEASE_CHANNEL override remains available for release
+# rehearsal, but unknown values fail safe to Testing.
+CANONICAL_VERSION="$(tr -d '[:space:]' < "${REPO_ROOT}/VERSION")"
+TLSOC_VERSION="${TLSOC_VERSION:-${CANONICAL_VERSION}}"
+if [[ "${TLSOC_VERSION}" != "${CANONICAL_VERSION}" ]]; then
+  echo "[demo] TLSOC_VERSION=${TLSOC_VERSION} does not match VERSION ${CANONICAL_VERSION}." >&2
+  exit 2
+fi
+
+SOURCE_BRANCH="$(git -C "${REPO_ROOT}" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+if [[ -z "${TLSOC_RELEASE_CHANNEL:-}" ]]; then
+  if [[ "${SOURCE_BRANCH}" == "main" ]]; then
+    TLSOC_RELEASE_CHANNEL="stable"
+  else
+    TLSOC_RELEASE_CHANNEL="testing"
+  fi
+fi
+case "$(printf '%s' "${TLSOC_RELEASE_CHANNEL}" | tr '[:upper:]' '[:lower:]')" in
+  stable) TLSOC_RELEASE_CHANNEL="stable" ;;
+  testing) TLSOC_RELEASE_CHANNEL="testing" ;;
+  *)
+    echo "[demo] unknown TLSOC_RELEASE_CHANNEL=${TLSOC_RELEASE_CHANNEL}; using testing." >&2
+    TLSOC_RELEASE_CHANNEL="testing"
+    ;;
+esac
+
+TLSOC_BUILD_SHA="${TLSOC_BUILD_SHA:-$(git -C "${REPO_ROOT}" rev-parse --verify HEAD 2>/dev/null || echo unknown)}"
+TLSOC_BUILD_DATE="${TLSOC_BUILD_DATE:-$(git -C "${REPO_ROOT}" show -s --format=%cI HEAD 2>/dev/null || echo unknown)}"
+export TLSOC_VERSION TLSOC_RELEASE_CHANNEL TLSOC_BUILD_SHA TLSOC_BUILD_DATE
 
 BACKEND_PORT="${BACKEND_PORT:-8088}"
 WEBUI_PORT="${WEBUI_PORT:-5173}"
@@ -138,6 +171,7 @@ if ! python -c "import fastapi, uvicorn" >/dev/null 2>&1; then
 fi
 
 echo "[demo] starting backend (uvicorn app.main:app) on ${DEMO_BIND_HOST}:${BACKEND_PORT} …"
+echo "[demo] release v${TLSOC_VERSION} · ${TLSOC_RELEASE_CHANNEL} (${SOURCE_BRANCH:-detached}, ${TLSOC_BUILD_SHA})"
 (
   cd "${BACKEND_DIR}"
   exec python -m uvicorn app.main:app --host "${DEMO_BIND_HOST}" --port "${BACKEND_PORT}"
@@ -205,7 +239,7 @@ PIDS+=("$!")
 cat <<BANNER
 
 ==============================================================================
-  TLSOC Agentic Triage Suite — DEMO is starting up
+  Agentic SOC — DEMO is starting up
 ------------------------------------------------------------------------------
   Web UI :   http://${DEMO_BIND_HOST}:${WEBUI_PORT}
   Backend:   http://${DEMO_BIND_HOST}:${BACKEND_PORT}/api/health
@@ -214,6 +248,7 @@ cat <<BANNER
              password  ${ADMIN_PASS}     (demo super_admin — change for real use)
 
   Auth is ENABLED and deterministic Demo Mode is ${DEMO_MODE} (forced $0 mock LLM).
+  Release:    v${TLSOC_VERSION} · ${TLSOC_RELEASE_CHANNEL} (${SOURCE_BRANCH:-detached})
   Both services are bound to loopback only; they are not exposed on your LAN.
   Press Ctrl-C to stop both services.
 
