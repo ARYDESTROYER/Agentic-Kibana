@@ -7,21 +7,29 @@ import { PageSkeleton } from '../PageSkeleton';
 expect.extend(toHaveNoViolations);
 
 describe('PageSkeleton — route-level fallback', () => {
-  it('announces the destination and always renders visible progress chrome', () => {
+  it('announces the destination and centers the shared loading state', () => {
     render(<PageSkeleton label="Documentation" />);
 
     expect(screen.getByRole('status', { name: 'Loading Documentation' })).toBeInTheDocument();
-    expect(screen.getByText('Loading Documentation…')).toBeVisible();
-    expect(screen.getByRole('progressbar', { name: 'Loading Documentation' })).toBeVisible();
+    expect(screen.getByText('Loading Documentation')).toBeVisible();
+    expect(screen.getByTestId('console-loading-glyph')).toBeVisible();
     expect(screen.getByTestId('route-loading-fallback')).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByTestId('route-loading-fallback')).toHaveClass(
+      'items-center',
+      'justify-center',
+    );
   });
 
-  it('uses motion-safe animation with a calm reduced-motion fill', () => {
+  it('uses the shared indeterminate progress ring with a calm static base state', () => {
     render(<PageSkeleton label="Cases" />);
-    const indicator = screen.getByTestId('loading-bar-indicator');
-    expect(indicator.className).toContain('motion-safe:animate-bar-indeterminate');
-    expect(indicator.className).toContain('motion-reduce:w-full');
-    expect(indicator.className).not.toMatch(/(^|\s)animate-bar-indeterminate(\s|$)/);
+    const ring = screen.getByTestId('console-loading-glyph').querySelector('svg');
+    expect(ring).toHaveClass('console-progress-ring');
+    expect(ring).toHaveAttribute('data-loading-motion', 'indeterminate-ring');
+    expect(ring?.querySelectorAll('.console-progress-ring__arc')).toHaveLength(1);
+    expect(screen.getByTestId('route-loading-fallback')).toHaveAttribute(
+      'data-loading-layout',
+      'page',
+    );
   });
 
   it('has no detectable accessibility violations', async () => {

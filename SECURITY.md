@@ -97,7 +97,7 @@ a write credential.
 | Key (env var) | Scope | Privileges |
 |---|---|---|
 | `ES_API_KEY` (read-only log source) | the log index pattern | `read`, `view_index_metadata` |
-| `ES_MGMT_API_KEY` (ES state backend only) | `tlsoc-agent-*` | `read`, `write`, `create_index`, `view_index_metadata`, `manage` |
+| `ES_MGMT_API_KEY` (ES state backend only) | `tlsoc-agent-*` | Index: `read`, `write`, `create_index`, `view_index_metadata`, `manage`; cluster: `manage_ilm`, `manage_index_templates`, `monitor` for explicit lifecycle preview/apply |
 
 > A source's superuser/admin credential is used by an operator **once**, to mint
 > the read-only key, then never at runtime (non-negotiable #1).

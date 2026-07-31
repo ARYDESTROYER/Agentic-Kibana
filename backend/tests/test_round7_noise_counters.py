@@ -161,6 +161,42 @@ async def test_store_window_scopes_by_hour(app_state: AppState) -> None:
 
 
 @asyncio_mark
+async def test_store_exact_upper_boundary_excludes_later_buckets(
+    app_state: AppState,
+) -> None:
+    store = NoiseCounterStore(app_state._kv)
+    await store.record({"ingested": {"high": 1}}, now=NOW - timedelta(hours=1))
+    await store.record({"ingested": {"high": 2}}, now=NOW)
+    await store.record({"ingested": {"high": 4}}, now=NOW + timedelta(hours=1))
+
+    # Live reads include the current bucket but never future clock-skew buckets.
+    live = await store.read_window(24, now=NOW)
+    assert live["ingested"]["high"] == 3
+    # Complete-period reports use NOW as an exclusive boundary: [NOW-24h, NOW).
+    complete = await store.read_window_strict(
+        24, now=NOW, end_exclusive=True
+    )
+    assert complete["ingested"]["high"] == 1
+
+
+@asyncio_mark
+async def test_store_strict_read_distinguishes_failure_from_empty(
+    app_state: AppState,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = NoiseCounterStore(app_state._kv)
+
+    async def fail_get(*_args, **_kwargs):
+        raise RuntimeError("counter backend unavailable")
+
+    monkeypatch.setattr(store._kv, "get", fail_get)
+    soft = await store.read_window(24, now=NOW)
+    assert soft["available"] is False
+    with pytest.raises(RuntimeError, match="counter backend unavailable"):
+        await store.read_window_strict(24, now=NOW, end_exclusive=True)
+
+
+@asyncio_mark
 async def test_store_incomplete_flag(app_state: AppState) -> None:
     store = NoiseCounterStore(app_state._kv)
     await store.record({"ingested": {"high": 1}}, now=NOW)
@@ -171,6 +207,26 @@ async def test_store_incomplete_flag(app_state: AppState) -> None:
     later = NOW + timedelta(hours=48)
     complete = await store.read_window(1, now=later)  # window_from = later-1h > since
     assert complete["incomplete"] is False
+
+
+@asyncio_mark
+async def test_store_retention_floor_marks_overlong_window_incomplete(
+    app_state: AppState,
+) -> None:
+    store = NoiseCounterStore(app_state._kv)
+    await store.record(
+        {"ingested": {"high": 1}}, now=NOW - timedelta(days=120)
+    )
+    # A new write prunes the 120-day-old bucket but deliberately preserves the
+    # first-ever ``since`` timestamp. Completeness must use the effective retained
+    # floor rather than trusting that stale first-observation timestamp.
+    await store.record({"ingested": {"high": 2}}, now=NOW)
+
+    overlong = await store.read_window(121 * 24, now=NOW)
+    retained = await store.read_window(56 * 24, now=NOW)
+    assert overlong["available"] is True
+    assert overlong["incomplete"] is True
+    assert retained["incomplete"] is False
 
 
 @asyncio_mark
@@ -322,22 +378,89 @@ def test_build_noise_reduction_by_severity_bands() -> None:
 
 def test_build_noise_reduction_closed_stage_counts_human_closed() -> None:
     # The §D "closed" stage = cases that reached a terminal state a HUMAN drove
-    # (terminal AND NOT auto-cleared-by-AI). In _mece_cases(): nh1 (CLOSED, needs_human
-    # verdict, no agent decision) + tp (RESOLVED by analyst) → 2; the AGENT-auto-cleared
-    # FP (`ac`) and the still-open cases (`nh2`/`esc`) are excluded.
+    # (terminal AND decision_by is ANALYST). In _mece_cases(), only `tp` has explicit
+    # ANALYST authority; legacy `nh1` has no authority and therefore is not attributed
+    # to a human. The AGENT-auto-cleared FP (`ac`) and still-open cases are also excluded.
     rep = EN.build_noise_reduction(
         _mece_cases(), _COUNTERS_AVAILABLE, window_hours=0, store_total=5,
         fetched_count=5, generated_at="g", now=NOW,
     )
     stage = {s["key"]: s for s in rep["stages"]}
     assert "closed" in stage
-    assert stage["closed"]["total"] == 2
+    assert stage["closed"]["total"] == 1
     assert stage["closed"]["label"] == "Closed by human"
     assert stage["closed"]["source"] == "cases"
     # by_severity keeps the same shape as the other stages (all default band 'high').
-    assert stage["closed"]["by_severity"]["high"] == 2
+    assert stage["closed"]["by_severity"]["high"] == 1
     # ...and it is NOT the auto-cleared (AI) bar.
     assert stage["auto_cleared"]["total"] == 1
+
+
+def test_build_noise_reduction_closed_stage_requires_explicit_analyst_authority() -> None:
+    # TRUE_POSITIVE auto-close is an explicit policy opt-in. Its verdict differs from
+    # the default FP auto-close, but its decision authority is still AGENT and therefore
+    # it must never inflate the human-closed outcome.
+    cases = [
+        _case(
+            "fp-agent-close",
+            status=CaseStatus.CLOSED,
+            verdict=Verdict.FALSE_POSITIVE,
+            decision_by=DecisionBy.AGENT,
+            severity_band="high",
+        ),
+        _case(
+            "tp-agent-close",
+            status=CaseStatus.RESOLVED,
+            verdict=Verdict.TRUE_POSITIVE,
+            decision_by=DecisionBy.AGENT,
+            severity_band="critical",
+        ),
+        _case(
+            "tp-human-close",
+            status=CaseStatus.RESOLVED,
+            verdict=Verdict.TRUE_POSITIVE,
+            decision_by=DecisionBy.ANALYST,
+            severity_band="low",
+        ),
+        _case(
+            "system-close",
+            status=CaseStatus.CLOSED,
+            verdict=Verdict.NEEDS_HUMAN,
+            decision_by=DecisionBy.SYSTEM,
+            severity_band="medium",
+        ),
+        _case(
+            "legacy-close",
+            status=CaseStatus.CLOSED,
+            verdict=Verdict.NEEDS_HUMAN,
+            decision_by=None,
+            severity_band="info",
+        ),
+    ]
+    rep = EN.build_noise_reduction(
+        cases,
+        _COUNTERS_AVAILABLE,
+        window_hours=0,
+        store_total=5,
+        fetched_count=5,
+        generated_at="g",
+        now=NOW,
+    )
+    stage = {item["key"]: item for item in rep["stages"]}
+
+    assert stage["closed"]["total"] == 1
+    assert stage["closed"]["by_severity"] == {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 1,
+        "info": 0,
+    }
+    # The default FP automation remains the only member of auto_cleared. Opt-in TP
+    # automation, SYSTEM routing, and missing legacy provenance are all excluded from
+    # human-closed because only ANALYST authority is affirmative evidence of that action.
+    assert stage["auto_cleared"]["total"] == 1
+    assert stage["escalated"]["total"] == 4
 
 
 def test_build_noise_reduction_warming_up_degrades() -> None:

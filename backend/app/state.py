@@ -25,6 +25,7 @@ from .audit.audit_log import AuditLogger
 from .cache import Cache
 from .config import Preferences, Secrets
 from .engine.ingest import IngestService
+from .engine.release_discovery import ReleaseDiscoveryService
 from .es.base import BaseESClient
 from .es.indices import bootstrap_indices
 from .llm.gateway import LLMGateway
@@ -51,6 +52,9 @@ class AppState:
         self.es = es
         self.prefs = Preferences()
         self.cache = Cache(secrets.redis_url)
+        # Read-only public GitHub release metadata discovery. This service owns only
+        # an in-process TTL cache; it has no Git/deployment/process mutation surface.
+        self.release_discovery = ReleaseDiscoveryService()
         self._provider_overrides = provider_overrides
         self._receivers: list = []
         self._receiver_tasks: list = []
@@ -251,6 +255,15 @@ class AppState:
         return self._demo.case_threads if self._demo is not None else self._real_case_threads
 
     @property
+    def chat_conversations(self):
+        """Per-user Workspace history for the active real/demo state boundary."""
+        return (
+            self._demo.chat_conversations
+            if self._demo is not None
+            else self._real_chat_conversations
+        )
+
+    @property
     def case_activity(self):
         return self._demo.case_activity if self._demo is not None else self._real_case_activity
 
@@ -408,6 +421,10 @@ class AppState:
         # Markdown playbook registry (loaded from disk; deterministic per-cluster
         # selection). Reloaded in startup() once prefs (and any dir override) load.
         self.playbooks = self._build_playbooks()
+        # Runbooks are RAG reference knowledge: immutable bundled Markdown plus a
+        # durable operator-authored layer over the shared KV store. No filesystem
+        # write, new table, or index is required for Console authoring.
+        self.runbooks = self._build_runbooks()
         # Operator MEMORY store (durable trusted facts). Backed by the SAME KV the
         # config/cursor stores use for the active backend (SQL: SqlKVStore; ES: a
         # thin EsKVStore over the config index) — no new index/table/migration.
@@ -443,6 +460,7 @@ class AppState:
         self._real_pipeline = InvestigationPipeline(
             es, self.secrets, self.cache, self.gateway, self.rag, self._real_cases, self._real_audit,
             source=self.log_source, playbooks=self.playbooks, memory=self._real_memory,
+            tuning_store=self._real_tuning_store,
             seq_store=self.case_seq,
             # Round 5 (Coupling-F): the realtime EventBus is a module-global singleton
             # already available here, so inject it at construction (an optional ctor
@@ -749,6 +767,12 @@ class AppState:
 
         return MemoryStore(self._kv)
 
+    def _build_runbooks(self):
+        from .engine.runbook_service import RunbookService
+        from .stores.runbooks import RunbookStore
+
+        return RunbookService(RunbookStore(self._kv))
+
     def _build_proposals(self):
         """Construct the agent-PROPOSAL store over the active backend's KV (the same
         KV the MEMORY store uses — works on ES + SQL, no new index/table)."""
@@ -780,6 +804,7 @@ class AppState:
         from .stores.case_activity import CaseActivityStore
         from .stores.case_tasks import CaseTaskStore
         from .stores.case_thread import CaseThreadStore
+        from .stores.chat_conversations import ChatConversationStore
         from .stores.custom_models import CustomModelStore
         from .stores.custom_roles import CustomRoleStore
         from .stores.inbox import InboxStore
@@ -790,6 +815,7 @@ class AppState:
         kv = self._kv
         # Collaboration (#4 collaboration surface beside the authoritative audit trail).
         self._real_case_threads = CaseThreadStore(kv)
+        self._real_chat_conversations = ChatConversationStore(kv)
         self._real_case_activity = CaseActivityStore(kv)
         self._real_case_tasks = CaseTaskStore(kv)
         # In-app notification fan-out + per-user delivery prefs (#8).
@@ -1005,7 +1031,7 @@ class AppState:
     # ------------------------------------------------------------------ #
     # Round-4 Wave-4 — EVENT-feed detection-funnel driver + gated schedulers.
     # ------------------------------------------------------------------ #
-    async def _route_event_feed(self, events: list, prefs: Preferences) -> None:
+    async def _route_event_feed(self, events: list, prefs: Preferences) -> bool:
         """Route one EVENT feed's batch through the detection funnel (Wave-4).
 
         The poller calls this ONLY when batch + baseline are both enabled (it gates
@@ -1013,35 +1039,44 @@ class AppState:
         long-lived, warmed baseline model, turn the survivors into an aggregate-only,
         fenced BATCH request set (#7/#9), and SUBMIT it out-of-band to the batch service
         (the batch-jobs scheduler later polls + folds the confirmations back into the
-        SAME correlate→pipeline path, #4). Best-effort + never raises — a funnel/batch
-        glitch degrades to "nothing routed" (the events were already correlated out of
-        the realtime path by design; a missed batch just means no anomaly candidate this
-        tick, never a dropped/duplicated case)."""
+        SAME correlate→pipeline path, #4). Returns ``True`` only after an explicit
+        no-candidate outcome or a durable local Batch outbox write. Failures propagate
+        to the Poller so the contributing cursor remains untouched and work retries."""
         if not events:
-            return
+            return True
+        import copy
+
         from .engine import event_detection as evdet
 
-        try:
-            baseline = await self._ensure_funnel_baseline()
-            candidates = evdet.funnel(events, prefs, baseline)
-            # Persist the warmed sketches back so the baseline keeps improving across
-            # polls/restarts (the funnel folded EVERY bucket's observation in above).
-            await self._flush_funnel_baseline(baseline, candidates, events)
-            if not candidates:
-                return
-            requests = evdet.build_batch(candidates, prefs)
-            if not requests:
-                return
-            model = evdet.model_for_funnel(prefs)
-            provider = self._funnel_batch_provider(prefs)
-            # Persist the survivors (aggregate summary + member events + detection_source)
-            # keyed by custom_id ALONGSIDE the BatchJob, so the batch scheduler can rebuild
-            # them and re-enter the pipeline (same cluster_signature #4) when the
-            # confirmations return. The member events never enter the batch prompt (#7).
-            serialised = {c.custom_id: evdet.candidate_to_json(c) for c in candidates}
-            await self.batch_service.submit(provider, model, requests, candidates=serialised)
-        except Exception as exc:  # noqa: BLE001 — the funnel must never break a poll cycle
-            logger.warning("event-detection funnel run failed: %s", exc)
+        # Stage baseline observations on a private clone. If provider validation or the
+        # durable local outbox write fails, this clone is discarded: replay sees the
+        # exact pre-tick baseline and cannot consume a candidate twice into history.
+        current_baseline = await self._ensure_funnel_baseline()
+        staged_baseline = copy.deepcopy(current_baseline)
+        candidates = evdet.funnel(events, prefs, staged_baseline)
+        if not candidates:
+            self._funnel_baseline = staged_baseline
+            await self._flush_funnel_baseline(
+                staged_baseline, candidates, events, prefs
+            )
+            return True
+        requests = evdet.build_batch(candidates, prefs)
+        if not requests:
+            self._funnel_baseline = staged_baseline
+            await self._flush_funnel_baseline(
+                staged_baseline, candidates, events, prefs
+            )
+            return True
+        provider, model = evdet.target_for_funnel(prefs)
+        # Persist survivors + requests to the LOCAL outbox before any provider call.
+        serialised = {c.custom_id: evdet.candidate_to_json(c) for c in candidates}
+        await self.batch_service.submit(provider, model, requests, candidates=serialised)
+        # Publish/flush staged learning only after local outbox acceptance.
+        self._funnel_baseline = staged_baseline
+        await self._flush_funnel_baseline(
+            staged_baseline, candidates, events, prefs
+        )
+        return True
 
     async def _reenter_detections(self, job, results) -> int:
         """Re-enter LLM-CONFIRMED event-detections into the SAME pipeline path (#4/#3).
@@ -1056,8 +1091,9 @@ class AppState:
         correlate path would (#4), attaches to any open case for that signature, and runs
         the UNCHANGED deterministic ``decide()`` inside ``investigate_cluster`` (#3 — this
         method NEVER calls decide() directly). An entirely-suppressed cluster is dropped
-        (the same defence-in-depth gate the realtime path uses). Best-effort + never
-        raises; returns the number of clusters investigated (for logs/tests).
+        (the same defence-in-depth gate the realtime path uses). Returns the number of
+        clusters investigated; operational failures propagate to the durable Batch
+        re-entry lease so the scheduler can retry instead of losing the detection.
 
         Gated by the same default-OFF batch/detection toggle as the funnel; a job with no
         persisted candidates (a plain investigation batch) re-enters nothing."""
@@ -1107,9 +1143,9 @@ class AppState:
                 )
                 count += 1
             return count
-        except Exception as exc:  # noqa: BLE001 — re-entry must never break a batch tick
+        except Exception as exc:  # noqa: BLE001 — scheduler persists retry state
             logger.warning("event-detection re-entry failed for job %s: %s", getattr(job, "id", "?"), exc)
-            return 0
+            raise
 
     async def _ensure_funnel_baseline(self):
         """The single long-lived streaming baseline behind the funnel, warmed from the
@@ -1126,17 +1162,20 @@ class AppState:
             self._funnel_baseline = engine
         return self._funnel_baseline
 
-    async def _flush_funnel_baseline(self, baseline, candidates, events) -> None:
+    async def _flush_funnel_baseline(
+        self, baseline, candidates, events, prefs: Preferences
+    ) -> None:
         """Persist the sketches the funnel just touched back to the baseline_store so
         the base improves over time (#4-safe: the store only keys by signature, never a
         cluster_signature recompute). Best-effort; only the signatures observed this
         tick are re-written."""
         try:
-            seen: set[str] = set()
-            for c in candidates:
-                seen.add(c.signature)
-            # Also flush any signature the pre-aggregate observed (candidates are a
-            # subset; the full observed set warms the base even for benign buckets).
+            seen: set[str] = {c.signature for c in candidates}
+            # Candidates are a subset; persist every aggregate signature so benign /
+            # no-candidate ticks also warm the durable baseline.
+            from .engine.event_detection import pre_aggregate
+
+            seen.update(summary.signature for summary in pre_aggregate(events, prefs))
             for sig in seen:
                 snap = baseline.snapshot(sig)
                 if snap:
@@ -1352,16 +1391,11 @@ class AppState:
                     continue
 
     def _funnel_batch_provider(self, prefs: Preferences) -> str:
-        """Pick the batch provider for the funnel: the first configured
-        ``prefs.batch.providers`` entry this deployment has a key for, else 'anthropic'
-        (the locked default). Read-only; makes no network call."""
-        providers = list(getattr(getattr(prefs, "batch", None), "providers", []) or [])
-        for name in providers:
-            if name == "anthropic" and (self.secrets.anthropic_api_key or self._provider_overrides):
-                return "anthropic"
-            if name == "openai" and (self.secrets.openai_api_key or self._provider_overrides):
-                return "openai"
-        return providers[0] if providers else "anthropic"
+        """Back-compatible wrapper around the validated router-model Batch target."""
+        from .engine.event_detection import target_for_funnel
+
+        provider, _model = target_for_funnel(prefs)
+        return provider
 
     async def _run_schedulers(self) -> None:
         """Start the gated Wave-4 background schedulers (idempotent).
@@ -1800,7 +1834,13 @@ class AppState:
                 logger.info("RAG using persistent SQL vector store (%s)", self.secrets.state_backend)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Could not select SQL vector store (%s); using in-memory", exc)
-            return RagService(self.gateway, self.prefs, store=store, cases=self._real_cases)
+            return RagService(
+                self.gateway,
+                self.prefs,
+                store=store,
+                cases=self._real_cases,
+                runbooks=self.runbooks,
+            )
         try:
             from .es.client import RealESClient
             from .tools.vectorstore import ESVectorStore
@@ -1810,7 +1850,13 @@ class AppState:
                 logger.info("RAG using persistent ES vector store (tlsoc-agent-rag)")
         except Exception as exc:  # noqa: BLE001
             logger.warning("Could not select ES vector store (%s); using in-memory", exc)
-        return RagService(self.gateway, self.prefs, store=store, cases=self._real_cases)
+        return RagService(
+            self.gateway,
+            self.prefs,
+            store=store,
+            cases=self._real_cases,
+            runbooks=self.runbooks,
+        )
 
     def rebuild_log_source(self) -> None:
         """Re-point the agent's log surface after the configured sources change.
@@ -2875,7 +2921,14 @@ class _BatchJobService:
     ``BatchJobStore.process_results`` which writes EXACTLY ONE ``UsageDoc`` per result
     (deduped by ``custom_id``, at the 0.5× batch rate) — so a re-poll/restart never
     double-writes. It NEVER imports ``case_manager`` / calls ``decide()`` (#3) — folding
-    verdict text into cases is the pipeline's job downstream."""
+    verdict text into cases is the pipeline's job downstream.
+
+    Provider acceptance and local provider-id persistence are not one transaction.
+    The durable local outbox prevents duplicate submission on normal cursor replay,
+    but neither bundled provider exposes a universal idempotency/recovery key for the
+    narrow crash window after remote acceptance and before ``provider_batch_id`` is
+    saved. That boundary is surfaced as an operational limitation rather than claimed
+    as exactly-once remote submission."""
 
     def __init__(self, *, store, gateway, make_provider, get_prefs, reenter=None) -> None:
         self._store = store
@@ -2896,25 +2949,128 @@ class _BatchJobService:
         gates on this; default OFF so nothing routes to batch out of the box."""
         return bool(getattr(getattr(self._get_prefs(), "batch", None), "enabled", False))
 
+    @staticmethod
+    def _outbox_id(provider: str, model: str, requests: list[dict]) -> str:
+        """Deterministic identity for one local submission intent.
+
+        It is derived from the provider/model plus the stable request bodies, so a
+        cursor retry after an accepted local write finds the same outbox row and never
+        issues a second remote submission from the normal replay path.
+        """
+        import hashlib
+        import json
+
+        payload = json.dumps(
+            {"provider": provider, "model": model, "requests": requests},
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        ).encode("utf-8")
+        return f"batch-outbox-{hashlib.sha256(payload).hexdigest()[:32]}"
+
+    async def _submit_outbox(self, job):
+        """Try one remote submission for a previously durable local outbox row.
+
+        Provider/network errors are persisted on the row and returned as queued work;
+        the scheduler retries them via :meth:`poll`.  A failure to persist either the
+        initial row or the attempt status still raises to the Poller, preserving its
+        cursor.
+        """
+        from .utils import iso_now
+
+        # Every submission entry point shares one strict durable lease. The local row
+        # is intentionally visible before this claim so the Poller cursor may advance,
+        # but a scheduler pass racing this caller now observes the active lease and
+        # performs no second provider call.
+        job, lease_token = await self._store.claim_submission(job.id)
+        if job is None:
+            raise RuntimeError("batch outbox disappeared before provider submission")
+        if lease_token is None:
+            return job
+        provider_client = None
+        try:
+            try:
+                provider_client = self._make_provider(job.provider)
+                remote = await provider_client.submit(job.model, list(job.requests))
+                if not remote.provider_batch_id:
+                    raise RuntimeError("batch provider accepted no provider_batch_id")
+            except Exception as exc:  # noqa: BLE001 - durable retryable provider error
+                failed = await self._store.fail_submission(job.id, lease_token, str(exc))
+                if failed is None:
+                    raise RuntimeError(
+                        "batch outbox disappeared while recording provider failure"
+                    ) from exc
+                return failed
+
+            # Persist acceptance before closing the client. A slow/hung close must not
+            # leave a remotely accepted row looking unsubmitted long enough for its
+            # lease to expire and a scheduler to POST it again.
+            remote.id = job.id
+            remote.requests = list(job.requests)
+            remote.submitted_at = remote.submitted_at or job.submitted_at or iso_now()
+            accepted = await self._store.complete_submission(
+                job.id, lease_token, remote
+            )
+            if accepted is None:
+                raise RuntimeError(
+                    "batch outbox disappeared while recording provider acceptance"
+                )
+            return accepted
+        finally:
+            if provider_client is not None:
+                try:
+                    await provider_client.aclose()
+                except Exception as exc:  # noqa: BLE001 - close cannot erase acceptance
+                    logger.debug("batch provider close failed after submit: %s", exc)
+
     async def submit(self, provider: str, model: str, requests: list[dict], *, candidates=None):
-        """Submit a batch to ``provider`` and PERSIST the resulting job (resume-safe).
-        Returns the stored :class:`app.models.BatchJob`.
+        """Persist a local outbox row, then opportunistically submit it remotely.
+
+        The local write happens FIRST. Provider/network failure therefore leaves
+        resume-safe queued work and does not lose an EVENT-feed tick.
 
         ``candidates`` — an optional ``{custom_id -> serialised CandidateAlert}`` map for an
         EVENT-detection batch. Persisted onto the job so :meth:`process` can reconstruct
         the survivors and RE-ENTER the pipeline (same-signature cluster #4) when the
         confirmations return. None/empty for a plain investigation batch."""
-        prov = self._make_provider(provider)
-        try:
-            job = await prov.submit(model, requests)
-        finally:
-            await prov.aclose()
-        if candidates:
-            job.candidates = dict(candidates)
-        return await self._store.save(job)
+        from .constants import BatchJobState
+        from .models import BatchJob
+        from .utils import iso_now
+
+        clean_requests = list(requests or [])
+        local_id = self._outbox_id(provider, model, clean_requests)
+        tracking: dict[str, dict] = {}
+        for request in clean_requests:
+            cid = str(request.get("custom_id", "") or "").strip()
+            if cid:
+                tracking[cid] = {"retrieved": False, "result_state": None}
+        job = BatchJob(
+            id=local_id,
+            provider=provider,
+            model=model,
+            state=BatchJobState.SUBMITTED,
+            custom_ids=tracking,
+            requests=clean_requests,
+            candidates=dict(candidates or {}),
+            submitted_at=iso_now(),
+        )
+        # This is the acceptance boundary used by the Poller cursor. Creation is a
+        # strict atomic CAS: simultaneous identical submitters share one local intent.
+        # The provider call is separately leased because the scheduler can observe the
+        # row between this creation and the opportunistic submit below.
+        job, created = await self._store.create_if_absent(job)
+        if not created:
+            return job
+        return await self._submit_outbox(job)
 
     async def poll(self, job):
         """Refresh one job's state from its provider and persist it. Returns the job."""
+        if not job.provider_batch_id:
+            if job.requests:
+                return await self._submit_outbox(job)
+            # Legacy/corrupt submitted rows without an outbox payload cannot be retried
+            # safely. Keep them visible rather than inventing or dropping requests.
+            return job
         prov = self._make_provider(job.provider)
         try:
             job = await prov.poll(job)
@@ -2928,10 +3084,11 @@ class _BatchJobService:
         event-detection into the SAME correlate→pipeline path (#4/#3) via the injected
         ``reenter`` hook. Returns the newly-recorded results.
 
-        Only the NEWLY-recorded (first-seen) succeeded results are handed to ``reenter``,
-        so a re-poll / restart re-enters each confirmed detection at most once (the ledger
-        dedup and the re-entry are driven by the same first-retrieval event). Re-entry is
-        best-effort and never blocks the ledger fold."""
+        Ledger retrieval and detection re-entry are separate durable transitions. A
+        successful ledger fold marks a candidate ``reentry_state=pending``; this method
+        leases each pending result, calls the case pipeline, then confirms completion.
+        A failure returns it to pending, so the scheduler retries without another ledger
+        row. Non-detection batches retain the historical newly-recorded return value."""
         prov = self._make_provider(job.provider)
         try:
             results = list(await prov.results(job))
@@ -2940,12 +3097,39 @@ class _BatchJobService:
         recorded = await self._store.process_results(
             job, results, self._gateway, role=role, surface=surface
         )
-        if self._reenter is not None and recorded:
+        if not getattr(job, "candidates", None):
+            return recorded
+
+        by_id = {
+            str(getattr(result, "custom_id", "") or ""): result
+            for result in results
+            if str(getattr(result, "result_type", "succeeded")) == "succeeded"
+        }
+        claims = await self._store.claim_reentries(job.id, by_id)
+        completed = []
+        for custom_id, token in claims.items():
+            result = by_id.get(custom_id)
+            if result is None:
+                await self._store.fail_reentry(
+                    job.id, custom_id, token, "provider result unavailable for re-entry"
+                )
+                continue
+            if self._reenter is None:
+                await self._store.fail_reentry(
+                    job.id, custom_id, token, "detection re-entry hook is not configured"
+                )
+                continue
             try:
-                await self._reenter(job, recorded)
-            except Exception:  # noqa: BLE001 — re-entry never breaks the ledger fold
-                pass
-        return recorded
+                current = await self._store.get_strict(job.id)
+                await self._reenter(current or job, [result])
+            except Exception as exc:  # noqa: BLE001 — durable pending state retries
+                await self._store.fail_reentry(
+                    job.id, custom_id, token, f"detection re-entry failed: {exc}"
+                )
+                continue
+            if await self._store.complete_reentry(job.id, custom_id, token):
+                completed.append(result)
+        return completed
 
 
 def _build_es_client(secrets: Secrets) -> BaseESClient:

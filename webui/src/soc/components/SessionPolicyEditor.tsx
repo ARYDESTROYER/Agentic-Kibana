@@ -21,7 +21,8 @@ import { Input } from '@/ui/input';
 import { Label } from '@/ui/label';
 import { Switch } from '@/ui/switch';
 import { Card, CardContent } from '@/ui/card';
-import { Skeleton } from '@/ui/skeleton';
+import { LoadingState } from '@/design-system';
+import { LoadError } from '@/soc/components/LoadError';
 
 /** Generous defaults that match the backend (so nothing expires mid-session). */
 const DEFAULTS: Required<
@@ -120,9 +121,15 @@ export interface SessionPolicyEditorProps {
   policy?: SessionPolicy;
   /** Controlled change handler (embedded mode). */
   onChange?: (next: SessionPolicy) => void;
+  /** Use the flat divider-led Settings grammar instead of a nested card. */
+  embedded?: boolean;
 }
 
-export function SessionPolicyEditor({ policy: controlledPolicy, onChange }: SessionPolicyEditorProps = {}) {
+export function SessionPolicyEditor({
+  policy: controlledPolicy,
+  onChange,
+  embedded = false,
+}: SessionPolicyEditorProps = {}) {
   const controlled = Boolean(onChange);
 
   const [localPolicy, setLocalPolicy] = React.useState<SessionPolicy | null>(
@@ -130,15 +137,18 @@ export function SessionPolicyEditor({ policy: controlledPolicy, onChange }: Sess
   );
   const [loading, setLoading] = React.useState(!controlled);
   const [saving, setSaving] = React.useState(false);
+  const [loadError, setLoadError] = React.useState<unknown>(null);
 
   const load = React.useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const s = await api.getSettings();
       const p = (s.prefs.session_policy as SessionPolicy | undefined) ?? {};
       setLocalPolicy({ ...DEFAULTS, ...p });
-    } catch {
-      setLocalPolicy({ ...DEFAULTS });
+    } catch (error) {
+      setLoadError(error);
+      setLocalPolicy(null);
     } finally {
       setLoading(false);
     }
@@ -172,13 +182,34 @@ export function SessionPolicyEditor({ policy: controlledPolicy, onChange }: Sess
     }
   };
 
-  if (loading || !policy) {
-    return <Skeleton className="h-64 w-full" />;
+  if (loading) {
+    return (
+      <LoadingState
+        layout="panel"
+        shape="panel"
+        label="Loading session policy"
+        description="Retrieving the authoritative token and timeout settings."
+      />
+    );
+  }
+
+  if (loadError || !policy) {
+    return (
+      <LoadError
+        error={loadError}
+        fallback="The session policy could not be retrieved."
+        title="Could not load session policy"
+        onRetry={() => void load()}
+      />
+    );
   }
 
   return (
-    <Card>
-      <CardContent className="space-y-5 p-5">
+    <Card
+      variant={embedded ? 'flat' : 'default'}
+      className={embedded ? 'rounded-none border-t border-border/70' : undefined}
+    >
+      <CardContent className={embedded ? 'space-y-5 px-1 pb-5 pt-5' : 'space-y-5 p-5'}>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <DurationField
             id="sp-access-ttl"
@@ -267,11 +298,12 @@ export function SessionPolicyEditor({ policy: controlledPolicy, onChange }: Sess
 
 /** A titled section wrapper for the Security page. Forwards controlled props. */
 export function SessionPolicySection(props: SessionPolicyEditorProps = {}) {
+  const Heading = props.embedded ? 'h3' : 'h2';
   return (
     <section className="space-y-3">
       <div className="flex items-center gap-2">
         <Timer className="h-4 w-4 text-muted-foreground" aria-hidden />
-        <h2 className="text-sm font-semibold text-foreground">Token &amp; session policy</h2>
+        <Heading className="text-sm font-semibold text-foreground">Token &amp; session policy</Heading>
       </div>
       <p className="text-xs text-muted-foreground">
         Control how long sign-ins last and when sensitive actions require re-authentication.

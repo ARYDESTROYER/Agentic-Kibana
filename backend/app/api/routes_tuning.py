@@ -11,10 +11,10 @@ mount the monolith uses). It surfaces the deterministic, no-LLM nightly tuner
                                         write) + the applied/rolled-back ledger.
 * ``GET  /api/tuning/config``          — read ``Preferences.threshold_tuning``.
 * ``PUT  /api/tuning/config``          — update ``Preferences.threshold_tuning``.
-* ``POST /api/tuning/{rule_id}/apply`` — apply the proposed bounded change for ONE
-                                        rule (shadow-evaluated first; a suppression
-                                        DROP is NEVER auto-applied — it is routed to
-                                        the existing HITL Proposal queue).
+* ``POST /api/tuning/{rule_id}/apply`` — recompute and process every current proposal
+                                        for ONE rule (shadow-evaluated first; a
+                                        suppression DROP is NEVER auto-applied — it is
+                                        routed to the existing HITL Proposal queue).
 * ``POST /api/tuning/{rule_id}/rollback`` — reverse the latest active auto-applied
                                         change for one rule (restore its ``before``).
 
@@ -220,7 +220,7 @@ async def put_tuning_config(
 
 
 # --------------------------------------------------------------------------- #
-# POST /api/tuning/{rule_id}/apply — apply the proposed change for ONE rule
+# POST /api/tuning/{rule_id}/apply — process current proposals for ONE rule
 # --------------------------------------------------------------------------- #
 @router.post("/tuning/{rule_id}/apply")
 async def apply_tuning(
@@ -229,13 +229,13 @@ async def apply_tuning(
     state: AppState = Depends(get_state),
     _=Depends(require_permission("automation", "manage")),
 ) -> dict[str, Any]:
-    """Apply the tuner's proposed bounded change for ONE rule (shadow-evaluated).
+    """Recompute and process every current proposed change for ONE rule.
 
     Reuses the engine's SAFE per-proposal router (``_handle_proposal``): a bounded
     ``correlation_n`` / ``severity_floor`` raise is auto-applied (after shadow-eval) +
     recorded in the ledger; a suppression DROP or a shadow-blocked raise is routed to
     the existing HITL Proposal queue and is NEVER auto-applied here. The router never
-    calls ``decide()`` (#3). Returns whether it applied or queued.
+    calls ``decide()`` (#3). Returns the applied, queued, and shadow-blocked outcomes.
 
     404 when no proposal exists for ``rule_id`` (the rule isn't noisy / cleared the
     bar) so the caller gets an honest signal rather than a silent no-op."""

@@ -14,12 +14,12 @@ Use a short-lived feature branch, merge accepted work into `Testing`, and promot
 the accepted source tree through a protected pull request to `main`, the Stable branch:
 
 ```text
-feature branch -> Testing -> main (Stable) -> v0.1.0
+feature branch -> Testing -> main (Stable) -> v0.1.1
 ```
 
 Do not develop directly on `main`. `Testing` is the integration and acceptance
 channel, not a different edition of the product. Package/API/image metadata uses
-Semantic Version **0.1.0**; public documentation uses the **0.1** line.
+Semantic Version **0.1.1**; public documentation uses the **0.1** line.
 
 The current remote has `Testing` and legacy/default `claude/main`, but no literal
 `main`. Repository owners must provision and protect the documented Stable branch
@@ -36,6 +36,7 @@ See [Release channels](../releases/channels.md) for the promotion contract.
 | `backend/tests/` | Offline backend regression and contract tests |
 | `backend/playbooks/` | Operator-authored deterministic-selection playbooks |
 | `webui/src/` | React/TypeScript Agentic SOC Console |
+| `webui/src/design-system/` | Cross-cutting loading feedback, source assets, and machine-readable Console catalog |
 | `webui/scripts/` | Design gates and OpenAPI/type-generation tooling |
 | `deploy/` | Standalone and legacy-merge Compose definitions |
 | `docs/` | Public MkDocs documentation and source content |
@@ -56,7 +57,9 @@ The archived Kibana plugin is not built, tested, or shipped. New UI work belongs
 Start with [Backend development](backend.md) or [Console development](webui.md).
 Before changing any routed Console page or shared shell component, read the current
 [Console UI standard](ui-standard.md); it is the enforceable migration contract, while
-older round-specific design documents are historical rationale.
+older round-specific design documents are historical rationale. Use the
+[Console design system](design-system.md) for the canonical implementation layers,
+public imports, asset rules, loading states, and future agent-tooling boundary.
 
 ## Architecture rules for every change
 

@@ -151,8 +151,8 @@ class AuthService:
             log.warning(
                 "AuthService: auth is ENABLED but no jwt_secret was provided — "
                 "generated a random EPHEMERAL signing secret. Sessions will NOT "
-                "survive a restart; set a stable secret (e.g. TLSOC_JWT_SECRET) "
-                "for production."
+                "survive a restart; set AUTH_JWT_SECRET (or "
+                "TLSOC_AUTH_JWT_SECRET when using the Compose stack) for production."
             )
         self._jwt_secret = secret
 

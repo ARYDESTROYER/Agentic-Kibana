@@ -12,7 +12,11 @@ from __future__ import annotations
 import pytest
 
 from app.llm.pricing import PRICES, _DEFAULT_PRICE, models_by_provider, provider_for
-from app.llm.providers import OpenAIProvider, _is_reasoning_or_gpt5
+from app.llm.providers import (
+    OpenAIProvider,
+    _default_reasoning_effort,
+    _is_reasoning_or_gpt5,
+)
 
 NEW_OPENAI_MODELS = [
     "gpt-4.1",
@@ -20,6 +24,7 @@ NEW_OPENAI_MODELS = [
     "gpt-4-turbo",
     "gpt-4",
     "o4-mini",
+    "gpt-5.6-luna",
     "gpt-5",
     "gpt-5-mini",
 ]
@@ -38,7 +43,23 @@ def test_new_openai_models_are_priced():
 def test_existing_prices_unchanged():
     assert PRICES["gpt-4o"] == (2.5, 10.0)
     assert PRICES["gpt-4o-mini"] == (0.15, 0.60)
+    assert PRICES["gpt-5.6-luna"] == (0.20, 1.20)
     assert PRICES["claude-opus-4-8"] == (5.0, 25.0)
+
+
+def test_luna_standard_cached_input_uses_official_catalog_rate():
+    from app.llm.pricing import cost_for
+
+    assert cost_for("gpt-5.6-luna", 1_000_000, 1_000_000) == pytest.approx(1.40)
+    assert cost_for(
+        "gpt-5.6-luna", 0, 0, cache_read_tokens=1_000_000
+    ) == pytest.approx(0.02)
+    # OpenAI currently prices both asynchronous Batch and live Flex at the
+    # published Batch rate. The gateway applies this only when provider evidence
+    # marks the result as Batch/Flex, never merely because Flex was requested.
+    assert cost_for(
+        "gpt-5.6-luna", 1_000_000, 1_000_000, batch=True
+    ) == pytest.approx(0.70)
 
 
 def test_unknown_model_still_falls_back_to_default():
@@ -51,6 +72,7 @@ def test_unknown_model_still_falls_back_to_default():
 # ---------- (b) provider_for: o-series + gpt-5 -> openai ----------
 def test_provider_for_openai_models():
     assert provider_for("o4-mini") == "openai"
+    assert provider_for("gpt-5.6-luna") == "openai"
     assert provider_for("gpt-5") == "openai"
     assert provider_for("gpt-5-mini") == "openai"
     assert provider_for("gpt-4.1") == "openai"
@@ -71,10 +93,17 @@ def test_new_models_grouped_under_openai():
 
 
 def test_is_reasoning_or_gpt5_helper():
-    for m in ("gpt-5", "gpt-5-mini", "o1", "o3-mini", "o4-mini"):
+    for m in ("gpt-5.6-luna", "gpt-5", "gpt-5-mini", "o1", "o3-mini", "o4-mini"):
         assert _is_reasoning_or_gpt5(m) is True
     for m in ("gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"):
         assert _is_reasoning_or_gpt5(m) is False
+
+
+def test_luna_preserves_non_reasoning_chat_completions_baseline() -> None:
+    assert _default_reasoning_effort("gpt-5.6-luna") == "none"
+    assert _default_reasoning_effort("gpt-5.6-luna-future-snapshot") == "none"
+    assert _default_reasoning_effort("gpt-5") is None
+    assert _default_reasoning_effort("o4-mini") is None
 
 
 # ---------- (c) provider param-branching via mocked httpx ----------
@@ -117,7 +146,7 @@ def _provider_with_capture() -> tuple[OpenAIProvider, _CapturingClient]:
     return provider, fake
 
 
-@pytest.mark.parametrize("model", ["gpt-5", "gpt-5-mini", "o4-mini"])
+@pytest.mark.parametrize("model", ["gpt-5.6-luna", "gpt-5", "gpt-5-mini", "o4-mini"])
 async def test_reasoning_models_omit_temperature_and_use_max_completion_tokens(model):
     provider, fake = _provider_with_capture()
     res = await provider.complete(
@@ -127,6 +156,10 @@ async def test_reasoning_models_omit_temperature_and_use_max_completion_tokens(m
     assert "temperature" not in fake.last_json
     assert "max_tokens" not in fake.last_json
     assert fake.last_json["max_completion_tokens"] == 512
+    if model == "gpt-5.6-luna":
+        assert fake.last_json["reasoning_effort"] == "none"
+    else:
+        assert "reasoning_effort" not in fake.last_json
     # response handling + usage extraction stay intact
     assert res.text == "ok"
     assert res.prompt_tokens == 11

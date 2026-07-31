@@ -18,12 +18,12 @@ import { Activity, Info, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { api } from '@/lib/api';
+import { LoadingState } from '@/design-system';
 import { errorMessage } from '@/lib/errorMessage';
 import type { BaselineConfig } from '@/lib/types';
 import { humanizeToken } from '@/lib/format';
 
 import { Button } from '@/ui/button';
-import { Skeleton } from '@/ui/skeleton';
 import { Switch } from '@/ui/switch';
 import { Label } from '@/ui/label';
 import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
@@ -96,7 +96,6 @@ export function BaselineInner() {
       setStats(await fetchBaselineStats());
     } catch (e) {
       setError(e);
-      setStats(null);
     } finally {
       setLoading(false);
     }
@@ -105,6 +104,8 @@ export function BaselineInner() {
   React.useEffect(() => {
     void load();
   }, [load]);
+
+  const initialLoading = loading && !stats;
 
   const save = React.useCallback(async () => {
     try {
@@ -139,12 +140,14 @@ export function BaselineInner() {
       />
 
       {/* ── Warm-up overview (read-only) ─────────────────────────────────── */}
-      {loading && !stats ? (
-        <div className="space-y-3" aria-busy="true">
-          <Skeleton className="h-24 w-full" />
-          <Skeleton className="h-64 w-full" />
-        </div>
-      ) : error ? (
+      {initialLoading ? (
+        <LoadingState
+          label="Loading anomaly baseline"
+          description="Preparing warm-up coverage and entity percentiles."
+          layout="panel"
+          shape="panel"
+        />
+      ) : error && !stats ? (
         <LoadError
           error={error}
           title="Baseline unavailable"
@@ -152,7 +155,17 @@ export function BaselineInner() {
           onRetry={() => void load()}
         />
       ) : stats ? (
-        <BaselineStatsOverview stats={stats} />
+        <>
+          {error ? (
+            <LoadError
+              error={error}
+              title="Could not refresh the anomaly baseline"
+              fallback="The last baseline snapshot is still available."
+              onRetry={() => void load()}
+            />
+          ) : null}
+          <BaselineStatsOverview stats={stats} />
+        </>
       ) : (
         <EmptyState
           icon={Activity}
@@ -171,6 +184,8 @@ export function BaselineInner() {
         />
       )}
 
+      {!initialLoading ? (
+        <>
       <Separator />
 
       {/* ── Config editor (R6) ───────────────────────────────────────────── */}
@@ -193,11 +208,13 @@ export function BaselineInner() {
             {cfg.loading ? (
               // Never show the default-valued form while the persisted policy loads —
               // that flashes a misleading "disabled" state, then snaps to the saved
-              // values. Match the warm-up section's Skeleton treatment above.
-              <div className="space-y-4" aria-busy="true">
-                <Skeleton className="h-14 w-full" />
-                <Skeleton className="h-40 w-full" />
-              </div>
+              // values. Use the shared blocking-panel grammar until it resolves.
+              <LoadingState
+                label="Loading baseline policy"
+                description="Preparing the saved detector configuration."
+                layout="panel"
+                shape="panel"
+              />
             ) : (
             <fieldset disabled={!canManage} className="space-y-6">
               <Alert>
@@ -320,6 +337,8 @@ export function BaselineInner() {
           onDiscard={cfg.discard}
         />
       </Can>
+        </>
+      ) : null}
     </PageContainer>
   );
 }

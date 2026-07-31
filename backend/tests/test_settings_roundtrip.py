@@ -18,7 +18,7 @@ _NESTED_BLOCKS = [
     "cross_source_correlation", "threat_context", "threshold_automation",
     "auto_close", "enrichment", "rag", "standup", "trace", "personas",
     "runbooks", "playbooks", "branding", "caps", "risk_weights",
-    "default_correlation",
+    "default_correlation", "release_updates",
 ]
 
 

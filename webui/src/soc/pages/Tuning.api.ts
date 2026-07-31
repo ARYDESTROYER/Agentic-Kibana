@@ -10,9 +10,9 @@
  *                                    (pure DRY-RUN — no write) + the applied ledger.
  *   GET  /tuning/config            — read Preferences.threshold_tuning.
  *   PUT  /tuning/config            — update Preferences.threshold_tuning (admin).
- *   POST /tuning/{rule_id}/apply   — apply ONE rule's proposed bounded change (shadow-
- *                                    evaluated; a DROP is routed to the HITL Proposal
- *                                    queue, never auto-applied here).
+ *   POST /tuning/{rule_id}/apply   — recompute and process every current proposal for
+ *                                    ONE rule (shadow-evaluated; a DROP is routed to the
+ *                                    HITL Proposal queue, never auto-applied here).
  *   POST /tuning/{rule_id}/rollback — reverse the latest active auto-applied change.
  *
  * We use the low-level `api.get/post/put` verbs from `@/lib/api` rather than adding
@@ -175,7 +175,7 @@ export const tuningApi = {
   /** Update the tuning policy (admin). */
   putConfig: (config: TuningConfig) =>
     api.put<{ ok: boolean; config: TuningConfig }>('tuning/config', config),
-  /** Apply ONE rule's proposed bounded change (shadow-evaluated). */
+  /** Recompute and process every current proposed change for ONE rule. */
   apply: (ruleId: string) =>
     api.post<TuningApplyResponse>(
       `tuning/${encodeURIComponent(ruleId)}/apply`,

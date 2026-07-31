@@ -53,18 +53,25 @@ never in-progress work from `Testing`. Pulling `Testing` receives the current
 integration candidate and may include changes that have not passed release
 acceptance.
 
+The Console's **Settings → Organization → Updates & releases** section observes these
+two source refs by default. A fork or renamed repository can replace the public GitHub
+URL and either branch name without changing the application wire namespace. This is
+metadata discovery only: an observed source commit is linked for review and cannot
+deploy or activate itself. The actual top-bar update action still requires a different,
+already-deployed Console manifest that exactly matches a healthy backend build.
+
 ## Version 0.1 nomenclature
 
 The first standardized release line is documentation version **0.1** and product
-version **0.1.0**.
+version **0.1.1**.
 
 | Surface | Canonical value |
 | --- | --- |
 | Product | Agentic SOC |
 | Operator interface | Agentic SOC Console |
 | Backend service/API | Agentic SOC API |
-| SemVer package and image version | `0.1.0` |
-| Git release tag | `v0.1.0` |
+| SemVer package and image version | `0.1.1` |
+| Git release tag | `v0.1.1` |
 | Documentation selector and URL line | `0.1` and `/0.1/` |
 | Integration branch/channel | `Testing` |
 | Stable branch/channel | `main` / Stable |
@@ -179,6 +186,10 @@ describe its real operating boundary. At minimum:
 - canonical version metadata, OpenAPI, TypeScript contracts, image defaults, and
   release notes agree;
 - backend tests, web console lint/tests/build, and strict documentation build pass;
+- the documented Console release-candidate browser matrix passes on the exact built
+  candidate in Light, Dark, and System at desktop and narrow widths, with build SHA,
+  release badge, keyboard/focus, loading/error/empty behavior, same-origin Help Center,
+  and unexplained console/network errors recorded in a dated receipt;
 - deployment configuration validates and upgrade/restore steps are rehearsed for
   the affected state backend;
 - source credentials remain least-privilege and upstream systems remain read-only;
@@ -190,10 +201,14 @@ Passing unit tests does not by itself make a commit Stable. The accepted source,
 release metadata, documentation, and published artifacts must describe the same
 thing.
 
+Use the [release-candidate browser acceptance matrix](../development/testing.md#release-candidate-browser-acceptance)
+for the required route and interaction coverage. A screenshot of one successful page
+is not a Console acceptance receipt.
+
 ## Build and badge provenance
 
 SemVer and channel are independent. A Testing candidate and the accepted Stable
-build can both report version `0.1.0`; the channel says where that build sits in
+build can both report version `0.1.1`; the channel says where that build sits in
 the acceptance lifecycle. Stamp the mutable provenance fields explicitly; keep or
 override the Dockerfile's canonical source URL as appropriate:
 
@@ -214,6 +229,31 @@ available, only explicit matching Stable stamps render Stable; a version, channe
 or known-SHA mismatch immediately downgrades the session badge to Testing. When
 backend build-info is unavailable, the immutable Console build stamp determines the
 visible channel and remains inspectable.
+
+The web artifact also publishes a same-origin `/release.json` with its immutable
+version, channel, commit, and build time. Serve that file with `no-store` semantics.
+The top bar may show **Update available** beside the version badge only when a
+different, fully stamped manifest identity exactly matches public backend build-info and a healthy
+`/api/health` response. Activation requires operator confirmation and a final
+no-store check of the manifest, backend identity/readiness, and `/index.html`; known
+unsaved drafts block it. Discovery or preflight failure leaves the current document
+running, and the Console never auto-reloads.
+
+Separately, authenticated `settings:read` users may receive a read-only upstream
+observation from `GET /api/releases/upstream`. The backend checks only the saved public
+GitHub repository and Stable/Testing refs, caches successful metadata, and preserves a
+clearly marked last-known-good result when a later check fails. A higher SemVer or a
+same-version different SHA may be announced as source for review; an older SemVer is
+never called an update. `POST /api/releases/upstream/check` refreshes that metadata
+subject to a cooldown. Neither endpoint has Git, deployment, process, migration, or
+activation authority.
+
+This is not a release-promotion signal or deployment authority. It activates an
+already-deployed coherent web/backend pair; it cannot pull artifacts, restart
+services, run migrations, carry deploy credentials, or perform rollback. Operators
+must retain the previous build's hashed assets—or use blue-green serving—through the
+observation window so an existing tab can continue lazy-loading while the new target
+is offered.
 
 Local `run-demo.sh` derives Stable only from a literal `main` checkout; every
 other branch, detached checkout, or unknown channel fails safe to Testing unless

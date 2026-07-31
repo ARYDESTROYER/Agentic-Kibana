@@ -74,10 +74,14 @@ async def _configure(state: AppState, sources: list[SourceInstance], **prefs_ove
     state.rebuild_log_source()
 
 
-def _seed(state: AppState, index: str, ip: str, n: int = 4) -> None:
+def _seed(
+    state: AppState, index: str, ip: str, n: int = 4, *, severity: float = 7.0
+) -> None:
     base = to_millis(now_utc()) - 60_000
     for i in range(n):
-        state.es.add_log(index, make_log_event(ip=ip, ts_millis=base + i * 1000),
+        state.es.add_log(index, make_log_event(
+            ip=ip, ts_millis=base + i * 1000, severity=severity
+        ),
                          doc_id=f"{index}-{ip}-{i}")
 
 
@@ -183,7 +187,7 @@ async def test_noise_sink_survives_events_only_quiet_tick(app_state: AppState):
     ``new_events`` is EMPTY while ``funnel_events`` is full. The poll must NOT raise
     (the scope fix) and STILL record the ingested volume for that events-only tick."""
     await _set_threshold(app_state, 3)
-    _seed(app_state, "ev-logs", "10.3.0.1", n=6)
+    _seed(app_state, "ev-logs", "10.3.0.1", n=6, severity=5.0)
     await _configure(
         app_state,
         [_fed_source("s1", [{"pattern": "ev-logs*", "role": "events"}], primary=True)],

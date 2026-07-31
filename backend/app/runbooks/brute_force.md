@@ -8,25 +8,29 @@ keywords: [ssh, brute, failed password, auth, login, credential, 4625]
 persona: identity_access
 summary: A burst of failed authentications from one source against a host or user.
 ---
-## What this looks like
-A spike of failed authentications (sshd "Failed password", repeated auth failures,
-Windows 4625) from one source IP, or against one account from many sources
-(password spray).
+SIGNAL
+A burst of failed authentications from one source, or failures against one account from many sources.
 
-## Steps
-1. **Did anything succeed?** This is the pivotal question. Query for a successful
-   login (sshd "Accepted password/publickey", 4624) from the same source/account in
-   and just after the window. A success turns this from noise into a likely
-   compromise (T1078 Valid Accounts).
-2. **Scope the usernames.** Count distinct targeted usernames. Many users = spray;
-   one user, many tries = targeted guessing; a couple of failures then success =
-   probably a fat-finger, not an attack.
-3. **Scope the sources.** One IP vs many. Enrich the source IP reputation.
-4. **Look for follow-on.** If a login succeeded, look for lateral movement, new
-   sessions, privilege use from that account.
+EVIDENCE REQUIRED
+Authentication outcomes, source addresses, targeted accounts, timing, asset identity, and source reputation.
 
-## Verdict guidance
-- Sustained burst, no success, hostile IP → TRUE_POSITIVE (recommend block).
-- Success after a burst → TRUE_POSITIVE, escalate (possible account compromise).
-- A few failures then a normal success from a known user/host → FALSE_POSITIVE.
-- Ambiguous (can't confirm success, partial evidence) → NEEDS_HUMAN.
+INVESTIGATION STEPS
+1. Check for a successful login from the same source or account during and just after the failure window.
+2. Count distinct targeted accounts to distinguish password spraying from targeted guessing.
+3. Count distinct sources and compare them with known corporate addresses and approved scanners.
+4. If any login succeeded, inspect new sessions, privilege use, and lateral movement by that account.
+
+TRUE POSITIVE SIGNALS
+A sustained burst from a hostile source, or a successful login followed by suspicious account activity, supports a true positive.
+
+FALSE POSITIVE SIGNALS
+A few failures followed by normal activity from a known user and expected host supports a benign typing error.
+
+NEEDS HUMAN WHEN
+Authentication success cannot be confirmed, identity context is missing, or the evidence conflicts.
+
+RECOMMENDED NEXT ACTION
+Escalate a likely compromise for account containment; otherwise consider blocking a confirmed hostile source.
+
+LIMITATIONS
+Partial authentication retention can hide the successful event that changes the investigation outcome.

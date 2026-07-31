@@ -35,4 +35,15 @@ describe('Toaster — theme prop wiring', () => {
     render(<Toaster />);
     expect(sonnerSpy.mock.calls[0][0].theme).toBe('system');
   });
+
+  it('uses AA standalone semantic text tokens for toast copy', () => {
+    render(<Toaster theme="dark" />);
+    const classNames = (sonnerSpy.mock.calls[0][0].toastOptions as {
+      classNames: Record<string, string>;
+    }).classNames;
+    expect(classNames.error).toContain('text-critical-text');
+    expect(classNames.success).toContain('text-success-text');
+    expect(classNames.warning).toContain('text-warning-text');
+    expect(classNames.info).toContain('text-info-text');
+  });
 });

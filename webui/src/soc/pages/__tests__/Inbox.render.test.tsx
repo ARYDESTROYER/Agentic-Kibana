@@ -87,6 +87,15 @@ describe('Inbox page (read-state)', () => {
     dismissMock.mockResolvedValue({ ok: true, dismissed: true });
   });
 
+  it('uses the shared blocking state on the first inbox load', async () => {
+    listMock.mockReturnValue(new Promise(() => {}));
+    const { container } = renderInbox();
+
+    expect(await screen.findByRole('status', { name: 'Loading inbox' })).toBeInTheDocument();
+    expect(screen.getAllByTestId('console-loading-glyph')).toHaveLength(1);
+    expect(container.querySelector('.animate-pulse')).toBeNull();
+  });
+
   it('renders notifications as plain text with the unread one first', async () => {
     renderInbox();
     await waitFor(() => expect(listMock).toHaveBeenCalled());

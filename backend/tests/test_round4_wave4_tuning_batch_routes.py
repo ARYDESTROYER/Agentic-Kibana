@@ -259,6 +259,25 @@ def test_batch_jobs_list_and_get(state_and_client) -> None:
     assert client.get("/api/batch/jobs/nope").status_code == 404
 
 
+def test_batch_registry_outage_is_503_not_empty_or_not_found(
+    state_and_client, monkeypatch,
+) -> None:
+    state, client = state_and_client
+
+    async def unavailable(*_args, **_kwargs):
+        raise RuntimeError("store offline")
+
+    monkeypatch.setattr(state.batch_job_store, "list_strict", unavailable)
+    listed = client.get("/api/batch/jobs")
+    assert listed.status_code == 503
+    assert listed.json()["detail"] == "batch job registry unavailable"
+
+    monkeypatch.setattr(state.batch_job_store, "get_strict", unavailable)
+    detail = client.get("/api/batch/jobs/job-1")
+    assert detail.status_code == 503
+    assert detail.json()["detail"] == "batch job registry unavailable"
+
+
 # --------------------------------------------------------------------------- #
 # deny-by-default authZ — a non-GET tuning route is 401'd with auth ON, no token.
 # --------------------------------------------------------------------------- #

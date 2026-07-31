@@ -163,7 +163,7 @@ describe('Login reflects a same-session branding save (regression #6)', () => {
     render(<Harness />);
 
     // Edit the login headline in the BrandingEditor and Save it.
-    const headline = (await screen.findByLabelText('Headline')) as HTMLInputElement;
+    const headline = (await screen.findByLabelText('Short welcome line')) as HTMLInputElement;
     fireEvent.change(headline, { target: { value: 'New HQ Copy' } });
     const saveBtn = screen.getByRole('button', { name: /save branding/i });
     await waitFor(() => expect(saveBtn).not.toBeDisabled());
@@ -201,14 +201,15 @@ describe('Login — branding probe folded into the first-paint gate (FOUC fix, f
     // Setup-status + SSO have settled, but the branding probe has NOT — so nothing
     // paints yet (the login can't flash defaults then snap to the real layout/copy).
     await waitFor(() => expect(setupStatusMock).toHaveBeenCalled());
-    expect(screen.queryByRole('button', { name: 'Sign in' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull();
 
     await act(async () => {
       resolveBranding({ ...BASE_BRANDING, login_headline: 'Late Co' });
     });
 
     // Now the form paints AND the operator's headline is present in the same frame.
-    expect(await screen.findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+    expect(await screen.findByLabelText('Username')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Continue' })).not.toBeInTheDocument();
     expect(screen.getByText('Late Co')).toBeInTheDocument();
   });
 });

@@ -209,6 +209,9 @@ class ChatEngine:
             case_id=case_id, cost=cost,
             memory_action=memory_action_echo,
             memory_suggestion=memory_suggestion,
+            # This identity is attached only after the gateway produced a result.
+            # The GatewayError fallback above intentionally leaves it ``None``.
+            effective_model=prefs.chat_model.model,
         )
 
     async def _analyse_results(

@@ -64,9 +64,9 @@ export function SegmentedControl<T extends string = string>({
       // visual order), not the default Up/Down.
       orientation="horizontal"
       className={cn(
-        // The pill container: hairline border + muted wash, single element (no inner
-        // List, unlike the old Tabs build). The consumer className lands here.
-        'inline-flex items-center gap-1 rounded-lg border border-border bg-muted/60 p-1 text-muted-foreground',
+        // A quiet segmented rail: squared hairline boundary and no resting elevation.
+        // The consumer className lands on this single RadioGroup element.
+        'inline-flex items-center gap-0.5 rounded-md border border-border/80 bg-transparent p-0.5 text-muted-foreground',
         size === 'sm' ? 'h-8' : 'h-9',
         fitted && 'flex w-full',
         className,
@@ -78,11 +78,11 @@ export function SegmentedControl<T extends string = string>({
           value={opt.value}
           disabled={disabled || opt.disabled}
           className={cn(
-            'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md font-medium transition-colors',
+            'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-[3px] font-medium transition-colors',
             size === 'sm' ? 'h-6 px-2.5 text-xs' : 'h-7 px-3 text-sm',
             fitted && 'flex-1',
             'text-muted-foreground hover:text-foreground',
-            'data-[state=checked]:bg-card data-[state=checked]:text-foreground data-[state=checked]:shadow-sm',
+            'data-[state=checked]:bg-accent/70 data-[state=checked]:text-foreground',
             'disabled:pointer-events-none disabled:opacity-50',
             focusRing,
           )}

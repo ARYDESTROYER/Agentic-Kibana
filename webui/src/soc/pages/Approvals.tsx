@@ -54,7 +54,7 @@ import { Badge } from '@/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
 import { Checkbox } from '@/ui/checkbox';
 import { Switch } from '@/ui/switch';
-import { Skeleton } from '@/ui/skeleton';
+import { LoadingState } from '@/design-system';
 import { Separator } from '@/ui/separator';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/ui/tooltip';
 
@@ -209,7 +209,7 @@ function ProposalCard({
   return (
     <Card
       className={cn(
-        'relative overflow-hidden p-6 transition-shadow hover:shadow-elev2',
+        'relative overflow-hidden p-6 transition-colors hover:border-primary/35',
         'before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:content-[""]',
         accentClass,
         selected && 'ring-1 ring-primary',
@@ -597,16 +597,12 @@ export default function Approvals({ onNavigate }: ApprovalsProps) {
     );
   } else if (loading && proposals.length === 0) {
     body = (
-      <div className="flex flex-col gap-4">
-        {[0, 1, 2].map((i) => (
-          <Card key={i} className="flex flex-col gap-3 p-6">
-            <Skeleton className="h-5 w-48" />
-            <Skeleton className="h-4 w-3/4" />
-            <Skeleton className="h-4 w-2/3" />
-            <Skeleton className="h-8 w-40 self-end" />
-          </Card>
-        ))}
-      </div>
+      <LoadingState
+        layout="panel"
+        shape="panel"
+        label="Loading approvals"
+        description="Preparing pending proposals and decision controls."
+      />
     );
   } else if (proposals.length === 0) {
     body = (
@@ -644,7 +640,7 @@ export default function Approvals({ onNavigate }: ApprovalsProps) {
   }
 
   return (
-    <PageContainer variant="wide" className="animate-fade-in space-y-6">
+    <PageContainer variant="wide" className="space-y-6">
       <PageHeader
         variant="dense"
         icon={Flag}
@@ -693,7 +689,7 @@ export default function Approvals({ onNavigate }: ApprovalsProps) {
           PageHeader/FilterBar convention) so it isn't drawn behind the z-30 top bar. */}
       {selected.size > 0 ? (
         <div className="sticky top-[var(--header-h)] z-20">
-          <Card className="flex flex-wrap items-center gap-2 border-primary/30 bg-surface p-3 shadow-elev2">
+          <Card className="flex flex-wrap items-center gap-2 border-primary/30 bg-surface p-3">
             <span className="text-sm font-medium text-foreground">
               <span className="tabular-nums">{fmtNumber(selected.size)}</span> selected
             </span>

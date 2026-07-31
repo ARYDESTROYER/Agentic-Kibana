@@ -127,3 +127,115 @@ describe('PATCH verb + typed config clients (round-6 api helpers)', () => {
     expect(String(fetchMock.mock.calls[0][0])).toBe('/api/campaigns/config');
   });
 });
+
+describe('release coherence reads', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('threads no-store and AbortSignal through health and build-info reads', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(200, {
+        status: 'ok',
+        version: '0.1.1',
+        service: 'tlsoc-agentic-triage',
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const controller = new AbortController();
+
+    await api.health({ cache: 'no-store', signal: controller.signal });
+    await api.buildInfo({ cache: 'no-store', signal: controller.signal });
+
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(init).toEqual(
+        expect.objectContaining({ cache: 'no-store', signal: controller.signal }),
+      );
+    }
+  });
+});
+
+describe('Runbooks rolling-upgrade response compatibility', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('normalises the original read-only catalog shape into safe bundled rows', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse(200, {
+          enabled: true,
+          runbooks: [
+            {
+              id: 'legacy_reference',
+              title: 'Legacy reference',
+              summary: 'Served by a worker that predates managed Runbooks.',
+              persona: 'general',
+              applies_to_rules: ['legacy_rule'],
+              applies_to_techniques: ['T1059'],
+            },
+          ],
+        }),
+      ),
+    );
+
+    const result = await api.getRunbooks();
+
+    expect(result.retrieval_enabled).toBe(true);
+    expect(result.count).toBe(1);
+    expect(result.runbooks[0]).toMatchObject({
+      source_type: 'bundled',
+      protected: true,
+      editable: false,
+      applies_to_entities: [],
+      keywords: [],
+      index_status: 'unknown',
+    });
+    expect(result.authoring_standard).toBeUndefined();
+  });
+
+  it('preserves the backend-owned Runbook authoring standard', async () => {
+    const standard = {
+      version: 1,
+      body_max_characters: 1800,
+      retrieval_descriptor_max_characters: 1200,
+      document_max_bytes: 131072,
+      section_min_characters: 12,
+      reserved_ids: ['index', 'readme', 'reindex'],
+      character_count: 'Unicode characters after newline normalization and outer trimming',
+      metadata_limits: {
+        title_max_characters: 120,
+        summary_max_characters: 280,
+        persona_max_characters: 48,
+        list_max_items: 12,
+        list_item_max_characters: 64,
+      },
+      required_manifest_fields: ['id', 'title', 'summary'],
+      optional_manifest_fields: ['persona'],
+      required_body_labels: ['SIGNAL', 'EVIDENCE REQUIRED'],
+      optional_body_labels: ['LIMITATIONS'],
+      investigation_steps: 'Sequential one-line numbered steps: 1., 2., 3.',
+      allowed_metadata_format: 'Concise plain text only',
+      allowed_body_format: 'Plain sentences and sequential numbered steps only',
+      prohibited_metadata_format: ['Markdown headings or table pipes'],
+      prohibited_body_format: ['Markdown headings', 'tables'],
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse(200, {
+          enabled: true,
+          retrieval_enabled: true,
+          authoring_standard: standard,
+          count: 0,
+          runbooks: [],
+        }),
+      ),
+    );
+
+    const result = await api.getRunbooks();
+
+    expect(result.authoring_standard).toEqual(standard);
+  });
+});

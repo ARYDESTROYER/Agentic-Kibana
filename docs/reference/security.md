@@ -32,7 +32,10 @@ Analyst browser
 ### Read-only source access
 
 The Elastic path uses physically separate clients for the read-only log key and the
-management key for `tlsoc-agent-*`. Never use `elastic`, `kibana_system`, or an
+management key for `tlsoc-agent-*`. The latter needs index
+`read`/`write`/`create_index`/`view_index_metadata`/`manage` plus cluster
+`manage_ilm`, `manage_index_templates`, and `monitor` when the administrator uses the explicit storage-lifecycle
+preview/apply. Never use `elastic`, `kibana_system`, or an
 equivalent administrator identity at runtime. Other pull connectors follow the same
 least-privilege principle; push receivers have no write path back to a source.
 

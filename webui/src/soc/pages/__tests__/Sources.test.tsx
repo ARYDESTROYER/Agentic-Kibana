@@ -283,6 +283,13 @@ describe('Log Sources page (WS-C)', () => {
     expect(screen.getByText('Prod ES')).toBeInTheDocument();
     expect(screen.queryByText('Webhook Ingest')).not.toBeInTheDocument();
     expect(screen.getByTestId('sources-count')).toHaveTextContent('(1)');
+
+    const clear = screen.getByRole('button', { name: 'Clear search' });
+    expect(clear).toHaveClass('min-h-6', 'min-w-6');
+    expect(clear.querySelector('svg')).toHaveClass('size-4');
+    fireEvent.click(clear);
+    expect(screen.getByLabelText('Search log sources')).toHaveValue('');
+    expect(screen.getByText('Webhook Ingest')).toBeInTheDocument();
   });
 
   it('the inline Enabled toggle round-trips through api.upsertSource', async () => {

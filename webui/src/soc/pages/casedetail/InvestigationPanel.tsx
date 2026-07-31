@@ -32,10 +32,11 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/ui/collap
 import { Skeleton } from '@/ui/skeleton';
 
 import { WhyPanel } from './WhyPanel';
+import { InvestigationInputs } from './InvestigationInputs';
 import { DecisionCard } from './DecisionCard';
 import { GradingHistory } from './grading';
 import { TraceTimeline } from '@/soc/components/TraceTimeline';
-import type { CasePanelPresentation } from './shared';
+import { CASE_MANAGER_PANEL_PADDING, type CasePanelPresentation } from './shared';
 
 /* --------------------------------------------------------------- zone header -- */
 
@@ -144,7 +145,7 @@ export const InvestigationPanel: React.FC<InvestigationPanelProps> = ({
 
     return (
       <div
-        className="space-y-6 px-8 py-7"
+        className={cn('space-y-5', CASE_MANAGER_PANEL_PADDING)}
         data-case-panel="investigation"
         data-presentation="case-manager"
       >
@@ -236,6 +237,14 @@ export const InvestigationPanel: React.FC<InvestigationPanelProps> = ({
             </div>
           </div>
         </section>
+
+        <InvestigationInputs
+          rationale={rationale}
+          loading={rationaleLoading}
+          error={rationaleError}
+          onRetry={onRetryRationale}
+          onReview={() => setEvidenceOpen(true)}
+        />
 
         <section aria-labelledby="case-manager-trace-title" className="space-y-3">
           <div className="flex items-center gap-2">

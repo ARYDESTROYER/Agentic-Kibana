@@ -14,6 +14,7 @@ A Chroma-backed ``VectorStore`` can be dropped in behind the same interface
 from __future__ import annotations
 
 import hashlib
+import asyncio
 import logging
 import math
 import re
@@ -35,6 +36,7 @@ from .vectorstore import (
 )
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from ..engine.runbook_service import RunbookService
     from ..models import Case
     from ..stores.cases import CaseStore
 
@@ -98,7 +100,13 @@ def _sanitise_source_label(source: str | None) -> str:
     place."""
     s = (source or "").replace("<", "").replace(">", "")
     s = " ".join(s.split())  # collapse newlines/runs of whitespace
-    return s[:64].strip() or "imported"
+    value = s[:64].strip() or "imported"
+    # A generic import can carry a useful display label, but provenance/trust is
+    # server-assigned. Never let a caller mint a TRUSTED seed source by submitting
+    # source="runbook"/"mitre"/"suppression".
+    if value in TRUSTED_KNOWLEDGE_SOURCES:
+        return "imported"
+    return value
 
 
 # --------------------------------------------------------------------------- #
@@ -257,12 +265,15 @@ class RagService:
         prefs: Preferences,
         store: VectorStore | None = None,
         cases: "CaseStore | None" = None,
+        runbooks: "RunbookService | None" = None,
     ) -> None:
         self._gateway = gateway
         self._prefs = prefs
         self._store: VectorStore = store or InMemoryVectorStore()
         self._cases = cases
+        self._runbooks = runbooks
         self._seeded = False
+        self._seed_lock = asyncio.Lock()
 
     def set_prefs(self, prefs: Preferences) -> None:
         """Point the service at the latest preferences so a live settings change
@@ -275,7 +286,12 @@ class RagService:
         # dim is settled at first embed; the model id is the stable space tag.
         return (cfg.model, 0)
 
-    def _enabled_seeds(self) -> list[dict[str, Any]]:
+    async def _runbook_seed_items(self) -> list[dict[str, Any]]:
+        if self._runbooks is not None:
+            return await self._runbooks.corpus_items()
+        return runbook_corpus_items()
+
+    async def _enabled_seeds(self) -> list[dict[str, Any]]:
         cfg = self._prefs.rag
         seeds: list[dict[str, Any]] = []
         if cfg.use_runbooks:
@@ -285,7 +301,7 @@ class RagService:
             file_items: list[dict[str, Any]] = []
             if getattr(self._prefs, "runbooks", None) is None or self._prefs.runbooks.enabled:
                 try:
-                    file_items = runbook_corpus_items()
+                    file_items = await self._runbook_seed_items()
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("Runbook corpus load failed; using seed runbooks: %s", exc)
             seeds.extend(file_items or SEED_RUNBOOKS)
@@ -304,7 +320,10 @@ class RagService:
         added. Caller handles failures."""
         if not items:
             return 0
-        texts = [s["text"] for s in items]
+        # A source may provide a compact retrieval representation while retaining a
+        # fuller stored/rendered chunk. Runbooks use this to avoid a duplicate
+        # descriptor-only prompt chunk without diluting their retrieval vector.
+        texts = [str(s.get("embedding_text") or s["text"]) for s in items]
         model_id = self._prefs.model_for("embedding").model
         vectors = await self._gateway.embed(
             texts, self._prefs.model_for("embedding"), surface="rag"
@@ -328,16 +347,136 @@ class RagService:
         """Idempotently embed and store the enabled sources. Fails closed.
 
         Includes resolved-case memory when ``prefs.rag.use_resolved_cases``."""
-        if self._seeded:
-            return
-        self._seeded = True  # guard first so a failure does not loop on retry
+        async with self._seed_lock:
+            if self._seeded:
+                return
+            self._seeded = True  # guard first so a failure does not loop on retry
+            try:
+                seeds = await self._enabled_seeds()
+                added = await self._embed_and_add(seeds)
+                if self._prefs.rag.use_resolved_cases:
+                    added += await self.index_resolved_cases()
+                if self._runbooks is not None:
+                    for record in await self._runbooks.list():
+                        await self._runbooks.mark_indexed(record.runbook.id, record.revision)
+                logger.info("RAG seeded with %d chunk(s)", added)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("RAG seeding failed; store left as-is: %s", exc)
+
+    async def reindex_runbooks(self, ids: set[str] | None = None) -> dict[str, Any]:
+        """Reconcile only the runbook projection, preserving every other source.
+
+        The authoritative Markdown remains in the bundled catalog/KV store even if
+        embedding fails. Stable per-runbook document/chunk ids make retries safe.
+        """
+        if self._runbooks is None:
+            return {
+                "ok": False,
+                "indexed": 0,
+                "deleted": 0,
+                "failed": 1,
+                "errors": ["runbook catalog is unavailable"],
+            }
+        cfg = self._prefs.rag
+        runbook_cfg = getattr(self._prefs, "runbooks", None)
+        if not (cfg.enabled and cfg.use_runbooks and (runbook_cfg is None or runbook_cfg.enabled)):
+            return {
+                "ok": True,
+                "indexed": 0,
+                "deleted": 0,
+                "failed": 0,
+                "errors": [],
+                "disabled": True,
+            }
+        async with self._seed_lock:
+            records = await self._runbooks.list()
+            active = {record.runbook.id: record for record in records}
+            requested = set(ids) if ids is not None else set(active)
+            pending = set(await self._runbooks.pending_deletes())
+            missing = sorted(
+                runbook_id
+                for runbook_id in requested
+                if runbook_id not in active and runbook_id not in pending
+            )
+            target_ids = requested | (pending if ids is None else pending & requested)
+            deleted = 0
+            errors: list[str] = []
+            try:
+                documents = await self._store.list_documents()
+                # Upgrade a legacy projection that grouped every runbook under one
+                # ``seed:runbook`` pseudo-document by rebuilding the complete set.
+                if any(
+                    doc.get("document_id") == "seed:runbook" and doc.get("source") == "runbook"
+                    for doc in documents
+                ):
+                    target_ids = set(active) | pending
+                    deleted += await self._store.delete_document("seed:runbook")
+                elif ids is None:
+                    for doc in documents:
+                        if doc.get("source") == "runbook":
+                            deleted += await self._store.delete_document(
+                                str(doc.get("document_id") or "")
+                            )
+                else:
+                    for runbook_id in sorted(target_ids):
+                        deleted += await self._store.delete_document(f"runbook:{runbook_id}")
+
+                selected = set(active) if ids is None else requested & set(active)
+                items = await self._runbooks.corpus_items(selected)
+                indexed = await self._embed_and_add(items)
+                for runbook_id in sorted(selected):
+                    record = active[runbook_id]
+                    await self._runbooks.mark_indexed(runbook_id, record.revision)
+                for runbook_id in sorted(pending & target_ids):
+                    await self._runbooks.mark_delete_projected(runbook_id)
+                if missing:
+                    errors.extend(f"runbook {runbook_id} not found" for runbook_id in missing)
+                return {
+                    "ok": not errors,
+                    "indexed": indexed,
+                    "deleted": deleted,
+                    "failed": len(errors),
+                    "errors": errors,
+                }
+            except Exception as exc:  # noqa: BLE001
+                message = "runbook retrieval indexing failed"
+                logger.warning("%s: %s", message, exc)
+                selected = set(active) if ids is None else requested & set(active)
+                for runbook_id in sorted(selected):
+                    record = active[runbook_id]
+                    try:
+                        await self._runbooks.mark_indexed(
+                            runbook_id, record.revision, error=message
+                        )
+                    except Exception:  # noqa: BLE001 — preserve the original error
+                        pass
+                return {
+                    "ok": False,
+                    "indexed": 0,
+                    "deleted": deleted,
+                    "failed": max(1, len(selected)),
+                    "errors": [message],
+                }
+
+    async def runbook_projection_revisions(self) -> dict[str, int]:
+        """Active ``runbook id -> indexed revision`` projection, without seeding."""
+        out: dict[str, int] = {}
         try:
-            added = await self._embed_and_add(self._enabled_seeds())
-            if self._prefs.rag.use_resolved_cases:
-                added += await self.index_resolved_cases()
-            logger.info("RAG seeded with %d chunk(s)", added)
+            for document in await self._store.list_documents():
+                document_id = str(document.get("document_id") or "")
+                if document.get("source") != "runbook" or not document_id.startswith("runbook:"):
+                    continue
+                runbook_id = document_id.removeprefix("runbook:")
+                chunks = await self._store.list_chunks(document_id)
+                revision = max(
+                    (int((chunk.metadata or {}).get("revision", 0) or 0) for chunk in chunks),
+                    default=0,
+                )
+                if runbook_id and revision:
+                    out[runbook_id] = revision
         except Exception as exc:  # noqa: BLE001
-            logger.warning("RAG seeding failed; store left as-is: %s", exc)
+            logger.warning("Reading runbook projection status failed: %s", exc)
+        return out
 
     async def index_resolved_cases(self, limit: int = 200) -> int:
         """Load CLOSED cases and index one chunk per case as institutional memory.

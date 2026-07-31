@@ -8,24 +8,32 @@
  *   - the honest-framing banner is present (tuning never closes a case, #3),
  *   - a suppression DROP shows a "needs approval" affordance + links to Approvals
  *     (never auto-applied),
- *   - Apply calls tuningApi.apply for a safe recommendation,
+ *   - Apply calls tuningApi.apply for an eligible recommendation,
  *   - the config panel reflects the loaded policy.
  *
  * The api module is fully mocked; the config-save path is exercised via the apply
  * button (a full StickySaveBar flow is left to manual QA).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { act, render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 
-const { recsMock, getConfigMock, putConfigMock, applyMock, rollbackMock } = vi.hoisted(
-  () => ({
+const {
+  recsMock,
+  getConfigMock,
+  putConfigMock,
+  applyMock,
+  rollbackMock,
+  hasPermissionMock,
+  mediaQueryMock,
+} = vi.hoisted(() => ({
     recsMock: vi.fn(),
     getConfigMock: vi.fn(),
     putConfigMock: vi.fn(),
     applyMock: vi.fn(),
-    rollbackMock: vi.fn(),
-  }),
-);
+  rollbackMock: vi.fn(),
+  hasPermissionMock: vi.fn(),
+  mediaQueryMock: vi.fn(),
+}));
 
 vi.mock('@/soc/pages/Tuning.api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../Tuning.api')>();
@@ -44,9 +52,13 @@ vi.mock('@/soc/pages/Tuning.api', async (importOriginal) => {
 vi.mock('@/soc/auth', () => ({
   useAuth: () => ({
     username: 'tester',
-    hasPermission: () => true,
+    hasPermission: hasPermissionMock,
     authEnabled: false,
   }),
+}));
+
+vi.mock('@/soc/hooks/useMediaQuery', () => ({
+  useMediaQuery: mediaQueryMock,
 }));
 
 vi.mock('sonner', () => ({
@@ -58,7 +70,19 @@ vi.mock('sonner', () => ({
   },
 }));
 
+vi.mock('@/soc/pages/AgentEffectiveness', () => ({
+  AgentEffectivenessSummary: ({ onOpenFull }: { onOpenFull: () => void }) => (
+    <section aria-label="Observed outcomes">
+      <button type="button" onClick={onOpenFull}>
+        View full evidence
+      </button>
+    </section>
+  ),
+}));
+
 import { TooltipProvider } from '@/ui/tooltip';
+import { RouterProvider } from '@/soc/router';
+import { useHasUnsavedChanges } from '@/soc/hooks/useDirtyDraft';
 import Tuning from '../Tuning';
 import type { TuningRecommendationsResponse } from '../Tuning.api';
 
@@ -121,9 +145,14 @@ function renderTuning(onNavigate = vi.fn()) {
   const utils = render(
     <TooltipProvider>
       <Tuning onNavigate={onNavigate} />
+      <DirtyProbe />
     </TooltipProvider>,
   );
   return { ...utils, onNavigate };
+}
+
+function DirtyProbe() {
+  return <output data-testid="tuning-dirty-probe">{useHasUnsavedChanges() ? 'dirty' : 'clean'}</output>;
 }
 
 describe('Tuning page', () => {
@@ -131,6 +160,10 @@ describe('Tuning page', () => {
     recsMock.mockReset();
     getConfigMock.mockReset();
     applyMock.mockReset();
+    hasPermissionMock.mockReset();
+    hasPermissionMock.mockReturnValue(true);
+    mediaQueryMock.mockReset();
+    mediaQueryMock.mockReturnValue(true);
     recsMock.mockResolvedValue(RECS);
     getConfigMock.mockResolvedValue(CONFIG);
     applyMock.mockResolvedValue({
@@ -147,14 +180,171 @@ describe('Tuning page', () => {
     await waitFor(() => expect(recsMock).toHaveBeenCalled());
 
     expect(await screen.findByText('Auto-tuning')).toBeInTheDocument();
-    // Rule id renders as plain text / InlineCode (now in both the Rules health table and
-    // the Proposed-changes list, so it legitimately appears more than once).
+    // Rule id renders as escaped plain text in both review and evidence contexts.
     expect(screen.getAllByText('auth-brute').length).toBeGreaterThan(0);
-    // FP rate formatted as a percent.
-    expect(screen.getAllByText('62%').length).toBeGreaterThan(0);
-    // Proposed change before→after values render as plain text.
-    expect(screen.getAllByText('3').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('4').length).toBeGreaterThan(0);
+    // Conservative FP evidence is named and compared with policy in percentage points.
+    expect(
+      screen.getAllByText(/conservative false-positive estimate is 62%/i).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getAllByText(/32 percentage points above/i).length).toBeGreaterThan(0);
+    // The action explains the actual threshold move and operational effect.
+    expect(screen.getAllByText('Raise the correlation threshold').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/raise the threshold from 3 to 4/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/source events remain available/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Eligible after replay').length).toBeGreaterThan(0);
+    // Proposed change values remain plain text inside the explanatory instruction.
+    expect(screen.getAllByText(/from 3 to 4/i).length).toBeGreaterThan(0);
+  });
+
+  it('uses one page heading and one continuous responsive health strip', async () => {
+    renderTuning();
+    await screen.findAllByText('auth-brute');
+
+    const pageHeadings = screen.getAllByRole('heading', { level: 1 });
+    expect(pageHeadings).toHaveLength(1);
+    expect(pageHeadings[0]).toHaveTextContent('Auto-tuning');
+
+    const healthStrip = screen.getByTestId('tuning-health-strip');
+    expect(healthStrip).toHaveClass('grid', 'border-y');
+    expect(healthStrip.className).toMatch(/(?:sm|md|lg|xl):grid-cols-/);
+    expect(healthStrip.className).not.toMatch(/rounded|shadow|bg-card/);
+
+    const cells = Array.from(healthStrip.children);
+    expect(cells).toHaveLength(4);
+    expect(cells[1]).toHaveClass('border-t', 'sm:border-l', 'sm:border-t-0');
+    expect(cells[2]).toHaveClass('border-t', 'xl:border-l', 'xl:border-t-0');
+    expect(cells[3]).toHaveClass('border-t', 'sm:border-l', 'xl:border-t-0');
+    expect(screen.getByTestId('kpi-rules-monitored')).toHaveClass('min-h-0', 'py-3');
+  });
+
+  it('uses task-focused workspace tabs and opens on Operations', async () => {
+    renderTuning();
+    await screen.findAllByText('auth-brute');
+
+    const tabs = screen.getByRole('tablist', { name: 'Auto-tuning workspace' });
+    expect(within(tabs).getAllByRole('tab')).toHaveLength(3);
+    expect(within(tabs).getByRole('tab', { name: 'Operations' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    expect(screen.queryByRole('region', { name: 'Observed outcomes' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Tuning policy')).not.toBeInTheDocument();
+  });
+
+  it('uses one shared centered blocking loader on the initial page load', () => {
+    recsMock.mockReturnValue(new Promise(() => {}));
+    getConfigMock.mockReturnValue(new Promise(() => {}));
+    const view = renderTuning();
+
+    expect(screen.getByRole('status', { name: 'Loading auto-tuning' })).toHaveAttribute(
+      'data-loading-layout',
+      'page',
+    );
+    expect(
+      view.container.querySelectorAll('[data-loading-motion="indeterminate-ring"]'),
+    ).toHaveLength(1);
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+  });
+
+  it('keeps usable tuning evidence mounted during a refresh and contains a refresh failure', async () => {
+    renderTuning();
+    await screen.findAllByText('auth-brute');
+
+    let rejectRefresh: (reason?: unknown) => void = () => {};
+    recsMock.mockReturnValueOnce(
+      new Promise((_resolve, reject) => {
+        rejectRefresh = reject;
+      }),
+    );
+    getConfigMock.mockResolvedValueOnce(CONFIG);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    expect(
+      await screen.findByRole('progressbar', { name: /refreshing auto-tuning/i }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText('auth-brute').length).toBeGreaterThan(0);
+
+    await act(async () => {
+      rejectRefresh(new Error('refresh failed'));
+    });
+    expect(await screen.findByText('refresh failed')).toBeInTheDocument();
+    expect(screen.getAllByText('auth-brute').length).toBeGreaterThan(0);
+  });
+
+  it('keeps the grouped review queue ahead of rule performance', async () => {
+    renderTuning();
+    await screen.findAllByText('auth-brute');
+
+    const review = screen.getByRole('heading', { name: 'Review queue', level: 2 });
+    const rules = screen.getByRole('heading', { name: 'All monitored rules', level: 2 });
+    const pending = screen.getByRole('region', { name: 'Pending human proposals' });
+
+    expect(review.compareDocumentPosition(pending) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(pending.compareDocumentPosition(rules) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole('region', { name: 'Review queue' }).className).not.toMatch(
+      /rounded|shadow|bg-card/,
+    );
+    expect(pending.className).not.toMatch(/rounded|shadow|bg-card/);
+  });
+
+  it('opens rule evidence in a focused panel linked to its trigger', async () => {
+    renderTuning();
+    await screen.findAllByText('auth-brute');
+
+    const trigger = screen.getByRole('button', { name: 'Inspect rule auth-brute' });
+    fireEvent.click(trigger);
+
+    const detail = screen.getByRole('complementary', {
+      name: 'Detail for rule auth-brute',
+    });
+    expect(trigger).toHaveAttribute('aria-controls', 'tuning-rule-detail');
+    expect(detail).toHaveAttribute('id', 'tuning-rule-detail');
+    expect(detail).toHaveClass('border-y');
+
+    const statCells = Array.from(detail.querySelector('dl')?.children ?? []);
+    expect(statCells).toHaveLength(4);
+    expect(statCells[1]).toHaveClass('border-l');
+    expect(statCells[2]).toHaveClass('border-t');
+    expect(within(detail).getByText('Why this rule needs attention')).toBeInTheDocument();
+    expect(within(detail).getByText('Recommended action')).toBeInTheDocument();
+    expect(within(detail).getByText('Expected operational effect')).toBeInTheDocument();
+    expect(within(detail).getByText('Safety replay')).toBeInTheDocument();
+    expect(within(detail).getByText('Supporting measurements')).toBeInTheDocument();
+  });
+
+  it('uses a focus-managed sheet for rule evidence below the wide breakpoint', async () => {
+    mediaQueryMock.mockReturnValue(false);
+    renderTuning();
+    await screen.findAllByText('auth-brute');
+
+    const trigger = screen.getByRole('button', { name: 'Inspect rule auth-brute' });
+    fireEvent.click(trigger);
+
+    const detail = screen.getByRole('dialog', {
+      name: 'Rule evidence for auth-brute',
+    });
+    expect(trigger).toHaveAttribute('aria-controls', 'tuning-rule-detail');
+    expect(detail).toHaveAttribute('id', 'tuning-rule-detail');
+    expect(within(detail).getByText('Rule evidence')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Close' })).toHaveFocus();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(trigger).toHaveFocus());
+  });
+
+  it('closes an inspector when search removes its rule from the visible context', async () => {
+    renderTuning();
+    await screen.findAllByText('auth-brute');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect rule auth-brute' }));
+    expect(
+      screen.getByRole('complementary', { name: 'Detail for rule auth-brute' }),
+    ).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search monitored rules' }), {
+      target: { value: 'different-rule' },
+    });
+    await waitFor(() => expect(screen.queryByRole('complementary')).not.toBeInTheDocument());
   });
 
   it('shows the honest-framing banner (tuning never closes a case)', async () => {
@@ -169,8 +359,9 @@ describe('Tuning page', () => {
     const { onNavigate } = renderTuning();
     await screen.findByText('noisy-web');
 
-    // The suppression row is marked "Needs approval" and offers an Approvals link.
-    expect(screen.getByText(/needs approval/i)).toBeInTheDocument();
+    // The suppression row is marked for a human decision and offers an Approvals link.
+    expect(screen.getAllByText(/human decision/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/nothing is suppressed from this page/i)).toBeInTheDocument();
     const openApprovals = screen.getByRole('button', { name: /open approvals/i });
     fireEvent.click(openApprovals);
     expect(onNavigate).toHaveBeenCalledWith('approvals');
@@ -178,20 +369,160 @@ describe('Tuning page', () => {
     expect(applyMock).not.toHaveBeenCalled();
   });
 
-  it('applies a safe recommendation via tuningApi.apply', async () => {
+  it('explains an inconclusive safety replay without claiming a hidden true positive', async () => {
+    recsMock.mockResolvedValueOnce({
+      ...RECS,
+      recommendations: [
+        {
+          ...RECS.recommendations[0],
+          auto_apply: false,
+          shadow_blocked: true,
+          reason: 'shadow_eval_would_hide_tp',
+        },
+      ],
+    });
+    renderTuning();
+
+    await screen.findAllByText('auth-brute');
+    expect(
+      screen.getAllByText(/retrospective replay could not prove this change safe/i).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getAllByText(/requires a human decision in approvals/i).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/would hide a true positive/i)).not.toBeInTheDocument();
+  });
+
+  it('applies an eligible recommendation via tuningApi.apply', async () => {
     renderTuning();
     await screen.findAllByText('auth-brute');
 
-    const applyBtn = screen.getByRole('button', { name: /^apply$/i });
+    const applyBtn = screen.getByRole('button', {
+      name: 'Process all changes for auth-brute',
+    });
     fireEvent.click(applyBtn);
     await waitFor(() => expect(applyMock).toHaveBeenCalledWith('auth-brute'));
+  });
+
+  it('labels under-sampled rules as Collecting instead of Healthy', async () => {
+    recsMock.mockResolvedValueOnce({
+      ...RECS,
+      rule_noise: [
+        {
+          rule_id: 'rare-cloud-rule',
+          total: 8,
+          fp: 1,
+          tp: 7,
+          fp_rate: 0.04,
+          volume_ewma: 0.3,
+          over_target: false,
+        },
+      ],
+      recommendations: [],
+    });
+    renderTuning();
+
+    await screen.findByText('rare-cloud-rule');
+    expect(screen.getAllByText('Collecting').length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(/8 of 25 verdict-bearing closed cases have been collected/i).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getAllByText(/17 more are required/i).length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(/context only until the evidence minimum is met/i).length,
+    ).toBeGreaterThan(0);
+    expect(screen.queryByText('Healthy')).not.toBeInTheDocument();
+    expect(screen.getByTestId('kpi-collecting-evidence')).toHaveTextContent('1');
   });
 
   it('reflects the loaded policy in the config panel', async () => {
     renderTuning();
     await screen.findAllByText('auth-brute');
+    fireEvent.keyDown(screen.getByRole('tab', { name: 'Policy & history' }), {
+      key: 'Enter',
+    });
     // The min-samples input carries the loaded value.
     const minSamples = screen.getByLabelText(/minimum samples/i) as HTMLInputElement;
     expect(minSamples.value).toBe('25');
+  });
+
+  it('registers an unsaved tuning policy until it is discarded', async () => {
+    renderTuning();
+    await screen.findAllByText('auth-brute');
+    expect(screen.getByTestId('tuning-dirty-probe')).toHaveTextContent('clean');
+
+    fireEvent.keyDown(screen.getByRole('tab', { name: 'Policy & history' }), {
+      key: 'Enter',
+    });
+    fireEvent.click(screen.getByRole('switch', { name: 'Enable auto-tuning' }));
+    await waitFor(() =>
+      expect(screen.getByTestId('tuning-dirty-probe')).toHaveTextContent('dirty'),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+    await waitFor(() =>
+      expect(screen.getByTestId('tuning-dirty-probe')).toHaveTextContent('clean'),
+    );
+  });
+
+  it('opens the full Agent Effectiveness evidence from the compact summary', async () => {
+    const { onNavigate } = renderTuning();
+    await screen.findAllByText('auth-brute');
+
+    fireEvent.keyDown(screen.getByRole('tab', { name: 'Outcomes' }), { key: 'Enter' });
+    fireEvent.click(screen.getByRole('button', { name: 'View full evidence' }));
+    expect(onNavigate).toHaveBeenCalledWith('metrics', { tab: 'effectiveness' });
+  });
+
+  it('drills through to the Analytics host when navigation comes from router context', async () => {
+    window.location.hash = '#/tuning';
+    render(
+      <RouterProvider>
+        <TooltipProvider>
+          <Tuning />
+        </TooltipProvider>
+      </RouterProvider>,
+    );
+    await screen.findAllByText('auth-brute');
+
+    fireEvent.keyDown(screen.getByRole('tab', { name: 'Outcomes' }), { key: 'Enter' });
+    fireEvent.click(screen.getByRole('button', { name: 'View full evidence' }));
+    await waitFor(() => expect(window.location.hash).toBe('#/metrics'));
+  });
+
+  it('keeps tuning available when the operator lacks the separate metrics grant', async () => {
+    hasPermissionMock.mockImplementation(
+      (resource: string, action: string) => resource !== 'metrics' || action !== 'view',
+    );
+    renderTuning();
+
+    expect(await screen.findByText('Auto-tuning')).toBeInTheDocument();
+    expect(screen.getAllByText('auth-brute').length).toBeGreaterThan(0);
+    expect(screen.queryByRole('tab', { name: 'Outcomes' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Observed outcomes' })).not.toBeInTheDocument();
+  });
+
+  it('does not advertise Approvals actions without proposal read access', async () => {
+    hasPermissionMock.mockImplementation(
+      (resource: string, action: string) => resource !== 'proposals' || action !== 'read',
+    );
+    renderTuning();
+
+    await screen.findByText('noisy-web');
+    expect(screen.getByText('Requires Approvals access')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /approvals/i })).not.toBeInTheDocument();
+  });
+
+  it('keeps policy evidence readable but hides mutations without automation manage access', async () => {
+    hasPermissionMock.mockImplementation(
+      (resource: string, action: string) => resource !== 'automation' || action !== 'manage',
+    );
+    renderTuning();
+
+    await screen.findAllByText('auth-brute');
+    expect(screen.queryByRole('button', { name: /process all changes/i })).not.toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole('tab', { name: 'Policy & history' }), {
+      key: 'Enter',
+    });
+    expect(await screen.findByText(/read-only access/i)).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: 'Enable auto-tuning' })).toBeDisabled();
   });
 });

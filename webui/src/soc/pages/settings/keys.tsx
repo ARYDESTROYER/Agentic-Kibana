@@ -15,15 +15,19 @@ import { Alert, AlertDescription } from '@/ui/alert';
 
 import { SectionTitle, SecretInput } from './primitives';
 
-export const SECRET_KEYS: Array<{ key: string; label: string; help: string }> = [
-  { key: 'es_api_key', label: 'Elasticsearch read-only API key', help: 'Scoped, read-only key for the log indices.' },
-  { key: 'es_mgmt_api_key', label: 'Elasticsearch management API key', help: 'Scoped to tlsoc-agent-* bookkeeping indices.' },
-  { key: 'anthropic_api_key', label: 'Anthropic API key', help: 'For Claude models.' },
-  { key: 'openai_api_key', label: 'OpenAI API key', help: 'For GPT models / embeddings.' },
-  { key: 'embedding_api_key', label: 'Embedding API key', help: 'Defaults to the OpenAI key when blank.' },
-  { key: 'abuseipdb_api_key', label: 'AbuseIPDB API key', help: 'IP reputation enrichment (optional).' },
-  { key: 'virustotal_api_key', label: 'VirusTotal API key', help: 'File/URL/IP reputation (optional).' },
+type SecretGroup = 'Data access' | 'AI runtime' | 'Threat intelligence';
+
+export const SECRET_KEYS: Array<{ key: string; label: string; help: string; group: SecretGroup }> = [
+  { key: 'es_api_key', label: 'Elasticsearch read-only API key', help: 'Scoped, read-only key for the log indices.', group: 'Data access' },
+  { key: 'es_mgmt_api_key', label: 'Elasticsearch management API key', help: 'Scoped to tlsoc-agent-* bookkeeping indices.', group: 'Data access' },
+  { key: 'openai_api_key', label: 'OpenAI API key', help: 'Default runtime for GPT-5.6 Luna completion roles and embeddings.', group: 'AI runtime' },
+  { key: 'anthropic_api_key', label: 'Anthropic API key', help: 'Optional alternate runtime for Claude models.', group: 'AI runtime' },
+  { key: 'embedding_api_key', label: 'Embedding API key', help: 'Defaults to the OpenAI key when blank.', group: 'AI runtime' },
+  { key: 'abuseipdb_api_key', label: 'AbuseIPDB API key', help: 'IP reputation enrichment (optional).', group: 'Threat intelligence' },
+  { key: 'virustotal_api_key', label: 'VirusTotal API key', help: 'File/URL/IP reputation (optional).', group: 'Threat intelligence' },
 ];
+
+const SECRET_GROUPS: SecretGroup[] = ['Data access', 'AI runtime', 'Threat intelligence'];
 
 export function KeysSection({
   configured,
@@ -55,23 +59,32 @@ export function KeysSection({
           to keep the current one.
         </AlertDescription>
       </Alert>
-      <div className="grid gap-4 sm:grid-cols-2">
-        {SECRET_KEYS.map((k) => (
-          <SecretInput
-            key={k.key}
-            label={k.label}
-            secretKey={k.key}
-            configured={configured[k.key]}
-            value={draft[k.key] || ''}
-            help={k.help}
-            onChange={(v) => set(k.key, v)}
-          />
+      <div className="space-y-7">
+        {SECRET_GROUPS.map((group) => (
+          <fieldset key={group} className="space-y-4 border-t border-border/70 pt-4">
+            <legend className="text-sm font-semibold tracking-tight text-foreground">{group}</legend>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {SECRET_KEYS.filter((key) => key.group === group).map((key) => (
+                <SecretInput
+                  key={key.key}
+                  label={key.label}
+                  secretKey={key.key}
+                  configured={configured[key.key]}
+                  value={draft[key.key] || ''}
+                  help={key.help}
+                  onChange={(value) => set(key.key, value)}
+                />
+              ))}
+            </div>
+          </fieldset>
         ))}
       </div>
-      <Button onClick={onSave} disabled={saving || readOnly || !pending}>
-        <Save className="h-4 w-4" aria-hidden />
-        {saving ? 'Updating…' : 'Update keys'}
-      </Button>
+      <div className="flex justify-end border-t border-border/70 pt-4">
+        <Button onClick={onSave} disabled={saving || readOnly || !pending}>
+          <Save className="h-4 w-4" aria-hidden />
+          {saving ? 'Updating…' : 'Update keys'}
+        </Button>
+      </div>
     </div>
   );
 }

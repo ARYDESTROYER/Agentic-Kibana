@@ -18,12 +18,13 @@ Coverage:
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import pytest
 
 from app.config import ModelConfig
-from app.constants import USAGE_READ_PATTERN, BatchJobState, Role, UsageOutcome
+from app.constants import USAGE_READ_PATTERN, USAGE_WRITE_ALIAS, BatchJobState, Role, UsageOutcome
 from app.es.fake import InMemoryESClient
 from app.llm import pricing
 from app.llm.batch import (
@@ -38,6 +39,7 @@ from app.llm.gateway import LLMGateway
 from app.llm.pricing import cache_rates, cost_for, resolve_price
 from app.llm.providers import AnthropicProvider, CompletionResult, OpenAIProvider
 from app.models import BatchJob
+from app.state import _BatchJobService
 from app.stores.batch_jobs import BatchJobStore
 from app.stores.memory import EsKVStore
 from app.stores.usage import UsageStore
@@ -433,9 +435,11 @@ async def test_anthropic_batch_submit_poll_results_keyed_by_custom_id():
 class _OpenAIBatchClient:
     def __init__(self) -> None:
         self.status = "validating"
+        self.uploaded_jsonl = ""
 
     async def post(self, url, *, headers=None, json=None, files=None, data=None, **_k):  # noqa: A002
         if url == "/v1/files":
+            self.uploaded_jsonl = files["file"][1]
             return _Resp({"id": "file_in"})
         assert url == "/v1/batches"
         return _Resp({"id": "batch_1", "status": "validating"})
@@ -475,7 +479,8 @@ def test_openai_batch_result_subtracts_cached_from_prompt_tokens():
 
 
 async def test_openai_batch_submit_poll_results():
-    provider = OpenAIBatchProvider(api_key="sk-oai", client=_OpenAIBatchClient())
+    client = _OpenAIBatchClient()
+    provider = OpenAIBatchProvider(api_key="sk-oai", client=client)
     requests = [
         {"custom_id": "cid-1", "params": {"messages": [{"role": "user", "content": "1"}]}},
         {"custom_id": "cid-2", "params": {"messages": [{"role": "user", "content": "2"}]}},
@@ -487,6 +492,37 @@ async def test_openai_batch_submit_poll_results():
     results = {r.custom_id: r for r in await provider.results(job)}
     assert set(results) == {"cid-1", "cid-2"}
     assert results["cid-1"].text == "one" and results["cid-2"].prompt_tokens == 50
+    classic_body = json.loads(client.uploaded_jsonl.splitlines()[0])["body"]
+    assert classic_body["model"] == "gpt-4o"
+    assert "reasoning_effort" not in classic_body
+
+
+async def test_openai_batch_translates_luna_request_shape():
+    client = _OpenAIBatchClient()
+    provider = OpenAIBatchProvider(api_key="sk-oai", client=client)
+    requests = [{
+        "custom_id": "luna-1",
+        "params": {
+            "system": "Classify this aggregate.",
+            "messages": [{"role": "user", "content": "aggregate"}],
+            "temperature": 0.2,
+            "max_tokens": 400,
+        },
+    }]
+
+    await provider.submit("gpt-5.6-luna", requests)
+
+    body = json.loads(client.uploaded_jsonl)["body"]
+    assert body["model"] == "gpt-5.6-luna"
+    assert body["messages"] == [
+        {"role": "system", "content": "Classify this aggregate."},
+        {"role": "user", "content": "aggregate"},
+    ]
+    assert body["max_completion_tokens"] == 400
+    assert body["reasoning_effort"] == "none"
+    assert "system" not in body
+    assert "max_tokens" not in body
+    assert "temperature" not in body
 
 
 # --------------------------------------------------------------------------- #
@@ -673,3 +709,501 @@ async def test_retrieved_but_incomplete_job_is_still_open():
                                           "c2": {"retrieved": False}}))
     open_ids = {j.id for j in await BatchJobStore(kv).load_open_jobs()}
     assert open_ids == {"batch-partial"}
+
+
+class _FlakySubmitProvider:
+    def __init__(self) -> None:
+        self.attempts = 0
+
+    async def submit(self, model, requests):
+        self.attempts += 1
+        if self.attempts == 1:
+            raise RuntimeError("provider temporarily unavailable")
+        return BatchJob(
+            provider="anthropic",
+            provider_batch_id="remote-accepted",
+            model=model,
+            state=BatchJobState.POLLING,
+            custom_ids={
+                str(req["custom_id"]): {"retrieved": False, "result_state": None}
+                for req in requests
+            },
+        )
+
+    async def aclose(self):
+        return None
+
+
+async def test_batch_service_persists_local_outbox_before_remote_and_retries():
+    store = BatchJobStore(_kv())
+    provider = _FlakySubmitProvider()
+    service = _BatchJobService(
+        store=store,
+        gateway=object(),
+        make_provider=lambda _name: provider,
+        get_prefs=lambda: object(),
+    )
+    requests = [{"custom_id": "stable-cid", "params": {"messages": []}}]
+
+    queued = await service.submit("anthropic", "claude-haiku-4-5-20251001", requests)
+    assert queued.provider_batch_id is None
+    assert queued.requests == requests
+    assert queued.submit_attempts == 1
+    assert "temporarily unavailable" in (queued.last_error or "")
+    assert await store.get(queued.id) is not None  # durable before remote acceptance
+
+    accepted = await service.poll(queued)
+    assert accepted.id == queued.id  # deterministic local identity survives provider id
+    assert accepted.provider_batch_id == "remote-accepted"
+    assert accepted.submit_attempts == 2
+    assert accepted.last_error is None
+
+    # Replaying the same accepted intent returns the existing outbox job and performs
+    # no third remote submit.
+    duplicate = await service.submit(
+        "anthropic", "claude-haiku-4-5-20251001", requests
+    )
+    assert duplicate.id == accepted.id
+    assert provider.attempts == 2
+
+
+async def test_concurrent_identical_submits_call_remote_provider_once():
+    store = BatchJobStore(_kv())
+    provider = _FlakySubmitProvider()
+    # Let the first remote call succeed so both callers race only at local creation.
+    provider.attempts = 1
+    service = _BatchJobService(
+        store=store,
+        gateway=object(),
+        make_provider=lambda _name: provider,
+        get_prefs=lambda: object(),
+    )
+    requests = [{"custom_id": "same-cid", "params": {"messages": []}}]
+
+    first, second = await asyncio.gather(
+        service.submit("anthropic", "claude-haiku-4-5-20251001", requests),
+        service.submit("anthropic", "claude-haiku-4-5-20251001", requests),
+    )
+
+    assert first.id == second.id
+    assert provider.attempts == 2  # one seeded count + exactly one remote call
+    assert len(await store.list_strict()) == 1
+
+
+class _BlockingSubmitProvider:
+    def __init__(self) -> None:
+        self.calls = 0
+        self.entered = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def submit(self, model, requests):
+        self.calls += 1
+        self.entered.set()
+        await self.release.wait()
+        return BatchJob(
+            provider="anthropic",
+            provider_batch_id="remote-once",
+            model=model,
+            state=BatchJobState.POLLING,
+            custom_ids={
+                str(req["custom_id"]): {"retrieved": False, "result_state": None}
+                for req in requests
+            },
+        )
+
+    async def aclose(self):
+        return None
+
+
+async def test_submit_and_scheduler_poll_share_one_provider_submission_lease():
+    """Force the creator to pause in provider.submit while the scheduler sees the row."""
+    store = BatchJobStore(_kv())
+    provider = _BlockingSubmitProvider()
+    service = _BatchJobService(
+        store=store,
+        gateway=object(),
+        make_provider=lambda _name: provider,
+        get_prefs=lambda: object(),
+    )
+    requests = [{"custom_id": "raced-cid", "params": {"messages": []}}]
+
+    immediate = asyncio.create_task(
+        service.submit("anthropic", "claude-haiku-4-5-20251001", requests)
+    )
+    await provider.entered.wait()
+    visible = (await store.list_strict())[0]
+    assert visible.provider_batch_id is None
+    assert visible.submission_lease_token
+
+    scheduler_result = await service.poll(visible)
+    assert scheduler_result.provider_batch_id is None
+    assert provider.calls == 1
+
+    provider.release.set()
+    accepted = await immediate
+    assert accepted.provider_batch_id == "remote-once"
+    assert accepted.submission_lease_token is None
+    assert accepted.submit_attempts == 1
+    assert provider.calls == 1
+
+
+async def test_scheduler_reclaims_stale_provider_submission_lease():
+    store = BatchJobStore(_kv())
+    provider = _FlakySubmitProvider()
+    provider.attempts = 1  # next provider call succeeds
+    service = _BatchJobService(
+        store=store,
+        gateway=object(),
+        make_provider=lambda _name: provider,
+        get_prefs=lambda: object(),
+    )
+    requests = [{"custom_id": "stale-cid", "params": {"messages": []}}]
+    local = BatchJob(
+        id=service._outbox_id("anthropic", "claude-haiku-4-5-20251001", requests),
+        provider="anthropic",
+        model="claude-haiku-4-5-20251001",
+        requests=requests,
+        custom_ids={"stale-cid": {"retrieved": False, "result_state": None}},
+    )
+    await store.save(local)
+    claimed, token = await store.claim_submission(local.id)
+    assert claimed is not None and token
+
+    # A live lease prevents a provider call.
+    blocked = await service.poll(claimed)
+    assert blocked.provider_batch_id is None
+    assert provider.attempts == 1
+
+    # Model a process crash by expiring the persisted lease, then let the scheduler
+    # reclaim it. This does not claim to close the post-acceptance/pre-save window.
+    def _expire(jobs):
+        jobs[local.id].submission_lease_at_millis = 0
+        return True
+
+    await store._mutate(_expire)
+    recovered = await service.poll(await store.get_strict(local.id))
+    assert recovered.provider_batch_id == "remote-accepted"
+    assert recovered.submission_lease_token is None
+    assert recovered.submit_attempts == 2
+    assert provider.attempts == 2
+
+
+async def test_stale_submission_owner_cannot_overwrite_reclaimed_lease():
+    store = BatchJobStore(_kv())
+    local = BatchJob(
+        id="lease-fence",
+        provider="anthropic",
+        model="claude-haiku-4-5-20251001",
+        requests=[{"custom_id": "fenced", "params": {"messages": []}}],
+    )
+    await store.save(local)
+    _first, old_token = await store.claim_submission(local.id)
+    assert old_token
+
+    def _expire(jobs):
+        jobs[local.id].submission_lease_at_millis = 0
+        return True
+
+    await store._mutate(_expire)
+    newer, new_token = await store.claim_submission(local.id)
+    assert newer is not None and new_token and new_token != old_token
+    remote = BatchJob(
+        provider="anthropic",
+        provider_batch_id="stale-remote",
+        model=local.model,
+        state=BatchJobState.POLLING,
+    )
+
+    with pytest.raises(RuntimeError, match="lease ownership changed"):
+        await store.complete_submission(local.id, old_token, remote)
+    with pytest.raises(RuntimeError, match="lease ownership changed"):
+        await store.fail_submission(local.id, old_token, "late stale failure")
+    durable = await store.get_strict(local.id)
+    assert durable is not None
+    assert durable.provider_batch_id is None
+    assert durable.submission_lease_token == new_token
+    assert durable.last_error is None
+
+
+class _BlockingCloseProvider:
+    def __init__(self) -> None:
+        self.submit_calls = 0
+        self.close_entered = asyncio.Event()
+        self.release_close = asyncio.Event()
+
+    async def submit(self, model, requests):
+        self.submit_calls += 1
+        return BatchJob(
+            provider="anthropic",
+            provider_batch_id="remote-before-close",
+            model=model,
+            state=BatchJobState.POLLING,
+            custom_ids={
+                str(req["custom_id"]): {"retrieved": False, "result_state": None}
+                for req in requests
+            },
+        )
+
+    async def aclose(self):
+        self.close_entered.set()
+        await self.release_close.wait()
+
+
+async def test_provider_acceptance_is_durable_before_client_close_finishes():
+    store = BatchJobStore(_kv())
+    provider = _BlockingCloseProvider()
+    service = _BatchJobService(
+        store=store,
+        gateway=object(),
+        make_provider=lambda _name: provider,
+        get_prefs=lambda: object(),
+    )
+    requests = [{"custom_id": "close-cid", "params": {"messages": []}}]
+
+    immediate = asyncio.create_task(
+        service.submit("anthropic", "claude-haiku-4-5-20251001", requests)
+    )
+    await provider.close_entered.wait()
+    durable = (await store.list_strict())[0]
+    assert durable.provider_batch_id == "remote-before-close"
+    assert durable.submission_lease_token is None
+
+    # Even a stale no-id snapshot cannot POST again: claim_submission re-reads the
+    # accepted durable row before deciding whether to call the provider.
+    stale = durable.model_copy(update={"provider_batch_id": None})
+    scheduler_result = await service.poll(stale)
+    assert scheduler_result.provider_batch_id == "remote-before-close"
+    assert provider.submit_calls == 1
+
+    provider.release_close.set()
+    accepted = await immediate
+    assert accepted.provider_batch_id == "remote-before-close"
+
+
+async def test_acceptance_persistence_failure_keeps_lease_and_prevents_fast_resubmit(
+    monkeypatch,
+):
+    store = BatchJobStore(_kv())
+    provider = _FlakySubmitProvider()
+    provider.attempts = 1  # the one provider call below succeeds
+    service = _BatchJobService(
+        store=store,
+        gateway=object(),
+        make_provider=lambda _name: provider,
+        get_prefs=lambda: object(),
+    )
+    requests = [{"custom_id": "persist-cid", "params": {"messages": []}}]
+
+    async def _unconfirmed_acceptance(*_args, **_kwargs):
+        raise RuntimeError("state backend unavailable after remote acceptance")
+
+    monkeypatch.setattr(store, "complete_submission", _unconfirmed_acceptance)
+    with pytest.raises(RuntimeError, match="state backend unavailable"):
+        await service.submit(
+            "anthropic", "claude-haiku-4-5-20251001", requests
+        )
+
+    durable = (await store.list_strict())[0]
+    assert durable.provider_batch_id is None
+    assert durable.submission_lease_token
+    assert durable.submit_attempts == 1
+    assert provider.attempts == 2  # seeded count + one accepted remote call
+
+    # The ambiguous accepted-but-unpersisted row remains leased. It is only eligible
+    # for the documented bounded stale recovery, not an immediate duplicate POST.
+    still_leased = await service.poll(durable)
+    assert still_leased.provider_batch_id is None
+    assert provider.attempts == 2
+
+
+async def test_batch_service_never_submits_when_local_outbox_save_is_unconfirmed(
+    monkeypatch,
+):
+    store = BatchJobStore(_kv())
+    provider = _FlakySubmitProvider()
+    service = _BatchJobService(
+        store=store,
+        gateway=object(),
+        make_provider=lambda _name: provider,
+        get_prefs=lambda: object(),
+    )
+
+    async def _broken_put_if(*_args, **_kwargs):
+        raise RuntimeError("state backend unavailable")
+
+    monkeypatch.setattr(store._kv, "put_if_strict", _broken_put_if)
+    with pytest.raises(RuntimeError, match="state backend unavailable"):
+        await service.submit(
+            "anthropic",
+            "claude-haiku-4-5-20251001",
+            [{"custom_id": "never-remote", "params": {"messages": []}}],
+        )
+    assert provider.attempts == 0
+    assert await store.get("missing") is None
+
+
+class _FailOnceUsageES(InMemoryESClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.fail_usage = True
+
+    async def index_doc(self, index, doc, doc_id=None, refresh=False):
+        if index == USAGE_WRITE_ALIAS and self.fail_usage:
+            self.fail_usage = False
+            raise RuntimeError("ledger unavailable")
+        return await super().index_doc(index, doc, doc_id=doc_id, refresh=refresh)
+
+
+async def test_batch_usage_failure_leaves_result_unretrieved_then_retries():
+    es = _FailOnceUsageES()
+    gateway = LLMGateway(secrets=_FakeSecrets(), usage_store=UsageStore(es))
+    store = BatchJobStore(_kv())
+    await store.save(_job())
+    one = [_results()[0]]
+
+    first = await store.process_results(await store.get("batch-x"), one, gateway)
+    assert first == []
+    failed = await store.get("batch-x")
+    assert failed.custom_ids["cid-A"]["retrieved"] is False
+    assert not failed.custom_ids["cid-A"].get("recording_token")
+    assert await _usage_docs(es) == []
+
+    second = await store.process_results(failed, one, gateway)
+    assert [result.custom_id for result in second] == ["cid-A"]
+    recovered = await store.get("batch-x")
+    assert recovered.custom_ids["cid-A"]["retrieved"] is True
+    assert recovered.last_error is None
+    docs = await _usage_docs(es)
+    assert len(docs) == 1
+    assert docs[0]["idempotency_key"] == "batch:batch-x:cid-A"
+
+
+async def test_crash_after_ledger_write_retries_without_duplicate_row(monkeypatch):
+    es = InMemoryESClient()
+    gateway = LLMGateway(secrets=_FakeSecrets(), usage_store=UsageStore(es))
+    store = BatchJobStore(_kv())
+    await store.save(_job())
+    original_finalize = store._finalize_lease
+
+    async def _simulate_crash(*_args, **_kwargs):
+        return False
+
+    monkeypatch.setattr(store, "_finalize_lease", _simulate_crash)
+    assert await store.process_results(
+        await store.get("batch-x"), [_results()[0]], gateway
+    ) == []
+    assert len(await _usage_docs(es)) == 1
+    mid = await store.get("batch-x")
+    assert mid.custom_ids["cid-A"]["retrieved"] is False
+
+    # Simulate lease expiry after restart, restore normal finalisation, and replay.
+    def _expire(jobs):
+        entry = jobs["batch-x"].custom_ids["cid-A"]
+        entry["recording_at_millis"] = 0
+        return True
+
+    await store._mutate(_expire)
+    monkeypatch.setattr(store, "_finalize_lease", original_finalize)
+    replayed = await store.process_results(
+        await store.get("batch-x"), [_results()[0]], gateway
+    )
+    assert [result.custom_id for result in replayed] == ["cid-A"]
+    assert (await store.get("batch-x")).custom_ids["cid-A"]["retrieved"] is True
+    # ES strict persistence used the same deterministic document id, so the replay
+    # overwrote the authoritative logical row instead of appending another charge.
+    assert len(await _usage_docs(es)) == 1
+
+
+async def test_finalize_cas_failure_never_returns_reentry_ready_result(monkeypatch):
+    es = InMemoryESClient()
+    gateway = LLMGateway(secrets=_FakeSecrets(), usage_store=UsageStore(es))
+    store = BatchJobStore(_kv())
+    await store.save(_job())
+    original_put_if = store._kv.put_if_strict
+    calls = 0
+
+    async def _fail_finalize(namespace, key, value, expected_rev):
+        nonlocal calls
+        calls += 1
+        if calls == 2:  # lease is durable; ledger succeeds; finalise persistence fails
+            raise RuntimeError("finalize CAS unavailable")
+        return await original_put_if(namespace, key, value, expected_rev)
+
+    monkeypatch.setattr(store._kv, "put_if_strict", _fail_finalize)
+    with pytest.raises(RuntimeError, match="finalize CAS unavailable"):
+        await store.process_results(
+            await store.get("batch-x"), [_results()[0]], gateway
+        )
+    assert len(await _usage_docs(es)) == 1
+    mid = await store.get("batch-x")
+    assert mid.custom_ids["cid-A"]["retrieved"] is False
+
+    # Restore persistence, expire the abandoned lease, and replay. The deterministic
+    # ledger id overwrites the same logical row; only the durably finalised attempt is
+    # returned to the caller.
+    monkeypatch.setattr(store._kv, "put_if_strict", original_put_if)
+
+    def _expire(jobs):
+        jobs["batch-x"].custom_ids["cid-A"]["recording_at_millis"] = 0
+        return True
+
+    await store._mutate(_expire)
+    replayed = await store.process_results(
+        await store.get("batch-x"), [_results()[0]], gateway
+    )
+    assert [result.custom_id for result in replayed] == ["cid-A"]
+    assert len(await _usage_docs(es)) == 1
+
+
+class _StaticResultsProvider:
+    def __init__(self, results):
+        self._results = results
+
+    async def results(self, _job):
+        return list(self._results)
+
+    async def aclose(self):
+        return None
+
+
+async def test_detection_reentry_failure_retries_without_duplicate_ledger_row():
+    es = InMemoryESClient()
+    gateway = LLMGateway(secrets=_FakeSecrets(), usage_store=UsageStore(es))
+    store = BatchJobStore(_kv())
+    job = _job()
+    job.custom_ids = {"cid-A": {"retrieved": False, "result_state": None}}
+    job.candidates = {"cid-A": {"summary": {}}}
+    await store.save(job)
+    result = _results()[0]
+    provider = _StaticResultsProvider([result])
+    attempts = 0
+
+    async def _reenter(_job, results):
+        nonlocal attempts
+        attempts += 1
+        assert [item.custom_id for item in results] == ["cid-A"]
+        if attempts == 1:
+            raise RuntimeError("case pipeline temporarily unavailable")
+        return 1
+
+    service = _BatchJobService(
+        store=store,
+        gateway=gateway,
+        make_provider=lambda _name: provider,
+        get_prefs=lambda: object(),
+        reenter=_reenter,
+    )
+
+    assert await service.process(await store.get("batch-x")) == []
+    failed = await store.get("batch-x")
+    assert failed.custom_ids["cid-A"]["retrieved"] is True
+    assert failed.custom_ids["cid-A"]["reentry_state"] == "pending"
+    assert "temporarily unavailable" in (failed.last_error or "")
+    assert len(await _usage_docs(es)) == 1
+
+    completed = await service.process(await store.get("batch-x"))
+    assert [item.custom_id for item in completed] == ["cid-A"]
+    done = await store.get("batch-x")
+    assert done.custom_ids["cid-A"]["reentry_state"] == "complete"
+    assert done.state == BatchJobState.RETRIEVED
+    assert len(await _usage_docs(es)) == 1

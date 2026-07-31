@@ -728,7 +728,7 @@ class NativeDemoSource:
             use_3164 = not signal.story_id and ordinal % 4 == 0
             payload = render_rfc3164(signal) if use_3164 else render_rfc5424(signal)
 
-        # Syslog is raw telemetry even during a coordinated incident; TLSOC's own
+        # Syslog is raw telemetry even during a coordinated incident; Agentic SOC's own
         # correlation/funnel raises the detection.  Never call it a vendor-native alert.
         is_native_alert = signal.native_alert and self.spec.key != "syslog"
         events = self._parse(payload, prefs, native_alert=is_native_alert)
@@ -864,7 +864,7 @@ class NativeDemoSource:
 
         Splunk/QRadar/Wazuh/Entra each produce one native detection. Syslog produces a
         four-event raw burst with the same entity/rule; the demo event funnel detects
-        that threshold and creates TLSOC's own alert.
+        that threshold and creates Agentic SOC's own alert.
         """
         del rng  # scenario facts are intentionally stable; ordering supplies variance.
         count = 4 if self.spec.key == "syslog" else 1

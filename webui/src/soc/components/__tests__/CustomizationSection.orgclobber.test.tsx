@@ -98,6 +98,21 @@ function renderSection() {
 }
 
 describe('CustomizationSection — org defaults save (Round-6 clobber fix)', () => {
+  it('uses the shared section heading and flat saved-view boundary', async () => {
+    mocks.effective.mockResolvedValue({
+      ...EMPTY_EFFECTIVE,
+      saved_views: [{ id: 'mine', name: 'My queue', scope: 'cases', shared: false }],
+    });
+    renderSection();
+
+    expect(
+      await screen.findByRole('heading', { name: 'Appearance & customization', level: 2 }),
+    ).toBeInTheDocument();
+    const list = screen.getByTestId('saved-views-list');
+    expect(list).toHaveClass('border-y', 'divide-y');
+    expect(list.className).not.toMatch(/rounded|shadow|bg-card/);
+  });
+
   it('offers a compact, labelled System / Light / Dark control and persists every choice', async () => {
     renderSection();
 

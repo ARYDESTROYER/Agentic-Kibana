@@ -7,14 +7,18 @@
  *   - the "Open" tab captures the extended status taxonomy (investigating/etc.),
  *     not just the literal 'open' status, and the pill counts sum to "All",
  *   - the "Needs human" KPI tile count matches the rows shown after clicking it,
- *   - the controls toolbar does not flash "Showing 0 of 0" during the first load.
+ *   - the controls toolbar does not flash "Showing 0 of 0" during the first load,
+ *     and the page uses one shared blocking-load motion mark.
  *
  * `@/lib/api` and the heavy CaseDetail sheet are mocked (no network).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { axe, toHaveNoViolations } from 'jest-axe';
 import type { Case } from '@/lib/types';
+
+expect.extend(toHaveNoViolations);
 
 const { scansMock, notifMock } = vi.hoisted(() => ({
   scansMock: vi.fn(),
@@ -29,7 +33,10 @@ vi.mock('@/lib/api', async (importOriginal) => {
   };
 });
 
-vi.mock('@/soc/pages/CaseDetail', () => ({ CaseDetail: () => null }));
+vi.mock('@/soc/pages/CaseDetail', () => ({
+  CaseDetail: ({ caseId }: { caseId?: string | null }) =>
+    caseId ? <div data-testid="case-detail-probe">{caseId}</div> : null,
+}));
 
 import { TooltipProvider } from '@/ui/tooltip';
 import ScansPage from '../Scans';
@@ -127,8 +134,27 @@ describe('Scans — Round-6 sweep', () => {
     scansMock.mockReturnValue(new Promise<never>(() => {}));
     renderPage();
 
-    // The toolbar (SegmentedControl segments + "Showing N of M") is a skeleton, not live.
+    // The toolbar (SegmentedControl segments + "Showing N of M") is not live yet.
     expect(screen.queryByText(/Showing/)).toBeNull();
     expect(screen.queryByRole('radio')).toBeNull();
+    expect(screen.getByText('Loading automated scans')).toBeInTheDocument();
+    expect(screen.getAllByTestId('console-loading-glyph')).toHaveLength(1);
+  });
+
+  it('uses the card as the single keyboard trigger and remains axe-clean', async () => {
+    scansMock.mockResolvedValue({
+      cases: [mk({ case_id: 'c-keyboard', status: 'open', title: 'Keyboard case' })],
+    });
+    const { container } = renderPage();
+
+    const card = await screen.findByRole('button', { name: 'Open case Keyboard case' });
+    expect(card).toHaveAttribute('tabindex', '0');
+    expect(card.querySelector('[tabindex]')).toBeNull();
+    expect(await axe(container)).toHaveNoViolations();
+
+    card.focus();
+    expect(card).toHaveFocus();
+    fireEvent.keyDown(card, { key: 'Enter' });
+    expect(await screen.findByTestId('case-detail-probe')).toHaveTextContent('c-keyboard');
   });
 });

@@ -149,7 +149,7 @@ function RiskWeightMixer({
             step={0.05}
             formatValue={(x) => x.toFixed(2)}
             labelAction={
-              <span className="rounded-full bg-muted px-2 py-0.5 text-2xs font-medium tabular-nums text-muted-foreground">
+              <span className="font-mono text-2xs font-medium tabular-nums text-muted-foreground">
                 {share}% of score
               </span>
             }
@@ -394,7 +394,7 @@ function VerdictAutoClose({
 
       <div
         className={cn(
-          'space-y-4 rounded-md border border-border bg-surface px-4 py-4 transition-opacity',
+          'space-y-4 border-l border-border py-1 pl-4 transition-opacity',
           !enabled && 'opacity-60',
         )}
       >
@@ -486,7 +486,7 @@ function AutonomyControls({ prefs, update }: SecProps) {
       {/* NEEDS_HUMAN: code-enforced never-auto-close — shown as a LOCKED, read-only row
           (no editable toggle), so operators see the guarantee without a way to disable it. */}
       <div
-        className="flex items-start justify-between gap-4 rounded-md border border-border bg-muted/40 px-4 py-3"
+        className="flex items-start justify-between gap-4 border-l border-border py-1 pl-4"
         aria-label="Needs human: never auto-closes (code-enforced)"
       >
         <div className="min-w-0 space-y-0.5">
@@ -500,7 +500,7 @@ function AutonomyControls({ prefs, update }: SecProps) {
             and cannot be tuned.
           </p>
         </div>
-        <span className="shrink-0 rounded-full border border-border bg-background px-2 py-0.5 text-2xs font-medium text-muted-foreground">
+        <span className="shrink-0 font-mono text-2xs font-medium uppercase tracking-wide text-muted-foreground">
           Locked
         </span>
       </div>

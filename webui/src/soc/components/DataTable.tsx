@@ -6,8 +6,9 @@
  *    ONLY on the active column (omitted otherwise — never `"none"`), and the change
  *    is ALSO spoken through the shared live region (VoiceOver/TalkBack ignore
  *    `aria-sort`).
- *  - Clickable rows get `scroll-mt-[var(--header-h)]` so a focused row is never
- *    hidden behind the sticky header (WCAG 2.4.11 Focus Not Obscured).
+ *  - Pointer-clickable rows expose a dedicated, named action button for keyboard
+ *    and assistive-technology users. The `<tr>` itself is never given an interactive
+ *    role because rows can also contain checkboxes, menus, and links.
  *  - `rowAccent` draws an OPT-IN left-edge severity band (non-color-only reading of
  *    row risk, §6.1) as an inset box-shadow (no layout shift, no extra column).
  *  - 2.5.7 Dragging: this table has NO drag interaction. Column reorder ships via the
@@ -24,12 +25,12 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
-  Inbox,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { Button } from '@/ui/button';
 import { Checkbox } from '@/ui/checkbox';
-import { Skeleton } from '@/ui/skeleton';
+import { LoadingBar } from '@/design-system/loading-bar';
+import { LoadingState } from '@/design-system/loading';
 import {
   Table,
   TableHeader,
@@ -46,7 +47,7 @@ import {
   SelectItem,
 } from '@/ui/select';
 import { useAnnouncer } from './announcer';
-import { LoadingBar } from './LoadingBar';
+import { EmptyState } from './EmptyState';
 import { semanticColor } from './palette';
 import { ProvenanceTag, type Provenance } from './ProvenanceTag';
 
@@ -137,10 +138,17 @@ export interface DataTableProps<T> {
   getRowSelectionDisabledReason?: (row: T, index: number) => string | undefined;
 
   onRowClick?: (row: T, index: number) => void;
+  /** Accessible name for the dedicated row action button. */
+  getRowActionLabel?: (row: T, index: number) => string;
+  /**
+   * Render the shared trailing keyboard action for a pointer-clickable row. Disable
+   * only when a visible cell already contains an equivalent named button/link.
+   */
+  showRowAction?: boolean;
 
-  /** Loading shows skeleton rows; empty shows the empty slot/state. */
+  /** Initial loading shows a centered table state; refresh keeps existing rows mounted. */
   loading?: boolean;
-  /** Number of skeleton rows to render while loading. */
+  /** Static row-shape hint behind the centered initial loader. */
   loadingRows?: number;
   /** Empty-state content (string or node). */
   empty?: React.ReactNode;
@@ -208,45 +216,6 @@ function SortIcon({ active, dir }: { active: boolean; dir?: SortDir }) {
 }
 
 /**
- * SkeletonRow — a placeholder row shaped like a real data row so the loading state
- * occupies the eventual row height + column layout (no content-in shift). It mirrors a
- * rendered row exactly: the leading checkbox cell when `selectable`, the SAME density
- * padding, one shimmer bar per displayed column, and the column's alignment (a block
- * Skeleton is nudged via `ml-auto`/`mx-auto` so a right/center column's bar lands where
- * its content will). Decorative → `aria-hidden`.
- */
-function SkeletonRow<T>({
-  columns,
-  selectable,
-  cellPad,
-}: {
-  columns: DataTableColumn<T>[];
-  selectable: boolean;
-  cellPad: string;
-}) {
-  return (
-    <TableRow className="hover:bg-transparent" aria-hidden>
-      {selectable && (
-        <TableCell className={cellPad}>
-          <Skeleton className="size-4 rounded" />
-        </TableCell>
-      )}
-      {columns.map((col) => (
-        <TableCell key={col.id} className={cn(cellPad, alignClass(col.align))}>
-          <Skeleton
-            className={cn(
-              'h-4 w-full max-w-[12rem]',
-              col.align === 'right' && 'ml-auto',
-              col.align === 'center' && 'mx-auto',
-            )}
-          />
-        </TableCell>
-      ))}
-    </TableRow>
-  );
-}
-
-/**
  * Resolve the DISPLAYED columns from the full column set + the user's column state:
  * hidden ids dropped, then ordered by `order` (any column missing from `order`
  * keeps its original relative position AFTER the ordered ones). Locked columns are
@@ -293,6 +262,8 @@ export function DataTable<T>({
   isRowSelectable,
   getRowSelectionDisabledReason,
   onRowClick,
+  getRowActionLabel,
+  showRowAction = true,
   loading = false,
   loadingRows = 8,
   empty,
@@ -384,7 +355,9 @@ export function DataTable<T>({
     onSelectedChange(Array.from(next));
   };
 
-  const colCount = displayColumns.length + (selectable ? 1 : 0);
+  const hasRowAction = Boolean(onRowClick && showRowAction);
+  const colCount =
+    displayColumns.length + (selectable ? 1 : 0) + (hasRowAction ? 1 : 0);
 
   // Pagination math.
   const showPager =
@@ -395,21 +368,23 @@ export function DataTable<T>({
   const curPage = page ?? 1;
   const canPrev = curPage > 1;
   const canNext = curPage < pageCount;
+  const initialLoading = loading && rows.length === 0;
+  const refreshing = loading && rows.length > 0;
+  const loadingLabel = ariaLabel ? `Loading ${ariaLabel}` : 'Loading table';
 
   return (
     <div
       className={cn(
-        // Clean OpenSearch card: hairline border, soft elevation, clipped so the
-        // header row + rounded corners stay crisp. Borders over heavy shadow.
-        'relative overflow-hidden rounded-lg border border-border bg-card shadow-elev1',
+        // A bounded data surface, not a detached card: the hairline owns the edge.
+        'relative overflow-hidden rounded-md border border-border/80 bg-card',
         className,
       )}
       aria-busy={loading}
     >
       <LoadingBar
-        active={loading}
+        active={refreshing}
         size="sm"
-        label={ariaLabel ? `Loading ${ariaLabel}` : 'Loading table'}
+        label={loadingLabel}
         data-testid="data-table-loading-indicator"
         className="absolute inset-x-0 top-0 z-20 rounded-none bg-transparent"
       />
@@ -424,7 +399,7 @@ export function DataTable<T>({
                   }
                   onCheckedChange={toggleAll}
                   aria-label={isRowSelectable ? 'Select all available rows' : 'Select all rows'}
-                  disabled={loading || selectableRowIds.length === 0}
+                  disabled={initialLoading || selectableRowIds.length === 0}
                 />
               </TableHead>
             )}
@@ -486,30 +461,32 @@ export function DataTable<T>({
                 </TableHead>
               );
             })}
+            {hasRowAction ? (
+              <TableHead scope="col" className="w-12 px-2 text-right">
+                <span className="sr-only">Row actions</span>
+              </TableHead>
+            ) : null}
           </TableRow>
         </TableHeader>
 
         <TableBody>
-          {loading ? (
-            Array.from({ length: loadingRows }).map((_, r) => (
-              <SkeletonRow
-                key={`sk-${r}`}
-                columns={displayColumns}
-                selectable={selectable}
-                cellPad={cellPad}
-              />
-            ))
+          {initialLoading ? (
+            <TableRow className="hover:bg-transparent">
+              <TableCell colSpan={colCount} className="p-0">
+                <LoadingState
+                  data-testid="data-table-initial-loading"
+                  label={loadingLabel}
+                  description="Preparing the latest records."
+                  layout="table"
+                  shape="rows"
+                  shapeRows={loadingRows}
+                />
+              </TableCell>
+            </TableRow>
           ) : rows.length === 0 ? (
             <TableRow className="hover:bg-transparent">
               <TableCell colSpan={colCount} className="h-48 p-0">
-                <div className="flex flex-col items-center justify-center gap-3 py-14 text-center text-muted-foreground">
-                  {empty ?? (
-                    <>
-                      <Inbox className="size-8 opacity-40" aria-hidden />
-                      <span className="text-sm">No results</span>
-                    </>
-                  )}
-                </div>
+                {empty ?? <EmptyState title="No results" compact />}
               </TableCell>
             </TableRow>
           ) : (
@@ -535,11 +512,7 @@ export function DataTable<T>({
                   key={id}
                   data-state={isSelected ? 'selected' : undefined}
                   className={cn(
-                    // §2.4.11 Focus Not Obscured: when a keyboard user tabs onto a
-                    // clickable row, keep it clear of the sticky header/save-bar.
-                    clickable &&
-                      'cursor-pointer scroll-mt-[var(--header-h)] focus-visible:outline-none focus-visible:ring-2 ' +
-                        'focus-visible:ring-inset focus-visible:ring-ring',
+                    clickable && 'cursor-pointer',
                   )}
                   style={
                     accentColor
@@ -547,20 +520,21 @@ export function DataTable<T>({
                       : undefined
                   }
                   onClick={
-                    clickable ? () => onRowClick?.(row, rowIndex) : undefined
-                  }
-                  onKeyDown={
                     clickable
-                      ? (e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault();
-                            onRowClick?.(row, rowIndex);
+                      ? (event) => {
+                          const target = event.target;
+                          if (
+                            target instanceof Element &&
+                            target.closest(
+                              'button, a, input, select, textarea, [role="button"], [role="link"], [role="checkbox"], [role="combobox"], [role="menuitem"]',
+                            )
+                          ) {
+                            return;
                           }
+                          onRowClick?.(row, rowIndex);
                         }
                       : undefined
                   }
-                  tabIndex={clickable ? 0 : undefined}
-                  role={clickable ? 'button' : undefined}
                 >
                   {selectable && (
                     <TableCell
@@ -590,6 +564,25 @@ export function DataTable<T>({
                       {col.cell(row, rowIndex)}
                     </TableCell>
                   ))}
+                  {hasRowAction ? (
+                    <TableCell className="w-12 px-2 py-1 text-right">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 scroll-mt-[var(--header-h)] rounded-sm text-muted-foreground hover:text-foreground"
+                        aria-label={
+                          getRowActionLabel?.(row, rowIndex) ?? `Open row ${id}`
+                        }
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onRowClick?.(row, rowIndex);
+                        }}
+                      >
+                        <ChevronRight className="h-4 w-4" aria-hidden />
+                      </Button>
+                    </TableCell>
+                  ) : null}
                 </TableRow>
               );
             })

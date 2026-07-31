@@ -103,6 +103,12 @@ export const DOC_CATEGORIES: readonly DocsCategory[] = [
         keywords: ['entity', 'ioc', 'confidence', 'verdict', 'chat'],
       },
       {
+        title: 'Workspace Chat',
+        description: 'Ask read-only questions and return to saved, source-aware analyst conversations.',
+        path: 'analyst/chat/',
+        keywords: ['chat', 'workspace', 'conversation', 'history', 'source', 'model', 'evidence'],
+      },
+      {
         title: 'Logs and search',
         description: 'Search connected telemetry and move safely from evidence to a case.',
         path: 'analyst/logs-search/',
@@ -113,6 +119,18 @@ export const DOC_CATEGORIES: readonly DocsCategory[] = [
         description: 'Coordinate notes, tasks, handoffs, and case activity with the SOC team.',
         path: 'analyst/collaboration/',
         keywords: ['thread', 'handoff', 'task', 'mention'],
+      },
+      {
+        title: 'Campaigns',
+        description: 'Review advisory cross-case groupings without merging case identity or decisions.',
+        path: 'analyst/campaigns/',
+        keywords: ['campaign', 'related cases', 'entities', 'mitre', 'incident'],
+      },
+      {
+        title: 'Analytics and standup',
+        description: 'Interpret posture, effectiveness, timing, noise reduction, cost, and shift handoff.',
+        path: 'analyst/analytics/',
+        keywords: ['analytics', 'metrics', 'effectiveness', 'standup', 'mtta', 'mttr', 'cost'],
       },
       {
         title: 'Playbooks and approvals',

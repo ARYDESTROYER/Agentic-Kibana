@@ -136,14 +136,20 @@ describe('Login — SSO probe folded into the first-paint gate (finding 2)', () 
     // Setup-status has resolved, but the SSO probe has NOT — so nothing paints yet
     // (the SSO block cannot pop in a beat after the form).
     await waitFor(() => expect(setupStatusMock).toHaveBeenCalled());
-    expect(screen.queryByRole('button', { name: 'Sign in' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull();
 
     await act(async () => {
       resolveSso({ providers: [{ id: 'g', type: 'google', display_name: 'Google' }] });
     });
 
     // Now the form AND the SSO button are present in the same painted frame.
-    expect(await screen.findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+    const username = await screen.findByLabelText('Username');
+    expect(screen.getByText('Sign in with Google')).toBeInTheDocument();
+
+    // The staged action is still conditional on a non-empty identity, and appears
+    // without disturbing the already-painted SSO row.
+    fireEvent.change(username, { target: { value: 'analyst' } });
+    expect(await screen.findByRole('button', { name: 'Continue' })).toBeInTheDocument();
     expect(screen.getByText('Sign in with Google')).toBeInTheDocument();
   });
 });

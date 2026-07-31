@@ -167,12 +167,15 @@ describe('CaseDetail — 6-tab story shell (task 5)', () => {
     expect(content).toContain("onOpenInvestigation={() => setTab('investigation')}");
   });
 
-  it('stages lazy-load on the timeline tab; rationale/timeline on the investigation tab', () => {
+  it('stages lazy-load on the timeline tab; rationale for embedded Case Manager and the investigation tab', () => {
     expect(src).toContain(
       "tab === 'timeline' && stages === null && !stagesLoading && !stagesError",
     );
     expect(src).toContain(
-      "tab === 'investigation' && rationale === null && !rationaleLoading && !rationaleError",
+      "const needsRationale = tab === 'investigation' || presentation === 'embedded'",
+    );
+    expect(src).toContain(
+      'needsRationale && rationale === null && !rationaleLoading && !rationaleError',
     );
     expect(src).toContain(
       "tab === 'investigation' && timeline === null && !timelineLoading && !timelineError",

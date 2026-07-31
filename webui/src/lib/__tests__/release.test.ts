@@ -11,7 +11,7 @@ import {
 } from '../release';
 
 const consoleBuild = (partial: Partial<ReleaseIdentity> = {}): ReleaseIdentity => ({
-  version: '0.1.0',
+  version: '0.1.1',
   channel: 'testing',
   commitSha: 'abc123',
   buildTime: '2026-07-20T10:00:00Z',
@@ -30,13 +30,13 @@ describe('build release identity', () => {
   it('uses the canonical package version and stamps supplied provenance', () => {
     expect(
       resolveBuildReleaseIdentity({
-        TLSOC_VERSION: '0.1.0',
+        TLSOC_VERSION: '0.1.1',
         TLSOC_RELEASE_CHANNEL: 'stable',
         TLSOC_BUILD_SHA: 'abc123',
         TLSOC_BUILD_DATE: '2026-07-20T10:00:00Z',
       }),
     ).toEqual({
-      version: '0.1.0',
+      version: '0.1.1',
       channel: 'stable',
       commitSha: 'abc123',
       buildTime: '2026-07-20T10:00:00Z',
@@ -59,7 +59,7 @@ describe('runtime release presentation', () => {
 
   it('shows Stable when Console and backend stable provenance agree', () => {
     const result = resolveReleasePresentation(consoleBuild({ channel: 'stable' }), {
-      version: '0.1.0',
+      version: '0.1.1',
       release_channel: 'stable',
       commit_sha: 'abc123',
       build_time: '2026-07-20T10:00:00Z',
@@ -71,7 +71,7 @@ describe('runtime release presentation', () => {
 
   it('downgrades a Stable Console when backend channel or commit differs', () => {
     const result = resolveReleasePresentation(consoleBuild({ channel: 'stable' }), {
-      version: '0.1.0',
+      version: '0.1.1',
       release_channel: 'testing',
       commit_sha: 'different',
       build_time: '2026-07-20T10:00:00Z',

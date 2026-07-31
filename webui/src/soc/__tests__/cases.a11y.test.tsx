@@ -10,32 +10,16 @@
  *
  * Offline: every api call is stubbed; no network, no #3 / runtime behaviour touched.
  *
- * ── Scoped rule (documented) ─────────────────────────────────────────────────────────
- * ONE rule is DISABLED for this smoke — an intentional SOURCE-side pattern, not a
- * regression for a test-only change to introduce a source fix for:
- *  - `nested-interactive` (2 nodes): the DataTable makes each ROW `role="button"`
- *    tabindex=0 (click-row-to-open) while the row also hosts a select checkbox — an
- *    established "entire row clickable + inline controls" pattern. The inner control
- *    stops propagation; axe flags the nesting regardless. A source fix (move the row
- *    click onto a dedicated cell/overlay link) is out of scope here.
- * `button-name` is now ENABLED (H4 fixed): the DataTable rows-per-page Radix Select
- * carries an explicit `aria-label`, so its `role="combobox"` trigger is named. Scoping
- * only `nested-interactive` OUT keeps the smoke guarding every OTHER regression (labels,
- * roles, table semantics, contrast, live regions) on the highest-traffic surface.
+ * Click-to-open tables expose a dedicated named action button instead of making the
+ * `<tr>` itself interactive. Keep the full axe ruleset enabled so nested-interactive,
+ * button-name, labels, roles, table semantics, contrast, and live regions all remain
+ * guarded on the highest-traffic surface.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { axe, toHaveNoViolations } from 'jest-axe';
 
 expect.extend(toHaveNoViolations);
-
-// Documented source-side pattern (see header) — only `nested-interactive` scoped out;
-// `button-name` is ENABLED now that H4 named the rows-per-page combobox.
-const AXE_OPTS = {
-  rules: {
-    'nested-interactive': { enabled: false },
-  },
-};
 
 const { listCasesMock } = vi.hoisted(() => ({ listCasesMock: vi.fn() }));
 
@@ -115,6 +99,6 @@ describe('Cases list — a11y smoke (jest-axe)', () => {
     // Wait for the rows to load so the full table (sort buttons, select-all, row
     // checkboxes) is present before the audit.
     await waitFor(() => expect(screen.getByText('Alpha')).toBeInTheDocument(), { timeout: 5000 });
-    expect(await axe(container, AXE_OPTS)).toHaveNoViolations();
+    expect(await axe(container)).toHaveNoViolations();
   });
 });

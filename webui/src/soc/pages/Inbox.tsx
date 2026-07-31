@@ -35,6 +35,7 @@ import { useNavigateOptional, type Navigate } from '@/soc/router';
 import { humanizeAge, humanizeToken } from '@/lib/format';
 import { errorMessage } from '@/lib/errorMessage';
 import { cn } from '@/lib/cn';
+import { LoadingState } from '@/design-system';
 import {
   inboxApi,
   CATEGORY_META,
@@ -51,7 +52,6 @@ import { SegmentedControl } from '@/soc/components/SegmentedControl';
 import { Button } from '@/ui/button';
 import { Badge, type BadgeProps } from '@/ui/badge';
 import { Card, CardContent } from '@/ui/card';
-import { Skeleton } from '@/ui/skeleton';
 import { Separator } from '@/ui/separator';
 import {
   Sheet,
@@ -496,17 +496,17 @@ export default function Inbox({ onNavigate }: InboxProps = {}) {
         />
       ) : null}
 
-      {/* Full skeleton only on the FIRST load (no items yet). Refresh / filter-toggle
-          reloads keep the current list on screen (stale-while-revalidate) with the
-          Refresh button's own spinner signalling the in-flight fetch. */}
-      {loading && items.length === 0 ? (
-        <Card>
-          <CardContent className="space-y-3 p-4">
-            {[0, 1, 2, 3, 4].map((i) => (
-              <Skeleton key={i} className="h-16 w-full" />
-            ))}
-          </CardContent>
-        </Card>
+      {/* The blocking loader only appears on the FIRST load (no items yet). Refresh /
+          filter-toggle reloads keep the current list on screen (stale-while-revalidate)
+          with the Refresh button's own spinner signalling the in-flight fetch. */}
+      {error && items.length === 0 ? null : loading && items.length === 0 ? (
+        <LoadingState
+          label="Loading inbox"
+          description="Preparing notifications, assignments, and approvals."
+          layout="page"
+          shape="rows"
+          shapeRows={5}
+        />
       ) : items.length === 0 && !hasMore ? (
         <Card>
           <EmptyState

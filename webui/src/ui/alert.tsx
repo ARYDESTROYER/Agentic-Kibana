@@ -10,13 +10,11 @@ const alertVariants = cva(
     variants: {
       variant: {
         default: 'bg-card text-card-foreground border-border [&>svg]:text-foreground',
-        // NOTE: destructive/warning are LEFT BYTE-IDENTICAL (existing consumers).
         destructive:
-          'border-critical/50 bg-critical/10 text-critical [&>svg]:text-critical',
-        warning: 'border-warning/50 bg-warning/10 text-warning [&>svg]:text-warning',
-        // New (additive) — match the existing tint pattern.
-        success: 'border-success/50 bg-success/10 text-success [&>svg]:text-success',
-        info: 'border-info/50 bg-info/10 text-info [&>svg]:text-info',
+          'border-critical/50 bg-critical/10 text-critical-text [&>svg]:text-critical',
+        warning: 'border-warning/50 bg-warning/10 text-warning-text [&>svg]:text-warning',
+        success: 'border-success/50 bg-success/10 text-success-text [&>svg]:text-success',
+        info: 'border-info/50 bg-info/10 text-info-text [&>svg]:text-info',
       },
     },
     defaultVariants: {

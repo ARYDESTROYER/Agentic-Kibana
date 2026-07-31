@@ -89,6 +89,16 @@ class LLMGateway:
         # change takes effect without reconstructing callers.
         self._discounted_policy = discounted_policy
 
+    async def recorded_case_pipeline_cost(self, case_id: str) -> float | None:
+        """Read authoritative all-time investigation-pipeline spend for one case.
+
+        Case presentation stores a six-decimal cumulative total. Re-reading the
+        router/investigator/formatter ledger rows prevents repeated investigations
+        from accumulating per-run rounding error while keeping the gateway as the sole
+        ledger owner (#6). Case-scoped Chat and overview usage remain separate.
+        """
+        return await self._usage.total_pipeline_cost_for_case(case_id)
+
     # ----- provider resolution -----
     def _provider(
         self, name: Provider | str, *, for_embedding: bool = False, model: str = "",
@@ -280,8 +290,8 @@ class LLMGateway:
     ) -> tuple[str | None, bool]:
         """Return the safe live service-tier preference for one completion.
 
-        Only case/alert surfaces are cost-routed. Chat, standup, embeddings and
-        operator model tests remain interactive/standard. Only official OpenAI
+        Only case/alert surfaces are cost-routed. Chat, standup, overview, embeddings
+        and operator model tests remain interactive/standard. Only official OpenAI
         endpoints and currently-supported model families receive ``flex``; every
         unsupported combination falls back BEFORE a provider call and is therefore
         truthfully billed as standard.
@@ -298,8 +308,10 @@ class LLMGateway:
         fallback = bool(getattr(policy, "fallback_to_standard", True))
         if not bool(getattr(policy, "prefer_discounted_alerts", False)):
             return None, fallback
-        allowed = {str(p).strip().lower() for p in (getattr(policy, "providers", []) or [])}
-        if "openai" not in allowed or str(model_cfg.provider) != "openai":
+        # ``batch.providers`` is the allow-list for the separate ASYNC Batch queue.
+        # Live Flex eligibility is intentionally independent: disabling OpenAI Batch
+        # must not silently disable the operator's live-Flex preference.
+        if str(model_cfg.provider) != "openai":
             return None, fallback
         # A base_url means Azure/self-hosted/compatible routing even if the provider
         # label is "openai". Flex must never leak onto that non-OpenAI contract.
@@ -463,6 +475,8 @@ class LLMGateway:
         cache_write_tokens: int = 0,
         batch: bool = False,
         processing_tier: str | None = None,
+        idempotency_key: str | None = None,
+        require_persistence: bool = False,
     ) -> None:
         total = prompt_tokens + completion_tokens
         # Demo Mode: a $0 mock run — pricing_source is ALWAYS 'zero' (the cost is
@@ -502,8 +516,12 @@ class LLMGateway:
             cache_write_tokens=int(cache_write_tokens or 0),
             batch=bool(batch),
             processing_tier=(processing_tier or ("batch" if batch else "standard")),
+            idempotency_key=idempotency_key,
         )
-        await self._usage.write(doc)
+        if require_persistence:
+            await self._usage.write_strict(doc)
+        else:
+            await self._usage.write(doc)
 
     def reset_providers(self) -> None:
         """Drop cached provider clients so new secret values take effect.

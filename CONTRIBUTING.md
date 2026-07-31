@@ -259,19 +259,29 @@ A new `SourceType` enum value (`constants.py`) and (for receivers) the right
 ## Continuous integration (merge gate)
 
 `.github/workflows/ci.yml` runs on every pull request (and pushes to `main` /
-`Testing`) and must be green before merge. Two jobs:
+`Testing`) and must be green before merge. It exposes eleven independently
+diagnosable quality checks plus one fail-closed aggregate:
 
-1. **Backend tests (offline)** — `cd backend && pip install -r requirements-dev.txt
-   && python -m pytest -q`. Fully offline (fake ES + mock LLM, no network or keys).
-   This includes `tests/test_route_auth_coverage.py`, so a new `/api` route that
-   bypasses the auth gate fails CI.
-2. **Web UI build** — installs the pinned documentation toolchain, tests the bundle
-   contract, then runs `cd webui && npm ci && npm run build` (version-matched MkDocs
-   Help Center + `tsc --noEmit` + Vite). It fails on documentation/version drift, a
-   type error, or a build break, and catches accidental new npm dependencies through
-   the committed `package-lock.json`.
+| Status check | Contract |
+| --- | --- |
+| Repository & version contracts | Canonical SemVer, release-channel, package, image, Compose, OpenAPI, and documentation metadata agree. |
+| Backend tests (offline) | The complete fake-ES/mock-LLM/SQLite suite passes, including deny-by-default route authorization coverage. |
+| Backend package integrity | The sdist and wheel build, install, report the canonical version, and contain required runbooks, playbooks, model, and ATT&CK data. |
+| Backend startup smoke | Production dependencies import, feature routers discover, the ASGI lifespan starts on isolated SQLite state, and liveness reports the expected version. |
+| Web UI tests (Vitest) | The complete component, interaction, accessibility, and page regression suite passes. |
+| TypeScript & OpenAPI drift | Backend OpenAPI regeneration is byte-stable and the Console type-checks without a soft skip. |
+| Web UI lint | ESLint, hooks, and `jsx-a11y` finish with zero errors or warnings. |
+| Design-system gates | Token existence, measured contrast, colour-vision separation, and raw-style regression guards pass. |
+| Help Center & docs | Public structure/links, bundle/theme contracts, and the version-matched strict documentation build pass. |
+| Web UI production build | The release-stamped Console and installed Help Center compile into an inspectable production artifact. |
+| Deploy & shell contracts | Every tracked shell script parses and the self-contained Compose topology resolves exactly. |
+| CI passed | Runs even after failures and fails unless every one of the eleven checks completed successfully. |
 
-An aggregate **`CI passed`** check depends on both. To enforce it:
+The jobs intentionally run separately and in parallel. This costs a few repeated
+dependency-cache restores, but a pull request cannot hide an API drift, packaging,
+documentation, or deployment-shape failure inside one opaque build log.
+
+To enforce the aggregate:
 
 > **GitHub → Settings → Branches → Branch protection rules** for both `Testing`
 > and `main`: require pull requests, the status check **`CI passed`**, and “Require
@@ -280,4 +290,5 @@ An aggregate **`CI passed`** check depends on both. To enforce it:
 > re-run the gate on its resulting commit. PRs then cannot
 > merge until the backend, Console, contracts, and documentation gates pass.
 
-Run both locally before pushing — they are the same commands CI runs.
+Run the matching commands in the pre-commit checklist before pushing. GitHub remains
+the authoritative clean-checkout run, including package and deployment contracts.

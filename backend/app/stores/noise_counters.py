@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 from datetime import datetime, timezone
 from typing import Any
 
@@ -192,13 +193,22 @@ class NoiseCounterStore:
         self._kv = kv
         self._lock = asyncio.Lock()
 
+    async def _load_strict(self) -> dict[str, Any]:
+        """Load the counter document or raise when persistence is unavailable.
+
+        Ingest and the existing Noise Reduction surface intentionally use the
+        fail-open projection below. Evidence reports that distinguish an empty
+        counter set from a failed read use this strict projection instead.
+        """
+        doc = await self._kv.get(NOISE_NS, NOISE_KEY)
+        return doc if isinstance(doc, dict) else {}
+
     async def _load(self) -> dict[str, Any]:
         try:
-            doc = await self._kv.get(NOISE_NS, NOISE_KEY)
+            return await self._load_strict()
         except Exception as exc:  # noqa: BLE001 — counters are best-effort
             logger.warning("Loading noise counters failed (%s); using empty tally", exc)
             return {}
-        return doc if isinstance(doc, dict) else {}
 
     async def record(self, delta: dict[str, Any], now: datetime | None = None) -> None:
         """Fold one ingest/poll tick's counter ``delta`` into the current epoch-hour
@@ -239,7 +249,13 @@ class NoiseCounterStore:
         except Exception as exc:  # noqa: BLE001
             logger.warning("Persisting noise counters failed (%s); continuing", exc)
 
-    async def read_window(self, hours: int, now: datetime | None = None) -> dict[str, Any]:
+    async def read_window(
+        self,
+        hours: int,
+        now: datetime | None = None,
+        *,
+        end_exclusive: bool = False,
+    ) -> dict[str, Any]:
         """Sum the counters over the trailing ``hours`` (``hours<=0`` → the WHOLE tally).
 
         Returns ``{available, since, incomplete, ingested{band:int}, clustered{band:int},
@@ -252,9 +268,46 @@ class NoiseCounterStore:
         * ``incomplete`` — True when the requested window reaches BEFORE ``since`` (the
           counters cover only part of it, so the reduction% is a partial view).
 
+        ``end_exclusive=True`` makes ``now`` an exact upper boundary. The default
+        preserves the live dashboard behavior and includes the current hour.
+
         Never raises: a load glitch degrades to an empty (unavailable) tally."""
+        return await self._read_window(
+            hours,
+            now=now,
+            end_exclusive=end_exclusive,
+            strict=False,
+        )
+
+    async def read_window_strict(
+        self,
+        hours: int,
+        now: datetime | None = None,
+        *,
+        end_exclusive: bool = False,
+    ) -> dict[str, Any]:
+        """Read a bounded window while preserving storage failures for callers.
+
+        This is used only by reporting surfaces whose availability state must not
+        mistake a failed counter read for a genuinely empty/warming-up store.
+        """
+        return await self._read_window(
+            hours,
+            now=now,
+            end_exclusive=end_exclusive,
+            strict=True,
+        )
+
+    async def _read_window(
+        self,
+        hours: int,
+        *,
+        now: datetime | None,
+        end_exclusive: bool,
+        strict: bool,
+    ) -> dict[str, Any]:
         moment = now or now_utc()
-        doc = await self._load()
+        doc = await self._load_strict() if strict else await self._load()
         since = doc.get("since")
         raw_buckets = doc.get("buckets")
         buckets = raw_buckets if isinstance(raw_buckets, dict) else {}
@@ -264,6 +317,14 @@ class NoiseCounterStore:
         hours = max(0, int(hours or 0))
         window_from_ts = (now_ts - hours * 3600.0) if hours > 0 else 0.0
         from_hour = int(window_from_ts // 3600) if hours > 0 else None
+        # Complete-period reports request an exact ``[now-hours, now)`` boundary.
+        # Live dashboards retain the historical behavior of including the current
+        # (possibly just-started) hour while still excluding clock-skew/future buckets.
+        to_hour_exclusive = (
+            int(math.ceil(now_ts / 3600.0))
+            if end_exclusive
+            else int(now_ts // 3600) + 1
+        )
 
         ingested = _zero_bands()
         clustered = _zero_bands()
@@ -275,6 +336,8 @@ class NoiseCounterStore:
             if h is None:
                 continue
             if from_hour is not None and h < from_hour:
+                continue
+            if h >= to_hour_exclusive:
                 continue
             nb = _norm_bucket(raw)
             for band in SEVERITY_BANDS:
@@ -297,7 +360,28 @@ class NoiseCounterStore:
         incomplete = False
         if available and hours > 0:
             since_ts = _parse_iso_ts(since)
-            if since_ts is not None and since_ts > window_from_ts:
+            valid_hours = [
+                hour for key in buckets if (hour := _safe_int(key)) is not None
+            ]
+            # ``since`` is intentionally the first-ever observation and survives
+            # retention pruning. Bound it by the oldest hour the current retained
+            # document could still cover; otherwise a long-running store would call
+            # a 121-day report complete after its first 31 days had been pruned from
+            # the 90-day ledger. Deriving the floor from the newest retained bucket
+            # avoids treating quiet (missing) hours as a later coverage start.
+            retention_floor_ts = (
+                (max(valid_hours) - _RETENTION_HOURS) * 3600.0
+                if valid_hours
+                else None
+            )
+            coverage_start_ts = since_ts
+            if retention_floor_ts is not None:
+                coverage_start_ts = (
+                    max(coverage_start_ts, retention_floor_ts)
+                    if coverage_start_ts is not None
+                    else retention_floor_ts
+                )
+            if coverage_start_ts is not None and coverage_start_ts > window_from_ts:
                 incomplete = True
 
         return {

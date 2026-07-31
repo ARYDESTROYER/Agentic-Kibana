@@ -17,7 +17,7 @@
  * useEventStream is mocked so the test is hermetic (no real EventSource / network).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -107,6 +107,15 @@ describe('CaseDetail live SSE wiring (Wave 4 dead-code fix)', () => {
     expect(call.opts.enabled).toBe(true);
     call.opts.onEvent?.({ type: 'case.activity' });
     expect(onLiveActivity).toHaveBeenCalledTimes(1);
+  });
+
+  it('names its blocking activity load and reserves the timeline footprint', () => {
+    render(<CaseActivityFeed items={[]} loading />);
+
+    const status = screen.getByRole('status', { name: 'Loading case activity' });
+    expect(status).toHaveAttribute('aria-busy', 'true');
+    expect(status).toHaveClass('min-h-[14.25rem]');
+    expect(status.querySelector('[data-loading-shape="rows"]')).not.toBeNull();
   });
 
   it('STATIC: CaseDetail forwards liveCaseId + live handlers to both surfaces', () => {

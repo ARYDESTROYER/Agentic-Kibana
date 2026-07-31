@@ -11,12 +11,15 @@ Everything runs on ``sqlite+aiosqlite`` — no postgres/asyncpg required.
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 import pytest_asyncio
 
 from app.config import Preferences
 from app.constants import ActionType, CaseStatus, EntityType, SourceSurface, Verdict
-from app.models import AuditDoc, Case, Cursor, Entity, EvidenceItem, UsageDoc
+from app.models import AuditDoc, BatchJob, Case, Cursor, Entity, EvidenceItem, UsageDoc
+from app.stores.batch_jobs import BatchJobStore
 from app.stores.sql import (
     SqlAuditRepository,
     SqlCaseRepository,
@@ -284,6 +287,46 @@ async def test_usage_record_and_summary(engine) -> None:
     s_c1 = await usage.summary(window_hours=24, case_id="c1")
     assert s_c1["call_count"] == 2
     assert round(s_c1["total_cost"], 2) == 0.15
+    # Case presentation is pipeline spend only: the case-scoped Chat row remains in
+    # the global ledger/summary but is excluded from Case.token_cost reconciliation.
+    assert await usage.total_pipeline_cost_for_case("c1") == pytest.approx(0.10)
+    assert await usage.total_pipeline_cost_for_case("c2") == pytest.approx(0.02)
+    assert await usage.total_pipeline_cost_for_case("missing") == 0.0
+
+
+async def test_usage_strict_write_is_retry_idempotent_in_sql(engine) -> None:
+    usage = SqlUsageRepository(engine)
+    doc = UsageDoc(
+        ts=now_utc().isoformat(),
+        surface="batch",
+        role="investigator",
+        model="claude-haiku-4-5-20251001",
+        cost=0.01,
+        total_tokens=10,
+        batch=True,
+        processing_tier="batch",
+        idempotency_key="batch:job-1:cid-1",
+    )
+    await usage.write_strict(doc)
+    await usage.write_strict(doc)
+    assert (await usage.summary(window_hours=24))["call_count"] == 1
+
+
+async def test_usage_strict_write_is_concurrently_idempotent_in_sql(engine) -> None:
+    usage = SqlUsageRepository(engine)
+    doc = UsageDoc(
+        ts=now_utc().isoformat(),
+        surface="batch",
+        role="investigator",
+        model="claude-haiku-4-5-20251001",
+        cost=0.01,
+        total_tokens=10,
+        batch=True,
+        processing_tier="batch",
+        idempotency_key="batch:job-concurrent:cid-1",
+    )
+    await asyncio.gather(usage.write_strict(doc), usage.write_strict(doc))
+    assert (await usage.summary(window_hours=24))["call_count"] == 1
 
 
 async def test_usage_summary_window_excludes_old(engine) -> None:
@@ -323,12 +366,46 @@ async def test_usage_summary_empty(engine) -> None:
     assert s["by_model"] == []
 
 
+async def test_usage_summary_processing_tiers_match_actual_sql_ledger_rows(engine) -> None:
+    usage = SqlUsageRepository(engine)
+    ts = now_utc().isoformat()
+    for tier, cost, tokens in (
+        ("standard", 0.4, 40),
+        ("flex", 0.2, 20),
+        ("batch", 0.1, 10),
+        ("future-priority", 0.3, 30),
+    ):
+        await usage.write(UsageDoc(
+            ts=ts,
+            role="investigator",
+            model="gpt-5",
+            processing_tier=tier,
+            batch=tier in {"flex", "batch"},
+            cost=cost,
+            total_tokens=tokens,
+        ))
+
+    summary = await usage.summary(window_hours=24)
+    assert summary["by_processing_tier"] == [
+        {"key": "standard", "cost": 0.4, "tokens": 40, "calls": 1},
+        {"key": "flex", "cost": 0.2, "tokens": 20, "calls": 1},
+        {"key": "batch", "cost": 0.1, "tokens": 10, "calls": 1},
+        {"key": "unconfirmed", "cost": 0.3, "tokens": 30, "calls": 1},
+    ]
+    assert summary["discounted_tier_coverage"]["call_ratio"] == 0.5
+    assert summary["discounted_tier_coverage"]["token_ratio"] == 0.3
+    assert summary["processing_tier_attribution"]["confirmed_calls"] == 3
+    assert summary["processing_tier_attribution"]["unconfirmed_calls"] == 1
+    assert summary["processing_tier_attribution"]["fallback_calls"] is None
+
+
 # --------------------------------------------------------------------------- #
 # KV / config / cursor
 # --------------------------------------------------------------------------- #
 async def test_kv_put_if_is_a_real_compare_and_set(engine) -> None:
     # audit #27: put_if writes ONLY when the stored _rev matches, so concurrent writers
-    # can't both "succeed" and lose one. (SqlKVStore overrides with a row-locked CAS.)
+    # can't both "succeed" and lose one. SqlKVStore uses an atomic revision-predicate
+    # UPDATE (plus a primary-key-arbitrated insert for an absent row).
     kv = SqlKVStore(engine)
     # First write into an absent key: expected_rev 0 succeeds and stamps rev 1.
     assert await kv.put_if("ns", "k", {"v": 1, "_rev": 1}, expected_rev=0) is True
@@ -339,6 +416,31 @@ async def test_kv_put_if_is_a_real_compare_and_set(engine) -> None:
     # The up-to-date writer (expected_rev 1) succeeds.
     assert await kv.put_if("ns", "k", {"v": 2, "_rev": 2}, expected_rev=1) is True
     assert (await kv.get("ns", "k"))["v"] == 2
+
+
+async def test_batch_submission_lease_converges_across_independent_sql_stores(
+    engine,
+) -> None:
+    """Two service/store instances may race, but SQL grants one durable claimant."""
+    first = BatchJobStore(SqlKVStore(engine))
+    second = BatchJobStore(SqlKVStore(engine))
+    job = BatchJob(
+        id="sql-submission-lease",
+        provider="anthropic",
+        model="claude-haiku-4-5-20251001",
+        requests=[{"custom_id": "sql-cid", "params": {"messages": []}}],
+    )
+    await first.save(job)
+
+    claims = await asyncio.gather(
+        first.claim_submission(job.id), second.claim_submission(job.id)
+    )
+    tokens = [token for _stored, token in claims if token]
+    assert len(tokens) == 1
+    durable = await second.get_strict(job.id)
+    assert durable is not None
+    assert durable.submission_lease_token == tokens[0]
+    assert durable.submit_attempts == 1
 
 
 async def test_kv_round_trip_and_upsert(engine) -> None:

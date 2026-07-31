@@ -50,7 +50,12 @@ describe('NotificationsEditor', () => {
 
   it('renders the master enable switch and empty channels state', async () => {
     setup({ notifications: { enabled: false, channels: [] } });
-    expect(screen.getByText(/Alerting & Notifications/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'Alerting & notifications', level: 2 }),
+    ).toBeInTheDocument();
+    const switchRow = screen.getByLabelText('Notifications enabled').closest('[data-settings-row="switch"]');
+    expect(switchRow).toHaveClass('border-y');
+    expect(switchRow?.className).not.toMatch(/rounded|shadow|bg-card|bg-surface/);
     expect(screen.getByText(/No channels yet/i)).toBeInTheDocument();
   });
 
@@ -80,6 +85,9 @@ describe('NotificationsEditor', () => {
       },
     });
     expect(screen.getByDisplayValue('Ops mailbox')).toBeInTheDocument();
+    const channel = screen.getByDisplayValue('Ops mailbox').closest('[data-settings-editor="notification-channel"]');
+    expect(channel).toHaveClass('border-l-2', 'border-y');
+    expect(channel?.className).not.toMatch(/rounded|shadow|bg-card/);
     expect(screen.getByText(/2 recipient\(s\)/)).toBeInTheDocument();
     // configured secret badge present
     expect(screen.getAllByText(/Configured/i).length).toBeGreaterThan(0);

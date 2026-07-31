@@ -5,15 +5,15 @@ The product is a read-only triage layer that consumes alerts from
 **any** SIEM / EDR / XDR and turns raw alert volume into audited, cost-metered,
 human-reviewable cases.
 
-The current artifact version is `0.1.0` (documentation line `0.1`). Source builds
+The current artifact version is `0.1.1` (documentation line `0.1`). Source builds
 default to `TLSOC_RELEASE_CHANNEL=testing`; set `stable` only while building the
-exact accepted `main` / `v0.1.0` commit. Version and channel are independent so a
+exact accepted `main` / `v0.1.1` commit. Version and channel are independent so a
 Testing candidate cannot report itself as Stable merely because it already carries
 the final SemVer.
 
 > **Release-topology status (2026-07-20):** the remote currently exposes
 > `Testing` and legacy/default `claude/main`; it does not expose literal `main` or
-> `v0.1.0`. Until the owner creates/renames and protects `main` (or deliberately
+> `v0.1.1`. Until the owner creates/renames and protects `main` (or deliberately
 > changes every workflow/document to another canonical name), only Testing
 > candidates exist. `claude/main` is not Stable by implication.
 
@@ -41,7 +41,7 @@ the final SemVer.
 | Own state | PostgreSQL — **no Elasticsearch required** for the app's own bookkeeping. | The suite's own `tlsoc-agent-*` Elasticsearch indices. |
 | UI | Standalone SPA at `http://localhost:8080`. | The same standalone SPA; the old Kibana plugin is archived and unsupported. |
 | Log source | Connected from the wizard (pull or push). | Connected from the wizard (pull or push). |
-| When to use | New deployments; any SIEM/EDR/XDR; no Kibana dependency. | You already operate compatible Elasticsearch and want TLSOC state in dedicated ES indices. |
+| When to use | New deployments; any SIEM/EDR/XDR; no Kibana dependency. | You already operate compatible Elasticsearch and want Agentic SOC state in dedicated ES indices. |
 | Compose file | `deploy/docker-compose.agnostic.yml` | `deploy/docker-compose.tlsoc.yml` (a service block to merge) |
 
 In **both** modes the agent's log-reading surface is the **connector layer**
@@ -54,8 +54,11 @@ backend choice is independent of where logs come from.
 
 - **Docker** and **Docker Compose v2** (`docker compose`, not the legacy
   `docker-compose`).
-- **At least one LLM provider key** — Anthropic **or** OpenAI. (A built-in `mock`
-  provider exists for offline/eval, but real triage needs a real key.)
+- **Recommended for full live triage:** an OpenAI key for the fresh-install GPT-5.6
+  Luna completion defaults, or another supported provider key plus explicit role
+  reassignment. The deployment can launch with the built-in `mock` runtime, but
+  setup truthfully labels that live state as limited. Synthetic demo always forces
+  the isolated `$0` mock runtime.
 - **For a PULL log source** (Elasticsearch / OpenSearch / Wazuh): a **read-only**
   credential (an ES-compatible API key) and the cluster URL. PUSH sources
   (webhook/HEC/syslog/Kafka/…) need no log-source credential at all.
@@ -171,24 +174,36 @@ You land on the **first-run wizard**.
 
 ### 3.4 The first-run wizard
 
-Walk through the steps:
+The setup workspace has four stages:
 
-1. **Welcome / demo** — overview; optionally explore with the `mock` provider.
-2. **Add a source** — pick a connector and configure it (see §3.5 / §3.6). The
-   wizard lists every available connector and its field schema, served from
-   `GET /api/connectors`.
-3. **Test connection** — validates the wired primary log source
-   (`POST /api/connectors/test`). For a pull source this confirms the URL + key +
-   field mapping reach the cluster.
-4. **LLM providers + per-role models** — confirm provider keys (shown as
-   `configured ✓`, never as values) and choose the model per role (router /
-   investigator / formatter / standup / chat / overview / embedding). Catalog
-   served from `GET /api/models`.
-5. **Detection settings** — data scope (`data_view_pattern`, time field), entity
-   field mapping (source IP / user / host), severity threshold, in-scope /
-   excluded rules, correlation, caps.
-6. **Review → Finish** — calls `POST /api/setup/complete`, which flips
-   `setup_complete` and starts polling.
+1. **Workspace** — choose **Live environment** or **Synthetic demo**. Demo seeds
+   isolated sample activity and uses the deterministic `$0` mock runtime; it never
+   calls a configured live provider.
+2. **Data sources** — pick a connector and configure it (see §3.5 / §3.6). The
+   wizard lists every available connector and its field schema from
+   `GET /api/connectors`. **Test connection** evaluates the current draft through
+   `POST /api/connectors/test` without saving it. If you navigate away while the
+   editor is open, setup asks before discarding that draft.
+3. **AI runtime** — add an OpenAI key for the default GPT-5.6 Luna runtime, or an
+   alternate provider key if you will change the role assignments. Keys are write-only:
+   setup shows configured state, never the value. Newly typed keys save through
+   `POST /api/setup/secrets` whenever you leave this stage; a failed save keeps you
+   on the stage. Model registration, per-role assignment, and budgets remain in
+   **Settings → Models** after launch.
+4. **Review & launch** — reports **Ready**, **Needs attention**, or **Optional**
+   for the workspace, sources, and AI runtime. A live workspace without a source or
+   provider may launch, but is explicitly labelled **Ready with limited
+   capabilities**. The Automation posture notes that adaptive routing and related-
+   case grouping are on by default while detailed control remains in Settings;
+   deterministic close/escalate authority is unchanged. **Launch Agentic SOC**
+   calls `POST /api/setup/complete`, which flips `setup_complete`, starts pull
+   polling, and reconciles enabled receivers.
+
+The first-run app does not fail open. If `GET /api/setup/status` is unavailable,
+it shows **Can't verify setup state** with **Retry** rather than exposing the
+operational console. Administrators can later re-run setup from Settings; its final
+action is **Apply changes**, and existing sources and credentials remain unless
+explicitly changed or removed.
 
 After finishing, trigger an immediate poll for the demo with **`POST /api/poll`**
 (or the Settings page button).
@@ -265,13 +280,21 @@ listener port** by editing the `ports:` of `tlsoc-backend` in
 
 Then `docker compose -f deploy/docker-compose.agnostic.yml up -d` to apply.
 
+For encrypted Syslog, set the source protocol to `tls`, mount the server certificate
+and private key into the backend container, and configure their **container paths** as
+`tls_cert_file` and `tls_key_file`. A private-key password, when required, is supplied
+through the source's write-only `tls_key_password` secret. To require client
+certificates, also set `tls_client_ca_file` and `tls_require_client_cert=true`.
+The listener requires TLS 1.2 or newer and refuses to start if any configured material
+is missing or unreadable; it never falls back to plaintext TCP.
+
 The **16 built-in push receivers** (`SourceType` → optional pip dependency):
 
 | SourceType | Mode | Optional pip dep |
 |---|---|---|
 | `webhook` | PUSH_HTTP | none (stdlib; the FastAPI app owns the port) |
 | `hec` | PUSH_HTTP | none |
-| `syslog` | PUSH_SYSLOG / PUSH_SOCKET | none (stdlib asyncio) |
+| `syslog` | PUSH_SYSLOG / PUSH_SOCKET | none (stdlib asyncio + TLS) |
 | `kafka` | QUEUE | `confluent-kafka` |
 | `aws_sqs` | QUEUE | `boto3` |
 | `aws_kinesis` | QUEUE / STREAM | `boto3` |
@@ -294,7 +317,7 @@ organization deliberately publishes the `core` target under a site-specific imag
 name, add only the required clients in a derived image, for example:
 
 ```dockerfile
-FROM registry.example/tlsoc-backend-core:0.1.0
+FROM registry.example/tlsoc-backend-core:0.1.1
 RUN pip install --no-cache-dir confluent-kafka boto3   # only what you need
 ```
 
@@ -404,6 +427,12 @@ curl -s http://localhost:8088/api/health
 - *Elasticsearch state backend (Mode B):* use Elasticsearch **snapshots** of the
   `tlsoc-agent-*` indices via your stack's snapshot repository.
 
+  Keep every Elasticsearch snapshot-repository object directly readable by
+  Elasticsearch. **Do not attach an S3 lifecycle rule that moves the repository
+  prefix to Glacier**; archived repository objects can make the snapshot repository
+  unusable. A Glacier copy must instead be an independent, immutable application
+  export with its own manifest, checksums, catalog, and tested restore procedure.
+
 **Upgrades.** Deploy an exact accepted tag or digest; do not run a generic
 `git pull` and assume the resulting branch is Stable. Once literal `main` is
 provisioned, pulling it receives only the last accepted Stable source, while
@@ -413,9 +442,30 @@ follow [`docs/operations/upgrades.md`](docs/operations/upgrades.md):
 ```bash
 cd <repo-root>
 git fetch --tags origin
-git checkout v0.1.0   # replace with the exact accepted release tag
+git checkout v0.1.1   # replace with the exact accepted release tag
 docker compose -f deploy/docker-compose.agnostic.yml up -d --build
 ```
+
+The Console's top-bar **Update available** control does not perform this deployment.
+It detects and activates a different release only after the web artifact is already
+live, same-origin `/release.json` exactly matches the backend's non-`unknown` SHA and
+build time at `/api/health/build-info`, and `/api/health`
+is ready. The browser then requires confirmation and repeats those checks plus a
+no-store `/index.html` check before preserving the current hash route across the
+reload. A mismatch or network/readiness failure leaves the current Console running;
+the browser never pulls images, restarts services, runs migrations, stores deploy
+credentials, or performs rollback.
+
+The safe development/Compose defaults use `unknown` provenance. Those deployments
+remain usable but intentionally never expose browser activation; release automation
+must stamp the Web and backend images with the same immutable SHA and build time.
+
+Serve `/release.json` and `/index.html` with `no-store, no-cache, must-revalidate`;
+hashed assets may remain immutable. For a genuinely graceful rollout, retain the
+previous release's hashed assets for the observation window or use blue-green static
+serving. Open tabs can still request an old lazy-loaded chunk before they accept the
+new release, so immediately deleting the old asset set can break a session even when
+the update preflight is healthy.
 
 **Resource notes.** The backend image is small (pure-Python on
 `python:3.11-slim`). Postgres+pgvector and Redis are modest. The heaviest cost is
@@ -467,10 +517,13 @@ descriptors are documented in `.env.example`:
 ```
 
 **Management key** → `TLSOC_ES_MGMT_API_KEY` (`ES_MGMT_API_KEY`): scoped to the
-suite's own indices only.
+suite's own indices only. The cluster privileges are required only for the explicit
+own-state lifecycle capability probe/apply; they do not grant access to upstream log
+indices.
 
 ```json
 { "tlsoc_agent_mgmt": {
+    "cluster": ["manage_ilm", "manage_index_templates", "monitor"],
     "indices": [ { "names": ["tlsoc-agent-*"],
       "privileges": ["read","write","create_index","view_index_metadata","manage"] } ] } }
 ```
@@ -484,7 +537,36 @@ docker compose up -d --build tlsoc-backend tlsoc-redis
 docker exec tlsoc-backend curl -fsS http://localhost:8088/api/health ; echo
 ```
 
-### 7.3 Unsupported archived-plugin revival
+### 7.3 Capability-aware own-state lifecycle
+
+After deployment, open **Settings → Organization → Storage & retention**. The
+desired default is:
+
+- Hot: the first 180 days;
+- Warm: the next 90 days, until day 270;
+- desired archive: AWS S3 Glacier Flexible Retrieval from day 270; and
+- deletion: always off.
+
+Saving that preference does not move data. **Preview** first, then use the explicit,
+freshly authenticated **Apply supported lifecycle** action. For Mode B, the backend
+installs Elasticsearch ILM only for append-only `tlsoc-agent-audit-*` and
+`tlsoc-agent-usage-*`; the probe requires cluster `manage_ilm` +
+`manage_index_templates` + `monitor` and
+usable Hot/Warm roles. ILM rollover is bounded independently (30 days or 50 GiB),
+and phase age is measured from rollover, so the exact backing-index wall-clock
+transition can occur after the displayed desired boundary.
+
+Mutable cases and configuration/cursor/user/session/collaboration metadata stay Hot.
+Mode A PostgreSQL reports the desired policy as advisory until timestamp partitioning
+and an operator-managed scheduler/tablespace/archive workflow exist. SQLite reports
+export-only. Connected source indices and buckets are always external/read-only.
+
+The 0.1.1 Apply operation does not configure Glacier and never adds an ILM delete
+phase. To archive safely, write a separate immutable export, manifest and checksums,
+verify restore, then apply S3 lifecycle to that **independent archive prefix**. Never
+transition the Elasticsearch snapshot-repository prefix itself.
+
+### 7.4 Unsupported archived-plugin revival
 
 The plugin is **archived** (`archive/kibana-plugin/`) and is no longer built,
 tested, version-stamped, or shipped as a supported 0.1 surface. Existing committed

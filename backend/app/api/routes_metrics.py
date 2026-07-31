@@ -21,10 +21,12 @@ also assert the narrow ``metrics:view`` grant. No non-GET routes.
 from __future__ import annotations
 
 import logging
+from datetime import date, datetime, time, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
+from ..engine.agent_improvement import agent_improvement_metrics
 from ..engine.clustering_explain import build_case_lineage
 from ..engine.metrics import _window_filter, posture_metrics
 from ..engine.mitre_coverage import compute_mitre_coverage, navigator_layer
@@ -44,6 +46,8 @@ router = APIRouter(prefix="/api")
 # marker so a consumer can tell a lower-bound tally from a complete one rather than
 # silently trusting a wrong number.
 _STORE_FETCH_LIMIT = 5000
+_USAGE_FETCH_LIMIT = 5000
+_TUNING_FETCH_LIMIT = 1000
 
 
 async def _load_cases(state: AppState) -> tuple[list, int]:
@@ -60,6 +64,130 @@ async def _load_cases(state: AppState) -> tuple[list, int]:
     except Exception as exc:  # noqa: BLE001 — dashboards degrade, never fail hard
         logger.warning("posture/coverage case load soft-failed: %s", exc)
         return [], 0
+
+
+def _subtract_counter_bands(
+    combined: dict[str, Any] | None, current: dict[str, Any] | None
+) -> dict[str, int]:
+    """Return the non-negative preceding-window remainder of two band tallies."""
+    combined = combined if isinstance(combined, dict) else {}
+    current = current if isinstance(current, dict) else {}
+    out: dict[str, int] = {}
+    for key in set(combined) | set(current):
+        try:
+            total = max(0, int(combined.get(key) or 0))
+            recent = max(0, int(current.get(key) or 0))
+        except (TypeError, ValueError):
+            continue
+        out[str(key)] = max(0, total - recent)
+    return out
+
+
+async def _load_agent_outcome_inputs(
+    state: AppState,
+    *,
+    current_days: int,
+    baseline_days: int,
+    end: datetime,
+) -> dict[str, Any]:
+    """Bounded read-only projections for the additive outcome report.
+
+    Failures remain explicit availability flags. No row identifiers, usage rows,
+    source ids, or tuning rule ids leave the pure aggregation layer.
+    """
+    usage_available = True
+    try:
+        raw_usage = await state.usage_store.records_strict(limit=_USAGE_FETCH_LIMIT)
+        usage_records = [row for row in raw_usage if isinstance(row, dict)]
+    except Exception as exc:  # noqa: BLE001 — evidence degrades, route stays available
+        logger.warning("agent-improvement usage read soft-failed: %s", exc)
+        usage_available = False
+        usage_records = []
+
+    tuning_available = True
+    try:
+        raw_tuning = await state.tuning_store.list_strict()
+        tuning_records = [record.to_json() for record in raw_tuning]
+    except Exception as exc:  # noqa: BLE001 — evidence degrades, route stays available
+        logger.warning("agent-improvement tuning read soft-failed: %s", exc)
+        tuning_available = False
+        tuning_records = []
+    tuning_truncated = len(tuning_records) > _TUNING_FETCH_LIMIT
+    tuning_records = tuning_records[:_TUNING_FETCH_LIMIT]
+
+    required_days = {
+        max(1, current_days),
+        max(1, current_days + baseline_days),
+        7,
+        14,
+        28,
+        56,
+    }
+    try:
+        noise_windows = {
+            days: await state.noise_counters.read_window_strict(
+                days * 24,
+                now=end,
+                end_exclusive=True,
+            )
+            for days in sorted(required_days)
+        }
+    except Exception as exc:  # noqa: BLE001 — evidence degrades, route stays available
+        logger.warning("agent-improvement noise read soft-failed: %s", exc)
+        noise_comparison = {
+            "available": False,
+            "reason": "durable alert counters could not be read",
+            "window_basis": "complete_utc_days",
+        }
+        period_noise_comparisons = {
+            "week_over_week": dict(noise_comparison),
+            "month_over_month": dict(noise_comparison),
+        }
+    else:
+        def comparison(recent_days: int, preceding_days: int) -> dict[str, Any]:
+            current_noise = noise_windows[recent_days]
+            combined_noise = noise_windows[recent_days + preceding_days]
+            available = bool(current_noise.get("available")) and bool(
+                combined_noise.get("available")
+            )
+            return {
+                "available": available,
+                "reason": "" if available else "durable alert counters are still warming up",
+                "incomplete": bool(current_noise.get("incomplete"))
+                or bool(combined_noise.get("incomplete")),
+                "window_basis": "complete_utc_days",
+                "end_exclusive": end.date().isoformat(),
+                "current": {
+                    "ingested": current_noise.get("ingested"),
+                    "clustered": current_noise.get("clustered"),
+                },
+                "baseline": {
+                    "ingested": _subtract_counter_bands(
+                        combined_noise.get("ingested"), current_noise.get("ingested")
+                    ),
+                    "clustered": _subtract_counter_bands(
+                        combined_noise.get("clustered"), current_noise.get("clustered")
+                    ),
+                },
+            }
+
+        noise_comparison = comparison(current_days, baseline_days)
+        period_noise_comparisons = {
+            "week_over_week": comparison(7, 7),
+            "month_over_month": comparison(28, 28),
+        }
+
+    return {
+        "usage_records": usage_records,
+        "usage_available": usage_available,
+        # The strict projection has no total count, so cap saturation is partial.
+        "usage_records_truncated": len(usage_records) >= _USAGE_FETCH_LIMIT,
+        "noise_comparison": noise_comparison,
+        "period_noise_comparisons": period_noise_comparisons,
+        "tuning_records": tuning_records,
+        "tuning_available": tuning_available,
+        "tuning_records_truncated": tuning_truncated,
+    }
 
 
 @router.get("/metrics/posture")
@@ -83,6 +211,59 @@ async def metrics_posture(
         window_hours=max(0, int(window_hours)),
         compare=(compare or "").strip().lower(),
         store_total=store_total,
+    )
+
+
+@router.get("/metrics/agent-improvement")
+async def metrics_agent_improvement(
+    as_of: date | None = Query(
+        default=None,
+        description=(
+            "Exclusive UTC date boundary. Omit to compare the last seven complete "
+            "UTC days with the preceding 28 complete days."
+        ),
+    ),
+    current_days: int = Query(default=7, ge=1, le=31),
+    baseline_days: int = Query(default=28, ge=7, le=90),
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("metrics", "view")),
+) -> dict[str, Any]:
+    """Aggregate-only evidence of agent-assisted triage effectiveness.
+
+    The response reports analyst-reported verdict agreement, material correction
+    rate, human review turnaround, recorded case-associated cost, observed elapsed-
+    closure differences, confirmed-positive case mix, alert volume, and non-causal
+    threshold-tuning context. Unsupported true-positive-alert yield and source-gap
+    guidance remain explicitly unavailable. It never emits a synthetic score, row or
+    case identifiers, raw evidence, model calls, or writes; a truncated, mix-shifted,
+    guardrail-unevaluable, or undersized cohort is explicitly classified as
+    insufficient evidence. Reporting remains advisory and is never read by the
+    deterministic case decision (#3).
+    """
+    request_now = datetime.now(timezone.utc)
+    if as_of is not None and as_of > request_now.date():
+        raise HTTPException(
+            status_code=422,
+            detail="as_of is an exclusive UTC boundary and cannot be in the future",
+        )
+    cases, store_total = await _load_cases(state)
+    end_date = as_of or request_now.date()
+    report_end = datetime.combine(end_date, time.min, tzinfo=timezone.utc)
+    outcome_inputs = await _load_agent_outcome_inputs(
+        state,
+        current_days=current_days,
+        baseline_days=baseline_days,
+        end=report_end,
+    )
+    return agent_improvement_metrics(
+        cases,
+        as_of=as_of,
+        current_days=current_days,
+        baseline_days=baseline_days,
+        now=request_now,
+        store_total=store_total,
+        synthetic=state.demo_active,
+        **outcome_inputs,
     )
 
 

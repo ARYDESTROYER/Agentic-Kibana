@@ -128,8 +128,14 @@ reload-validated, and audited. The packaged default procedures are protected ref
 content. Extend the explicit bundled-file set when shipping a new protected procedure;
 files in an operator override directory remain operator-owned.
 
-Runbooks and allowlisted system knowledge are content, not executable code. Keep
-operator-imported material in the untrusted RAG path.
+Runbooks and allowlisted system knowledge are content, not executable code. New and
+edited operator Runbooks use the strict plain-text, 1,800-character guidance contract
+and separately bounded 1,200-character retrieval descriptor described in
+[Runbooks](../intelligence/runbooks.md); do not introduce an alternate editor or
+ingestion path that bypasses its manifest, structure, formatting, aggregate metadata
+budget, or actionable-error validation. Existing content remains readable and
+reindexable until an operator edits it to comply. Keep operator-imported material in
+the untrusted RAG path.
 
 ## Extension acceptance checklist
 

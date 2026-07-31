@@ -46,6 +46,7 @@ from app.config import (
     BatchConfig,
     CapsConfig,
     CorrelationRule,
+    ModelConfig,
     Preferences,
     SourceInstance,
     SuppressionRule,
@@ -71,6 +72,8 @@ from app.engine.event_detection import (
     pre_aggregate,
     results_to_candidates,
     shape_candidate_cluster,
+    split_batch_eligible_events,
+    target_for_funnel,
 )
 from app.engine.forwarding import GATES, explain_forwarding
 from app.engine.signatures import cluster_signature
@@ -134,6 +137,41 @@ def _never_correlation() -> CorrelationRule:
     """A default correlation that NEVER fires the rules pass — so the anomaly pass is
     isolated (a bucket survives ONLY on |modified_z| deviation, not on a rule hit)."""
     return CorrelationRule(mode=CorrelationMode.NEVER, group_by=EntityType.IP)
+
+
+def test_batch_target_is_bound_to_router_provider_and_model() -> None:
+    prefs = _prefs(
+        router_model=ModelConfig(provider="openai", model="gpt-4o"),
+        batch=BatchConfig(enabled=True, providers=["openai", "anthropic"], flex=True),
+    )
+    # Legacy ``flex`` does not change true async Batch routing; the configured router
+    # provider/model is the sole target.
+    assert target_for_funnel(prefs) == ("openai", "gpt-4o")
+
+
+def test_batch_target_rejects_provider_model_mismatch_and_allowlist_gap() -> None:
+    mismatch = _prefs(
+        router_model=ModelConfig(provider="openai", model="claude-haiku-4-5-20251001"),
+    )
+    with pytest.raises(ValueError, match="belongs to anthropic"):
+        target_for_funnel(mismatch)
+
+    disallowed = _prefs(
+        router_model=ModelConfig(provider="openai", model="gpt-4o"),
+        batch=BatchConfig(enabled=True, providers=["anthropic"]),
+    )
+    with pytest.raises(ValueError, match="not enabled"):
+        target_for_funnel(disallowed)
+
+
+def test_batch_severity_floor_partitions_without_dropping_events() -> None:
+    prefs = _prefs(batch=BatchConfig(enabled=True, severity_floor=3))
+    medium = _ev(id="medium", severity=5.0)  # default pull scale: 5/10 -> OCSF medium
+    high = _ev(id="high", severity=7.0)      # default pull scale: 7/10 -> OCSF high
+    batch, synchronous = split_batch_eligible_events([medium, high], prefs)
+    assert [event.id for event in batch] == ["medium"]
+    assert [event.id for event in synchronous] == ["high"]
+    assert {event.id for event in batch + synchronous} == {"medium", "high"}
 
 
 # --------------------------------------------------------------------------- #
@@ -449,7 +487,7 @@ def test_results_to_candidates_confirms_by_custom_id_and_min_confidence() -> Non
 # model_for_funnel — follows the operator's cheap tier, falls back to the lock.
 # --------------------------------------------------------------------------- #
 def test_model_for_funnel_follows_router_then_default() -> None:
-    prefs = Preferences()  # default router_model == haiku 4.5
+    prefs = Preferences()  # default router_model == GPT-5.6 Luna
     assert model_for_funnel(prefs) == prefs.router_model.model
     # An operator who repoints the cheap tier repoints the funnel too.
     prefs2 = Preferences()

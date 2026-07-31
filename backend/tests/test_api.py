@@ -68,7 +68,7 @@ def test_health_live_ready_and_build_info(client, monkeypatch):
         "ocsf_version": "1.4.0",
     }
 
-    # Channel is stamped independently from SemVer so the same 0.1.0 candidate
+    # Channel is stamped independently from SemVer so the same 0.1.1 candidate
     # reports Testing until its accepted main/tag build is explicitly Stable.
     monkeypatch.setenv("TLSOC_RELEASE_CHANNEL", "Stable")
     promoted = client.get("/api/health/build-info")
@@ -140,7 +140,13 @@ def test_chat_smoke(client):
 def test_usage_summary(client):
     r = client.get("/api/usage/summary?window_hours=24")
     assert r.status_code == 200
-    assert "total_cost" in r.json()
+    body = r.json()
+    assert "total_cost" in body
+    assert [row["key"] for row in body["by_processing_tier"]] == [
+        "standard", "flex", "batch", "unconfirmed",
+    ]
+    assert body["processing_tier_attribution"]["fallback_calls"] is None
+    assert body["processing_tier_attribution"]["requested_policy_inferred"] is False
 
 
 def test_scans_and_standup(client):

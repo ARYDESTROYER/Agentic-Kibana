@@ -38,7 +38,7 @@ from app.constants import (
     SourceType,
 )
 from app.engine.correlation import correlate
-from app.engine.ingest import handle_clusters
+from app.engine.ingest import InvestigationBudget, handle_clusters
 from app.state import AppState
 from app.utils import now_utc, to_millis
 from tests.conftest import make_log_event
@@ -150,6 +150,40 @@ async def test_concurrent_handle_clusters_same_signature_one_case(app_state: App
     # second run attaches (attached>=1) — never two candidates for one signature.
     total_candidates = sum(s.get("candidates", 0) for s in stats)
     assert total_candidates == 1
+
+
+@asyncio_mark
+async def test_concurrent_sources_share_one_global_investigation_budget(app_state: AppState):
+    """Concurrent source handlers may not each spend the full manager-tick ceiling."""
+    await _set_threshold(app_state, 3)
+    prefs = app_state.prefs.model_copy(deep=True)
+    prefs.background_scan_enabled = True
+    prefs.auto_forward_allowlist = ["*"]
+    prefs.caps.max_auto_investigations_per_tick = 1
+    await app_state.update_prefs(prefs)
+
+    budget = InvestigationBudget(1)
+    first = _cluster_for(app_state, "10.0.1.1")
+    second = _cluster_for(app_state, "10.0.1.2")
+    stats = await asyncio.gather(
+        handle_clusters(
+            [first], prefs, cases=app_state.cases, pipeline=app_state.pipeline,
+            source_surface=SourceSurface.AUTOMATED_SCAN,
+            investigation_budget=budget,
+        ),
+        handle_clusters(
+            [second], prefs, cases=app_state.cases, pipeline=app_state.pipeline,
+            source_surface=SourceSurface.AUTOMATED_SCAN,
+            investigation_budget=budget,
+        ),
+    )
+
+    assert sum(row["investigated"] for row in stats) == 1
+    assert sum(row["deferred"] for row in stats) == 1
+    assert budget.claimed == 1 and budget.remaining == 0
+    cases, total = await app_state.cases.list()
+    assert total == 2
+    assert sum(case.verdict is None for case in cases) == 1
 
 
 @asyncio_mark

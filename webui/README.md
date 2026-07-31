@@ -9,23 +9,27 @@ in-Kibana proxy in the loop.
 
 ## What's here
 
-- **First-run setup wizard** (`src/soc/pages/Wizard.tsx`) — a **4-step** minimal
-  on-ramp (deeper configuration — the other 5 LLM providers and per-role model
-  pickers — lives in Settings, not the wizard):
-  1. **Welcome** — name the deployment, optional non-destructive *Demo mode*.
-  2. **Sources** — pick a connector from `GET /api/connectors` (grouped by
+- **First-run setup workspace** (`src/soc/pages/Wizard.tsx`) — a responsive
+  **four-stage** on-ramp (deeper provider/model configuration lives in Settings):
+  1. **Workspace** — choose a Live environment or an isolated Synthetic demo.
+  2. **Data sources** — pick a connector from `GET /api/connectors` (grouped by
      category), render a dynamic form from its `auth_fields` + `config_fields` via
-     the shared `SourceEditor` component, **test the connection**, and save
-     (secrets → `POST /api/setup/secrets`, config → `POST /api/sources`). Add
-     multiple sources; mark one primary.
-  3. **Provider keys** — Anthropic / OpenAI / embedding API keys only (at least
-     one is recommended; without one, investigations fall back to a mock model).
+     the shared `SourceEditor` component, test the current draft, and save
+     (secrets → `POST /api/sources/{id}/secrets`, config → `POST /api/sources`).
+     Add multiple sources; mark one pull source primary. Leaving an open editor
+     requires discard confirmation.
+  3. **AI runtime** — Anthropic / OpenAI / embedding API keys only. They are
+     write-only and auto-save when guarded navigation leaves the stage (at least
+     one is recommended; without one, live investigations use the mock runtime).
      Azure / Bedrock / Vertex / OpenAI-compatible (local) keys and per-role model
      selection (router / investigator / formatter / standup / chat / overview /
      embedding, `GET /api/models`) are configured later from **Settings → Models**.
-  4. **Review & finish** — summary → `POST /api/setup/complete`.
+  4. **Review & launch** — truthful Ready / Needs attention / Optional states,
+     default automation-posture explanation, then **Launch Agentic SOC** →
+     `POST /api/setup/complete`.
   The wizard shows automatically when `GET /api/setup/status` reports
-  `setup_complete: false`, and is re-runnable from **Settings**.
+  `setup_complete: false`; setup-status failure is fail-closed and retryable. A
+  non-destructive Settings re-run ends with **Apply changes**.
 - **Sources manager** (`src/soc/pages/Sources.tsx`) — a standalone top-level page
   (Platform nav group; not nested inside Settings): a dense, sortable
   `<DataTable>` (search/filter/bulk-select/inline enable toggle/status/last-event
@@ -116,7 +120,21 @@ so it never needs to know the backend's address (no CORS, no Kibana proxy):
 - **`webui/nginx.conf`** — `location /api/` proxies to `http://tlsoc-backend:8088`
   (300s timeouts for long LLM investigations; a separate unbuffered
   `location /api/events` handles the live SSE stream); everything else falls back
-  to `index.html` (SPA routing); hashed assets are long-cached, `index.html` is not.
+  to `index.html` (SPA routing); hashed assets are long-cached, while
+  `/release.json` and `/index.html` use no-store semantics.
+
+The build emits `/release.json` with the immutable Console version, channel, commit,
+and build time. The top bar offers **Update available** only for a different static
+release whose fully stamped manifest exactly matches healthy backend build-info. The operator must
+confirm; known unsaved drafts block activation, and the Console rechecks the
+manifest, backend identity/readiness, and `/index.html` before reloading the current
+hash route. Any failure leaves the current document running. This is browser
+activation of an already-deployed pair—not image pull, restart, migration, promotion,
+deployment-credential handling, or rollback.
+
+Production rollouts must retain the previous release's hashed assets for the
+observation window or use blue-green serving. Open tabs can still request an old
+lazy-loaded chunk before they accept the new release.
 
 The agnostic stack builds and runs this image as the `tlsoc-webui` service and
 publishes it on **:8080**:
@@ -141,11 +159,17 @@ The console shares one look end-to-end — reuse it rather than re-rolling style
 - **Primitives**: `src/ui/*` — shadcn-style wrappers over Radix UI (`button`,
   `card`, `dialog`, `select`, `tabs`, `table`, `tooltip`, `sheet`, …). Wrap them,
   don't fork them.
+- **Cross-cutting catalog**: `src/design-system/*` — the public `LoadingState` /
+  `LoadingGlyph` / `LoadingBar` feedback grammar, original theme-adaptive
+  `SourceMark` assets, and the JSON-serializable `DESIGN_SYSTEM_CATALOG`. Import these from
+  `@/design-system`; do not create page-local blocking loaders or source marks.
 - **SOC-domain components**: `src/soc/components/*` — `PageContainer`,
   `PageHeader`, `KpiTile`/`StatCard`, `DataTable`, `EmptyState`, `RiskGauge`,
   `Can` (the RBAC guard), `ChatPanel`, and more.
 
-See `AGENTS.md` §8 for the full design-system pointer and conventions.
+The catalog is a future MCP/tooling input only; version 0.1.1 does not claim or ship
+a design-system MCP server. See `docs/development/design-system.md` and `AGENTS.md`
+§8 for the full contract.
 
 ## Notes
 

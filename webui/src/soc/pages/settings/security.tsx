@@ -35,7 +35,7 @@ export function OrgSecuritySection({
         <SubHeader title="Posture">
           <HelpTip text="A read-only summary of the live auth/RBAC posture, reported by the backend." />
         </SubHeader>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-y-4 border-y border-border/70 py-4 sm:grid-cols-3">
           <PostureTile label="Authentication" on={authEnabled} onText="Enforced" offText="Disabled" />
           <PostureTile label="RBAC" on={rbacEnabled} onText="Enforced" offText="Allow-all" />
           <PostureTile label="Single sign-on" on={Boolean(sso.enabled)} onText={`${providerCount} provider${providerCount === 1 ? '' : 's'}`} offText="Off" />
@@ -48,7 +48,14 @@ export function OrgSecuritySection({
       </div>
 
       {/* Token/session policy + OIDC providers — controlled by the Settings save. */}
-      <SecuritySsoInner prefs={prefs} update={update} configured={configured} />
+      <div className="border-t border-border/70 pt-6">
+        <SecuritySsoInner
+          prefs={prefs}
+          update={update}
+          configured={configured}
+          embedded
+        />
+      </div>
     </div>
   );
 }

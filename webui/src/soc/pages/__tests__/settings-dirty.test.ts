@@ -4,9 +4,8 @@
  *      `sources`/`setup_complete` are never editable, the Save patch is minimal, and a
  *      section lights its "modified" dot only when it OWNS a changed key;
  *   2. the bounded ThemeTokens preview — operator appearance values are allow-listed +
- *      sanitised before they touch the DOM (a hex severity hue applies as an HSL
- *      triplet; an unsafe value / unknown token is dropped), and the WCAG-AA accent
- *      contrast advisory fires below the AA bars (#9/#10).
+ *      sanitised before they touch the DOM (layout tokens apply; semantic/unsafe/
+ *      unknown tokens are dropped), and accent contrast follows the derived pair.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
@@ -22,7 +21,6 @@ import {
 import {
   applyTokens,
   clearTokens,
-  hexToHslTriplet,
   ALLOWED_TOKENS,
 } from '../../theme-tokens';
 import { accentContrastAdvisory, contrastRatio } from '../../components/branding.api';
@@ -154,9 +152,9 @@ function freshRoot(): HTMLElement {
 }
 
 /**
- * Mirror the editor's bounded-token preview pipeline: hex severity hue → HSL triplet
- * applied via the allow-listed `applyTokens`; non-color tokens passed through; unsafe
- * / unknown tokens dropped. We assert the SAME guarantees the editor relies on.
+ * Mirror the editor's bounded-token preview pipeline: layout tokens route through
+ * `applyTokens`; semantic, unsafe, and unknown tokens are dropped. We assert the same
+ * guarantees the editor relies on.
  */
 describe('bounded ThemeTokens preview (#9/#10)', () => {
   let root: HTMLElement;
@@ -164,13 +162,12 @@ describe('bounded ThemeTokens preview (#9/#10)', () => {
     root = freshRoot();
   });
 
-  it('applies a hex severity hue as an HSL triplet on an allow-listed token', () => {
-    const triplet = hexToHslTriplet('#ff0000');
-    expect(triplet).toBeTruthy();
-    const written = applyTokens({ '--critical': triplet! }, root);
-    expect(written).toContain('--critical');
-    expect(root.style.getPropertyValue('--critical')).toBe(triplet);
-    expect(ALLOWED_TOKENS.has('--critical')).toBe(true);
+  it('applies a layout token and ignores a semantic fill override compatibly', () => {
+    const written = applyTokens({ '--radius': '0.5rem', '--critical': '0 80% 50%' }, root);
+    expect(written).toEqual(['--radius']);
+    expect(root.style.getPropertyValue('--radius')).toBe('0.5rem');
+    expect(root.style.getPropertyValue('--critical')).toBe('');
+    expect(ALLOWED_TOKENS.has('--critical')).toBe(false);
   });
 
   it('maps the display-font enum key to a vetted stack (and drops an arbitrary one)', () => {
@@ -217,19 +214,19 @@ describe('WCAG-AA accent contrast advisory', () => {
     expect(accentContrastAdvisory('#111827')).toBeNull();
   });
 
-  it('flags a light accent (white text) as a SEVERE sub-3:1 failure', () => {
-    const adv = accentContrastAdvisory('#fde047'); // bright yellow
-    expect(adv).not.toBeNull();
-    expect(adv!.severe).toBe(true);
-    expect(adv!.ratio).toBeLessThan(3);
+  it('accepts a light accent because runtime derives the stronger black foreground', () => {
+    expect(accentContrastAdvisory('#fde047')).toBeNull();
+    expect(contrastRatio('#000000', '#fde047')).toBeGreaterThan(4.5);
   });
 
-  it('flags a mid accent in the 3:1–4.5:1 band as a non-severe warning', () => {
-    const adv = accentContrastAdvisory('#3b82f6'); // blue-500 ~ 3.6:1 on white text
-    expect(adv).not.toBeNull();
-    expect(adv!.severe).toBe(false);
-    expect(adv!.ratio).toBeGreaterThanOrEqual(3);
-    expect(adv!.ratio).toBeLessThan(4.5);
+  it('accepts a mid accent after selecting the stronger black/white pair', () => {
+    expect(accentContrastAdvisory('#3b82f6')).toBeNull();
+    expect(
+      Math.max(
+        contrastRatio('#ffffff', '#3b82f6') ?? 0,
+        contrastRatio('#000000', '#3b82f6') ?? 0,
+      ),
+    ).toBeGreaterThan(4.5);
   });
 
   it('contrastRatio is symmetric and within [1, 21]', () => {

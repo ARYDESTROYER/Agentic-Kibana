@@ -12,6 +12,8 @@
  */
 import * as React from 'react';
 
+import { useUnsavedChanges } from '@/soc/hooks/useDirtyDraft';
+
 export interface ConfigClient<C> {
   getConfig: () => Promise<{ config: C }>;
   putConfig: (config: Partial<C>) => Promise<{ ok: boolean; config: C }>;
@@ -80,6 +82,10 @@ export function useConfigEditor<C extends object>(
     () => JSON.stringify(draft) !== JSON.stringify(saved),
     [draft, saved],
   );
+  // Baseline, Campaigns and Batch Jobs all share this editor lifecycle. Register at
+  // this owner boundary so shell-level release activation cannot discard any of their
+  // policy drafts, including invalid or failed-save states.
+  useUnsavedChanges(dirty);
 
   const update = React.useCallback((patch: Partial<C>) => {
     setDraftState((d) => ({ ...d, ...patch }));

@@ -29,6 +29,7 @@ import {
   ACCENT_PRESETS,
   MATERIAL_PACKS,
   hexToHslTriplet,
+  resolveAccentPair,
 } from '../../theme-tokens';
 import { GlassSurface } from '../GlassSurface';
 
@@ -63,6 +64,19 @@ describe('applyTokens — allow-listing + sanitisation (#10/#9)', () => {
     expect(root.style.getPropertyValue('--background')).toBe('');
   });
 
+  it('drops every semantic fill override so the measured axis stays intact', () => {
+    const semantic = ['critical', 'high', 'medium', 'low', 'info', 'success', 'warning'];
+    const written = applyTokens(
+      Object.fromEntries(semantic.map((axis) => [`--${axis}`, '0 0% 100%'])),
+      root,
+    );
+    expect(written).toEqual([]);
+    for (const axis of semantic) {
+      expect(ALLOWED_TOKENS.has(`--${axis}`)).toBe(false);
+      expect(root.style.getPropertyValue(`--${axis}`)).toBe('');
+    }
+  });
+
   it('rejects values that could break out of a declaration', () => {
     const dangerous = [
       'red; position: fixed',
@@ -87,6 +101,14 @@ describe('applyTokens — allow-listing + sanitisation (#10/#9)', () => {
     expect(sanitizeTokenValue('--font-display', 'grotesk')).toContain('Space Grotesk');
     // An arbitrary family is rejected (no injection of foreign @font-face refs).
     expect(sanitizeTokenValue('--font-display', 'Comic Sans')).toBeNull();
+  });
+
+  it('normalises legacy hex brand tokens to the HSL triplets consumed by CSS', () => {
+    const midGrey = '#76' + '7676';
+    const shortHex = '#a' + 'bc';
+    expect(sanitizeTokenValue('--primary', midGrey)).toBe(hexToHslTriplet(midGrey));
+    expect(sanitizeTokenValue('--ring', shortHex)).toBe(hexToHslTriplet(shortHex));
+    expect(sanitizeTokenValue('--radius', shortHex)).toBe(shortHex);
   });
 
   it('font stacks LEAD with the actually-bundled Inter Variable (round-6 no-downgrade fix)', () => {
@@ -161,6 +183,15 @@ describe('applyBranding — accent + material + token overrides', () => {
     expect(root.style.getPropertyValue('--primary')).toBe(hexToHslTriplet('#1f6feb'));
     expect(root.style.getPropertyValue('--ring')).toBe(hexToHslTriplet('#1f6feb'));
     expect(root.style.getPropertyValue('--accent2')).toBe(hexToHslTriplet('#6366f1'));
+    expect(root.style.getPropertyValue('--primary-foreground')).toBe('0 0% 100%');
+  });
+
+  it('derives a trusted primary foreground from the custom fill in either theme', () => {
+    const lightAccent = '#fde' + '047';
+    applyBranding({ accent_color: lightAccent }, root);
+    expect(root.style.getPropertyValue('--primary')).toBe(hexToHslTriplet(lightAccent));
+    expect(root.style.getPropertyValue('--primary-foreground')).toBe('0 0% 0%');
+    expect(resolveAccentPair(root.style.getPropertyValue('--primary'))?.ratio).toBeGreaterThanOrEqual(4.5);
   });
 
   it('theme_tokens override the accent default (applied last) and stay allow-listed', () => {
@@ -169,7 +200,16 @@ describe('applyBranding — accent + material + token overrides', () => {
       root,
     );
     expect(root.style.getPropertyValue('--primary')).toBe('120 50% 40%');
+    expect(root.style.getPropertyValue('--primary-foreground')).toBe('0 0% 0%');
     expect(root.style.getPropertyValue('--evil')).toBe('');
+  });
+
+  it('pairs a legacy hex primary override with its derived foreground', () => {
+    const midGrey = '#76' + '7676';
+    applyBranding({ theme_tokens: { '--primary': midGrey } }, root);
+
+    expect(root.style.getPropertyValue('--primary')).toBe(hexToHslTriplet(midGrey));
+    expect(root.style.getPropertyValue('--primary-foreground')).toBe('0 0% 0%');
   });
 
   it('clearing accent restores the stylesheet default (no stale inline override)', () => {
@@ -177,12 +217,36 @@ describe('applyBranding — accent + material + token overrides', () => {
     expect(root.style.getPropertyValue('--primary')).not.toBe('');
     applyBranding({}, root); // empty branding
     expect(root.style.getPropertyValue('--primary')).toBe('');
+    expect(root.style.getPropertyValue('--primary-foreground')).toBe('');
   });
 
-  it('exports AA accent presets with valid hex', () => {
+  it('clears every former branding override before applying a smaller token bag', () => {
+    applyBranding({
+      theme_tokens: {
+        '--canvas-tint': '220 10% 90%',
+        '--radius': '1rem',
+        '--density-unit': '0.5rem',
+        '--font-display': 'mono',
+        '--glass-tint': '220 10% 20%',
+      },
+    }, root);
+    expect(root.style.getPropertyValue('--canvas-tint')).not.toBe('');
+    expect(root.style.getPropertyValue('--font-display')).not.toBe('');
+
+    applyBranding({ theme_tokens: { '--radius': '0.25rem' } }, root);
+    expect(root.style.getPropertyValue('--radius')).toBe('0.25rem');
+    expect(root.style.getPropertyValue('--canvas-tint')).toBe('');
+    expect(root.style.getPropertyValue('--density-unit')).toBe('');
+    expect(root.style.getPropertyValue('--font-display')).toBe('');
+    expect(root.style.getPropertyValue('--glass-tint')).toBe('');
+  });
+
+  it('exports accent presets with a derived AA black/white foreground', () => {
     expect(ACCENT_PRESETS.length).toBeGreaterThanOrEqual(4);
     for (const p of ACCENT_PRESETS) {
-      expect(hexToHslTriplet(p.hex)).not.toBeNull();
+      const triplet = hexToHslTriplet(p.hex);
+      expect(triplet).not.toBeNull();
+      expect(resolveAccentPair(triplet)?.ratio).toBeGreaterThanOrEqual(4.5);
       if (p.hex2) expect(hexToHslTriplet(p.hex2)).not.toBeNull();
     }
   });

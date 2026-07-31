@@ -37,6 +37,7 @@ import {
 } from '@/ui/select';
 import { Popover, PopoverTrigger, PopoverContent } from '@/ui/popover';
 import { EmptyState } from '@/soc/components/EmptyState';
+import { IconButton } from '@/soc/components/IconButton';
 import { SectionHeading } from '@/soc/pages/casedetail/shared';
 
 import type { CaseTask, TaskStatus } from '@/soc/pages/CaseDetail.api';
@@ -103,22 +104,23 @@ const TaskRow: React.FC<TaskRowProps> = ({ task, canWrite, busy, onStatus, onLog
   return (
     <li className="rounded-lg border border-border bg-card p-3">
       <div className="flex items-start gap-3">
-        <button
-          type="button"
+        <IconButton
+          label={meta.done ? 'Mark task not done' : 'Mark task done'}
+          tooltip={false}
+          size="sm"
           disabled={!canWrite || busy}
           onClick={toggleDone}
           aria-pressed={meta.done}
-          aria-label={meta.done ? 'Mark task not done' : 'Mark task done'}
           className={cn(
-            'mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition-colors',
+            'mt-0.5 rounded-md border [&_svg]:size-3.5',
             meta.done
               ? 'border-success bg-success/20 text-success'
-              : 'border-border text-transparent hover:border-primary',
+              : 'border-border text-transparent hover:border-primary hover:bg-transparent',
             (!canWrite || busy) && 'cursor-default opacity-70',
           )}
         >
           {busy ? <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" /> : <Check className="h-3.5 w-3.5" />}
-        </button>
+        </IconButton>
 
         <div className="min-w-0 flex-1">
           {/* UNTRUSTED title — plain text. */}

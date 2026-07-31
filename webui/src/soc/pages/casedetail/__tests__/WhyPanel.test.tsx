@@ -60,6 +60,72 @@ describe('WhyPanel — knowledge source fallback (#31)', () => {
   });
 });
 
+describe('WhyPanel — latest-run investigation input provenance', () => {
+  it('separates runbooks from general knowledge and shows only a consulted playbook', () => {
+    const rationale = {
+      verdict: 'true_positive',
+      status: 'open',
+      knowledge: [
+        { source: 'runbook:credential-access', snippet: 'Validate the sign-in owner.' },
+        { source: 'resolved_case', snippet: 'A prior case matched this source.' },
+      ],
+      playbook: { id: 'credential-response', version: '3', consulted: true },
+    } as unknown as CaseRationale;
+
+    render(
+      <WhyPanel c={CASE} rationale={rationale} loading={false} error={null} onRetry={vi.fn()} />,
+    );
+
+    expect(screen.getByText('Knowledge')).toBeInTheDocument();
+    expect(screen.getByText('Runbook references')).toBeInTheDocument();
+    expect(screen.getByText('Playbook consulted')).toBeInTheDocument();
+    expect(screen.getByText('credential-response · v3')).toBeInTheDocument();
+  });
+
+  it('does not present a selected-only playbook as used', () => {
+    const rationale = {
+      verdict: 'true_positive',
+      status: 'open',
+      playbook: { id: 'selected-only', consulted: false },
+    } as unknown as CaseRationale;
+
+    render(
+      <WhyPanel c={CASE} rationale={rationale} loading={false} error={null} onRetry={vi.fn()} />,
+    );
+
+    expect(screen.queryByText('Playbook consulted')).toBeNull();
+    expect(screen.queryByText('selected-only')).toBeNull();
+  });
+
+  it('explains the applied platform threshold without calling it model fine-tuning', () => {
+    const rationale = {
+      verdict: 'true_positive',
+      status: 'open',
+      platform_tuning_status: 'recorded',
+      platform_tuning: [
+        {
+          record_id: 'tune-1',
+          target: 'correlation_n',
+          rule_id: 'failed-logins',
+          before: 2,
+          after: 3,
+          rationale: 'Reduced repeated false-positive clusters.',
+        },
+      ],
+    } as unknown as CaseRationale;
+
+    render(
+      <WhyPanel c={CASE} rationale={rationale} loading={false} error={null} onRetry={vi.fn()} />,
+    );
+
+    expect(screen.getByText('Platform tuning')).toBeInTheDocument();
+    expect(screen.getByText('Correlation threshold')).toBeInTheDocument();
+    expect(screen.getByText('2 → 3')).toBeInTheDocument();
+    expect(screen.getByText(/threshold tuning, not model fine-tuning/i)).toBeInTheDocument();
+    expect(screen.getByText(/does not make the final close \/ escalate decision/i)).toBeInTheDocument();
+  });
+});
+
 describe('WhyPanel — hideDecision / hideMitre props (Round-7 D1b)', () => {
   const rationale = {
     verdict: 'true_positive',

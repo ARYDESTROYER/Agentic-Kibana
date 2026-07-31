@@ -43,4 +43,14 @@ describe('Alert role derivation', () => {
     );
     expect(getByText('Urgent success').getAttribute('role')).toBe('alert');
   });
+
+  it.each([
+    ['success', 'text-success-text'],
+    ['info', 'text-info-text'],
+    ['warning', 'text-warning-text'],
+    ['destructive', 'text-critical-text'],
+  ] as const)('uses the AA standalone text token for %s copy', (variant, tokenClass) => {
+    const { getByText } = render(<Alert variant={variant}>Message</Alert>);
+    expect(getByText('Message')).toHaveClass(tokenClass);
+  });
 });

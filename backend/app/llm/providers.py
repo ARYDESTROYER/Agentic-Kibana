@@ -127,6 +127,17 @@ def _is_reasoning_or_gpt5(model: str) -> bool:
     return model.startswith("gpt-5") or model.startswith(("o1", "o3", "o4"))
 
 
+def _default_reasoning_effort(model: str) -> str | None:
+    """Preserve the pre-GPT-5.6 non-reasoning completion baseline for Luna.
+
+    GPT-5.6 otherwise defaults to ``medium`` reasoning when this field is omitted.
+    Agentic SOC's existing Chat Completions roles were non-reasoning, latency-bound
+    workflows, so fresh Luna assignments explicitly use ``none``. Other models keep
+    their historical request shape; operators can still select them normally.
+    """
+    return "none" if model.startswith("gpt-5.6-luna") else None
+
+
 class BaseProvider:
     async def complete(
         self,
@@ -232,6 +243,9 @@ class OpenAIProvider(BaseProvider):
             # GPT-5 family + o-series reasoning models reject ``temperature`` and
             # use ``max_completion_tokens`` rather than ``max_tokens``.
             payload["max_completion_tokens"] = max_tokens
+            reasoning_effort = _default_reasoning_effort(model)
+            if reasoning_effort is not None:
+                payload["reasoning_effort"] = reasoning_effort
         else:
             payload["temperature"] = temperature
             payload["max_tokens"] = max_tokens

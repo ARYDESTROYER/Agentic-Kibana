@@ -199,6 +199,17 @@ describe('OverviewPanel — decision brief (task 7c)', () => {
     expect(screen.getByText('Escalated')).toBeInTheDocument();
     expect(screen.queryByText(/escalation\s+L3|tier[- ]?3/i)).toBeNull();
   });
+
+  it('does not repeat Escalated when lifecycle status already communicates it', () => {
+    renderCaseManager({
+      ...CASE,
+      status: 'escalated',
+      escalation_level: 3,
+    } as unknown as Case);
+    expect(
+      within(screen.getByTestId('case-manager-decision-summary')).getAllByText('Escalated'),
+    ).toHaveLength(1);
+  });
 });
 
 describe('OverviewPanel — provenance row (source vs. agent vs. code)', () => {
@@ -295,23 +306,33 @@ describe('OverviewPanel — embedded Case Manager composition', () => {
     );
 
     // The embedded workspace follows the dashboard's single-canvas composition:
-    // one flat summary and divider-led columns, not a stack of independent cards.
+    // one flat summary, whitespace-led lanes, and one hairline between major sections.
     expect(screen.getByTestId('case-manager-decision-summary')).toHaveClass(
       'rounded-none',
-      'border-b',
-      'border-t-0',
-      'border-border/70',
+      'border-0',
       'bg-transparent',
       'px-0',
-      'py-5',
+      'py-1',
     );
-    expect(screen.getByTestId('case-manager-decision-summary')).not.toHaveClass('border-y');
+    expect(screen.getByTestId('case-manager-decision-summary')).not.toHaveClass('border-b');
     expect(screen.getByTestId('case-manager-decision-summary')).not.toHaveClass('border-l-2');
+    const majorSections = panel?.querySelectorAll('[data-case-manager-section]');
+    expect(majorSections).toHaveLength(3);
+    majorSections?.forEach((section) => {
+      expect(section).toHaveClass('border-t', 'border-border/60', 'pt-6');
+    });
     const flatColumns = panel?.querySelectorAll('[data-overview-surface="flat-column"]');
     expect(flatColumns).toHaveLength(8);
     flatColumns?.forEach((column) => {
-      expect(column).toHaveClass('rounded-none', 'bg-transparent');
+      expect(column).toHaveClass('rounded-none', 'border-0', 'bg-transparent', 'p-0');
     });
+
+    // Case Manager labels are type-led; they do not each grow another horizontal rule.
+    within(panel as HTMLElement)
+      .getAllByTestId('overview-section-label')
+      .forEach((label) => {
+        expect(label.parentElement?.querySelector(':scope > span[aria-hidden="true"]')).toBeNull();
+      });
 
     // All unique facts from the removed duplicate card remain in the compact lanes.
     expect(screen.getByText('Deterministic decision authority')).toBeInTheDocument();
@@ -354,6 +375,8 @@ describe('OverviewPanel — embedded Case Manager composition', () => {
   it('renders honest, text-equivalent risk and confidence visuals from existing case data', () => {
     renderCaseManager();
     const profile = screen.getByRole('complementary', { name: 'Case signal profile' });
+    expect(profile).toHaveClass('border-t', 'xl:border-l', 'xl:border-t-0');
+    expect(profile).not.toHaveClass('bg-muted/20', 'rounded-sm');
 
     const risk = within(profile).getByRole('progressbar', { name: 'Risk score: 40/100' });
     expect(risk).toHaveAttribute('aria-valuenow', '40');

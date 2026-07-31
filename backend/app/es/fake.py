@@ -14,6 +14,7 @@ import re
 from typing import Any
 
 from .base import BaseESClient
+from ..constants import AUDIT_INDEX, USAGE_INDEX
 from ..utils import coerce_float, dotted_get, new_id, parse_es_timestamp
 
 
@@ -35,10 +36,25 @@ def _to_comparable(value: Any) -> float | None:
 
 
 class InMemoryESClient(BaseESClient):
+    storage_lifecycle_backend = "memory"
+
     def __init__(self) -> None:
         self.docs: dict[str, dict[str, dict[str, Any]]] = {}
         self.alias_to_index: dict[str, str] = {}
         self.templates: dict[str, dict[str, Any]] = {}
+        self.lifecycle_policies: dict[str, dict[str, Any]] = {}
+        self.index_settings: dict[str, dict[str, Any]] = {}
+        self.lifecycle_capabilities: dict[str, Any] = {
+            "supported": True,
+            "can_manage": True,
+            "privileged": True,
+            "index_privileged": True,
+            "hot_ready": True,
+            "warm_ready": True,
+            "roles": ["data"],
+            "ilm_mode": "RUNNING",
+            "reason": "In-memory lifecycle capability for deterministic tests.",
+        }
 
     # ----- test helpers -----
     def add_log(self, index: str, source: dict[str, Any], doc_id: str | None = None) -> str:
@@ -133,6 +149,30 @@ class InMemoryESClient(BaseESClient):
         target = self._resolve(index)
         return self.docs.get(target, {}).get(doc_id)
 
+    async def compare_and_set_doc(
+        self,
+        index: str,
+        doc_id: str,
+        doc: dict[str, Any],
+        expected_rev: int,
+        refresh: bool = False,
+    ) -> bool:
+        """Atomic event-loop CAS used by offline multi-store concurrency tests."""
+        del refresh
+        target = self._resolve(index)
+        bucket = self.docs.setdefault(target, {})
+        current = bucket.get(doc_id)
+        try:
+            current_rev = int((current or {}).get("_rev", 0) or 0)
+        except (TypeError, ValueError):
+            current_rev = 0
+        if current_rev != int(expected_rev):
+            return False
+        # No await occurs between the comparison and replacement, so two tasks
+        # sharing this fake observe the same all-or-nothing transition.
+        bucket[doc_id] = doc
+        return True
+
     async def update_doc(
         self, index: str, doc_id: str, doc: dict[str, Any], refresh: bool = False
     ) -> None:
@@ -148,6 +188,70 @@ class InMemoryESClient(BaseESClient):
     async def count(self, index: str, body: dict[str, Any]) -> int:
         result = self._evaluate(index, {"query": body.get("query", {"match_all": {}}), "size": 0})
         return int(result["hits"]["total"]["value"])
+
+    async def index_lifecycle_capabilities(self) -> dict[str, Any]:
+        return dict(self.lifecycle_capabilities)
+
+    async def put_index_lifecycle_policy(self, name: str, body: dict[str, Any]) -> None:
+        self.lifecycle_policies[name] = body
+
+    async def get_index_lifecycle_policy(self, name: str) -> dict[str, Any] | None:
+        policy = self.lifecycle_policies.get(name)
+        return dict(policy) if policy is not None else None
+
+    async def get_owned_index_lifecycle_attachment(
+        self, base: str, policy_name: str
+    ) -> dict[str, Any]:
+        if base not in {AUDIT_INDEX, USAGE_INDEX}:
+            raise ValueError("lifecycle attachment inspection is limited to owned ledgers")
+        template = self.templates.get(f"{base}-template") or {}
+        template_settings = (
+            template.get("template", {}).get("settings", {})
+            if isinstance(template, dict)
+            else {}
+        )
+        template_attached = bool(
+            template_settings.get("index.lifecycle.name") == policy_name
+            and template_settings.get("index.lifecycle.rollover_alias") == base
+        )
+        matching_indices = [
+            name for name in self.docs if fnmatch.fnmatch(name, f"{base}-*")
+        ]
+        wildcard_settings = self.index_settings.get(f"{base}-*", {})
+        attached_count = 0
+        for name in matching_indices:
+            settings = self.index_settings.get(name, wildcard_settings)
+            if (
+                settings.get("index.lifecycle.name") == policy_name
+                and settings.get("index.lifecycle.rollover_alias") == base
+            ):
+                attached_count += 1
+        all_existing_attached = attached_count == len(matching_indices)
+        return {
+            "verified": True,
+            "template_attached": template_attached,
+            "indices_total": len(matching_indices),
+            "indices_attached": attached_count,
+            "all_existing_indices_attached": all_existing_attached,
+            "attached": bool(template_attached and all_existing_attached),
+            "reason": (
+                "Template and existing indices carry the expected lifecycle settings."
+                if template_attached and all_existing_attached
+                else "Template or existing-index lifecycle settings are missing or drifted."
+            ),
+        }
+
+    async def index_lifecycle_policy_exists(self, name: str) -> bool:
+        return await self.get_index_lifecycle_policy(name) is not None
+
+    async def delete_index_lifecycle_policy(self, name: str) -> None:
+        self.lifecycle_policies.pop(name, None)
+
+    async def put_index_settings(self, index: str, settings: dict[str, Any]) -> None:
+        self.index_settings[index] = dict(settings)
+
+    async def remove_index_lifecycle(self, index: str) -> None:
+        self.index_settings.pop(index, None)
 
     async def close(self) -> None:
         return None

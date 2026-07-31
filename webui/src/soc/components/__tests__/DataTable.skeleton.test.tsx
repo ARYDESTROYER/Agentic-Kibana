@@ -1,8 +1,6 @@
 /**
- * DataTable — loading-skeleton spec (Round-6 #52 follow-up). The loading state renders
- * row-shaped `SkeletonRow`s that mirror the eventual rows: one shimmer bar per displayed
- * column (respecting alignment), plus the leading checkbox cell when selectable. Keeping
- * the loading shape aligned to the real row prevents a content-in layout shift.
+ * DataTable loading contract: a first load is centered inside the table geometry;
+ * a later refresh keeps usable rows mounted and uses the slim non-blocking bar.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
@@ -20,8 +18,8 @@ const columns: DataTableColumn<Row>[] = [
   { id: 'b', header: 'B', align: 'right', cell: (r) => r.b },
 ];
 
-describe('DataTable — SkeletonRow loading state', () => {
-  it('renders row-shaped skeletons that mirror the columns while loading', () => {
+describe('DataTable — standardized loading state', () => {
+  it('centers the shared loader inside one full-width body row on first load', () => {
     const { container } = render(
       <DataTable<Row>
         columns={columns}
@@ -33,36 +31,25 @@ describe('DataTable — SkeletonRow loading state', () => {
       />,
     );
 
-    // One decorative (aria-hidden) skeleton row per loadingRows.
-    const skeletonRows = container.querySelectorAll('tbody tr[aria-hidden="true"]');
-    expect(skeletonRows).toHaveLength(3);
-
-    // The card has a clear indeterminate activity cue in addition to the row
-    // shimmer, while exposing its busy state to assistive technology.
     const tableCard = container.firstElementChild;
     expect(tableCard).toHaveAttribute('aria-busy', 'true');
-    expect(
-      screen.getByRole('progressbar', { name: 'Loading Test table' }),
-    ).toBeInTheDocument();
-    expect(screen.getByTestId('loading-bar-indicator')).toHaveClass(
-      'motion-safe:animate-bar-indeterminate',
-      'motion-reduce:w-full',
+    expect(screen.getByRole('status', { name: 'Loading Test table' })).toBeVisible();
+    expect(screen.queryByRole('progressbar', { name: 'Loading Test table' })).not.toBeInTheDocument();
+
+    const loadingCell = screen.getByTestId('data-table-initial-loading').closest('td');
+    expect(loadingCell).toHaveAttribute('colspan', '2');
+    expect(screen.getByTestId('data-table-initial-loading')).toHaveClass(
+      'items-center',
+      'justify-center',
     );
-
-    // Each row mirrors the column set (2 cells, no checkbox).
-    const firstRowCells = skeletonRows[0].querySelectorAll('td');
-    expect(firstRowCells).toHaveLength(2);
-
-    // The right-aligned column's shimmer bar is nudged right (ml-auto) so it lands
-    // where the eventual right-aligned content will render; the left one is not.
-    const rightBar = firstRowCells[1].querySelector('div.shimmer');
-    expect(rightBar?.className).toContain('ml-auto');
-    const leftBar = firstRowCells[0].querySelector('div.shimmer');
-    expect(leftBar?.className).not.toContain('ml-auto');
+    expect(container.querySelector('[data-loading-shape="rows"]')).toHaveAttribute(
+      'aria-hidden',
+      'true',
+    );
   });
 
-  it('adds a leading checkbox skeleton cell when selectable', () => {
-    const { container } = render(
+  it('spans the selection column too when the initial table is selectable', () => {
+    render(
       <DataTable<Row>
         columns={columns}
         rows={[]}
@@ -73,9 +60,29 @@ describe('DataTable — SkeletonRow loading state', () => {
         ariaLabel="Sel table"
       />,
     );
-    // checkbox cell + one cell per column.
-    const cells = container.querySelectorAll('tbody tr[aria-hidden="true"] td');
-    expect(cells).toHaveLength(3);
+    expect(screen.getByTestId('data-table-initial-loading').closest('td')).toHaveAttribute(
+      'colspan',
+      '3',
+    );
+  });
+
+  it('keeps existing rows visible and shows only the non-blocking refresh bar', () => {
+    render(
+      <DataTable<Row>
+        columns={columns}
+        rows={[{ id: '1', a: 'Alpha', b: 'Bravo' }]}
+        getRowId={(r) => r.id}
+        loading
+        ariaLabel="Refresh table"
+      />,
+    );
+
+    expect(screen.getByText('Alpha')).toBeVisible();
+    expect(screen.getByText('Bravo')).toBeVisible();
+    expect(screen.queryByTestId('data-table-initial-loading')).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('progressbar', { name: 'Loading Refresh table' }),
+    ).toBeVisible();
   });
 
   it('lets pager controls wrap within a narrow table card instead of being clipped', () => {

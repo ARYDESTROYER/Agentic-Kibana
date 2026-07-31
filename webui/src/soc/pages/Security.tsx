@@ -25,6 +25,7 @@ import { useAuth } from '@/soc/auth';
 import { Can } from '@/soc/components/Can';
 import { PageHeader } from '@/soc/components/PageHeader';
 import { MfaSetupCard } from '@/soc/components/MfaSetupCard';
+import { LoadError } from '@/soc/components/LoadError';
 import { SessionPolicySection } from '@/soc/components/SessionPolicyEditor';
 import { Button } from '@/ui/button';
 import { Input } from '@/ui/input';
@@ -34,7 +35,7 @@ import { Switch } from '@/ui/switch';
 import { Badge } from '@/ui/badge';
 import { Card, CardContent } from '@/ui/card';
 import { Separator } from '@/ui/separator';
-import { Skeleton } from '@/ui/skeleton';
+import { LoadingState } from '@/design-system';
 import { Alert, AlertDescription } from '@/ui/alert';
 import {
   Select,
@@ -114,6 +115,7 @@ function ProviderEditor({
   onChange,
   onRemove,
   onSetSecret,
+  embedded = false,
 }: {
   provider: SsoProviderConfig;
   callbackUrl: string;
@@ -121,6 +123,7 @@ function ProviderEditor({
   onChange: (next: SsoProviderConfig) => void;
   onRemove: () => void;
   onSetSecret: (clientSecret: string | null) => Promise<void>;
+  embedded?: boolean;
 }) {
   const [secretInput, setSecretInput] = React.useState('');
   const [savingSecret, setSavingSecret] = React.useState(false);
@@ -133,8 +136,11 @@ function ProviderEditor({
     .join('\n');
 
   return (
-    <Card>
-      <CardContent className="space-y-4 p-5">
+    <Card
+      variant={embedded ? 'flat' : 'default'}
+      className={embedded ? 'rounded-none border-t border-border/70' : undefined}
+    >
+      <CardContent className={embedded ? 'space-y-4 px-1 pb-6 pt-5' : 'space-y-4 p-5'}>
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <Badge variant="outline" className="uppercase">{provider.type}</Badge>
@@ -298,18 +304,25 @@ function ProviderEditor({
  * TOTP MFA here. Exported so Settings can embed it under the Account (Personal)
  * group. Self-contained: loads its own `me` to read the enrolled state.
  */
-export function SecurityMfaInner() {
+export interface SecurityMfaInnerProps {
+  /** True when hosted beneath the Settings workspace header. */
+  embedded?: boolean;
+}
+
+export function SecurityMfaInner({ embedded = false }: SecurityMfaInnerProps) {
   const { authEnabled, isAuthenticated, username, refresh } = useAuth();
   const [mfaEnabled, setMfaEnabled] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
+  const [loadError, setLoadError] = React.useState<unknown>(null);
 
   const load = React.useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const me = await api.auth.me();
       setMfaEnabled(Boolean(me.user?.mfa_enabled));
-    } catch {
-      setMfaEnabled(false);
+    } catch (error) {
+      setLoadError(error);
     } finally {
       setLoading(false);
     }
@@ -326,8 +339,36 @@ export function SecurityMfaInner() {
   }, [refresh, load]);
 
   return (
-    <section className="space-y-3">
-      <h2 className="text-sm font-semibold text-foreground">Two-factor authentication</h2>
+    <section
+      aria-labelledby="account-two-factor-title"
+      className={embedded ? 'space-y-4 border-t border-border/80 px-1 pb-5 pt-5' : 'space-y-3'}
+      data-testid="two-factor-surface"
+      data-surface={embedded ? 'embedded' : 'standalone'}
+    >
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2
+            id="account-two-factor-title"
+            className={
+              embedded
+                ? 'text-base font-semibold tracking-tight text-foreground'
+                : 'text-sm font-semibold text-foreground'
+            }
+          >
+            Two-factor authentication
+          </h2>
+          {embedded ? (
+            <p className="mt-1 max-w-3xl text-sm leading-relaxed text-muted-foreground">
+              Protect your account with a time-based code from an authenticator app.
+            </p>
+          ) : null}
+        </div>
+        {embedded && authEnabled && isAuthenticated && username && !loading && !loadError ? (
+          <Badge variant={mfaEnabled ? 'success' : 'outline'}>
+            {mfaEnabled ? 'Enabled' : 'Disabled'}
+          </Badge>
+        ) : null}
+      </header>
       {!authEnabled ? (
         <Alert>
           <KeyRound aria-hidden />
@@ -342,9 +383,21 @@ export function SecurityMfaInner() {
           <AlertDescription>Sign in to manage two-factor authentication.</AlertDescription>
         </Alert>
       ) : loading ? (
-        <Skeleton className="h-40 w-full" />
+        <LoadingState
+          layout="panel"
+          shape="panel"
+          label="Loading two-factor settings"
+          description="Checking your enrollment and recovery options."
+        />
+      ) : loadError ? (
+        <LoadError
+          error={loadError}
+          fallback="Your enrollment status could not be verified."
+          title="Could not load two-factor settings"
+          onRetry={() => void load()}
+        />
       ) : (
-        <MfaSetupCard enabled={mfaEnabled} onChanged={onChanged} />
+        <MfaSetupCard enabled={mfaEnabled} onChanged={onChanged} frameless={embedded} />
       )}
     </section>
   );
@@ -364,6 +417,8 @@ export interface SecuritySsoInnerProps {
   update?: (patch: Partial<Preferences>) => void;
   /** Controlled `configured` map (embedded mode); reads `sso_client_secrets`. */
   configured?: Record<string, boolean>;
+  /** Use Settings' flat subsection hierarchy instead of standalone card chrome. */
+  embedded?: boolean;
 }
 
 /**
@@ -380,6 +435,7 @@ export function SecuritySsoInner({
   prefs: controlledPrefs,
   update,
   configured: controlledConfigured,
+  embedded = false,
 }: SecuritySsoInnerProps) {
   const controlled = Boolean(update);
 
@@ -389,16 +445,19 @@ export function SecuritySsoInner({
   const [loading, setLoading] = React.useState(!controlled);
   const [saving, setSaving] = React.useState(false);
   const [secretConfigured, setSecretConfigured] = React.useState<Record<string, boolean>>({});
+  const [loadError, setLoadError] = React.useState<unknown>(null);
 
   const callbackUrl = `${window.location.origin}/api/auth/sso/callback`;
 
   const load = React.useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const s = await api.getSettings();
       setLocalPrefs(s.prefs);
       setLocalConfigured(s.configured ?? {});
-    } catch {
+    } catch (error) {
+      setLoadError(error);
       setLocalPrefs(null);
     } finally {
       setLoading(false);
@@ -444,12 +503,16 @@ export function SecuritySsoInner({
   return (
     <>
       {/* Admin: Token & session policy */}
-      <SessionPolicySection {...policyProps} />
+      <SessionPolicySection {...policyProps} embedded={embedded} />
 
       {/* Admin: SSO */}
       <section className="space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-foreground">Single sign-on (OIDC)</h2>
+          {embedded ? (
+            <h3 className="text-sm font-semibold text-foreground">Single sign-on (OIDC)</h3>
+          ) : (
+            <h2 className="text-sm font-semibold text-foreground">Single sign-on (OIDC)</h2>
+          )}
           {/* In controlled (Settings) mode the parent owns the single Save button. */}
           {!controlled ? (
             <Button size="sm" onClick={saveSso} disabled={saving || !prefs}>
@@ -460,10 +523,25 @@ export function SecuritySsoInner({
         </div>
 
         {loading ? (
-          <Skeleton className="h-32 w-full" />
+          <LoadingState
+            layout="panel"
+            shape="panel"
+            label="Loading single sign-on"
+            description="Preparing provider and session-policy settings."
+          />
+        ) : loadError ? (
+          <LoadError
+            error={loadError}
+            fallback="The identity-provider configuration could not be retrieved."
+            title="Could not load single sign-on settings"
+            onRetry={() => void load()}
+          />
         ) : (
-          <Card>
-            <CardContent className="space-y-4 p-5">
+          <Card
+            variant={embedded ? 'flat' : 'default'}
+            className={embedded ? 'rounded-none border-t border-border/70' : undefined}
+          >
+            <CardContent className={embedded ? 'space-y-4 px-1 pb-5 pt-5' : 'space-y-4 p-5'}>
               <div className="flex items-center gap-2">
                 <Switch
                   id="sso-enabled"
@@ -524,6 +602,7 @@ export function SecuritySsoInner({
                 toast.error(e instanceof Error ? e.message : 'Could not save the secret.');
               }
             }}
+            embedded={embedded}
           />
         ))}
       </section>

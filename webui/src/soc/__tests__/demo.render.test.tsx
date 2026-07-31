@@ -120,8 +120,10 @@ describe('Experimental › Demo Mode control', () => {
     statusMock.mockResolvedValue(OFF);
     withProvider(<DemoModeSection />);
 
-    // The experimental label + both mode options render once status (OFF) resolves.
-    await waitFor(() => expect(screen.getByText('Experimental')).toBeInTheDocument());
+    // The standardized section heading + both mode options render once status resolves.
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: 'Experimental & Demo', level: 2 })).toBeInTheDocument(),
+    );
     expect(screen.getByText('Seeded')).toBeInTheDocument();
     expect(screen.getByText('Live')).toBeInTheDocument();
     // A knob label proves the arming form (not the active summary) is shown.
@@ -141,6 +143,12 @@ describe('Experimental › Demo Mode control', () => {
     statusMock.mockResolvedValue(ACTIVE);
     withProvider(<DemoModeSection />);
     await waitFor(() => expect(screen.getByText('Synthetic cases')).toBeInTheDocument());
+    const metrics = screen.getByTestId('demo-settings-surface').querySelectorAll('[data-settings-metric]');
+    expect(metrics).toHaveLength(8);
+    for (const metric of metrics) {
+      expect(metric).toHaveClass('border-l');
+      expect(metric.className).not.toMatch(/rounded|shadow|bg-card|bg-surface/);
+    }
     expect(screen.getByRole('button', { name: /exit & clear/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /reset/i })).toBeInTheDocument();
   });

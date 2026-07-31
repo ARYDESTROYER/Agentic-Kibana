@@ -55,13 +55,32 @@ vi.mock('sonner', () => ({
 
 import { AuthProvider } from '../auth';
 import { TooltipProvider } from '@/ui/tooltip';
-import Account from '../pages/Account';
+import Account, { AccountInner } from '../pages/Account';
+import { useHasUnsavedChanges } from '../hooks/useDirtyDraft';
+
+function DirtyProbe() {
+  return <output data-testid="account-dirty-probe">{useHasUnsavedChanges() ? 'dirty' : 'clean'}</output>;
+}
 
 function renderAccount() {
   return render(
     <AuthProvider>
       <TooltipProvider>
         <Account onNavigate={vi.fn()} />
+        <DirtyProbe />
+      </TooltipProvider>
+    </AuthProvider>,
+  );
+}
+
+function renderEmbeddedAccount() {
+  return render(
+    <AuthProvider>
+      <TooltipProvider>
+        <main>
+          <h1>Settings</h1>
+          <AccountInner embedded onNavigateToSecurity={vi.fn()} />
+        </main>
       </TooltipProvider>
     </AuthProvider>,
   );
@@ -129,7 +148,12 @@ describe('Account page', () => {
     const display = (await screen.findByLabelText('Display name', undefined, {
       timeout: 5000,
     })) as HTMLInputElement;
+    expect(screen.getByTestId('account-dirty-probe')).toHaveTextContent('clean');
     fireEvent.change(display, { target: { value: 'Alice A.' } });
+    await waitFor(
+      () => expect(screen.getByTestId('account-dirty-probe')).toHaveTextContent('dirty'),
+      { timeout: 5000 },
+    );
 
     const save = screen.getByRole('button', { name: /Save changes/i });
     await waitFor(() => expect(save).not.toBeDisabled(), { timeout: 5000 });
@@ -137,6 +161,10 @@ describe('Account page', () => {
 
     await waitFor(() => expect(accountPut).toHaveBeenCalledTimes(1), { timeout: 5000 });
     expect(accountPut.mock.calls[0][0]).toMatchObject({ display_name: 'Alice A.' });
+    await waitFor(
+      () => expect(screen.getByTestId('account-dirty-probe')).toHaveTextContent('clean'),
+      { timeout: 5000 },
+    );
   });
 
   it('renders an env-managed profile read-only (no Save button)', async () => {
@@ -154,5 +182,60 @@ describe('Account page', () => {
       { timeout: 5000 },
     );
     expect(screen.queryByRole('button', { name: /Save changes/i })).toBeNull();
+  });
+
+  it('keeps framed profile cards and page-level heading on the standalone route', async () => {
+    accountGet.mockResolvedValue({
+      username: 'alice',
+      role: 'analyst_tier2',
+      display_name: 'Alice',
+      alias: '',
+      alt_email: '',
+      timezone: '',
+      locale: '',
+      avatar: '',
+      env_managed: false,
+    });
+    renderAccount();
+
+    await screen.findByLabelText('Display name', undefined, { timeout: 5000 });
+    expect(screen.getByRole('heading', { name: 'Profile', level: 1 })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Identity & photo' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('profile-identity-surface')).toHaveAttribute(
+      'data-surface',
+      'standalone',
+    );
+    expect(screen.getByTestId('profile-identity-surface')).toHaveClass('rounded-md', 'border');
+    expect(screen.getByTestId('profile-details-surface')).toHaveClass('rounded-md', 'border');
+  });
+
+  it('uses flat labelled bands and one h1 → h2 hierarchy when embedded in Settings', async () => {
+    accountGet.mockResolvedValue({
+      username: 'alice',
+      role: 'analyst_tier2',
+      display_name: 'Alice',
+      alias: '',
+      alt_email: '',
+      timezone: '',
+      locale: '',
+      avatar: '',
+      env_managed: false,
+    });
+    renderEmbeddedAccount();
+
+    await screen.findByLabelText('Display name', undefined, { timeout: 5000 });
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+    expect(screen.getByRole('heading', { name: 'Profile', level: 2 })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Identity & photo', level: 3 })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Personal details', level: 3 })).toBeInTheDocument();
+
+    const identity = screen.getByTestId('profile-identity-surface');
+    const details = screen.getByTestId('profile-details-surface');
+    expect(identity.tagName).toBe('SECTION');
+    expect(identity).toHaveAttribute('data-surface', 'embedded');
+    expect(identity).toHaveClass('border-t', 'bg-transparent');
+    expect(identity).not.toHaveClass('rounded-md');
+    expect(details.tagName).toBe('SECTION');
+    expect(details).toHaveClass('border-t', 'bg-transparent');
   });
 });

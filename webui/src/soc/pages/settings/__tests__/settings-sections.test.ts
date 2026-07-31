@@ -48,9 +48,11 @@ const EXPECTED_IDS = [
   'security',
   'admin_sessions',
   'appearance',
+  'release_updates',
   'advanced',
   'advanced_all', // NEW (Round-5 Sett-C: schema-driven "All settings" generic renderer)
   'demo',
+  'storage',
   'data_export',
   'danger', // NEW (Round-5 Sett-B: isolated Danger zone, last)
 ].sort();
@@ -127,9 +129,11 @@ describe('grouped rail derivation (Round-5 Sett-B: 5 groups, Security promoted)'
     const org = SECTION_GROUPS.find((g) => g.id === 'organization')!;
     expect(org.sections.map((s) => s.id)).toEqual([
       'appearance',
+      'release_updates',
       'advanced',
       'advanced_all',
       'demo',
+      'storage',
       'data_export',
       'danger',
     ]);
@@ -166,6 +170,8 @@ describe('SECTION_KEYS is derived from ownedKeys (kills the 3-file hand-sync)', 
     // rag is owned by BOTH knowledge and advanced (honest dual-dot signal).
     expect(SECTION_KEYS.knowledge).toContain('rag');
     expect(SECTION_KEYS.advanced).toContain('rag');
+    expect(SECTION_KEYS.storage).toEqual(['storage_lifecycle']);
+    expect(SECTION_KEYS.release_updates).toEqual(['release_updates']);
   });
 
   it('leaves the embedded / self-saving sections out of the dirty map', () => {
@@ -207,7 +213,7 @@ describe('GRID_SECTIONS (full-width, no outer Card)', () => {
   it('includes the multi-card grid sections (general/detection/knowledge/advanced/case_policy)', () => {
     // These render their own SettingsGrid full-width (no card-in-a-card). Round-6 adds
     // case_policy (SLA / priority / suppression editor cards).
-    for (const id of ['general', 'detection', 'knowledge', 'advanced', 'case_policy']) {
+    for (const id of ['general', 'detection', 'knowledge', 'advanced', 'case_policy', 'storage', 'release_updates']) {
       expect(GRID_SECTIONS.has(id)).toBe(true);
     }
   });

@@ -37,7 +37,7 @@ import httpx
 from ..constants import BatchJobState
 from ..models import BatchJob
 from ..utils import iso_now
-from .providers import _estimate_tokens
+from .providers import _default_reasoning_effort, _estimate_tokens, _is_reasoning_or_gpt5
 
 logger = logging.getLogger("tlsoc.llm.batch")
 
@@ -251,6 +251,37 @@ def _parse_anthropic_result(row: dict[str, Any], model: str) -> BatchResult:
 # batch, poll status until 'completed', GET the output file (JSONL keyed by
 # custom_id). ≤50k requests / 200MB.
 # --------------------------------------------------------------------------- #
+def _openai_batch_body(model: str, params: dict[str, Any]) -> dict[str, Any]:
+    """Translate the provider-neutral detection request into OpenAI Chat shape.
+
+    Event detection intentionally builds one Anthropic-compatible neutral request
+    (``system`` beside ``messages`` and ``max_tokens``). OpenAI Chat requires the
+    system instruction inside ``messages``; GPT-5/o-series models also reject
+    ``temperature`` and use ``max_completion_tokens``. Keep classic OpenAI models'
+    historical parameters while applying Luna's explicit non-reasoning baseline.
+    """
+    raw = dict(params)
+    request_model = str(raw.pop("model", None) or model)
+    system = raw.pop("system", None)
+    messages = list(raw.pop("messages", None) or [])
+    if system:
+        messages.insert(0, {"role": "system", "content": str(system)})
+
+    body: dict[str, Any] = {"model": request_model, "messages": messages}
+    max_tokens = raw.pop("max_tokens", None)
+    if _is_reasoning_or_gpt5(request_model):
+        raw.pop("temperature", None)
+        if max_tokens is not None and "max_completion_tokens" not in raw:
+            body["max_completion_tokens"] = int(max_tokens)
+        reasoning_effort = _default_reasoning_effort(request_model)
+        if reasoning_effort is not None and "reasoning_effort" not in raw:
+            body["reasoning_effort"] = reasoning_effort
+    elif max_tokens is not None:
+        body["max_tokens"] = int(max_tokens)
+    body.update(raw)
+    return body
+
+
 class OpenAIBatchProvider(BatchProvider):
     name = "openai"
 
@@ -269,7 +300,7 @@ class OpenAIBatchProvider(BatchProvider):
                 "custom_id": str(r["custom_id"]),
                 "method": "POST",
                 "url": "/v1/chat/completions",
-                "body": {"model": model, **(r.get("params") or {})},
+                "body": _openai_batch_body(model, r.get("params") or {}),
             }))
         jsonl = "\n".join(jsonl_lines)
         up = await self._client.post(

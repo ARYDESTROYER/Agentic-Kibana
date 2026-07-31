@@ -3373,3 +3373,4251 @@
 - Tests: Full backend suite passed **1,982/1,982**. Full Console suite passed **1,468/1,468 across 248 files**. Production docs+app build passed with 3,161 modules, **294.80 kB** entry and lazy **83.85 kB** motion chunk. ESLint passed with 0 errors/warnings; all five design gates passed; generated OpenAPI/TypeScript matched 193 paths; docs consistency passed 63 public pages; version/docs bundle checks, seven documentation script tests, documentation JavaScript syntax, dashboard NDJSON parsing, and `git diff --check` passed. In-app Browser QA verified both themes' shared dark contract on the final dark surface, Dashboard LIVE/Expand, lineage details, wide Cases handoff, exact Case Manager selection, keyboard resize, bulk actions, Threat Context clustering, Workspace Chat, auto-tuning, selective export, custom-role permission, installed Help Center layout, and a clean browser error console.
 - Status: implementation and verification complete in the shared `Testing` tree; the temporary task memory is being removed before the ensuing local commit. Nothing was pushed, tagged, deployed, or published.
 - Next: Review and push this Testing commit when ready; promote to protected `main` only after the documented Stable release gates pass.
+
+### 2026-07-22 11:57Z — `/root` — Noise Reduction visual refinement started
+- Context: Preserve the Dashboard's six-stage Noise Reduction Sankey behavior and information while replacing its overly generated-looking presentation with a restrained, deliberate SOC-console visualization.
+- Did: Re-read the current handoff, agent rules, Console UI standard, and Browser workflow; scoped the work to the existing aggregate SVG, expanded view, interactions, accessibility, and focused tests without changing metrics or decision behavior.
+- Tests: Pending implementation, focused Console tests, static gates, production build, and both-theme browser verification.
+- Status: in progress.
+- Next: Audit the current SVG and rendering contract, implement token-based visual refinements, then verify normal and expanded states in both themes.
+
+### 2026-07-22 11:59Z — `/root/noise_detail_fix` — Noise Reduction aggregate visual audit complete
+- Context: Review the existing six-stage aggregate Sankey for the smallest safe changes that make it look deliberately designed without disturbing geometry, numbers, hover behavior, drill-down, or expanded lineage.
+- Did: Recommended matte ribbon opacity, squared node anchors, and flatter drop annotations while preserving the current topology and stage rail.
+- Tests: Read-only audit; no files changed and no tests run.
+- Status: complete; recommendations returned to the integration lead.
+- Next: Integration lead to implement only the visual subset that preserves the existing data and interaction contract.
+
+### 2026-07-22 12:00Z — `/root/cases_experience` — Noise Reduction visual design audit complete
+- Context: Independently review the funnel against the current Dashboard design language and the user's request to keep its behavior intact.
+- Did: Identified gradient-heavy ribbons, rounded loss pills, and uneven stage-label baselines as the strongest generated-looking cues; supplied broader alternatives for consideration.
+- Tests: Read-only audit; no files changed and no tests run.
+- Status: complete; the integration lead intentionally retained the existing geometry and behavior while adopting the low-risk presentation findings.
+- Next: None.
+
+### 2026-07-22 12:01Z — `/root/escalation_cleanup` — Noise-flow token audit complete
+- Context: Check whether the proposed Sankey refinement can use the established light/dark token contract without adding dependencies or one-off color values.
+- Did: Recommended theme-scoped opacity variables, semantic solid ribbon fills, quiet hover surfaces, and removal of elevation from chart annotations.
+- Tests: Read-only audit; no files changed and no tests run.
+- Status: complete; token guidance returned to the integration lead.
+- Next: None.
+
+### 2026-07-22 12:18Z — `/root` — Noise Reduction visual refinement complete
+- Context: Make the existing Dashboard Sankey feel like a restrained SOC instrument while preserving the exact six-stage flow, data, layout, normal/expanded views, hover explanations, stage drill-down, and accessibility contract.
+- Did: Replaced glossy per-link gradients with matte semantic ribbons controlled by light/dark theme tokens; added restrained non-scaling edges and squared node anchors; converted floating loss pills into compact monospaced annotations; aligned stage-label baselines; and quieted rail/toggle hover surfaces. Corrected the help copy to describe the three outcome views actually rendered. No metrics, geometry, endpoint, correlation, or deterministic decision behavior changed, and no dependency was added. No Codex Security review was run.
+- Tests: Focused NoiseFunnel suite passed 18/18; full Console suite passed 1,468/1,468 across 248 files; TypeScript, scoped ESLint, full ESLint, all five design gates, production docs+app build, and `git diff --check` passed. Production build remained at 3,161 modules with a 294.80 kB entry and lazy 83.85 kB motion chunk. In-app Browser QA verified normal and expanded views in both themes and a clean fresh-page error console.
+- Status: complete in the shared `Testing` working tree; the refined dark Dashboard is left open locally for review. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: User visual review; make any final taste-level adjustment without changing the preserved flow contract.
+
+### 2026-07-22 13:01Z — `/root` — Dashboard LIVE indicator cleanup started
+- Context: The auto-refresh trigger renders two green status blips because the selected LIVE option and the trigger both supply one; the refresh glyph also needs to communicate continuous LIVE operation.
+- Did: Scoped a presentation-only correction in the shared TimeRangePicker while preserving its visibility-aware five-second polling behavior and accessible label.
+- Tests: Pending focused component/Overview tests, static checks, and in-app Browser verification in both the collapsed trigger and open menu.
+- Status: in progress.
+- Next: Remove the duplicate trigger blip, make the LIVE refresh glyph rotate continuously, and add regression coverage for exactly one visible status indicator.
+
+### 2026-07-22 13:05Z — `/root` — Dashboard LIVE indicator cleanup complete
+- Context: Correct the duplicate LIVE status blip and make the adjacent refresh glyph continuously communicate the active LIVE operating mode.
+- Did: Removed the trigger-owned duplicate pulse and retained the single pulse supplied by the selected LIVE option; added continuous rotation to the refresh glyph only while LIVE is selected. The existing visibility-aware five-second refresh cadence, menu ordering, selected-state semantics, and accessible label remain unchanged.
+- Tests: Focused TimeRangePicker/Overview suites passed 29/29; full Console suite passed 1,468/1,468 across 248 files; TypeScript, scoped ESLint, full ESLint, all five design gates, production docs+app build, and `git diff --check` passed. In-app Browser QA confirmed exactly one trigger pulse, exactly one LIVE-menu pulse, a rotating refresh glyph in both themes, and a clean fresh-page error console after the production build.
+- Status: complete in the shared `Testing` working tree; the corrected dark Dashboard is left open locally. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: User visual review.
+
+### 2026-07-22 13:15Z — `/root` — Dashboard LIVE menu reorder started
+- Context: Place the operational LIVE mode before the timed refresh cadences so it appears directly below Off and above 5 seconds.
+- Did: Scoped the change to the shared auto-refresh option ordering and its regression coverage; polling behavior and animation remain unchanged.
+- Tests: Pending focused component tests, static checks, and in-app Browser ordering verification.
+- Status: in progress.
+- Next: Reorder LIVE, assert the exact option sequence, and verify the open dark-theme menu locally.
+
+### 2026-07-22 13:17Z — `/root` — Dashboard LIVE menu reorder complete
+- Context: Make LIVE the first active refresh choice, directly below Off and before all fixed polling cadences.
+- Did: Reordered the shared refresh option registry to `Off → LIVE → 5 seconds → 30 seconds → 1 minute → 5 minutes` and added an exact-order regression. LIVE polling, rotation, pulse, accessible naming, and default selection remain unchanged.
+- Tests: Focused TimeRangePicker/Overview suites passed 29/29; TypeScript, scoped ESLint, and `git diff --check` passed. In-app Browser QA confirmed the exact open-menu order in the dark Dashboard and a clean error console.
+- Status: complete in the shared `Testing` working tree; the Dashboard is left open locally. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: User visual review.
+
+### 2026-07-22 13:20Z — `/root` — Dashboard refresh-control consolidation started
+- Context: The header currently presents two rotating refresh glyphs in LIVE mode even though the right-hand glyph is the actual manual-refresh button.
+- Did: Scoped consolidation to remove the decorative selector glyph, preserve the single LIVE pulse/label, and transfer continuous green LIVE animation to the clickable manual-refresh control.
+- Tests: Pending focused picker/Overview regressions, static checks, and browser validation of LIVE and manual click behavior.
+- Status: in progress.
+- Next: Implement the single-action treatment without changing polling cadence or accessible control names.
+
+### 2026-07-22 13:24Z — `/root` — Dashboard refresh-control consolidation complete
+- Context: Present one unambiguous refresh glyph in the Dashboard header while retaining both automatic LIVE operation and immediate manual reload.
+- Did: Removed the decorative refresh glyph from the cadence selector, kept its single green LIVE pulse and visible label at all breakpoints, and made the right-hand manual-refresh button the sole glyph. That button is green and rotates continuously in LIVE mode, still spins during an in-flight manual refresh in other modes, and retains the same `Refresh dashboard` action and accessible name.
+- Tests: Focused TimeRangePicker and both Overview suites passed 46/46, including an actual manual-click reload assertion; TypeScript, scoped ESLint, and `git diff --check` passed. In-app Browser QA confirmed zero refresh glyphs in the selector, one pulse, one green rotating manual glyph, a successful click refresh, and a clean error console.
+- Status: complete in the shared `Testing` working tree; the corrected dark Dashboard is left open locally. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: User visual review.
+
+### 2026-07-22 13:25Z — `/root` — Compact refresh-cadence trigger started
+- Context: Reduce the Dashboard cadence selector's footprint and abbreviate only its selected trigger text while retaining full menu labels and accessible names.
+- Did: Scoped a shared-picker presentation update for `5 sec`, `30 sec`, `1 min`, and `5 min`; cadence values, timing, and option wording remain unchanged.
+- Tests: Pending focused picker/Overview regressions, static checks, and browser validation across selected cadences.
+- Status: in progress.
+- Next: Add compact trigger labels, reduce width, and verify LIVE plus fixed-interval selections locally.
+
+### 2026-07-22 13:31Z — `/root` — Compact refresh-cadence trigger complete
+- Context: Use header space more efficiently while keeping refresh choices clear to sighted and assistive-technology users.
+- Did: Reduced the cadence trigger from its former 144px desktop width to a fixed 96px control and added presentation-only abbreviations: `5 sec`, `30 sec`, `1 min`, and `5 min`. The menu continues to show `5 seconds`, `30 seconds`, `1 minute`, and `5 minutes`, and those full labels remain in each trigger's accessible name. LIVE retains its single pulse; refresh timing and the separate manual action are unchanged.
+- Tests: Focused TimeRangePicker and both Overview suites passed 50/50; TypeScript, scoped ESLint, and `git diff --check` passed. In-app Browser QA cycled all four timed values, confirmed compact trigger text plus full accessible names, restored LIVE, and verified a clean fresh-page error console.
+- Status: complete in the shared `Testing` working tree; the compact LIVE Dashboard is left open locally. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: User visual review.
+
+### 2026-07-22 18:54Z — `/root` — LIVE pulse visibility correction started
+- Context: The compact trigger still contains the LIVE pulse element, but the shared Select trigger's direct-child line-clamp display rule collapses its inline dimensions, making the dot visually disappear.
+- Did: Scoped a layout-only correction that gives the trigger content and pulse explicit display boxes without changing width, cadence text, menu ordering, animation, or polling behavior.
+- Tests: Pending focused regressions, static checks, and browser measurement of the rendered pulse dimensions.
+- Status: in progress.
+- Next: Override the inherited display rule, assert the pulse layout contract, and verify the visible dark-theme result locally.
+
+### 2026-07-22 19:02Z — `/root` — LIVE pulse visibility correction complete
+- Context: Restore the single green LIVE pulse after the compact trigger's inherited line-clamp styling collapsed its inline box.
+- Did: Forced the selected-value wrapper back to inline-flex and gave the pulse an explicit block `size-2` box. The compact 96px control, cadence labels, menu ordering, manual-refresh action, and polling behavior remain unchanged.
+- Tests: Focused TimeRangePicker plus both Overview suites passed 50/50; TypeScript, scoped ESLint, and `git diff --check` passed. The regression now asserts one and only one LIVE pulse, its explicit 8px layout classes, and no duplicate refresh glyph. The in-app browser connection timed out during the final post-fix pixel measurement, so no browser-only result is claimed for this small correction.
+- Status: complete in the shared dirty `Testing` working tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: User visual review of the restored green pulse.
+
+### 2026-07-22 19:03Z — `/root` — Noise Reduction Sankey professional redesign started
+- Context: The aggregate flow remains functionally strong but still reads as an AI-generated hero graphic because of glossy multicolour ribbons, detached floating loss pills, weak stage alignment, and excessive empty canvas.
+- Did: Began a source-backed visual audit and delegated independent research, visual-contract review, and regression-contract analysis. Scope is a restrained SOC instrument treatment that preserves the six-stage data, exact counts, expanded inspection, hover evidence, accessibility, themes, and existing deterministic semantics.
+- Tests: Pending implementation, focused component/Overview suites, TypeScript, scoped lint, production build, and local browser comparison.
+- Status: in progress.
+- Next: Synthesize authoritative Sankey guidance with the local design standard, implement the strongest low-risk direction, and verify it in both themes.
+
+### 2026-07-22 19:05Z — `/root/cases_experience` — Authoritative Sankey design research started
+- Context: Research professional Sankey conventions applicable to the Agentic SOC dark operational dashboard.
+- Did: Began a read-only review of official D3, Google Charts, Plotly, Carbon, Grafana, and W3C guidance covering proportional geometry, layout, colour, labels, interaction, annotations, dense graph handling, and accessibility. No repository files were edited and no Codex Security review was run.
+- Tests: Online source review pending.
+- Status: in progress.
+- Next: Translate stable source-backed conventions into concise implementation recommendations for the aggregate and expanded Noise Reduction flows.
+
+### 2026-07-22 19:05Z — `/root/cases_experience` — Authoritative Sankey design research complete
+- Context: Finish the source-backed visual direction for the Agentic SOC Noise Reduction Sankey.
+- Did: Established proportional ribbons and nodes, fixed six-stage ordering, direct labels, restrained semantic colour, focus-driven path emphasis, textual loss annotations, keyboard-equivalent evidence popovers, truthful handling of overlapping outcomes, and bounded expanded lineage inspection. Recommendations were grounded in official D3, Google Charts, Plotly, Carbon, Grafana, and W3C documentation.
+- Tests: Read-only research and source comparison only; no repository or runtime changes were made.
+- Status: complete.
+- Next: Apply the recommendations without changing the six-stage data contract, then verify geometry reconciliation, responsive alignment, hover/focus parity, both themes, accessibility, and expanded-view truncation messaging.
+
+### 2026-07-22 19:04Z — `/root/escalation_cleanup` — Noise Funnel restrained-visual audit started
+- Context: Compare the supplied Noise Reduction screenshot, current implementation, theme tokens, dashboard placement, and Console UI standard.
+- Did: Began a read-only audit of the generated-looking visual cues and a restrained replacement that preserves all data semantics and interactions. No repository files were edited and no Codex Security review was run.
+- Tests: Read-only audit pending.
+- Status: in progress.
+- Next: Define exact geometry, colour, spacing, annotation, motion, and responsive rules for an operational treatment.
+
+### 2026-07-22 19:04Z — `/root/escalation_cleanup` — Noise Funnel restrained-visual audit complete
+- Context: Finish the independent visual-contract audit for the aggregate Noise Reduction flow.
+- Did: Identified oversized saturated shapes, soft gradients, floating pills, detached labels, decorative animation, and excess height as the principal synthetic cues; specified low-opacity matte links, square anchors, hairline structure, direct annotations, aligned labels, static rendering, and a rail-first narrow layout while preserving all current data, hover, filter, hide, expand, and lineage behavior.
+- Tests: Read-only audit only; no files were modified.
+- Status: complete.
+- Next: Integration lead to implement the scoped visual contract and verify it against the Console design standard.
+
+### 2026-07-22 19:05Z — `/root/noise_detail_fix` — Instrument-panel Sankey implementation audit started
+- Context: Audit the current aggregate SVG, focused tests, theme tokens, and expanded rendering before planning a proportional instrument-panel redesign.
+- Did: Inspected current geometry, matte-link changes, stage/loss DOM, accessibility, theme declarations, expanded recursion, and regression assertions. No files were edited and no Codex Security review was run.
+- Tests: Source and test-contract inspection only.
+- Status: in progress.
+- Next: Define the smallest implementation and exact regression changes for proportional bands, square nodes, integrated labels/losses, theme parity, and expanded mode.
+
+### 2026-07-22 19:05Z — `/root/noise_detail_fix` — Instrument-panel Sankey implementation audit complete
+- Context: Finish the implementation plan for the professional Noise Reduction instrument panel.
+- Did: Identified the remaining non-proportional floor/minimum geometry, rounded nodes, and detached hierarchy; confirmed shared expanded rendering could reuse one implementation. Defined exact proportional heights, square anchors, an integrated HTML/SVG panel, existing semantic tokens, and focused regression coverage without API or lineage changes.
+- Tests: Read-only audit; existing assertions were classified as preserved, updated, or additive.
+- Status: complete.
+- Next: Implement the scoped geometry/presentation changes and run focused, static, full-suite, and visual verification.
+
+### 2026-07-22 19:29Z — `/root` — Noise Reduction Sankey professional redesign complete
+- Context: Replace the generated-looking aggregate flow with a calmer, source-backed SOC instrument while preserving its data and workflows.
+- Did: Rebuilt the processing spine as one restrained aggregate stream, kept severity composition in the evidence hover instead of five competing ribbons, removed gradients and decorative grow/stagger motion, made every node and ribbon exactly proportional with no visual floor, reserved semantic colour for outcome branches, squared the anchors, converted loss pills to direct `filtered` annotations, added hairline stage structure, and added focus/hover path isolation. The same component still powers the normal and expanded views; counts, stage order, outcome overlap normalization, filtering, hide/expand actions, lineage, case-only degradation, and deterministic behavior are unchanged. No new dependency was added and no Codex Security review was run.
+- Tests: Focused Funnel/Overview suites passed 43/43; design/theme/accessibility gates passed 37/37; full Console suite passed 1,474/1,474 across 248 files; TypeScript, scoped ESLint, full ESLint, production app build (3,161 modules, 294.80 kB entry), and `git diff --check` passed. The in-app browser connection timed out repeatedly during the final pixel pass, so no browser-only visual result is claimed.
+- Status: complete in the shared dirty `Testing` tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: User visual review in the already running Console; make any final taste-level adjustment while preserving the proportional and interaction contracts.
+
+### 2026-07-24 04:55Z — `/root` — Setup wizard overhaul started
+- Context: Rebuild the entire first-run setup wizard into one coherent Agentic SOC onboarding experience while preserving the existing setup API, security boundaries, and deployment semantics.
+- Did: Began a code, contract, design-system, accessibility, responsive, and live-flow audit. The target is a flat command-center workflow with clear progress, contextual guidance, honest validation/recovery states, and a deliberate handoff into the Console in both themes.
+- Tests: Pending focused wizard suites, static/type/lint/design gates, complete Console tests, production build, and in-app browser verification.
+- Status: in progress.
+- Next: Map the current Wizard and setup backend contract, synthesize the revised information architecture, implement it with shared primitives, then verify every path end to end.
+
+### 2026-07-24 04:56Z — `/root/wizard_contract_audit` — Setup wizard contract audit started
+- Context: Map the current first-run setup workflow before the full visual and interaction overhaul.
+- Did: Began a read-only review of Wizard, Login/setup routing, shared source editing, frontend API contracts, backend setup/source/demo/model endpoints, persistence boundaries, permissions, and existing tests. No repository files were edited and no Codex Security review was run.
+- Tests: Read-only contract inspection pending.
+- Status: in progress.
+- Next: Produce the preserved state-machine contract, identify functional gaps and misleading controls, and define exact redesign regressions.
+
+### 2026-07-24 05:02Z — `/root/wizard_contract_audit` — Setup wizard contract audit complete
+- Context: Finish the functional contract and regression map for the first-run setup overhaul.
+- Did: Documented account bootstrap, Wizard routing, all four current steps, request payloads, source-save sequencing, secret and persistence boundaries, permissions, failure behavior, and Console handoff. Confirmed the deployment-name control is discarded by the backend model; identified unsafe setup-error bypass, index-based progression, unsaved-secret and source-draft loss, demo/source overlay conflict, non-atomic source saves, cosmetic readiness, stale automation copy, and accessibility/retry gaps. Supplied an explicit replacement state machine and focused frontend/backend regression cases. No files were edited and no Codex Security review was run.
+- Tests: Read-only source/test inspection plus a non-mutating Pydantic model probe confirming `deployment_name` is not retained. No product suites were run.
+- Status: complete.
+- Next: Implement the reducer-driven Demo/Live onboarding flow, preserve the documented backend invariants, and run the proposed focused, static, full-suite, build, and browser gates.
+
+### 2026-07-24 04:55Z — `/root/wizard_quality_audit` — Setup wizard quality audit started
+- Context: Define the accessibility, responsive, resilience, secret-handling, test, and documentation acceptance contract for the full setup-wizard overhaul.
+- Did: Began a read-only review of the current Wizard, App setup gate, shared SourceEditor and SecretField primitives, backend setup lifecycle, focused tests, and installed/public documentation.
+- Tests: Existing focused baseline pending.
+- Status: in progress.
+- Next: Identify concrete quality gaps, required regressions, browser acceptance, and documentation drift without editing repository files.
+
+### 2026-07-24 05:02Z — `/root/wizard_quality_audit` — Setup wizard quality audit complete
+- Context: Complete the quality and documentation contract for the Agentic SOC setup-wizard overhaul.
+- Did: Identified fail-open setup gating, unguarded step navigation, missing focus and announcement behavior, ambiguous loading and partial-success states, response-loss/idempotency gaps, stale readiness and automation copy, responsive/theme/reduced-motion acceptance, and exact focused test and documentation updates. No repository files were edited and no security review was run.
+- Tests: Existing Wizard onboarding/demo, SecretField, and SourceEditor focus suites passed 12/12 across 4 files.
+- Status: complete.
+- Next: Integrate the acceptance criteria during implementation, then run focused tests, accessibility/design gates, the full Console suite, production build, and in-app Browser QA in both themes and narrow layouts.
+
+### 2026-07-24 05:03Z — `/root/wizard_ux_blueprint` — Setup wizard UX audit started
+- Context: Produce a read-only UI/UX blueprint for a complete Agentic SOC first-run wizard redesign.
+- Did: Read the current handoff, agent rules, Console UI standard, Wizard, setup API contract, shared primitives, SourceEditor, ConnectorPicker, reference Console surfaces, tests, and first-run documentation.
+- Tests: Not run; this was a read-only design and contract audit.
+- Status: in progress.
+- Next: Reconcile the current four-step behavior, persistence boundaries, and Console visual grammar into an implementation-ready blueprint.
+
+### 2026-07-24 05:03Z — `/root/wizard_ux_blueprint` — Setup wizard redesign blueprint delivered
+- Context: Complete the read-only blueprint for the Agentic SOC setup-wizard overhaul.
+- Did: Defined a wide flat Console-style shell, guarded four-step IA, truthful readiness model, guided source-editor composition, provider-key flow, Demo behavior, error recovery, completion handoff, responsive/theme rules, component reuse, anti-pattern removals, and verification targets. Flagged direct-step key loss, the cramped max-w-2xl shell, dead `deployment_name` copy, incorrect Demo review copy, connection-test wording, and documentation drift.
+- Tests: Not run; no repository files were changed.
+- Status: complete.
+- Next: Implement through the existing shadcn/Radix/SOC primitives, update focused Wizard tests and first-run docs, then run full Console and browser QA.
+
+### 2026-07-24 05:22Z — `/root/wizard_docs_update` — Setup wizard documentation refresh started
+- Context: Align operator, deployment, troubleshooting, development-standard, handoff, changelog, and roadmap guidance with the redesigned four-stage setup workflow.
+- Did: Began a scoped documentation audit covering the setup lifecycle, Demo versus Live behavior, source and secret persistence, guarded navigation, truthful launch readiness, rerun semantics, and setup-status recovery. No implementation files were changed and no Codex Security review was run.
+- Tests: Documentation inspection in progress.
+- Status: in progress.
+- Next: Replace stale wizard terminology and document the finished workflow without changing backend or wire contracts.
+
+### 2026-07-24 05:22Z — `/root/wizard_code_review` — Setup wizard implementation review started
+- Context: Independently review the in-progress setup-wizard overhaul before integration.
+- Did: Began a read-only correctness, state-transition, race, accessibility, responsive-layout, backend-contract, and focused-regression review of Wizard, the App setup gate, SourceEditor connection-test copy, and associated tests. No implementation files were edited and no Codex Security review was run.
+- Tests: Focused review validation pending.
+- Status: in progress.
+- Next: Trace every navigation and completion path, run focused tests and typecheck as useful, then return only actionable findings with exact references.
+
+### 2026-07-24 05:23Z — `/root` — Setup wizard overhaul implementation milestone
+- Context: Replace the cramped, cosmetic setup flow with a coherent Console-native onboarding workspace and repair the setup state machine identified during the audit.
+- Did: Rebuilt the wizard as a full-height responsive four-stage workspace (Workspace, Data sources, AI runtime, Review & launch) with a desktop progress rail, compact mobile progress, flat section hierarchy, one focused heading per step, guarded source drafts, centralized navigation, provider-key autosave, response-loss reconciliation, truthful Demo/live/limited readiness, and non-destructive launch guidance. Removed the discarded deployment-name field, corrected draft connection-test copy, and made failed setup-status checks fail closed behind Retry instead of opening the Console.
+- Tests: Focused Wizard/Demo/boot-gate suites passed 15/15; TypeScript and the production app build passed (3,162 transformed modules). In-app Browser QA passed the full four-step flow, source-draft discard gate, dark and light themes, and a 390×844 narrow viewport; the current page rendered without new runtime errors after reload.
+- Status: implementation complete; independent review, documentation, full Console gates, and final browser pass remain in progress.
+- Next: Integrate review findings and docs, run lint/design/full-suite/full-docs build gates, then complete final light/dark/responsive QA and handoff.
+
+### 2026-07-24 05:27Z — `/root/wizard_code_review` — Setup wizard implementation review complete
+- Context: Independently validate the implemented setup-workspace state machine and presentation before final integration.
+- Did: Traced boot, mode switching, source editing, provider autosave, launch reconciliation, rerun behavior, permissions, readiness, focus, and responsive layout. Found actionable races in overlapping setup checks and unguarded async navigation, a rerun automation control that can silently override operator intent, disabled-source readiness drift, and an under-labelled destructive Demo exit. No implementation files were edited and no Codex Security review was run.
+- Tests: Focused Wizard/Demo/App/SourceEditor suites passed 16/16; TypeScript, scoped ESLint, and `git diff --check` passed.
+- Status: complete with actionable findings returned to the integration lead.
+- Next: Resolve the reported state and truthfulness defects, add regressions for the affected paths, then run the complete Console and browser gates.
+
+### 2026-07-24 05:28Z — `/root/wizard_docs_update` — Setup wizard documentation refresh complete
+- Context: Bring every current operator and developer description of first-run setup into line with the redesigned Console workflow.
+- Did: Documented the four stages (Workspace, Data sources, AI runtime, Review & launch), Synthetic demo versus Live, truthful limited readiness, guarded source drafts, write-only provider-key autosave, fail-closed setup-status Retry, response-loss reconciliation, default automation posture, and first-run versus re-run launch labels. Removed stale deployment-name, per-role-model, six-step, and Finish wording across product help, deployment, troubleshooting, architecture, UI-standard, handoff, README, changelog, and roadmap guidance. Historical research and release snapshots were left intact; no implementation files were changed and no Codex Security review was run.
+- Tests: Seven documentation script tests passed; the version-matched Agentic SOC 0.1 Help Center bundled successfully; `npm run docs:check` and `git diff --check` passed. An initial unittest command from the wrong working directory failed to import the scripts; the corrected root-level discovery command passed all seven tests.
+- Status: complete in the shared dirty `Testing` tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Integration lead to run the complete Console/build gates after final implementation changes and keep the bundled Help Center synchronized.
+
+### 2026-07-24 05:29Z — `/root/wizard_code_review` — Setup-status concurrency fix started
+- Context: Prevent overlapping boot/setup probes from letting a stale response overwrite the current setup gate.
+- Did: Began a narrowly scoped App boot-state generation guard and deferred-promise regression. Wizard implementation files remain out of scope and no Codex Security review is being run.
+- Tests: Focused boot-gate test, scoped lint, TypeScript, and diff checks pending.
+- Status: in progress.
+- Next: Accept setup results only from the newest request, prove both stale-failure and stale-success ordering, then return the focused change to the integration lead.
+
+### 2026-07-24 05:29Z — `/root/wizard_resilience_fix` — Setup wizard transition hardening started
+- Context: Close the remaining wizard-only state, readiness, permission, and desktop-layout gaps from the independent implementation review.
+- Did: Began a scoped Wizard and Wizard-test update covering one transition/navigation lock, destructive Demo-to-Live confirmation, permission-safe mode choices, enabled-source readiness, disabled-source disclosure, and a scrollable desktop progress rail. No App/boot implementation or tests are in scope, and no Codex Security review is being run.
+- Tests: Focused Wizard suites, scoped ESLint, TypeScript, and diff checks pending.
+- Status: in progress.
+- Next: Implement the state-machine guards, add race/readiness regressions, and run the focused static gates.
+
+### 2026-07-24 05:36Z — `/root/wizard_resilience_fix` — Setup wizard transition hardening complete
+- Context: Finish the remaining wizard-only hardening findings before the integration lead runs the full Console and browser gates.
+- Did: Added one synchronous transition lock shared by provider-key saves, navigation, Demo changes, and completion so rapid or cross-surface clicks cannot duplicate writes or move the wizard mid-operation. Added an explicit destructive confirmation before disabling Synthetic demo, disabled the Live choice when the operator lacks permission to disable an active demo, made only enabled sources satisfy source readiness while reporting configured-disabled sources separately, and made the desktop progress rail independently scrollable. Removed setup-time tuning/campaign writes so the automation posture is informational and existing policy is never overwritten. No App/boot files were changed and no Codex Security review was run.
+- Tests: Wizard onboarding and Demo suites passed 16/16 across 2 files; scoped ESLint and `tsc --noEmit` passed; `git diff --check` passed. One initial focused run had a stale expected heading in the new regression; the expectation was corrected to the rendered heading and the clean rerun passed.
+- Status: complete in the shared dirty `Testing` tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Integration lead to reconcile documentation wording for non-mutating automation posture, run full Console/build/browser verification, and hand off the complete wizard overhaul.
+
+### 2026-07-24 05:31Z — `/root/wizard_code_review` — Setup-status concurrency fix complete
+- Context: Ensure overlapping post-auth and auth-effect setup probes cannot publish stale boot state.
+- Did: Added a monotonic request-generation guard in App so only the newest setup probe may publish completion, error, or checked state. Added a real post-sign-in deferred-promise regression that resolves the newer probe into first-run setup, then rejects the older request and proves the stale failure cannot replace the wizard with the boot error. Wizard implementation files were not touched and no Codex Security review was run.
+- Tests: Focused boot-gate suite passed 7/7; scoped ESLint, TypeScript, and `git diff --check` passed.
+- Status: complete in the shared dirty tree; nothing was staged, committed, pushed, tagged, or deployed.
+- Next: Integration lead to combine this guard with the wizard-only resilience changes and run the complete Console gates.
+
+### 2026-07-24 05:43Z — `/root` — Setup workspace overhaul complete
+- Context: Finish the complete first-run and Settings re-run redesign as a production-quality Agentic SOC workflow, including the independent review hardening and version-matched operator documentation.
+- Did: Delivered the responsive four-stage Console-native setup workspace with truthful Demo/Live and limited-readiness states, connector management, write-only provider-key persistence, guarded drafts, destructive Demo-exit confirmation, one transition lock, enabled-source readiness, non-mutating automation posture, accessible stage focus/progress, shaped loading/errors, completion reconciliation, and fail-closed setup boot. Updated current operator, deployment, troubleshooting, architecture, handoff, changelog, roadmap, web UI, and visual-standard documentation. Preserved all unrelated pre-existing dashboard work and ran no Codex Security review.
+- Tests: Setup-focused suites passed 24/24 across four files; the complete Console suite passed 1,486/1,486 across 248 files; full ESLint and all five design gates passed; `npm run build` bundled Agentic SOC 0.1 Testing Help Center documentation and built the production app (3,162 transformed modules); documentation discovery passed 7/7, consistency passed 63 public pages, version metadata matched app 0.1.0/docs 0.1, `npm run docs:check` passed, JavaScript syntax and `git diff --check` passed. In-app Browser QA passed Workspace, source inventory, Demo-to-Live confirmation, review, desktop Light/Dark, 390×844 compact layout, focused headings, and a clean reload with no new warnings or errors.
+- Status: complete in the shared dirty `Testing` tree. Nothing was staged, committed, pushed, tagged, or published.
+- Next: Review the locally open setup workspace; when approved, package these dirty-tree changes with the intended dashboard work in the next Testing release.
+
+### 2026-07-24 06:46Z — `/root/version_011_testmap` — v0.1.1 release-surface audit started
+- Context: Map every authoritative application, package, build-info, badge, documentation-bundle, test, and release-note version source before the requested v0.1.1 bump.
+- Did: Began a read-only inspection of current version contracts and release gates; product files remain untouched and no Codex Security review is being run.
+- Tests: Not run; repository contract discovery is in progress.
+- Status: in progress.
+- Next: Identify the minimal complete version patch, explain the Help Center major.minor behavior, and return focused plus full verification gates to the integration lead.
+
+### 2026-07-24 06:46Z — `/root` — Agentic SOC 0.1.1 candidate preparation started
+- Context: Advance the integrated Testing candidate from 0.1.0 to patch version 0.1.1 while preserving the existing 0.1 documentation line and release-channel contract.
+- Did: Began an authoritative version-source, generated-metadata, operator-copy, release-guidance, and verification audit across the root version, backend package/API, web package/lock/OpenAPI, Compose defaults, release badge, Help Center metadata, changelog, and current release documentation. Existing dirty setup/dashboard work remains in place and no Codex Security review is being run.
+- Tests: Pending version audit and integrated release gates.
+- Status: in progress.
+- Next: Apply the minimal complete 0.1.1 candidate patch, verify badge/API/docs/build identity, and leave tagging for the exact accepted Stable `main` commit rather than the dirty Testing tree.
+
+### 2026-07-24 06:46Z — `/root/version_011_audit` — 0.1.1 version-surface audit started
+- Context: Independently map every authoritative and generated version surface required to advance the dirty Testing candidate from 0.1.0 to 0.1.1.
+- Did: Began a read-only audit of frontend, backend, package, deployment, Help Center, release-channel, changelog, and release-page metadata while preserving all shared product edits. No Codex Security review is being run.
+- Tests: Audit and exact verification command inventory pending.
+- Status: in progress.
+- Next: Return precise file and line recommendations, generated-file boundaries, stale-version searches, and Stable tag semantics to the integration lead.
+
+### 2026-07-24 06:52Z — `/root/version_011_docs` — v0.1.1 current documentation update started
+- Context: Advance current operator, deployment, release-channel, compatibility, and developer guidance from the 0.1.0 candidate identity to the requested 0.1.1 Testing candidate while preserving the installed/public documentation line at 0.1.
+- Did: Began a bounded pass over the authoritative current-release documentation only. Historical changelog mechanics, runtime/package metadata, generated Help Center artifacts, and Git tag creation remain outside this subtask; no Codex Security review is being run.
+- Tests: Documentation consistency and bundle checks pending after the scoped edit.
+- Status: in progress.
+- Next: Replace current 0.1.0/v0.1.0 artifact and tag examples with 0.1.1/v0.1.1, update the known current Console test count, then validate the public docs contract.
+
+### 2026-07-24 06:56Z — `/root/version_011_docs` — v0.1.1 current documentation update complete
+- Context: Complete the documentation half of the 0.1.1 Testing-candidate identity while keeping all patch releases on the installed/public 0.1 Help Center line.
+- Did: Updated current application, image, package, API, Console-badge, Stable-promotion, immutable-tag, compatibility, deployment, upgrade, troubleshooting, support-matrix, release-channel, and release-page references from 0.1.0/v0.1.0 to 0.1.1/v0.1.1 across the authoritative operator and developer documentation. Updated the already-verified current Console count from 1,468 to 1,486 tests across 248 files. Runtime/package metadata, changelog mechanics, generated Help Center files, and Git refs remained outside this subtask; no Codex Security review was run.
+- Tests: Documentation consistency passed across 63 public pages; all 7 documentation-script tests passed; `git diff --check` passed. The read-only `npm run docs:check` correctly reported the pre-existing generated manifest still at productVersion 0.1.0 after the root became 0.1.1, so the integration lead must rebuild the version-matched Help Center before the final check.
+- Status: complete in the shared dirty `Testing` tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Integration lead to rebuild the bundled 0.1 Help Center under the authoritative 0.1.1 app identity, rerun `npm run docs:check`, and include the synchronized artifact in the integrated release gates.
+
+### 2026-07-24 06:52Z — `/root/version_011_core` — v0.1.1 core identity update started
+- Context: Advance the authoritative runtime, package, build, deployment-default, Help Center, and release-badge test identity from 0.1.0 to the requested 0.1.1 Testing candidate.
+- Did: Began the narrowly scoped metadata update while preserving the 0.1 documentation route, third-party dependency versions, unrelated product work, and the Stable-only tag boundary. No Codex Security review is being run.
+- Tests: Focused version consistency, documentation-bundle, and release-identity checks pending.
+- Status: in progress.
+- Next: Patch only the assigned core identity surfaces, run focused gates, and return the exact diff and verification evidence to the integration lead.
+
+### 2026-07-24 06:52Z — `/root/version_011_changelog` — 0.1.1 candidate release note started
+- Context: Record the requested patch-version identity in the active changelog without rewriting the historical 0.1.0 snapshot or implying that a Stable release/tag already exists.
+- Did: Began the bounded `CHANGELOG.md` update for the Unreleased Testing candidate; no other product or release surfaces are in scope and no Codex Security review is being run.
+- Tests: Pending a focused content check and `git diff --check`.
+- Status: in progress.
+- Next: Add one concise Changed entry for app 0.1.1 and the shared 0.1 Help Center line, then verify the patch.
+
+### 2026-07-24 06:53Z — `/root/version_011_changelog` — 0.1.1 candidate release note complete
+- Context: Finish the bounded Unreleased changelog update for the requested patch-version candidate.
+- Did: Added one Changed entry stating that the Unreleased Testing candidate is 0.1.1, that patch releases continue to share the 0.1 Help Center line, and that candidate metadata does not imply an existing Stable tag. Preserved the historical `Development snapshot — 2026-07-19 — 0.1.0 Testing release foundation` heading exactly; no Codex Security review was run.
+- Tests: Focused content search found the single Unreleased section, the new candidate note, and the unchanged historical 0.1.0 heading; `git diff --check -- CHANGELOG.md Journal.md` passed.
+- Status: complete in the shared dirty `Testing` tree. Nothing was staged, committed, tagged, pushed, deployed, or published.
+- Next: Integration lead to combine this note with the authoritative core and documentation version updates, then run the complete release gates.
+
+### 2026-07-24 06:54Z — `/root/version_011_core` — v0.1.1 core identity update complete
+- Context: Finish the authoritative runtime, package, build, deployment-default, Help Center, and release-badge test identity update for the 0.1.1 Testing candidate.
+- Did: Updated the root/backend/web package identities, generated OpenAPI version, Compose build and image defaults, environment template, MkDocs product identity, backend release-channel example, documentation-bundle fixtures, and release identity/badge tests to 0.1.1 while retaining the 0.1 Help Center route and every third-party dependency version. No Codex Security review was run.
+- Tests: Documentation-bundle tests passed 4/4; Console release identity/badge tests passed 8/8 across 2 files; direct backend/package/lock identity assertions passed; `git diff --check` passed. The integrated version checker reached one expected out-of-scope failure because `docs/releases/0.1.md` had not yet been updated by the documentation pass.
+- Status: scoped implementation complete in the shared dirty `Testing` tree. Nothing was staged, committed, tagged, pushed, deployed, or published.
+- Next: Integration lead to combine the documentation and changelog updates, rerun the now-complete version checker plus full release gates, and reserve `v0.1.1` tagging for the exact accepted Stable `main` commit.
+
+### 2026-07-24 06:55Z — `/root/version_011_core` — Integrated v0.1.1 version contract verified
+- Context: Recheck the complete version contract after the parallel documentation pass supplied the previously missing 0.1 release-page identity.
+- Did: Confirmed all authoritative app and documentation surfaces now reconcile as application 0.1.1 on the shared 0.1 Help Center line; no further implementation edits were needed.
+- Tests: `python3 scripts/check_version.py` passed with `app 0.1.1; docs 0.1`; repository-wide `git diff --check` passed.
+- Status: complete; core version metadata is ready for the integration lead's full build and browser verification.
+- Next: Preserve Testing provenance until promotion and apply the `v0.1.1` tag only to the exact accepted, re-verified Stable `main` commit.
+
+### 2026-07-24 06:57Z — `/root/version_011_full_web_test` — Complete web regression run started
+- Context: Independently run the complete WebUI Vitest suite against the integrated 0.1.1 candidate tree.
+- Did: Started the full read-only `npx vitest run --reporter=dot --silent` regression gate; no product files are being changed and no Codex Security review is being run.
+- Tests: Full WebUI suite in progress.
+- Status: in progress.
+- Next: Report the exact file/spec totals, failures, and elapsed time, then append the completion result.
+
+### 2026-07-24 06:57Z — `/root/version_011_backend_check` — v0.1.1 backend identity regression started
+- Context: Verify the metadata-only 0.1.1 update through the narrowest backend runtime, build-info, and API checks.
+- Did: Began a read-only audit of the existing backend version assertions and release/build-info coverage; no product code changes and no Codex Security review are in scope.
+- Tests: Focused backend checks pending.
+- Status: in progress.
+- Next: Locate the relevant test nodes, run only the version/build-info/API regression surface, and report exact command-level evidence.
+
+### 2026-07-24 06:59Z — `/root/version_011_backend_check` — v0.1.1 backend identity regression complete
+- Context: Finish the focused backend verification for the metadata-only 0.1.1 candidate update.
+- Did: Confirmed the runtime package constant, source package metadata, FastAPI/OpenAPI identity, legacy health response, liveness/readiness responses, public build-info response, and health-route public allowlist all retain their contracts while reporting 0.1.1. Flagged one stale test comment that still names the old 0.1.0 candidate; no product code was changed and no Codex Security review was run.
+- Tests: Three focused health/build-info/readiness API tests passed; the focused public-route allowlist test passed; a direct assertion printed `runtime=0.1.1 package=0.1.1 openapi=0.1.1`.
+- Status: complete in the shared dirty `Testing` tree. Nothing was staged, committed, tagged, pushed, deployed, or published.
+- Next: Integration lead to update the stale `backend/tests/test_api.py` candidate-version comment, then include these focused checks in the integrated 0.1.1 verification evidence.
+
+### 2026-07-24 06:58Z — `/root/version_011_full_web_test` — Complete web regression run passed
+- Context: Finish the independent full WebUI regression gate for the integrated 0.1.1 Testing candidate.
+- Did: Ran the complete Vitest suite in dot/silent mode across the current shared tree; no product files were changed and no Codex Security review was run.
+- Tests: `cd webui && npx vitest run --reporter=dot --silent` passed **248/248 test files** and **1486/1486 tests**, with **0 failures**; Vitest reported **16.59s** duration (**17.06s** command wall time).
+- Status: complete.
+- Next: Integration lead can combine this clean full-suite result with the remaining build, lint, documentation, backend, and browser verification gates.
+
+### 2026-07-24 07:01Z — `/root` — Agentic SOC 0.1.1 Testing candidate verified
+- Context: Complete the requested patch-version update and restore confidence in the operator-facing Chat route without misrepresenting the dirty Testing checkout as a Stable release.
+- Did: Advanced the root, backend runtime/package/OpenAPI, web package/lock/OpenAPI, Compose defaults, environment example, Console release badge, release tests, current operator/deployment/developer guidance, Help Center product metadata, and Unreleased release note to application version 0.1.1. Preserved the compatible documentation line at 0.1, retained the explicitly historical 0.1.0 changelog snapshot, and updated the final stale backend test comment. Rebuilt the installed Help Center and production Console. Browser QA confirmed the exact Chat route, the `v0.1.1 · Testing` badge, persisted authenticated reload, and no browser warnings or errors. No Codex Security review was run.
+- Tests: Version consistency passed (`app 0.1.1; docs 0.1`); documentation discovery passed 7/7 and consistency passed 63 pages; `npm run docs:check`, full ESLint, all five design gates, full docs+app production build (3,162 modules), focused backend health/build-info/public-route checks (4/4), release identity/badge checks (8/8), documentation-bundle checks (4/4), full Console Vitest (1,486/1,486 across 248 files), backend runtime/package/OpenAPI identity assertions, loopback health identity, and `git diff --check` passed. One initial root docs-check command was invoked from `webui/` and failed only because that working directory lacked `webui/scripts/check_docs.py`; the corrected root-level rerun passed.
+- Status: complete in the shared dirty `Testing` tree. The local Console is available for review; nothing was staged, committed, tagged, pushed, or published.
+- Next: Review the 0.1.1 Testing candidate, commit/push it through the intended Testing workflow, then promote and tag only the exact accepted, re-verified Stable `main` commit as `v0.1.1`.
+
+### 2026-07-25 17:09Z — `/root` — Console visual-system consolidation started
+- Context: Clean and standardize the Agentic SOC sign-in, loading states, Case Manager collaboration/overview surfaces, and setup-source identity while preserving the existing v0.1.1 Testing work and operator contracts.
+- Did: Began a reference-driven UI audit across the supplied screenshots, the current Console standard, shared primitives, theme tokens, source connector catalog, and Case Manager components. Scope includes a centralized, machine-readable design/asset catalog suitable for a future agent-facing component service; no Codex Security review is being run.
+- Tests: Focused component tests, full Console gates, both-theme browser QA, and documentation consistency pending.
+- Status: in progress.
+- Next: Establish shared source marks and loading primitives, migrate the high-friction screens, flatten Case Manager visual noise, document the contract, and verify the integrated result.
+
+### 2026-07-25 17:11Z — `/root/case_manager_visual_cleanup` — Case Manager surface cleanup started
+- Context: Calm the dedicated Case Manager Overview and Collaboration presentations without changing data, actions, RBAC, API wiring, or deterministic decision authority.
+- Did: Began a focused review of the existing casedetail panels, their presentation branches, and their regression coverage against the Console UI standard; no Codex Security review is in scope.
+- Tests: Focused casedetail tests and type/lint checks pending.
+- Status: in progress.
+- Next: Flatten nested chrome in Case Manager mode, preserve the default sheet presentation, add contract tests, and return exact verification evidence to the integration lead.
+
+### 2026-07-25 17:11Z — `/root/signin_polish` — Sign-in surface refinement started
+- Context: Refine the Agentic SOC sign-in and identity-flow presentation within the shared Console grammar while preserving first-run setup, password change, MFA, SSO, white-label branding, plain-text safety, and accessibility.
+- Did: Began a focused audit of `Login.tsx`, the shared login form parts, their tests, and the current UI standard. Scope is intentionally limited to calmer spacing, typography, field/icon/focus treatment, demo credential hierarchy, and responsive split/center/full layouts; no dependency or Codex Security review is involved.
+- Tests: Focused login/auth component tests, typecheck, lint, and diff checks pending.
+- Status: in progress.
+- Next: Consolidate the form-field treatment in shared login parts, simplify the sign-in panel chrome, add regression assertions, and report exact verification evidence to the integration lead.
+
+### 2026-07-25 17:19Z — `/root/signin_polish` — Sign-in surface refinement complete
+- Context: Complete the bounded sign-in cleanup while keeping every identity state and white-label layout behavior-compatible.
+- Did: Added one login-specific 44px credential-control grammar with aligned leading icons, quiet token fills, visible focus treatment, and an accessible 36px password-reveal target; applied it to sign-in, first-admin setup, MFA recovery, password change, and segmented OTP. Flattened the form panel, tightened the compact brand header and hero chrome, demoted seeded credentials from an alert card to a quiet contextual hint, added purposeful placeholders, made split/center/full shells scroll-safe, and balanced the desktop top anchor without re-centering between authentication modes. Preserved plain-text branding, SSO, MFA, password-manager autocomplete, paste, support links, and all curated layouts; no dependency or Codex Security review was added.
+- Tests: Focused login suite passed 25/25 across 5 files; full WebUI typecheck passed; focused ESLint passed with zero findings; all five design gates passed; scoped `git diff --check` passed.
+- Status: complete in the shared dirty `Testing` tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Integration lead to include these three product/test files in the consolidated browser QA across dark/light and narrow/1280×720 layouts, then run the full Console suite/build with the other visual-system changes.
+
+### 2026-07-25 17:11Z — `/root/design_system_loading_sources` — Design-system loading and source identity pass started
+- Context: Establish one reusable Console loading grammar and distinct source identities for the setup catalog, while making the shared design vocabulary machine-readable for future agent tooling.
+- Did: Began a bounded audit of the route fallback, table/source-catalog loading states, connector manifest picker, current theme primitives, and direct component tests. The implementation will use dependency-free, theme-adaptive custom source marks rather than importing third-party brand artwork; no Codex Security review is in scope.
+- Tests: Focused accessibility, source-catalog coverage, table loading, typecheck, lint, and design-gate checks pending.
+- Status: in progress.
+- Next: Add the design-system catalog and source-mark registry, implement a restrained centered loading primitive, migrate owned surfaces, and verify the integrated contracts.
+
+### 2026-07-25 17:18Z — `/root/case_manager_visual_cleanup` — Case Manager Overview and Collaboration cleanup complete
+- Context: Finish the focused visual cleanup of the dedicated Case Manager panels while keeping the default case sheet and all case data/actions unchanged.
+- Did: Replaced the embedded Collaboration card stack with a flat discussion canvas and one quiet context rail; kept the empty discussion useful, pinned the message composer to the workspace bottom, and preserved ownership, tasks, activity, live refresh, and RBAC. Reworked the embedded Overview into whitespace-led lanes with subtle tonal signal/action groups, removed per-heading rules and per-column borders, and kept one hairline only between major Provenance, Entity/story, and Evidence sections. The default sheet presentation and deterministic decision wording/authority were not changed. No Codex Security review was run.
+- Tests: Focused Collaboration/Overview suite passed 41/41; all casedetail component tests passed 135/135 across 12 files; focused ESLint, `tsc --noEmit`, `git diff --check`, and the production `npm run build:app` (3,162 modules) passed.
+- Status: complete in the shared dirty Testing tree; nothing staged, committed, pushed, tagged, or published.
+- Next: Integration lead to combine with the shared loading/source/sign-in work, perform both-theme browser QA, and run the full Console gates.
+
+### 2026-07-25 17:25Z — `/root` — Shared visual-system integration milestone
+- Context: Integrate the authentication, Case Manager, loading, connector-identity, and internal design-system passes into one current Console contract.
+- Did: Added the canonical `webui/src/design-system/` documentation and public Help Center page; documented the token/primitives/domain layering, centered loading contract, original source-mark policy, and a truthful future agent/MCP boundary. Migrated Settings, Branding, case-detail, and Case Manager queue first-load states to the shared centered `LoadingState`, replacing large competing shimmer/card stacks while keeping refresh and button progress local. Added focused assertions for centered Branding and Case Manager loading states. Updated the UI standard, developer index, WebUI README, AGENTS/HANDOFF pointers, MkDocs navigation, and Unreleased changelog. No API, deterministic decision, dependency, or Codex Security review change was made.
+- Tests: Sub-agent focused suites, TypeScript, scoped lint, design gates, and Case Manager build are green; integration-focused and full-repository Console gates remain pending after the final shared package handoff.
+- Status: implementation integrated; verification in progress.
+- Next: Review the final shared design-system diff, run focused and full Console gates, then inspect sign-in, centered loading, source picker, Settings, and Case Manager Collaboration/Overview in the live browser across both themes and a narrow viewport.
+
+### 2026-07-25 17:26Z — `/root/design_system_loading_sources` — Design-system loading and source identity pass complete
+- Context: Finish the bounded central loading, connector-identity, and machine-readable asset work requested for the Console cleanup.
+- Did: Added a dependency-free `src/design-system` package with one centered `LoadingState`, one reduced-motion-safe `LoadingGlyph`, a non-blocking `LoadingBar`, an original vector `SourceMark`, complete core source-type geometry, and a JSON-safe catalog that explicitly ships no MCP transport. Migrated bootstrap and lazy-route loading, initial DataTable loading, non-blocking table refresh, setup connector-catalog loading, SourceEditor action progress, and ConnectorPicker cards. The picker now gives all 19 built-in connectors distinct custom marks while retaining plugin fallback and manifest behavior; no Codex Security review was run.
+- Tests: New/focused loading, source-mark, connector-picker, PageSkeleton, DataTable, and SourceEditor tests passed 15/15; supporting App/auth/source/DataTable tests passed 26/26; full TypeScript typecheck, scoped ESLint, all five design gates, and scoped `git diff --check` passed.
+- Status: complete in the shared dirty `Testing` tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Integration lead to run the consolidated full Console suite/build and browser-check the centered route/table states plus source picker in both themes and narrow layout.
+
+### 2026-07-25 17:33Z — `/root` — Console visual-system consolidation complete
+- Context: Finish the requested sign-in, loading, source-identity, Collaboration, and Case Manager cleanup as one standardized Agentic SOC Console system.
+- Did: Integrated the polished authentication fields and quiet login composition; established `webui/src/design-system/` as the reusable cross-cutting boundary; added one centered, reduced-motion-safe loading grammar plus a slim refresh indicator; replaced repeated connector glyphs with original token-adaptive vector marks covering all built-in and reserved source types; flattened Case Manager Overview and Collaboration while preserving every action, evidence field, activity stream, task, owner, RBAC check, and deterministic decision contract; and published the design-system ownership and future agent/MCP catalog boundary in the installed Help Center and repository guidance. Live review confirmed the sign-in, centered Settings load, setup connector catalog, Case Manager Overview, and Collaboration in dark mode, plus Case Manager in light mode and a 390 by 844 compact viewport. No Codex Security review was run.
+- Tests: Integration-focused Console suite passed 88/88; full Console Vitest passed 1496/1496 across 250 files; `npm run typecheck`, `npm run lint`, all five design gates, full docs-plus-app production build (3,168 modules), `npm run docs:check`, documentation-bundle tests (4/4), and `git diff --check` passed. Focused sign-in, casedetail, loading, source-mark, DataTable, and source-editor suites also passed. Browser QA found no visual blocker in the requested surfaces.
+- Status: complete in the shared dirty v0.1.1 Testing tree. The temporary root `memory.md` scratchpad was deleted. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Review the local Console, then include these files in the intended v0.1.1 Testing commit and promotion workflow when accepted.
+
+### 2026-07-25 19:19Z — `/root` — Fluent/Material-style loading ring refinement started
+- Context: Replace the new Console orbit-and-dot loading mark with a more familiar Microsoft Fluent / Android Material-style indeterminate progress ring while preserving the centralized loading contract.
+- Did: Began a focused review of the canonical `LoadingGlyph`, its direct consumers, reduced-motion behavior, and loading regressions. Scope is presentation-only: no API, data, RBAC, dependency, or deterministic decision changes; no Codex Security review is being run.
+- Tests: Focused design-system/loading tests, TypeScript, lint, design gates, diff hygiene, and live browser verification pending.
+- Status: in progress.
+- Next: Implement one clean single-arc progress ring, update exact component assertions and catalog copy, then verify its centered page and compact inline presentations.
+
+### 2026-07-25 19:22Z — loader-ring-audit agent — Fluent/Material loader audit started
+- Context: Read-only audit of the shared circular loading glyph, direct tests, catalog, documentation, reduced-motion contract, and accessibility behavior.
+- Did: Inspected the canonical design-system loader and compared its visual and interaction contract with official Fluent and Android indeterminate-progress guidance.
+- Tests: Not run at session start.
+- Status: in progress.
+- Next: Validate the proposed ring structure, tests, reduced-motion behavior, and documentation surface.
+
+### 2026-07-25 19:23Z — loader-ring-audit agent — Fluent/Material loader audit completed
+- Context: Determine the cleanest dependency-free replacement for the Console loading orbit.
+- Did: Confirmed the single-track/single-arc expanding progress ring as the correct design; identified reduced-motion CSS contract coverage and Windows forced-colors handling as the two remaining hardening opportunities. No files edited.
+- Tests: Focused design-system and PageSkeleton Vitest run passed 8/8; relevant `git diff --check` passed.
+- Status: complete.
+- Next: Add the CSS media-query regression assertion and forced-colors styling before final verification if scope permits.
+
+### 2026-07-25 19:25Z — `/root` — Fluent/Material-style loading ring refinement complete
+- Context: Finish the requested familiar circular loading treatment across every consumer of the centralized Console loader.
+- Did: Replaced the custom two-arc orbit and center dot with one quiet track and one rounded primary arc whose length grows and contracts while rotating at a restrained 1.35-second cadence. Animation is declared only under `prefers-reduced-motion: no-preference`; reduced-motion receives a static partial ring. Added Windows forced-colors mapping (`GrayText` track, `Highlight` arc), updated the serializable design-system catalog and operator/developer documentation, and added source-contract regressions for motion gating and forced-color distinction. No dependency, API, data, RBAC, or deterministic decision change was made; no Codex Security review was run.
+- Tests: Focused loading suite passed 9/9; integration loading surfaces passed 27/27 before the final CSS hardening; full Console Vitest passed 1497/1497 across 250 files; TypeScript, ESLint, all five design gates, production app build (3,168 modules), and `git diff --check` passed. Live local browser QA confirmed the exact single-arc DOM contract, active rotation/dash animations, zero center dots, both light and dark visuals, and zero browser warnings/errors.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Review the updated ring in the local Console and include it in the intended v0.1.1 Testing commit when accepted.
+
+### 2026-07-25 19:54Z — `/root` — Application-wide Console visual-standard migration started
+- Context: Audit every registered Console surface and bring the application into one consistent Agentic SOC visual and interaction grammar, beyond the already-refined dashboard, Case Manager, setup, authentication, loading, and connector surfaces.
+- Did: Began a route-by-route and primitive-by-primitive audit against the canonical design-system and UI-standard documentation. Work is split into non-overlapping shell/primitives, operational pages, and administration/intelligence cohorts so shared changes remain reviewable in the current dirty Testing tree.
+- Tests: Baseline route inventory, focused component tests, full Console Vitest, TypeScript, lint, design gates, production build, and live light/dark browser review pending.
+- Status: in progress.
+- Next: Record the visual debt matrix, extend the shared page/card/control grammar, migrate the highest-impact inconsistent routes, then run the full static and browser gates.
+
+### 2026-07-25 20:00Z — `/root` — Case Manager summary aligned with the flat Console grammar
+- Context: Remove one remaining duplicate state and nested-card cue found during the live route audit.
+- Did: Suppressed the redundant legacy escalation chip whenever lifecycle status already reads Escalated, while retaining the compatibility chip for non-escalated statuses carrying an old escalation level. Replaced the embedded recommended-action and signal-profile fills with a border-led action lane and responsive hairline signal column; all facts, scoring, actions, and deterministic authority copy remain unchanged.
+- Tests: Focused OverviewPanel suite passed 36/36, including the new scoped duplicate-state and flat signal-lane regressions.
+- Status: complete; broader application migration remains in progress.
+- Next: Integrate the shared-shell and route-cohort migrations, then perform full tests and both-theme browser review.
+
+### 2026-07-25 19:55Z — `/root/ui_shell_primitives` — Shared Console shell and primitive migration started
+- Context: Standardize the reusable Agentic SOC application frame, page composition, controls, and empty/error/loading chrome so every route inherits the same flat command-center grammar.
+- Did: Began a bounded audit of the shared shell, navigation, design-system package, page/card/table primitives, theme tokens, and their regression coverage. Route and feature page files are intentionally out of scope; existing dirty work will be preserved and no Codex Security review is being run.
+- Tests: Focused primitive/shell tests, TypeScript, lint, design gates, and diff hygiene pending.
+- Status: in progress.
+- Next: Consolidate the shared visual contracts with minimal compatible changes, add focused regressions, and return integration evidence to the application-wide migration lead.
+
+### 2026-07-25 19:56Z — `/root/ui_admin_intel_pages` — Secondary and administration surface migration started
+- Context: Bring the Workspace, intelligence, knowledge, governance, identity, audit, and compatibility routes into the canonical flat Agentic SOC command-center grammar without changing their behavior, APIs, RBAC, or deep links.
+- Did: Began a page-level audit against the installed Console UI standard and design-system ownership boundaries. Shared primitives/theme, operational pages, Case Manager/Case Detail, setup/authentication, and Settings remain outside this agent's edit scope; no Codex Security review is being run.
+- Tests: Focused route tests, TypeScript, scoped lint, design gates, and diff hygiene pending.
+- Status: in progress.
+- Next: Inventory each assigned page's composition and state handling, migrate the highest-impact inconsistencies with existing primitives/tokens, then validate the cohort and report shared primitive needs to the integration lead.
+### 2026-07-25 19:55Z — Codex operational UI cohort — application-wide Console-standard migration
+- Context: Audit and migrate the registered operational routes (Home, Overview, Cases, Sources, Standup, Analytics, Metrics, Cost, Campaigns, Baseline, Batch Jobs, Tuning, Inbox, and Dashboards) to the established flat, whitespace-led Agentic SOC Console grammar without changing shared design-system/theme files or adjacent ownership cohorts.
+- Did: Started route/file inventory, Light/Dark/narrow visual audit, and focused page-local migration planning; preserving behavior, APIs, RBAC, charts, data, and the existing dirty worktree.
+- Tests: Pending scoped Vitest, TypeScript, lint, design gates, production build, and browser QA.
+- Status: in-progress
+- Next: Identify repeated page-local outliers, apply bounded layout/control/table/feedback cleanups, then verify the operational cohort across themes and responsive widths.
+
+### 2026-07-25 20:07Z — `/root/ui_shell_primitives` — Shared Console shell and primitive migration complete
+- Context: Finish the bounded application-frame and reusable-surface portion of the application-wide Agentic SOC visual-standard migration.
+- Did: Made Card and filled Button elevation opt-in; unified Tabs and SegmentedControl around one compact squared rail; flattened routine FilterBar, ControlBar, SettingsCard, ChartCard, DataTable, and EmptyState chrome; replaced DataTable's local empty illustration with the shared compact state; and quieted current-page emphasis plus account/health control shapes in AppShell/NavSidebar. Registered the stabilized surface contracts in the serializable design-system catalog and developer documentation, and added regressions for flat section chrome, compact control radius/height, explicit elevation, and non-glowing navigation. No route behavior, API, RBAC, deterministic decision contract, dependency, or Codex Security review changed.
+- Tests: Shared primitive/shell suites passed 91/91 across 15 files; TypeScript, scoped ESLint, all five design gates, production app build (3,169 modules), and scoped `git diff --check` passed. A concurrent full Console run reached 1547 passed with four page-cohort assertion failures (Sources count copy twice, Intelligence blocking-state visibility, and Standup duplicate route animation); those were reported to the owning page agent and are not shared-primitive failures.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Integration lead to reconcile the concurrent page-cohort assertions, run the final consolidated suite, and complete Light/Dark/narrow browser review of the assembled routes.
+
+### 2026-07-25 20:10Z — `/root/ui_migration_verifier` — Application-wide Console migration verification started
+- Context: Independently audit the assembled UI migration for registered-route anatomy, duplicate loading or motion, nested-card remnants, responsive hazards, and TypeScript/lint/test regressions.
+- Did: Read the canonical handoff and agent rules, reviewed the current migration milestones, and began a verification-only source and focused-test pass. Product files remain outside this agent's scope and no Codex Security review is being run.
+- Tests: Focused route-contract, component, TypeScript, lint, and diff checks pending.
+- Status: in progress.
+- Next: Inspect the registered route graph and changed files, run targeted gates, then return ranked findings with exact evidence to the integration lead.
+
+### 2026-07-25 20:10Z — `/root/ui_ops_pages` — Operational Console route migration complete
+- Context: Align the highest-impact operational routes with the canonical flat, whitespace-led Console grammar while preserving all data, API, RBAC, drill-through, chart, and case-action behavior.
+- Did: Reworked Overview into a plain title plus shared control bar, replaced its page-local skeleton matrix with the centered Console loading state, and removed duplicate route motion. Flattened the Cases KPI and filter bands, moved queue sort/refresh into a shared control row, and made every facet usable at standard laptop widths. Reframed Sources around one responsive FilterBar, a single header action, flat coverage/bulk strips, and preserved count semantics. Consolidated Analytics/Metrics tabs and controls, removed the nested embedded PageContainer, converted primary metrics to a flat telemetry strip, standardized loading/errors/empty states, and removed redundant route-entry fades from Standup, Scans, and Approvals. Updated Overview loading/control regressions. No dependency, backend, policy, or Codex Security review change was made.
+- Tests: Focused operational route suite passed 92/92 across 7 files; the route visual-standard contract passed 47/47. A broader earlier focused pass passed 101/101 operational tests with only the two subsequently-fixed route-motion contract failures. `npx tsc --noEmit`, scoped ESLint, and `git diff --check` passed. In-app browser QA could not run because no browser instance was available; the integration lead retains the live Light/Dark/narrow review gate.
+- Status: complete in the shared dirty v0.1.1 Testing tree; nothing staged, committed, pushed, tagged, deployed, or published.
+- Next: Integration lead to run the consolidated full Console suite/build and visually review Overview, Cases, Sources, and Analytics in Light/Dark plus a 1280px/narrow viewport.
+
+### 2026-07-25 20:12Z — `/root/ui_admin_intel_pages` — Secondary and administration surface migration complete
+- Context: Finish the page-level intelligence, governance, identity, audit, and compatibility portion of the application-wide Console visual-standard migration.
+- Did: Converted Knowledge, Memory, Models, and legacy Scans summaries to the dashboard-style flat telemetry strip; flattened the Knowledge corpus distribution and Memory/Audit control bands; retained cards only for selectable records, independent widgets, and contained editors. Replaced competing skeleton stacks in Knowledge, Memory, Catalog/playbooks, Models/providers, Investigate, Approvals, Account, Security, and legacy Scans with the single centered Console loading state; initial Knowledge/Memory/Models/Scans loads no longer expose zeroed or premature interactive content. Removed local elevation from proposal states, flattened neutral investigation empties, and kept all existing API, RBAC, deep-link, and deterministic decision behavior unchanged. Added focused loading regressions for Knowledge, Memory, and Scans. No dependency or Codex Security review change was made.
+- Tests: TypeScript passed; scoped ESLint passed with zero findings; focused Vitest passed 21/21 across 7 files (Approvals, Catalog, Intelligence loading, Investigate, Models, Scans, and Security); scoped `git diff --check` passed.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing staged, committed, pushed, tagged, deployed, or published.
+- Next: Integration lead to run the consolidated full Console suite/build and complete Light/Dark/narrow browser review of the assembled route cohorts.
+
+### 2026-07-25 20:16Z — `/root/ui_remaining_loaders` — Remaining route loading-state migration started
+- Context: Finish the application-wide loading grammar on Standup, Cost, Batch Jobs, Baseline, Dashboards, and Inbox without disturbing refresh, load-more, or action-level progress.
+- Did: Began a bounded source audit against the shared `@/design-system` `LoadingState` contract, preserving current dirty route work and all API, RBAC, content, and action behavior. No dependency or Codex Security review is in scope.
+- Tests: Focused route tests, TypeScript, scoped lint, and diff hygiene pending.
+- Status: in progress.
+- Next: Replace blocking initial skeleton/text loaders only, add targeted regressions where the distinction is behaviorally important, and return exact verification evidence to the integration lead.
+
+### 2026-07-25 20:30Z — `/root` — Application-wide Console visual-standard migration complete
+- Context: Finish the route-by-route migration requested so the whole Agentic SOC Console follows the same visual and interaction ideology as the current dashboard and Case Manager.
+- Did: Standardized the application frame, navigation, flat surface hierarchy, compact squared controls, telemetry strips, responsive tabs/dividers, tables, empty states, and blocking-load treatment across operational, intelligence, governance, account, compatibility, and configuration routes. Case Manager now uses the shared queue selector and suppresses duplicate lifecycle copy; remaining initial loaders use one centered Fluent/Material-style progress state while refresh and action progress stay local. Published the reusable surface contracts in the design-system catalog, UI standard, installed Help Center, and Unreleased changelog. APIs, deep links, RBAC, data semantics, and deterministic case decisions remain unchanged; no Codex Security review was run.
+- Tests: Full WebUI Vitest passed 1,564/1,564 across 253 files; TypeScript, full ESLint, all five design gates, version-matched docs-plus-app production build (3,170 modules), documentation consistency, documentation-bundle tests (4/4), route visual-standard tests (48/48), independent migration re-audit, and `git diff --check` passed. The initial live route audit informed the migration; final localhost browser reinspection was unavailable because the in-app browser connector denied the URL under its policy, so completion relies on the full static/regression/build gates and the already-reviewed shared surfaces.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Review the running Console in both themes, then include the accepted changes in the intended v0.1.1 Testing release workflow.
+
+### 2026-07-25 20:25Z — `/root/ui_migration_verifier` — Application-wide Console migration verification complete
+- Context: Independently verify the assembled Agentic SOC UI migration for registered-route anatomy, loading and motion consistency, nested-surface drift, responsive hazards, and static regressions.
+- Did: Audited the registry-derived route surfaces and shared visual contracts, then reported and rechecked responsive Analytics tabs, wrapped telemetry-strip dividers, duplicate route motion, Case Manager's queue rail, and blocking-load grammar. The integration fixes now provide a horizontally scrollable Analytics title lane, breakpoint-aware row-start dividers in Cases/Sources/Metrics, the shared shadowless SegmentedControl in Case Manager, one route-motion owner, and the shared centered LoadingState on every blocking route/panel inspected; action refresh and pagination indicators remain intentionally local and non-blocking. No product file was edited by this verifier and no Codex Security review was run.
+- Tests: Consolidated Console Vitest passed 1553/1553 across 253 files before the final loader-only pass; the post-fix affected-route suite passed 126/126 across 14 files; route visual-standard contract passed 48/48; TypeScript, full ESLint, all five design gates, production app build (3,170 modules), and `git diff --check` passed.
+- Status: complete with no unresolved product finding from this independent source/static audit. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Integration lead owns the final consolidated suite after the concurrently finishing loader cohort and the live Light/Dark/narrow browser review.
+
+### 2026-07-25 20:28Z — `/root/ui_remaining_loaders` — Remaining route loading-state migration complete
+- Context: Complete the shared Console loading grammar across the remaining routed pages without turning refresh, pagination, or action progress into blocking page states.
+- Did: Replaced page-local initial skeleton stacks on Standup, Cost, Batch Jobs, Baseline, Dashboards, Inbox, and Campaigns with the centered design-system `LoadingState`; collapsed Standup, Baseline, Batch Jobs, and Campaigns to one initial loading glyph; kept populated snapshots mounted through refresh; retained intentional refresh, load-more, and action-level progress; and prevented premature zero metrics, empty states, disabled-state banners, and config forms from flashing before their authoritative requests settle. No API, RBAC, decision-policy, dependency, or Codex Security review change was made.
+- Tests: Focused Vitest passed 41/41 across 9 files; `npx tsc --noEmit` passed; scoped ESLint passed with zero findings; scoped `git diff --check` passed. The focused runner emitted existing React `act(...)` warnings in unrelated interaction paths, with no test failures.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Integration lead to run the final consolidated suite/build and complete Light/Dark/narrow browser review of the assembled application-wide migration.
+### 2026-07-26 09:16Z — `/root` — Settings workspace redesign started
+- Context: Rebuild the full Settings experience so it follows the same calm, flat, responsive Agentic SOC command-surface grammar as the dashboard and Case Manager.
+- Did: Began a live and source-level audit of the Settings shell, section registry, search/navigation rail, active-section composition, field/editor surfaces, loading/error/dirty states, both themes, narrow layout, and keyboard behavior. Existing APIs, settings schemas, deep links, RBAC, write-only secrets, deterministic decisions, and the current dirty v0.1.1 Testing worktree are preserved; no Codex Security review is being run.
+- Tests: Focused Settings tests, route contracts, TypeScript, ESLint, design gates, full WebUI Vitest, docs-plus-app build, and browser QA pending.
+- Status: in progress.
+- Next: Establish the visual debt map, reshape the Settings frame and shared section primitives, migrate the field-heavy cohorts, then independently verify both themes and responsive behavior.
+
+### 2026-07-26 09:18Z — `/root/settings_primitives_redesign` — Shared Settings composition redesign started
+- Context: Standardize the Settings cards, field and switch rows, section heading, in-section navigation, and save/discard treatment so every settings section inherits the same flat command-surface grammar.
+- Did: Began a bounded audit of `SettingsGrid` and the shared settings form primitives against the Console UI standard and design-system contract. Settings route orchestration and individual section implementations remain outside this work; existing APIs, schemas, keyboard behavior, and the dirty Testing tree are preserved. No Codex Security review is being run.
+- Tests: Focused primitive tests, TypeScript, scoped ESLint, and diff hygiene pending.
+- Status: in progress.
+- Next: Refine the reusable composition surfaces with backward-compatible props, add focused visual and accessibility regressions, and report exact verification evidence to the Settings redesign lead.
+
+### 2026-07-26 09:17Z — `/root/settings_sections_redesign` — Settings section composition redesign started
+- Context: Standardize the field-heavy Settings sections so the active workspace follows the same flat, calm, information-dense Console grammar as the dashboard and Case Manager.
+- Did: Began a bounded audit of the General, Detection, Case policy, Automation, Cases, Models, Keys, Knowledge, Enrichment, Security, Standup, Advanced schema, and Data export renderers against the existing SettingsGrid, SettingsCard, Field, and shared control contracts. The Settings shell, registry, APIs, deep links, RBAC, write-only secret behavior, and save semantics remain outside the edit boundary; no Codex Security review is being run.
+- Tests: Focused Settings tests, TypeScript, scoped ESLint, and diff hygiene pending.
+- Status: in progress.
+- Next: Remove nested presentation-only surfaces, clarify group hierarchy and control density, add focused composition regressions, and return verification evidence to the Settings integration lead.
+
+### 2026-07-26 09:17Z — `/root/settings_shell_redesign` — Settings workspace shell redesign started
+- Context: Reshape the outer Settings workspace around the current flat dashboard and Case Manager grammar while preserving the section registry and every existing Settings contract.
+- Did: Read the Console UI standard and design-system ownership guide, then began a bounded audit of the page header, grouped searchable navigation rail, narrow-layout navigation, active-section context, permission handling, deep links, and dirty/save feedback. Section implementations and shared primitives remain outside this agent's scope; no Codex Security review is being run.
+- Tests: Focused Settings render/accessibility/deep-link tests, TypeScript, scoped ESLint, and diff hygiene pending.
+- Status: in progress.
+- Next: Implement the responsive workspace frame and explicit section/save context, add focused regressions, and return integration evidence to the Settings redesign lead.
+
+### 2026-07-26 09:28Z — `/root/settings_shell_redesign` — Settings workspace shell redesign complete
+- Context: Complete the bounded outer-workspace portion of the Settings overhaul while the section and shared-primitive cohorts migrate independently.
+- Did: Rebuilt Settings around a quiet, contiguous workspace with a searchable sticky desktop category rail, group/result counts, setting-level anchor results, and a compact narrow-screen Sheet chooser instead of stacking the full rail above the editor. Replaced the duplicate outer section heading with a non-heading group/section context line so each renderer retains the sole section heading; added truthful saved, read-only, preference-draft, and write-only-secret-draft status; kept the single existing Save/Discard lifecycle; and preserved registry-derived order, RBAC filtering, hash/deep-link/anchor behavior, retry handling, and API calls. Distinct navigation landmark names and conditional compact-nav mounting removed the previous axe exception. No section implementation, shared primitive contract, backend behavior, dependency, or Codex Security review was changed by this cohort.
+- Tests: Focused Settings render, accessibility, and redirect/deep-link suites passed 45/45; TypeScript passed; scoped ESLint passed with zero findings; scoped `git diff --check` passed. In-app browser connection was unavailable in this agent session, so the integration lead retains final Light/Dark/narrow live QA.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Integration lead to combine the shell with the concurrently completed Settings primitives/sections, then run the consolidated Settings/full Console gates and live visual review.
+
+### 2026-07-26 09:27Z — `/root/settings_primitives_redesign` — Shared Settings composition redesign complete
+- Context: Finish the reusable Settings composition layer so the redesigned workspace inherits one flat, quiet command-surface grammar across every section.
+- Did: Rebuilt `SettingsCard` as an accessible labelled divider band with responsive actions, stronger heading hierarchy, and no clipped focus/elevated wrapper; flattened the optional vertical/horizontal Settings TOC; converted the sticky Save/Discard treatment into one opaque hairline action band with the shared Console progress glyph; integrated `TextPref`, `NumPref`, and `ModelPicker` with the shared accessible `Field` wiring; and changed `SwitchPref` plus posture summaries from nested mini-cards into divider/status lanes. Removed the unsupported `aria-orientation` attribute from the plain navigation landmark and added focused visual, interaction, helper-text, and accessibility contracts. Public props and settings behavior remain backward-compatible; no API, schema, RBAC, dependency, deterministic decision, or Codex Security review change was made.
+- Tests: Settings-focused integration suite passed 132/132 across 16 files; focused final primitive suite passed 16/16; TypeScript, scoped ESLint, and repository-wide `git diff --check` passed.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Settings redesign lead to assemble the shell and section cohorts, run the consolidated WebUI gates, and visually review the finished workspace in both themes and narrow layouts.
+
+### 2026-07-26 09:29Z — `/root/settings_docs_contract` — Settings workspace documentation alignment started
+- Context: Keep the operator-facing UI standard, design-system ownership guidance, changelog, and repository history aligned with the redesigned Settings workspace.
+- Did: Began a documentation-only audit of the live Settings shell and shared composition primitives, including the grouped desktop rail, narrow section chooser, single active-section heading, flat field/status lanes, and sticky Save/Discard contract. Implementation, tests, APIs, schemas, RBAC, secret handling, and deterministic decisions remain outside this agent's edit boundary; no Codex Security review is being run.
+- Tests: Documentation consistency and diff hygiene pending.
+- Status: in progress.
+- Next: Record the actual stable Settings contract without overstating the release, run focused documentation checks, and return exact evidence to the Settings integration lead.
+
+### 2026-07-26 09:31Z — `/root/settings_sections_redesign` — Settings section composition redesign complete
+- Context: Complete the field-heavy section portion of the Settings overhaul while the shell and shared composition layers migrate independently.
+- Did: Standardized General, Detection, Case policy, Automation, Cases, Models, Keys, Knowledge, Enrichment, Security, Standup, Advanced schema, and Data export around flat full-width setting bands, shared accessible fields, concise action handoffs, grouped write-only credentials, and one centered schema-loading state. Removed presentation-only nested cards and redundant borders while preserving every existing setting, API request, deep link, RBAC boundary, write-only secret flow, debounce, immediate-save path, and deterministic decision behavior. Added focused schema-loading and key-grouping/save-contract regressions; no dependency or Codex Security review change was made.
+- Tests: Settings-focused Vitest passed 58/58 across 10 files; TypeScript passed; scoped ESLint passed with zero findings; scoped `git diff --check` passed.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Settings integration lead to run the consolidated full Console suite/build and complete Light/Dark/narrow browser review of the assembled workspace.
+
+### 2026-07-26 09:32Z — `/root/settings_docs_contract` — Settings workspace documentation alignment complete
+- Context: Finish the documentation-only alignment for the redesigned Settings workspace without changing application behavior or release identity.
+- Did: Updated the Console UI standard, design-system ownership guide and catalog README, and the existing Unreleased changelog entry with the actual responsive Settings contract: one grouped/searchable desktop rail, one narrow Sheet chooser, one renderer-owned section heading beneath compact non-heading context, flat divider-led field/switch/status lanes, and one sticky Save/Discard bar. Explicitly preserved deep links, RBAC filtering, settings schemas/APIs, write-only secrets, partial dirty tracking, and deterministic decisions. The candidate remains v0.1.1 Testing; no version, dependency, implementation, test, or Codex Security review change was made by this agent.
+- Tests: Documentation consistency passed for 64 public pages; documentation-bundle tests passed 4/4; the app 0.1.1 / bundled docs 0.1 consistency check passed; the Help Center bundle built successfully; scoped `git diff --check` passed.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Settings integration lead to run the consolidated full WebUI suite/build and complete live Light/Dark/narrow browser review before release handoff.
+
+### 2026-07-26 09:35Z — `/root/settings_integration_audit` — Settings redesign integration audit started
+- Context: Independently review the assembled Settings shell, composition primitives, and migrated section renderers before the parent agent's full Console verification.
+- Did: Began a read-only-first audit for heading and landmark correctness, responsive composition, flat-surface compliance, dead or duplicated presentation code, and preservation of deep links, RBAC filtering, dirty partial saves, write-only secret drafts, and read-only unlock behavior. Small targeted fixes will be made only when supported by focused evidence; no Codex Security review is being run.
+- Tests: Focused source inspection and Settings contracts pending.
+- Status: in progress in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Inspect the integrated diff, run focused Settings tests and TypeScript, then return concrete findings and any narrowly verified repairs to the integration lead.
+
+### 2026-07-26 09:40Z — `/root/settings_integration_audit` — Settings redesign integration audit complete
+- Context: Close the independent integration audit after the shell, primitive, and field-heavy section cohorts converged, with priority on the narrow-screen navigation regression and embedded page-heading semantics found during live QA/source review.
+- Did: Added a single responsive in-section TOC mode so rail sections use a compact horizontally scrollable strip below `md` and retain the vertical sticky rail on wider editors. Added an explicit reusable `PageHeader embedded` contract (section-scaled `<h2>`, standalone `<h1>` unchanged), threaded it through Profile, Sessions, Users, Roles, and Active sessions only when hosted by Settings, and aligned the embedded Users title with its Settings section. Added regression coverage for responsive TOC classes and for exactly one page `<h1>` plus one embedded active-section `<h2>`. Audited the assembled Settings page for deep-link/hash flow, RBAC filtering, minimal dirty patching, secret draft separation, and read-only unlock handling; no contract drift was found. No Codex Security review was run.
+- Tests: TypeScript passed; focused PageHeader/Settings composition/Settings render tests passed 27/27; Settings accessibility, redirects, dirty-patch, and section suites passed 114/114 across 13 files; scoped ESLint and scoped `git diff --check` passed.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Parent integration agent to run the full WebUI regression/build and final Light/Dark/wide/narrow browser QA; broader embedded editors (for example Branding/Notifications/Danger Zone) can be flattened in a later bounded pass without blocking this Settings shell release.
+
+### 2026-07-26 09:43Z — `/root/settings_complex_surfaces` — Complex Settings surface cleanup started
+- Context: Bring the five high-complexity Settings renderers into the redesigned workspace without erasing meaningful editor, preview, alert, table, or destructive-confirmation boundaries.
+- Did: Began a bounded visual-contract audit of Appearance & customization, Branding, Alerting & notifications, Demo mode, and Danger zone. Scope is limited to duplicated section chrome, ornamental outer nesting, excessive rounding, and elevation; APIs, RBAC, write-only secrets, reset tiers, and all functional subpanels remain authoritative. No Codex Security review is being run.
+- Tests: Focused renderer contracts, TypeScript, scoped ESLint, and diff hygiene pending.
+- Status: in progress in the shared dirty v0.1.1 Testing tree. Nothing is staged, committed, pushed, tagged, deployed, or published.
+- Next: Map each renderer's presentational hierarchy, apply selective flat-surface cleanup, add focused regressions, and return exact verification evidence to the Settings integration lead.
+
+### 2026-07-26 09:43Z — `/root/settings_embedded_surfaces` — Embedded account and administration Settings polish started
+- Context: Bring the Profile, two-factor security, Sessions, Users, Roles, and Active sessions bodies into the redesigned flat Settings workspace without changing their standalone routes.
+- Did: Began a bounded embedded-versus-standalone audit of outer wrappers, heading hierarchy, empty/loading states, forms, actions, and RBAC-sensitive administration surfaces. Existing APIs, permissions, forms, standalone routes, and the shared dirty v0.1.1 Testing tree are preserved; no Codex Security review is being run.
+- Tests: Focused embedded/standalone rendering, heading/accessibility, TypeScript, scoped ESLint, and diff hygiene pending.
+- Status: in progress.
+- Next: Flatten only redundant embedded chrome, retain standalone presentation, add regression coverage, and return exact evidence to the Settings integration lead.
+
+### 2026-07-26 09:48Z — `/root/settings_embedded_surfaces` — Embedded account and administration Settings polish complete
+- Context: Finish the re-hosted Account/Security surface pass without disturbing established standalone routes or administration workflows.
+- Did: Added an explicit embedded Profile composition that swaps its identity and personal-detail cards for labelled divider-led Settings bands while leaving standalone Profile cards unchanged. Added an embedded two-factor composition with one section heading, concise context, truthful enabled/disabled state, and frameless enrollment controls; standalone Security retains its framed MFA card. Wired the Settings registry to the embedded MFA variant and audited Sessions, Users, Roles, and Active sessions; their shared table/tab bodies already had no redundant outer card wrapper, so only the existing embedded heading contract remains. APIs, RBAC gates, forms, save/avatar/MFA actions, standalone routes, and deterministic decisions are unchanged; no Codex Security review was run.
+- Tests: Focused Profile/MFA/PageHeader suite passed 19/19 across 5 files; Settings render/accessibility/registry suite passed 29/29 across 3 files; TypeScript passed; scoped ESLint and scoped `git diff --check` passed.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Parent integration agent to run the consolidated WebUI suite/build and visually review Profile and Security & two-factor inside the final Settings workspace in both themes.
+
+### 2026-07-26 09:50Z — `/root/settings_complex_surfaces` — Complex Settings surface cleanup complete
+- Context: Finish the bounded cleanup of Settings' five high-complexity editors while retaining every functional editor, preview, alert, table, and destructive confirmation boundary.
+- Did: Standardized Appearance & customization, Branding, Alerting & notifications, Experimental & Demo, and Danger zone on the single renderer-owned `SectionTitle` hierarchy. Flattened saved-view, switch, risk-threshold, capability, source-activity, and preview-summary lanes; removed decorative card/elevation chrome from the branding shell preview and notification channel container; and converted the three destructive reset cards into semantic divider-led tiers with the same scope-specific actions, consequences, exact confirmation phrases, fresh-auth flow, and receipts. Meaningful email/login previews, notification editors, alerts, dialogs, selectors, and write-only secret controls remain bounded. Added runtime visual-contract assertions for all five surfaces. APIs, settings data, RBAC, immediate secret writes, demo behavior, and reset semantics are unchanged; no Codex Security review was run.
+- Tests: Related Branding, Customization, Demo, Notification, and Danger Zone Vitest suites passed 59/59 across 15 files; TypeScript passed; scoped ESLint passed with zero findings; scoped `git diff --check` passed.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Parent integration agent to run the consolidated WebUI suite/build and visually inspect these five active Settings sections in Light, Dark, wide, and narrow layouts.
+
+### 2026-07-26 09:57Z — `/root` — Settings workspace redesign verified complete
+- Context: Complete the requested full Settings revamp after integrating the workspace shell, shared composition primitives, field-heavy sections, embedded account/security surfaces, and complex organization/integration editors.
+- Did: Delivered one responsive Settings workspace with a grouped searchable desktop rail, compact searchable narrow-layout chooser, stable hash and setting-anchor deep links, one page-to-section heading hierarchy, flat divider-led controls and telemetry, centered standardized loading states, and one truthful sticky Save/Discard lifecycle. Profile and two-factor controls now adapt when embedded; Branding, customization, notifications, Demo, and all three reset tiers follow the same calm operational grammar while retaining meaningful editor, preview, alert, confirmation, and permission boundaries. Existing APIs, settings schemas, RBAC, partial patch saves, write-only secrets, read-only unlock behavior, standalone routes, and deterministic decisions remain unchanged. Updated the Console UI/design-system standards and Unreleased changelog baseline; no Codex Security review was run.
+- Tests: Full backend suite passed 1,982/1,982 across 140 files (one existing Elasticsearch `verify_certs=False` test warning); full WebUI suite passed 1,585/1,585 across 257 files; TypeScript, ESLint, design gates, documentation consistency, 4/4 docs-bundle tests, and the production Help Center + Vite build (3,170 modules) passed. Live browser QA passed in Light and Dark at desktop and 390px, including compact section search, `s`/`a` deep links, exactly one Settings `h1` plus one active-section `h2`, reversible dirty Save/Discard state, and a clean warning/error console.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Review the open Settings workspace; release through the existing Testing-to-Stable workflow when the broader dirty release candidate is ready.
+
+### 2026-07-26 10:10Z — `/root` — Settings scroll-jump investigation started
+- Context: Investigate the supplied recording in which ordinary up/down scrolling makes the redesigned Settings viewport visibly jump as a whole.
+- Did: Began a bounded recording, layout, and live-browser audit focused on sticky Settings navigation, in-section scroll-spy behavior, focus scrolling, dynamic viewport sizing, and page-level scroll anchoring. The existing Settings APIs, schemas, RBAC, secret handling, save semantics, and broader dirty v0.1.1 Testing work remain outside the behavioral change boundary; no Codex Security review is being run.
+- Tests: Recording analysis, reproducible browser gesture, focused regression, TypeScript, scoped ESLint, and desktop/narrow live verification pending.
+- Status: in progress.
+- Next: Identify the exact layout feedback loop, implement the smallest stable fix, and replay repeated up/down scrolling without viewport displacement.
+
+### 2026-07-26 10:10Z — `/root/settings_scroll_source_audit` — Settings scroll-jump source audit started
+- Context: Independently inspect the redesigned Settings layout and shared shell for a source-level explanation of the recorded whole-viewport vertical jump during ordinary scroll reversal.
+- Did: Began a read-only audit of Settings navigation, section composition, AppShell/PageContainer overflow ownership, sticky positioning, scroll-spy observers, focus scrolling, and viewport-height rules. No implementation or Codex Security review is in scope for this audit.
+- Tests: Exact line-level source trace and smallest safe regression strategy pending.
+- Status: in progress in the shared dirty v0.1.1 Testing tree. Nothing is staged, committed, pushed, tagged, deployed, or published.
+- Next: Rank concrete layout feedback loops by likelihood and return an evidence-backed minimal fix and test plan to the parent agent.
+
+### 2026-07-26 10:15Z — `/root/settings_scroll_source_audit` — Settings scroll-jump source audit complete
+- Context: Close the independent read-only trace of the recorded whole-viewport displacement during Settings scroll reversal.
+- Did: Sampled the supplied recording and confirmed a native root elastic-overscroll signature: all app chrome translates together and the canvas is exposed above the sticky header, rather than one React subtree resizing. Traced the trigger to the document-owned scroll surface having no vertical overscroll policy, compounded by the separately scrollable Settings registry rail lacking scroll-chain containment at its top/bottom boundaries. Verified that Settings scroll-spy only updates active styling, while `scrollIntoView` runs only for explicit TOC/deep-link navigation and therefore is not the ordinary-scroll loop. Recommended `overscroll-behavior-y: none` on the document root plus `overscroll-y-contain` on the Settings rail (and compact Sheet list) as the smallest safe repair; no application files or behavior were changed by this audit and no Codex Security review was run.
+- Tests: Nine timestamped recording samples and line-level source trace completed. Suggested regressions: assert root overscroll policy in the design-system CSS contract, assert nested rail containment in Settings render coverage, then replay alternating boundary wheel gestures in desktop and narrow browser QA.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Only the required Journal entries were appended; nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Parent implementation agent to apply the two containment rules, run focused Settings/design-system tests, and verify the header/root bounding box remains fixed during repeated top/bottom scroll reversal.
+
+### 2026-07-26 10:10Z — `/root/settings_scroll_recording` — Settings scroll recording audit started
+- Context: Independently inspect the supplied Settings screen recording frame by frame to distinguish genuine document movement from browser chrome, input bounce, sticky navigation, and scroll-container feedback.
+- Did: Began a read-only media and layout-timing audit. Application code, runtime settings, APIs, schemas, RBAC, secret handling, and save behavior remain untouched; only temporary media-analysis artifacts may be generated outside the repository. No Codex Security review is being run.
+- Tests: Video metadata, timestamped motion tracking, reproducible gesture, and acceptance-test recommendation pending.
+- Status: in progress in the shared dirty v0.1.1 Testing tree. Nothing is staged, committed, pushed, tagged, deployed, or published.
+- Next: Extract representative frames and measure the screen regions that translate during alternating scroll input.
+
+### 2026-07-26 10:21Z — `/root/settings_scroll_recording` — Settings scroll recording audit complete
+- Context: Distinguish the reported whole-screen Settings movement from responsive reflow, sticky-rail churn, and intentional section scrolling.
+- Did: Inspected the 17.418-second H.264 ReplayKit capture at 100 ms and 25 ms sampling intervals and registered the global app chrome frame by frame. The shell, top bar, rail, columns, controls, and dividers translate as one rigid layer with unchanged internal geometry, proving that the conspicuous blank-canvas jump is native document rubber-band overscroll rather than React/CSS layout reflow. The strongest pull occurs at 3.992 s: the full shell is displaced 553 encoded pixels downward before springing back; earlier peaks occur at 1.450 s (70 px), 1.983 s (160 px), 2.742 s (197 px), and 3.158 s (254 px). From about 5.225 s the direction changes into ordinary document scrolling; content advances through the viewport without a column-width or section-layout change. The pre-fix mechanism is the document/root remaining the terminal momentum scroller while only nested Settings lists contain their own overscroll. Recommended acceptance is a native macOS trackpad boundary test plus a static root-policy regression: repeated upward momentum at `scrollTop=0` exposes no blank canvas and the app header/rail bounding boxes remain within one CSS pixel of their anchors; ordinary up/down scrolling must not change their widths or introduce a page-level elastic offset.
+- Tests: Media metadata confirmed 2288×1290 encoded pixels over a 1144×645-point capture, 17.418 s duration, H.264, variable ~52.37 fps; frame registration used 211 fine samples over the first 5.25 s and 175 full-duration samples. No application code or runtime setting was changed.
+- Status: complete; read-only audit apart from this required Journal record. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Parent agent to retain the root `overscroll-behavior-y: none` policy with a focused contract test, then replay the same native trackpad gesture in both themes and at the recorded 75% browser zoom.
+
+### 2026-07-26 10:22Z — `/root` — Settings whole-screen scroll bounce fixed
+- Context: Complete the supplied-recording investigation after independent media and source audits proved the visible jump was native document rubber-band overscroll rather than a Settings re-render or responsive-layout loop.
+- Did: Added a root vertical overscroll boundary policy to `html`, `body`, and `#root`, so macOS momentum can no longer translate the entire Console or expose blank canvas above/below its sticky chrome. Added vertical scroll-chain containment to both the desktop Settings registry and compact Settings chooser so reaching either nested list boundary cannot spill momentum into the page. Added focused design-system and Settings regressions for both policies. Existing navigation, responsive layout, deep links, APIs, schemas, RBAC, write-only secrets, save behavior, and deterministic decisions remain unchanged; no Codex Security review was run.
+- Tests: Focused design-system + Settings tests passed 19/19; full WebUI suite passed 1,587/1,587 across 257 files; TypeScript and ESLint passed; production Vite build passed with 3,170 modules; scoped diff hygiene passed. Live browser replay kept the root and sticky header at exactly 0 px through repeated top-boundary down/up reversals, kept `window.scrollY` at 0 while the desktop Settings rail traversed 0→596→0, verified computed root `none` and nested `contain` policies in Light, Dark, desktop, and 390 px compact layouts, and produced no warning/error console entries.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Recheck the supplied native trackpad gesture in the open Settings page; release through the existing Testing-to-Stable workflow when the broader dirty candidate is ready.
+
+### 2026-07-26 11:01Z — `/root` — Dashboard operational-window strip removal started
+- Context: Remove the redundant “Operational window / Last polled” presentation row identified in the supplied dashboard screenshot without losing time-range, auto-refresh, or manual-refresh controls.
+- Did: Began a bounded Overview composition and focused-test audit. The existing dashboard data calls, refresh behavior, drill-throughs, metrics, RBAC boundaries, and broader dirty v0.1.1 Testing work remain outside the behavioral change boundary; no Codex Security review is being run.
+- Tests: Focused Overview rendering, TypeScript, ESLint, production build, and live Light/Dark/responsive browser verification pending.
+- Status: in progress.
+- Next: Fold the required controls into the existing page masthead, delete the redundant copy and divider row, and verify the dashboard starts directly with its operational content.
+
+### 2026-07-26 11:09Z — `/root` — Dashboard operational-window strip removal complete
+- Context: Finish the bounded removal of the unnecessary “Operational window / Last polled” dashboard row shown in the supplied screenshot.
+- Did: Removed the standalone status/control strip and its now-unused poll-age state. Kept the time-range picker, LIVE/interval selector, and manual refresh together in the existing Security Command Center masthead, with a named control group for accessibility. Dashboard data fetching, refresh behavior, metrics, drill-throughs, and RBAC boundaries are unchanged; no Codex Security review was run.
+- Tests: Focused Overview rendering, command-center, and accessibility suites passed 24/24; TypeScript, scoped ESLint, scoped diff hygiene, and the production Vite build (3,170 modules) passed. Live browser QA passed in Light and Dark: the redundant copy is absent, exactly one Security Command Center heading remains, all three controls are present inside the masthead, and the browser console has no warning/error entries.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Review the open Overview page; release through the existing Testing-to-Stable workflow when the broader dirty candidate is ready.
+
+### 2026-07-26 11:37Z — `/root` — Workspace Chat redesign started
+- Context: Replace the visually sparse and disconnected Workspace Chat shown in the supplied screenshot with a cohesive, operational Console workspace that remains useful in empty, active-conversation, Light, Dark, desktop, and narrow states.
+- Did: Began a bounded audit of the Chat composition, shared Console UI standard, preserved API/source/model/keyboard contracts, responsive behavior, and existing regression coverage. The backend chat engine, prompt fencing, usage ledger, RBAC, and broader dirty v0.1.1 Testing work remain outside the behavioral change boundary; no Codex Security review is being run.
+- Tests: Focused Chat rendering/interaction/a11y coverage, TypeScript, ESLint, production build, and live multi-state browser QA pending.
+- Status: in progress.
+- Next: Consolidate the page into one intentional conversation workspace, anchor the composer to that workspace, remove dead visual acreage, and verify the populated state is at least as coherent as the empty state.
+
+### 2026-07-26 11:37Z — `/root/chat_contract_audit` — Workspace Chat contract audit started
+- Context: Independently inventory the shared Workspace/Case Chat functional contracts before the requested visual overhaul.
+- Did: Began a read-only trace of chat API payloads, transcript/history state, model/source selection, keyboard behavior, reset semantics, render states, case scoping, safe result rendering, and current regression coverage. No product files or Codex Security review are in scope.
+- Tests: Focused existing Chat suites pending.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Return a line-anchored preservation checklist, distinguish existing defects from contracts, and identify missing regressions.
+
+### 2026-07-26 11:41Z — `/root/chat_contract_audit` — Workspace Chat contract audit complete
+- Context: Finish the read-only contract audit supporting the Workspace Chat redesign.
+- Did: Documented the shared chat engine, API/RBAC/case-scoping boundaries, source/model selectors, keyboard/send/reset behavior, empty/loading/error/conversation states, safe result/provenance/memory rendering, and Case Manager reuse. Identified current prompt-history duplication, stale in-flight replies after reset, misleading non-queryable source options, model-id collisions, and brittle hard-coded viewport offsets as defects not to preserve. No product files were changed and no Codex Security review was run.
+- Tests: Existing focused Chat suites passed 16/16 across 3 files.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Parent implementation agent to redesign the Workspace composition, add the missing state/keyboard/payload regressions, and run live Light/Dark desktop/narrow QA.
+
+### 2026-07-26 11:38Z — `/root/chat_pattern_audit` — Workspace Chat pattern audit started
+- Context: Audit the canonical Case Manager case-chat and shared Console design-system patterns before the standalone Workspace Chat redesign, with explicit desktop/narrow and Light/Dark composition requirements.
+- Did: Began a read-only source comparison of Workspace, Chat, ChatPanel, CaseChatPanel, PageHeader, PageContainer, EmptyState, and the current UI/design-system standards. No application files were edited and no Codex Security review was run.
+- Tests: Read-only source and supplied-screenshot inspection in progress; no runtime or test commands required for this advisory subtask.
+- Status: in progress.
+- Next: Isolate the reusable flat transcript/composer grammar, identify the dead-canvas causes, and return one implementation-ready responsive layout.
+
+### 2026-07-26 11:43Z — `/root/chat_pattern_audit` — Workspace Chat pattern audit complete
+- Context: Complete the read-only design-pattern audit for the supplied sparse Workspace Chat screenshot.
+- Did: Traced the dead canvas to the wide 1920px Workspace shell, independently constrained 768px chat lane, isolated embedded New-chat row, full-height centered empty state, bottom composer, and fixed demo/non-demo viewport offsets. Recommended one 960px conversation column, a single PageHeader with New chat in its actions slot, an empty-state workbench that groups a restrained AI introduction, responsive starter prompts, and the compact composer, then switches to transcript-only scrolling with a bottom-pinned composer after the first turn. Reused Case Manager’s left-AI/right-operator grammar, settings popover, compact squared controls, and semantic tokens while excluding its case-only status rail. Flagged the local bouncing-dot indicator for replacement by the shared reduced-motion loading glyph. No files were edited and no Codex Security review was run.
+- Tests: Source-level desktop/narrow and Light/Dark contract comparison completed against the supplied screenshot and current UI/design-system standards; implementation and live QA remain with the parent task.
+- Status: complete; advisory only. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Parent agent to implement the bounded composition change, then verify empty/active/reset/loading states in Light, Dark, desktop, and narrow layouts.
+
+### 2026-07-26 11:38Z — `/root/chat_ui_audit` — Workspace Chat composition audit started
+- Context: Independently audit the visually sparse Workspace Chat shown in the supplied screenshot against the Console UI standard and existing regression coverage.
+- Did: Began a read-only trace of the Workspace host, Chat page frame, shared ChatPanel empty/transcript/composer states, responsive sizing, and current tests. No application files or Codex Security review are in scope.
+- Tests: Source-level layout trace and concrete responsive composition recommendation pending.
+- Status: in progress.
+- Next: Identify the exact dead-space mechanisms and return the smallest design-system-aligned restructuring to the parent agent.
+
+### 2026-07-26 11:44Z — `/root/chat_ui_audit` — Workspace Chat composition audit complete
+- Context: Complete the independent source and test audit of the supplied Workspace Chat UI complaint.
+- Did: Traced the disconnected layout to the wide host container, detached embedded reset row, independently centered full-height empty transcript, bottom composer sibling, narrow conversation lane, and oversized page-local empty-state treatment. Recommended one fixed-width conversational workspace with the reset action in PageHeader, a compact empty-state/prompt/composer stack, and automatic transition to the existing scrollable transcript plus bottom dock after the first message. Case Manager chat behavior remains outside the change boundary; no Codex Security review was run.
+- Tests: Read-only source, UI-standard, screenshot, and regression-coverage inspection completed; no application test suite was run because this subtask made no code changes.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Parent implementation agent to apply the composition change and verify empty/populated, Light/Dark, desktop/narrow, keyboard, settings-popover, reset, and overflow states.
+
+### 2026-07-26 12:00Z — `/root/chat_final_review` — Workspace Chat final review started
+- Context: Independently gate the current Workspace Chat redesign for layout, shared-engine behavior, Case Manager compatibility, accessibility, and responsive/theme regressions.
+- Did: Began a read-only review of Workspace, Chat, ChatPanel, their focused tests, and the shared Console primitives. No product files will be edited and no Codex Security review is being run.
+- Tests: Focused Chat tests and TypeScript pending if the shared dirty tree is stable enough to run them.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Return only line-anchored blockers or explicitly clear the implementation if no concrete regressions remain.
+
+### 2026-07-26 12:10Z — `/root/chat_final_review` — Workspace Chat final review complete
+- Context: Close the independent release gate after the parent fixed both concrete findings discovered during review.
+- Did: Verified the focused fixed-width Workspace host, single PageHeader/reset action, grouped empty workbench, bottom-docked active composer, semantic Light/Dark tokens, narrow prompt wrapping, shared loading glyph, safe transcript rendering, history payload, stale-response generation guard, post-commit reset focus, enabled/queryable source filtering, truthful Primary label, and unchanged compact/Case Manager presentation. No product files were edited by this reviewer and no Codex Security review was run.
+- Tests: Focused Workspace/ChatPanel/Case Manager/visual-standard suites passed 73/73 across 4 files after both fixes; TypeScript, scoped ESLint, and scoped diff hygiene passed. The wider route/Case Manager compatibility group also passed 50/50 across 4 files during review.
+- Status: complete with no remaining source-level blocker in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Parent agent to finish live Light/Dark desktop/narrow browser QA and the broader candidate gates before handing the redesign back to the user.
+
+### 2026-07-26 12:14Z — `/root` — Workspace Chat redesign complete
+- Context: Complete the requested end-to-end cleanup of the sparse Workspace Chat while preserving the shared agent engine and Case Manager integration.
+- Did: Rebuilt Chat as one focused operator workbench with a single page header, compact status rail, grouped introduction and suggested questions, adjacent composer, and a bottom-anchored transcript once a conversation begins. Preserved source/model controls, safe rendering, case scoping, API contracts, and RBAC; replaced the local typing treatment with the shared loading glyph; fixed duplicated prompt history, stale replies after reset, post-reset focus, and queryable-source truthfulness. No Codex Security review was run.
+- Tests: Focused Workspace/ChatPanel/Case Manager/visual-standard suites passed 73/73; the full WebUI suite passed 1,596/1,596 across 257 files; TypeScript, ESLint, production build, and diff hygiene passed. Live browser QA verified Light and Dark empty states, loading and completed responses, transcript/composer placement, source/model controls, New-chat reset focus, and a clean final desktop layout; responsive one/two-column and compact-control contracts are covered by source and regression tests.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Review the open Chat page, then include this work in the normal Testing-to-Stable release flow when the broader candidate is ready.
+
+### 2026-07-26 12:15Z — `/root` — Case Manager space-efficiency pass started
+- Context: Remove the excessive left, right, and internal whitespace visible in the supplied Case Manager screenshots while preserving its resizable split workspace and information density.
+- Did: Began tracing the page shell, queue/detail pane constraints, divider sizing, and responsive behavior against the current Console UI standard. Parallel read-only audits cover layout mechanics and regression boundaries; live browser QA will validate the final composition. No Codex Security review is in scope.
+- Tests: Pending focused Case Manager tests, TypeScript, lint, production build, and live Light/Dark layout verification.
+- Status: in progress in the shared dirty v0.1.1 Testing tree. Existing unrelated work is being preserved.
+- Next: Identify the exact gutter and max-width sources, implement the bounded layout correction, then verify resizing and narrow fallbacks.
+
+### 2026-07-26 12:16Z — `/root/case_space_layout_audit` — Case Manager space audit started
+- Context: Independently trace the excessive outer gutters and underused queue/detail space visible in the supplied Case Manager screenshots.
+- Did: Began a read-only inspection of the Case Manager split frame, page/container shell, resize math, pane internals, and responsive fallback. No product files will be edited and no Codex Security review is being run.
+- Tests: Source-level layout and accessibility audit pending.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Return line-anchored causes and the smallest layout correction that preserves the resizable divider, keyboard operation, and narrow-screen behavior.
+
+### 2026-07-26 12:16Z — `/root/case_space_test_audit` — Case Manager density regression audit started
+- Context: Independently audit test coverage for the requested full-width, lower-gutter Case Manager layout while preserving its resizable split and narrow fallback.
+- Did: Began a read-only review of Case Manager integration tests, route visual standards, PageContainer contracts, pane resize bounds, persistence, keyboard interaction, and responsive behavior. No product files will be edited and no Codex Security review is being run.
+- Tests: Existing focused suites and concrete missing assertions are being identified; no test run is required unless useful for confirming the current baseline.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Return an implementation-ready regression matrix and focused validation commands to the parent agent.
+
+### 2026-07-26 12:18Z — `/root/case_space_test_audit` — Case Manager density regression audit complete
+- Context: Finish the independent regression audit for the requested Case Manager space-efficiency pass.
+- Did: Confirmed existing coverage for the default 400 px split, one keyboard step, pointer persistence, Home minimum, hidden desktop divider at compact widths, and the narrow Back action. Identified missing guards for the fluid/full-width route shell and reclaimed gutters, End/Shift/double-click/clamping/remount persistence, dynamic frame-shrink bounds that preserve the 560 px detail minimum, and explicit queue/detail mutual visibility below the desktop breakpoint. No product files were edited and no Codex Security review was run.
+- Tests: Focused baseline passed 72/72 across CaseManager, route visual-standard, and PageContainer suites.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Only the required Journal entries were added; nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Parent implementation agent should add the focused layout assertions alongside the bounded density change, then run the Case Manager/route/PageContainer suites plus TypeScript, lint, build, and live desktop/narrow Light/Dark QA.
+
+### 2026-07-26 12:16Z — `/root/case_space_design_audit` — Case Manager density audit started
+- Context: Independently review the supplied Case Manager screenshots and current source for wasted desktop and narrow-screen space, aligned to the Console UI standard and existing dashboard/Case Manager design language.
+- Did: Began a read-only visual hierarchy and density audit covering viewport ownership, outer gutters, split-pane proportions, queue controls, detail header/content padding, and responsive fallbacks. No product files will be edited and no Codex Security review is being run.
+- Tests: Source-level and reference-screenshot comparison pending; no runtime suite is required for this advisory-only subtask.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Return implementation-ready width, gutter, padding, and hierarchy recommendations that reclaim space without making the SOC workspace cramped.
+
+### 2026-07-26 12:20Z — `/root/case_space_design_audit` — Case Manager density audit complete
+- Context: Complete the independent UI/UX density review of the supplied Case Manager edge screenshots against the Console standard and current dashboard/Case Manager source.
+- Did: Traced the visible 48-pixel outer dead bands to the shared 2xl shell inset and the second right-side loss to embedded detail/header/panel 32-pixel padding. Recommended a Case Manager-specific operational inset, one aligned 20–24-pixel detail content rail, a slightly narrower but still resizable queue, denser queue hierarchy, pane-width rather than viewport-width detail reflow, and a full-width narrow single-pane fallback. No product files were edited and no Codex Security review was run.
+- Tests: Read-only screenshot, source, operator-doc, dashboard-language, and UI-standard comparison completed; no application suite was needed for this advisory-only subtask.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Parent implementation agent to apply the bounded spacing changes, preserve the divider keyboard/pointer contract, and verify both themes plus desktop resize and narrow queue/detail transitions in the browser.
+
+### 2026-07-26 12:21Z — `/root/case_space_layout_audit` — Case Manager space audit complete
+- Context: Complete the independent source-level trace of the Case Manager's symmetric outer dead space and pane sizing behavior.
+- Did: Confirmed the split workspace itself is uncapped and fills its fluid PageContainer; the visible edge bands come from the shared shell's responsive gutter, reaching 48 pixels per side at 2xl. Recommended a Case Manager-only negative-margin override that preserves a consistent 16-pixel operational gutter, plus a modest 24-pixel embedded-detail rail if a second density step is needed. Confirmed queue rows, detail content, and vertical scroll lanes already fill their pane; the ResizeObserver clamp, persisted pointer/keyboard divider, 560-pixel detail minimum, and below-xl queue/detail replacement should remain unchanged. No product files were edited and no Codex Security review was run.
+- Tests: Read-only source, layout-standard, and existing regression inspection completed; no application suite was run because this subtask changed only the required Journal entries.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Parent implementation agent to apply the bounded PageContainer inset override, add a focused class regression, and live-check collapsed/expanded navigation, divider resizing, Light/Dark, and the below-xl back-to-queue path.
+
+### 2026-07-26 12:35Z — `/root` — Case Manager space-efficiency pass complete
+- Context: Finish the requested Case Manager density correction without weakening the persisted, accessible queue/detail split.
+- Did: Expanded the operational frame to a consistent 16-pixel desktop inset, compacted the queue header/filters/selection band/rows, and replaced the independently padded embedded header, tabs, and six detail panels with one shared responsive 16–24-pixel content rail. Tightened the case header and action controls so they wrap cleanly while retaining every case fact and control. Preserved the 400-pixel default queue, pointer and keyboard resizing, double-click reset, persistence, 560-pixel detail minimum, and narrow single-pane return path. Updated the Console UI standard and focused visual/layout regressions. No Codex Security review was run.
+- Tests: Focused Case Manager/detail suites passed 138/138; full WebUI suite passed 1,597/1,597 across 257 files; TypeScript, full ESLint, production build (3,170 modules), and diff hygiene passed. Live browser QA verified Light and Dark, a 400/773-pixel split at a 1280-pixel viewport, a 16-pixel operational inset, zero horizontal overflow, keyboard resize, and double-click reset; compact fallbacks remain covered by source and regression tests.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Review the open Case Manager workspace, then include this work in the normal Testing-to-Stable release flow when the broader candidate is ready.
+
+### 2026-07-26 12:42Z — `/root` — Collapsed-navigation flyout direction reviewed
+- Context: Evaluate the supplied docked icon-rail reference as a replacement interaction for the Console's collapsed left navigation.
+- Did: Traced the current navigation behavior and confirmed that the Console already has accessible, fixed-position per-group flyout plumbing, but the shell's full-rail hover expansion currently supersedes it for pointer users. Recommended keeping a locked collapsed rail stable and revealing only the hovered or focused group's compact destination panel, while retaining explicit expand/pin and keyboard commands. Childless destinations should keep simple labels/tooltips; grouped flyouts require keyboard focus parity, Escape/dismiss behavior, viewport clamping, and a short pointer-safe close delay. No product files were edited and no Codex Security review was run.
+- Tests: Read-only source and existing NavSidebar regression review only; no runtime suite was needed for this design recommendation.
+- Status: recommendation complete in the shared dirty v0.1.1 Testing tree. Only this required Journal entry changed; nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: If adopted, remove the transient full-drawer hover state, promote the existing grouped flyout to the sole collapsed-pointer interaction, then verify pointer travel, keyboard focus, both themes, reduced motion, and viewport-edge positioning.
+
+### 2026-07-26 12:50Z — `/root/nav_flyout_test_audit` — Collapsed navigation flyout regression audit started
+- Context: Audit the existing NavSidebar and AppShell regression coverage before replacing whole-rail hover expansion with compact per-group flyouts.
+- Did: Began a read-only trace of pointer, keyboard, dismissal timing, viewport positioning, explicit pin/open, and reduced-motion contracts. No product files were edited and no Codex Security review was run.
+- Tests: Not run yet; source and regression inspection in progress.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Return the smallest high-value regression additions and identify obsolete assertions that should be replaced.
+
+### 2026-07-26 12:52Z — `/root/nav_flyout_test_audit` — Collapsed navigation flyout regression audit complete
+- Context: Complete the read-only regression audit for replacing whole-rail hover expansion with a stable collapsed rail and compact grouped flyouts.
+- Did: Confirmed the existing suites already protect collapse persistence, explicit hamburger and Control/Command+B expansion, expanded disclosure semantics, mobile navigation, focus-stable activation, reduced-motion on the rail, fixed-position flyout escape from overflow clipping, and basic collapsed child reachability. Identified the missing minimal locks: collapsed frame and aside remain 64px/collapsed on pointer hover; only the targeted grouped flyout opens; pointer-safe delayed dismissal survives travel into the flyout; focus and child focus keep it open; Escape closes and restores trigger focus; bottom/right viewport placement is clamped; pinned-open mode remains disclosure-only; and the flyout itself removes transitions under reduced motion. Recommended an explicit `aria-expanded`/`aria-controls` or `data-state` seam and a pure placement helper so regressions assert behavior rather than CSS snapshots. No product files were edited and no Codex Security review was run.
+- Tests: Baseline focused suites passed 34/34 across `NavSidebar.test.tsx` and `appshell.search.test.tsx`; Journal diff hygiene passed.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Only the required Journal entries changed; nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Parent implementation agent to add the focused behavior tests alongside the new flyout state machine, retain the already-green persistence/mobile/disclosure cases, and run the full Console gates plus live pointer/keyboard QA.
+
+### 2026-07-26 12:50Z — `/root` — Locked collapsed-navigation flyout implementation started
+- Context: Implement the approved compact per-group flyout for the docked collapsed navigation rail, replacing whole-sidebar hover expansion.
+- Did: Began a bounded update of AppShell and NavSidebar interaction state, positioning, dismissal, motion, and regression coverage. Existing explicit expand/pin persistence, mobile navigation, RBAC filtering, active-route semantics, and keyboard navigation remain authoritative. Parallel read-only audits cover accessibility, test boundaries, and visual treatment; live browser QA will validate the final interaction. No Codex Security review is in scope.
+- Tests: Pending focused NavSidebar/AppShell suites, TypeScript, lint, production build, and live Light/Dark pointer/keyboard verification.
+- Status: in progress in the shared dirty v0.1.1 Testing tree. Existing unrelated changes are being preserved.
+- Next: Remove transient full-rail expansion, harden the grouped flyout interaction, then verify stable rail geometry and accessible dismissal.
+
+### 2026-07-26 12:50Z — `/root/nav_flyout_a11y_audit` — Collapsed navigation accessibility audit started
+- Context: Independently audit the requested locked icon rail with per-group hover/focus flyouts before the shell interaction changes.
+- Did: Began a read-only trace of AppShell, NavSidebar, existing navigation tests, and the Console UI standard, focusing on pointer travel, keyboard parity, dismissal, reduced motion, viewport bounds, pin/expand preservation, and active-route semantics. No product files will be edited and no Codex Security review is being run.
+- Tests: Source and regression audit pending; no application suite is required unless useful to confirm an existing contract.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Return implementation-ready accessibility edge cases and a focused regression matrix to the parent agent.
+
+### 2026-07-26 12:51Z — `/root/nav_flyout_visual_audit` — Collapsed-navigation flyout visual audit started
+- Context: Define the exact visual and motion contract for the approved compact group flyout on the locked icon rail, using the supplied reference without importing its unrelated styling.
+- Did: Began a read-only comparison of the current NavSidebar/AppShell implementation, shared theme tokens, and Console UI standard. No product files will be edited and no Codex Security review is being run.
+- Tests: Source-level token, hierarchy, pointer-travel, Light/Dark, and reduced-motion audit pending.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Return implementation-ready width, spacing, surface, hierarchy, timing, and viewport-positioning recommendations to the parent agent.
+
+### 2026-07-26 12:53Z — `/root/nav_flyout_visual_audit` — Collapsed-navigation flyout visual audit complete
+- Context: Complete the read-only visual/design-system audit for the supplied docked icon-rail flyout reference.
+- Did: Recommended a stable 64-pixel rail with one 224-pixel text-led destination flyout, an 8-pixel trigger gap and viewport clamp, the existing popover/border/radius/elevation tokens, a compact muted title plus 36-pixel destination rows, and quiet active/hover treatments. Defined immediate keyboard reveal, 100-millisecond pointer intent, 180-millisecond pointer-safe dismissal, a gap corridor, 120-millisecond opacity/4-pixel horizontal entrance, and a motionless reduced-motion state. Preserved childless tooltips, explicit pin/expand, mobile Sheet navigation, RBAC-derived destinations, and one-flyout-at-a-time semantics. No product files were edited and no Codex Security review was run.
+- Tests: Read-only supplied-reference, token, hierarchy, current NavSidebar/AppShell, and UI-standard inspection completed; no application suite was required for this advisory-only subtask.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Only the required Journal entries were added; nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Parent implementation agent to apply the bounded interaction, then verify pointer travel, keyboard focus/Escape, viewport clamping, reduced motion, childless tooltips, and Light/Dark presentation.
+
+### 2026-07-26 12:56Z — `/root/nav_flyout_a11y_audit` — Collapsed navigation accessibility audit complete
+- Context: Complete the independent accessibility and interaction audit for the locked icon rail with per-group hover/focus flyouts.
+- Did: Confirmed the whole-rail width swap should be removed while the persisted 64/240-pixel preference, explicit toggle, Control/Command+B, mobile Sheet, RBAC filtering, and route-focus handoff remain unchanged. Identified the current opacity-only flyout as an accessibility defect because every visually closed child stays focusable and exposed; recommended one state-controlled flyout, trigger state semantics, focus-in/Tab support, Escape close with focus restoration, pointer-safe delayed dismissal, listener/timer cleanup, viewport clamping, and dynamic single-current-route ownership when the active leaf is hidden versus revealed. Kept ordinary navigation/disclosure semantics rather than mislabelling the panel as an ARIA menu. No product files were edited and no Codex Security review was run.
+- Tests: Focused baseline passed 34/34 across `NavSidebar.test.tsx` and `appshell.search.test.tsx`; source and existing regression coverage were audited.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Only the required Journal entries were added; nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Parent implementation agent to replace CSS-only hidden focusables with explicit open/closed state and add keyboard, unique-current-route, pointer-travel, reduced-motion, and viewport-bound regressions before live Light/Dark QA.
+
+### 2026-07-26 13:09Z — `/root` — Locked collapsed-navigation flyout complete
+- Context: Finish the approved compact destination flyouts for the docked 64-pixel navigation rail.
+- Did: Removed whole-sidebar hover expansion and made the persisted collapsed rail geometrically stable. Grouped icons now expose one 224-pixel, tokenized destination panel with pointer intent, a gap corridor, delayed dismissal, immediate focus reveal, Escape restoration, viewport clamping, scroll/resize realignment, bounded overflow, reduced-motion handling, single-current-route ownership, and one-open-group semantics. Closed destinations are no longer mounted in the Tab or accessibility tree. Explicit pinning, Control/Command+B, mobile Sheet navigation, RBAC, childless tooltips, and route focus handoff remain unchanged. Updated the Console UI standard and added focused AppShell/NavSidebar behavior, geometry, motion, and axe regressions. No Codex Security review was run.
+- Tests: Focused navigation suites passed 40/40; full WebUI suite passed 1,603/1,603 across 257 files; full ESLint passed; the version-matched Help Center plus TypeScript/Vite production build passed with 3,170 modules; diff hygiene passed. Live browser QA verified a stable 64-pixel rail with the Analytics flyout open, a 224-pixel clamped panel, one-open-group behavior, Escape dismissal, explicit 240-pixel pin/unpin, and Light/Dark rendering.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Review the open collapsed-rail flyout, then include it in the normal Testing-to-Stable release flow with the surrounding v0.1.1 candidate.
+
+### 2026-07-26 13:11Z — `/root` — Chat workspace and conversation-history redesign started
+- Context: Rebuild the visually sparse Workspace Chat route into a clean operational conversation surface and expose prior conversations without weakening the single chat-engine contract.
+- Did: Began a bounded trace of the current Chat page, shared ChatPanel, chat API/store capabilities, route registry, responsive behavior, and design-system constraints. Parallel audits cover persistence/backend contracts, reference-matched information architecture, and accessible regression boundaries. No Codex Security review is in scope.
+- Tests: Pending focused Chat suites, API/store tests if persistence changes, TypeScript, lint/design gates, full WebUI/build gates, and live Light/Dark/narrow browser QA.
+- Status: in progress in the shared dirty v0.1.1 Testing tree. Existing unrelated work is being preserved.
+- Next: Determine whether durable conversation history already exists, then implement the smallest truthful history model and redesign the workspace around a compact thread rail, readable transcript, and efficient composer.
+
+### 2026-07-26 13:12Z — `/root/chat_workspace_test_audit` — Chat history regression and accessibility audit started
+- Context: Independently audit the Workspace Chat redesign and prior-conversation requirement before implementation.
+- Did: Began a read-only trace of the Chat page and shared ChatPanel tests, API mocks, routing, persistence contracts, loading/error/empty behavior, keyboard semantics, responsive layout, and accessibility coverage. No product files will be edited and no Codex Security review is being run.
+- Tests: Source and regression inspection in progress; a focused baseline will run only if useful to confirm current behavior.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Return the smallest high-value regression matrix and identify obsolete or brittle assertions that should be replaced.
+
+### 2026-07-26 13:15Z — `/root/chat_workspace_test_audit` — Chat history regression and accessibility audit complete
+- Context: Complete the independent test-contract review for a cleaner Workspace Chat with prior conversations.
+- Did: Confirmed standalone Chat is currently transient component state: `POST /api/chat` accepts caller-supplied prior turns but exposes no general conversation identity, list, detail, or delete contract; only case-scoped turns are durably appended to the case collaboration thread. Defined the smallest regression set around per-thread isolation, in-flight response ownership, truthful empty/loading/error states, selected-thread semantics, New-chat focus, mobile history disclosure, responsive geometry, populated accessibility, source/model restoration, and case-scoped routing. Flagged exact viewport-offset, Tailwind-class, DOM-child, and raw-source-string assertions that should be replaced with operator-visible behavior while preserving the shared one-engine invariants. No product files were edited and no Codex Security review was run.
+- Tests: Focused baseline passed 74/74 across ChatPanel, Chat page, embedded Case Chat, and visual-standard suites; Journal diff hygiene passed.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Only the required Journal entries were added by this subtask; nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Parent implementation agent to choose and label browser-local history or add a per-user durable store, then apply the focused matrix and complete Light/Dark, desktop/narrow, keyboard, and live conversation-switching QA.
+
+### 2026-07-26 13:12Z — `/root/chat_history_backend_audit` — Durable chat-history contract audit started
+- Context: Independently trace the current Workspace Chat backend, frontend contracts, state stores, authentication ownership, and test seams before prior conversations are exposed in the redesigned UI.
+- Did: Began a read-only audit of chat models, routes, the shared agent engine, KV-store patterns, demo and no-auth behavior, RBAC, and existing WebUI state. No product files will be edited and no Codex Security review is being run.
+- Tests: Source and existing regression inspection pending; no application suite is planned for this read-only audit unless needed to confirm a contract.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Return the smallest backward-compatible persisted conversation model/API, including ownership, pagination, titles, rename/delete behavior, demo semantics, and exact implementation/test anchors.
+
+### 2026-07-26 13:12Z — `/root/chat_workspace_visual_audit` — Operational chat workspace visual audit started
+- Context: Define an implementation-ready replacement for the sparse Workspace Chat shown in the supplied screenshot, including truthful prior-conversation discovery without changing the single chat-engine contract.
+- Did: Began a read-only comparison of Chat, ChatPanel, shared design-system primitives/tokens, the Console UI standard, and the supplied Light-theme desktop state. No product files will be edited and no Codex Security review is being run.
+- Tests: Source-level hierarchy, density, responsive, theme, empty/transcript/composer, and history-rail audit in progress.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Return exact dimensions, spacing, state transitions, responsive behavior, and removal recommendations to the parent implementation agent.
+
+### 2026-07-26 13:17Z — `/root/chat_workspace_visual_audit` — Operational chat workspace visual audit complete
+- Context: Finish the implementation-ready visual and interaction contract for a cleaner Workspace Chat with truthful prior-conversation discovery.
+- Did: Traced the dead canvas primarily to end-anchored first-turn rendering, a generic full-width status strip, duplicated source/model metadata, the empty-state inline/docked composer swap, and ornamental workspace-only message treatments. Specified a flat 264-pixel desktop history rail plus narrow Sheet, a top-aligned 52–54rem transcript, meaningful thread header, one permanently bottom-docked composer, compact non-marketing empty state, grouped searchable conversation rows, and token-only Light/Dark behavior. Defined honest loading/empty/partial-error/history states, current-thread and rename/delete affordance boundaries, message density, keyboard/focus semantics, and exact elements to remove while preserving the one chat engine, existing chat API behavior, case-scoped presentation, evidence/provenance, and safe rendering. No product files were edited and no Codex Security review was run.
+- Tests: Read-only supplied-screenshot, Chat/Workspace/ChatPanel, design-system token, Console UI standard, responsive workspace-pattern, and current regression-contract inspection completed; no application suite was needed for this advisory-only subtask.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Only the required Journal entries were added; nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Parent implementation agent to reconcile the history-store contract, apply the split workspace and transcript/composer cleanup, then verify durable selection/switching plus Light/Dark desktop/narrow states in the browser.
+
+### 2026-07-26 13:25Z — `/root/chat_history_backend_audit` — Durable Workspace chat history implemented
+- Context: The orchestrator expanded the completed read-only contract audit into implementation after confirming the frontend wire shape.
+- Did: Added a bounded per-user Workspace conversation store over the shared ES/SQL KV layer, additive list/detail/rename/delete endpoints, and opt-in persistence on the existing `/api/chat` route. Resumed conversations rebuild model history from the owned server transcript; stateless callers and case-scoped chat remain unchanged. Demo history uses the throwaway demo KV and factory reset clears real personal history. No Codex Security review was run.
+- Tests: New focused store/API suite passed 6/6 across fake Elasticsearch and SQLite, including user isolation, CAS-safe concurrency, caps, restore/rename/delete, stateless compatibility, case separation, and demo isolation. Surrounding API, auth-coverage, demo-chat, case-collaboration, and reset suites passed 71/71.
+- Status: Backend implementation complete; final diff and broader parent integration gates remain.
+- Next: Run source hygiene checks, finish the backend handoff, and let the parent connect the history rail to the additive API.
+
+### 2026-07-26 13:28Z — `/root/chat_history_backend_audit` — Durable Workspace chat-history backend complete
+- Context: Complete the implementation handoff for prior Workspace conversations while preserving the single authoritative chat engine and existing case-chat behavior.
+- Did: Finalized the frontend-requested wire shape, including summaries, full transcripts with bounded structured response snapshots, optional conversation fields on chat requests/responses, deterministic first-message titles, pagination, rename, and delete. Resuming restores the owned server transcript plus its saved source/model unless explicitly changed. Added an authenticated-principal isolation regression; unknown or cross-user ids return the same 404. Existing callers remain stateless by default, and context- or body-scoped case chat never enters personal Workspace history. No Codex Security review was run.
+- Tests: Complete backend suite passed 1,989/1,989. The focused chat-history and surrounding API/auth/demo/collaboration/reset set passed 78/78; Python compilation and scoped/full diff hygiene passed.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Parent implementation agent to regenerate the OpenAPI TypeScript client, connect the history rail, and run the integrated Console/static/build/browser gates.
+
+### 2026-07-26 13:27Z — `/root/chat_workspace_test_implementation` — Durable Workspace chat regressions started
+- Context: Add focused WebUI coverage for the redesigned Workspace Chat, including prior conversations, switching/restoration, persistence, thread actions, case scoping, and accessibility.
+- Did: Began tracing the shared-tree Chat page, ChatHistoryRail, ChatPanel contracts, API client, existing mocks, and brittle pre-redesign assertions. Product code remains out of scope unless a minimal testability seam is proven necessary; no Codex Security review is being run.
+- Tests: Focused Chat suites and TypeScript pending.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Replace implementation-coupled assertions with operator-visible behavior, add history lifecycle coverage, then run the focused suites and typecheck.
+
+### 2026-07-26 13:30Z — `/root/chat_workspace_docs` — Durable Workspace chat documentation started
+- Context: Bring the operator, analyst, developer, handoff, architecture, and release documentation in line with the redesigned Workspace Chat and its per-user saved conversation history.
+- Did: Began a docs-only audit of the shipped chat-history contract, split-workspace interaction, case-chat separation, migration boundary, and authoritative companion documentation. No implementation or test files will be changed and no Codex Security review is being run.
+- Tests: Documentation consistency and diff-hygiene checks pending.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Update the scoped documentation with truthful history lifecycle and responsive behavior, then validate cross-document terminology and links.
+
+### 2026-07-26 13:35Z — `/root/chat_workspace_docs` — Durable Workspace chat documentation complete
+- Context: Finish the docs-only handoff for saved personal Workspace conversations and the cleaner split chat workspace.
+- Did: Updated the operator usage guide, analyst investigation guide, Console UI standard, engineering handoff, canonical agent architecture/layout notes, and Unreleased changelog. Documented newest-first search/select/rename/delete, desktop rail/mobile Sheet, one top-aligned transcript and docked composer, first-successful-response persistence, authoritative server resume, case-chat separation, and the explicit inability to recover pre-feature browser-only chats. No implementation or test files were changed and no Codex Security review was run.
+- Tests: Documentation information-architecture/link consistency passed for 64 public pages; installed bundle identity check passed for app 0.1.1/docs 0.1; a fresh strict MkDocs bundle built successfully; full diff hygiene passed.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Parent agent to run the integrated WebUI/browser gates and update final aggregate test counts if they supersede the existing documented baseline.
+
+### 2026-07-26 13:38Z — `/root/chat_workspace_test_implementation` — Durable Workspace chat WebUI regressions complete
+- Context: Finish the focused regression lane for the redesigned Workspace Chat and its personal saved-conversation rail.
+- Did: Replaced brittle pre-redesign Chat/ChatPanel layout assertions with operator-visible behavior; added grouped/searchable/current conversation-rail coverage, New-chat draft promotion, newest-thread restoration, source/model resume, persistence callback and API arguments, rename/delete, retryable history states, case-id propagation, case-history isolation, and populated axe checks. Fixed initial history selection so the newest thread opens once while an intentional New-chat draft survives refreshes, corrected history buckets to use local calendar days, and removed an ES2021-only `replaceAll` call that blocked the project TypeScript target. No Codex Security review was run.
+- Tests: Focused Workspace Chat suites passed 28/28; surrounding Case Chat and Case Detail tab suites passed 23/23; TypeScript `tsc --noEmit` passed; scoped diff hygiene passed.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Parent agent to run the aggregate WebUI/lint/build/browser gates and reconcile any concurrent integration edits before release.
+
+### 2026-07-26 13:46Z — `/root` — Chat workspace and durable conversation history complete
+- Context: Replace the sparse Workspace Chat with a cleaner analyst surface that makes prior conversations discoverable and resumable without changing the one-chat-engine or case-chat contracts.
+- Did: Shipped a flat split workspace with a 264-pixel desktop conversation rail, searchable newest-first Today/Yesterday/Previous-7-days/Older groups, compact transcript header, top-aligned messages, one permanently docked composer, and a responsive History Sheet on narrow screens. Added bounded per-user conversation persistence over the shared state layer, additive list/detail/rename/delete APIs, first-successful-response creation, authoritative server-side resume with saved source/model context, deterministic titles, CAS-safe updates, and demo/factory-reset handling. New-chat drafts remain unsaved until a response succeeds; stateless callers and case-scoped chat remain isolated. Regenerated the OpenAPI client, updated operator/developer/release documentation, and documented that conversations created before this feature cannot be recovered because they were browser-memory-only. No Codex Security review was run.
+- Tests: Complete backend suite passed 1,989/1,989; complete WebUI suite passed 1,616/1,616 across 258 files; focused integrated Chat/Case Chat suites passed 59/59; route visual-standard suite passed 50/50; TypeScript, generated-client parity, full ESLint, and diff hygiene passed; the production WebUI build passed with 3,171 modules; the strict 64-page version-matched Help Center bundle passed. Live Light/Dark desktop and narrow-browser QA verified empty/new states, three saved conversations, newest-first restore after reload, rename, confirmed delete, mobile History Sheet behavior, and a clean browser console.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Review the redesigned Chat workspace and saved-history rail, then include it in the normal Testing-to-Stable release flow with the surrounding v0.1.1 candidate.
+
+### 2026-07-26 13:48Z — `/root/branding_theme_audit` — Branding theme-switch regression audit started
+- Context: Trace why opening Settings > Branding while the Console is in Light mode mutates the whole application to Dark mode.
+- Did: Began a read-only audit of the global ThemeProvider, persisted user theme, Settings route/loading lifecycle, Branding editor preview, and relevant regression coverage. No product files will be edited and no Codex Security review is being run.
+- Tests: Source-level contract inspection in progress; a focused baseline will run only if it materially confirms the root cause.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Identify the exact global mutation, return the smallest safe fix anchors, and define regression tests covering Light/Dark/System navigation into Branding.
+
+### 2026-07-26 13:48Z — `/root` — Branding light-theme regression investigation started
+- Context: Navigating from Light mode to Settings > Branding currently changes the entire Console to Dark while the Branding section loads.
+- Did: Began tracing the global theme controller, persisted user theme, Branding settings lifecycle, preview-only appearance controls, and route loading state. A parallel read-only audit is checking for an effect or preview token application escaping its intended sandbox. No Codex Security review is in scope.
+- Tests: Focused Branding/theme regressions, TypeScript/lint, and live Light-mode navigation/reload browser verification pending.
+- Status: in progress in the shared dirty v0.1.1 Testing tree; unrelated changes are being preserved.
+- Next: Reproduce the transition from a confirmed Light root state, isolate the first global theme mutation, patch the narrowest ownership boundary, and lock it with a regression test.
+
+### 2026-07-26 13:52Z — `/root/branding_theme_audit` — Branding theme-switch regression audit complete
+- Context: Finish the read-only ownership audit for Light mode changing to Dark when Settings > Branding mounts.
+- Did: Confirmed the Settings loader and branding-token resolver honor explicit Light mode. The mutation comes from BrandingEditor using ThemeProvider's persistent personal-theme setter for an organization-default preview, then calling that setter from its effect cleanup with the saved org default. React Strict Mode intentionally runs effect setup/cleanup/setup during initial mount, so merely opening Branding overwrites `soc.theme` before the editor resolves; a normal section unmount and Discard repeat the same ownership violation. Recommended removing whole-app colour-mode mutation from the org-default picker/cleanup/discard while keeping the saved branding refresh, so explicit personal Light/Dark continues to win and System users adopt the org default only after Save. No product files were edited and no Codex Security review was run.
+- Tests: Existing focused Branding/theme baseline passed 38/38 but contains no navigation/theme-isolation assertion. Defined StrictMode Light/Dark/System regressions covering initial load, loaded state, org-default selection, Save, Discard, and unmount; Journal diff hygiene passed before this closing entry.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Only required Journal entries were added by this subtask; nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Parent implementation agent to remove BrandingEditor's calls to the persistent user-theme setter, add the isolation regressions, then verify Settings > Branding in Light/Dark/System through the live browser.
+
+### 2026-07-26 13:57Z — `/root` — Branding now preserves the operator's personal theme
+- Context: Complete the Light-to-Dark regression fix when an operator opens Settings > Branding.
+- Did: Removed BrandingEditor's misuse of ThemeProvider's persistent personal-theme setter from initial cleanup, org-default selection, Discard, and unmount. The organization-default selector now edits only the branding draft; explicit personal Light/Dark remains authoritative, while System users still adopt a newly saved organization default through the existing branding refresh. Added a StrictMode regression proving an explicit Light preference survives the dark organization seed, org-default interaction, Discard, and unmount, and documented the fix in the Unreleased changelog. No Codex Security review was run.
+- Tests: Focused Branding/theme coverage passed 20/20; complete WebUI coverage passed 1,617/1,617 across 258 files; TypeScript, scoped and full ESLint, and diff hygiene passed. Live browser QA confirmed Light throughout Advanced → Branding navigation, org-default draft selection, Discard, and reload; a clean tab rendered the Branding section in Light with no browser-console errors.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Review Settings > Branding from Light mode; include this fix in the normal v0.1.1 Testing-to-Stable promotion.
+
+### 2026-07-26 13:58Z — `/root` — Capability-aware storage lifecycle implementation started
+- Context: Add operator-visible storage options with a 180-day Hot default, followed by Warm and archival/Glacier handling where the configured backend can support it.
+- Did: Began tracing application-state ownership, read-only source-log boundaries, Elasticsearch/OpenSearch lifecycle capabilities, SQL/SQLite limits, object-store integrations, Settings configuration, scheduler hooks, and deployment documentation. Parallel audits cover backend enforcement, UI semantics, and primary-provider capability mapping. No destructive migration or Codex Security review is in scope.
+- Tests: Backend policy/schema/API and Settings UI tests, TypeScript/lint/build, documentation checks, and live Light/Dark browser QA pending.
+- Status: in progress in the shared dirty v0.1.1 Testing tree; unrelated work is being preserved.
+- Next: Establish a truthful capability matrix, choose safe warm/archive defaults, then implement policy/status surfaces without claiming unsupported tier movement or altering upstream source logs.
+
+### 2026-07-26 14:01Z — `/root/storage_lifecycle_ui_audit` — Storage lifecycle Settings audit started
+- Context: Define where and how the Console should expose a capability-aware Hot → Warm → Archive retention policy, with 180 days Hot by default and provider-specific Glacier support where available.
+- Did: Began a read-only audit of Settings registration, typed preference/schema plumbing, shared form/status/loading primitives, source/backend capability patterns, and the Light/Dark UI contract. No product files will be edited and no Codex Security review is being run.
+- Tests: Source-contract and existing regression inspection in progress; no application suite is required for this advisory-only lane.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Return exact implementation anchors, truthful provider capability states, a non-destructive preview/status design, and a focused test matrix to the parent implementation agent.
+
+### 2026-07-26 13:58Z — `/root/storage_lifecycle_backend_audit` — Storage lifecycle architecture audit started
+- Context: Determine where Agentic SOC can safely offer 180-day hot retention followed by warm and archive/Glacier tiers across its selectable state stores and connected log sources.
+- Did: Began a read-only trace of state-store configuration, index bootstrap/templates, SQL persistence, schedulers, retention/reset behavior, settings APIs, and object-store connectors. The audit will keep upstream SIEM/log surfaces read-only and will distinguish provider-native enforcement from advisory/export-only states. No product files will be edited and no Codex Security review is being run.
+- Tests: Source-contract and existing-test inspection pending; no application suite is planned for this advisory-only subtask.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Return an exact capability matrix, additive configuration/API model, migration risks, lifecycle execution boundary, and focused test plan to the parent implementation agent.
+
+### 2026-07-26 14:05Z — `/root/storage_lifecycle_backend_audit` — Storage lifecycle architecture audit complete
+- Context: Finish the backend ownership and enforcement audit for a 180-day Hot → Warm → Archive lifecycle without mutating connected SIEM/log sources or overstating provider support.
+- Did: Confirmed state/log separation, mapped Elasticsearch templates and aliases, SQL tables, KV state, reset/export behavior, scheduler ownership, and object-store receivers. Only Agentic SOC-owned Elasticsearch audit/usage streams are plausible native-ILM targets after explicit cluster capability/privilege opt-in. The mutable case store cannot safely use naive rollover because updates write through the current alias and can duplicate an older case after rollover. PostgreSQL needs a real partition/migration design; SQLite only supports whole-database backup; upstream Elasticsearch/OpenSearch/Wazuh and object stores remain externally managed/read-only. Recommended a desired-versus-effective API with 180 Hot + 90 Warm + Archive at day 270, deletion disabled, explicit preview/apply, per-dataset warnings, and a separately governed immutable archive export/restore path rather than reusing the bounded support export or ingest credentials. No product files were edited and no Codex Security review was run.
+- Tests: Completed source-contract inspection across state construction, stores, templates/bootstrap, SQL schema, settings/schema routes, reset/export, schedulers, and S3/GCS/Azure receivers; Journal diff hygiene passed before this closing entry. No application suite was required for this advisory-only lane.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Only the required Journal entries were added by this subtask; nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Parent implementation agent to ship the truthful desired policy/status surface first, keep enforcement opt-in and dataset-scoped, and defer managed archive until manifest/checksum/restore and safe mutable-case handling exist.
+
+### 2026-07-26 13:58Z — `/root/storage_lifecycle_research` — Provider lifecycle capability research started
+- Context: Establish a truthful Hot → Warm → Archive storage contract with 180 days Hot by default across Elasticsearch, OpenSearch, SQL state stores, and S3 archival targets.
+- Did: Began an official-source review of provider-native lifecycle controls, transition constraints, archive semantics, and the boundary between enforceable configuration and advisory policy. This lane is research-only; no product implementation files will be edited and no Codex Security review is being run.
+- Tests: Documentation/source validation in progress; no application suite is required for this advisory-only lane.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Return a capability matrix, recommended warm/archive defaults, additive API semantics, and authoritative source links to the parent implementation agent.
+
+### 2026-07-26 14:02Z — `/root/storage_lifecycle_research` — Provider lifecycle capability research complete
+- Context: Finish the official-source capability review for a 180-day Hot → Warm → Archive policy without overstating what the current vendor-agnostic architecture can enforce.
+- Did: Established a non-destructive desired-policy default of 180 days Hot, 90 days Warm, then archive from day 270, with deletion disabled. Confirmed Elasticsearch ILM uses Hot/Warm/Cold/Frozen/Delete and requires cluster-level lifecycle privileges that the current index-scoped management key does not hold; current mutable case writes also make naive alias rollover unsafe, while append-only audit/usage are the future native-ILM candidates. Confirmed self-managed OpenSearch ISM can move rolled indices to warm-attributed nodes and AWS OpenSearch uses Hot/UltraWarm/Cold, but connected source policies must remain advisory under the read-only contract. PostgreSQL requires partition/tablespace design plus an application scheduler; SQLite supports whole-database snapshots rather than record-level tiers. S3 Glacier Flexible Retrieval is the recommended standalone-export archive class; Elasticsearch explicitly forbids Glacier transitions or expiry for its S3 snapshot-repository objects, so Glacier must never be presented as an Elasticsearch repository tier.
+- Tests: Cross-checked the repository's index aliases/store writes and deployment scope against current official Elastic, OpenSearch, AWS, PostgreSQL, and SQLite documentation; Journal diff hygiene passed before this closing entry. No application suite was required and no Codex Security review was run.
+- Status: complete, research-only. No product implementation file was edited; nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Parent implementation agent to expose desired versus effective lifecycle state, keep deletion opt-in, and implement only capability-backed targets while marking external/read-only or unpartitioned stores advisory/export-only.
+
+### 2026-07-26 14:05Z — `/root/storage_lifecycle_ui_audit` — Storage lifecycle Settings audit complete
+- Context: Finish the read-only UI/IA design for a truthful Hot → Warm → Archive policy without presenting unsupported storage movement as active.
+- Did: Selected **Settings → Organization → Storage & retention** as a new registry-derived grid section immediately before Data export, with stable `#/settings?s=storage` and card anchors for Effective status, Desired policy, and Preview. Specified the default draft as 180 days Hot + 90 days Warm + Archive from day 270, deletion off; separated Agentic SOC-owned state from read-only source retention; and defined capability labels (`Managed`, `Advisory / external`, `Export-only`, `Unsupported`) plus provider-specific Archive copy. The proposed surface reuses `SectionShell`, flat `SettingsCard` bands, semantic badges/alerts, `NumPref`/Radix controls, the one global Save/Discard path, and the shared centered loader/refresh bar in both Light and Dark. It never calls Elastic cold/frozen “Glacier” and only says `S3 Glacier Flexible Retrieval` for a configured immutable S3 export/restore target.
+- Tests: Inspected the Settings registry/dirty/deep-link tests, Settings render/accessibility coverage, typed Preferences/API seams, shared loader and theme contract, and backup/settings documentation. Produced a focused unit/integration/browser matrix for registry order, capability states, monotonic thresholds, minimal dirty patches, read-only/RBAC, preview purity, partial status failure, both themes, reduced motion, narrow layouts, and provider-specific copy. No application suite was run because this lane was advisory-only; no Codex Security review was run.
+- Status: complete. No product implementation file was edited; only the required Journal start/end entries were appended. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Parent implementation agent to add the `storage_lifecycle` preference/API capability contract and `storage.tsx` renderer, then verify desired-versus-effective status against each active state backend before enabling enforcement.
+
+### 2026-07-26 14:23Z — `/root` — Capability-aware storage lifecycle implementation milestone
+- Context: Deliver the 180-day Hot → Warm → desired Glacier policy without changing connected source retention or presenting unsupported movement as active.
+- Did: Added a validated desired-policy model (180 days Hot, 90 days Warm, archive boundary day 270, deletion code-enforced off); narrow typed Elasticsearch ILM capabilities; explicit status, save, side-effect-free preview, and fresh-authenticated apply routes; and allow-listed ILM enforcement for only the append-only audit and usage ledgers. Mutable cases and live metadata stay Hot, source logs stay external/read-only, PostgreSQL remains advisory, SQLite remains export-only, and Glacier remains an independent checksummed export/restore requirement. Added Organization → Storage & retention with saved-versus-effective status, save-before-apply gating, exact safe-scope rows, and Light/Dark design-system primitives. Updated deployment, security, API, configuration, settings, limitations, release, and handoff documentation plus the management-key example. Regenerated the committed OpenAPI and TypeScript client contracts. No Codex Security review was run.
+- Tests: Backend storage lifecycle coverage passed 8/8; route/auth/settings coupling coverage passed 64/64; Settings-focused WebUI coverage passed 111/111; TypeScript, targeted ESLint, production app build, strict Help Center bundle, documentation consistency, generated API contracts, and diff hygiene passed in their scoped lanes.
+- Status: implementation complete; integration and live browser verification are in progress in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Run consolidated backend/WebUI checks, inspect the generated contract and final diff, then verify Storage & retention in both themes through the live browser.
+
+### 2026-07-26 14:33Z — `/root/storage_final_ui_docs_review` — Storage lifecycle UI and documentation audit started
+- Context: Independently verify the new Storage & retention Settings surface and lifecycle documentation against the implemented backend contract before final handoff.
+- Did: Began tracing status rendering, Apply gating, the 180-day Hot + 90-day Warm + desired Glacier-from-day-270 language, owned-state versus source/case exclusions, and the Elasticsearch management privilege list. No Codex Security review is in scope.
+- Tests: Focused Settings tests, documentation checks, and source-level contract comparison pending.
+- Status: in progress in the shared dirty v0.1.1 Testing tree; unrelated work is being preserved.
+- Next: Report any concrete truthfulness or consistency defects, make only a narrow fix if required, and return exact verification evidence to the orchestrator.
+
+### 2026-07-26 14:39Z — `/root/storage_final_ui_docs_review` — Storage lifecycle UI and documentation audit complete
+- Context: Complete the independent truthfulness and consistency review of Settings → Organization → Storage & retention and its operator/deployment documentation.
+- Did: Confirmed the desired 180-day Hot + 90-day Warm + Glacier-from-day-270 model, deletion-off guarantee, append-only audit/usage enforcement boundary, mutable-case/live-metadata Hot-only scope, external source-retention boundary, and required `manage_ilm` + `manage_index_templates` + `monitor` cluster grants. Tightened the UI so Apply is disabled while capability status is loading/unavailable and in read-only mode, with accurate blocking copy; labelled the volatile backend as In-memory fallback; promoted drift/pending-disable/unsupported states to warnings; clarified that the effective card's timeline is the saved desired boundary; and removed an ambiguous overlapping day-range description in the Console and installed/deployment docs. No provider behavior or deterministic case authority changed, and no Codex Security review was run.
+- Tests: Focused Storage/Settings coverage passed 26/26; scoped ESLint, TypeScript, Help Center bundle, strict docs consistency, required-privilege documentation assertions, lifecycle-boundary wording assertions, full diff hygiene, and local-only memory hygiene passed.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Orchestrator can include these UI/docs corrections in the consolidated storage lifecycle handoff and browser verification.
+
+### 2026-07-26 14:33Z — `/root/storage_final_backend_review` — Storage lifecycle backend review started
+- Context: Independently audit the implemented 180-day Hot + 90-day Warm desired lifecycle for correctness, permission safety, scope isolation, and non-destructive behavior.
+- Did: Began a read-only review of the preference model, storage routes, lifecycle engine, Elasticsearch capability/apply seam, and focused regression tests. No Codex Security review is being run.
+- Tests: Focused lifecycle tests and source-level contract checks are pending.
+- Status: in progress in the shared dirty v0.1.1 Testing tree; no product file has been edited by this review lane.
+- Next: Trace preview/apply behavior through real and fake backends, run the focused suite, and report only concrete defects or residual risks to the parent agent.
+
+### 2026-07-26 14:46Z — `/root/storage_final_backend_review` — Storage lifecycle backend review complete
+- Context: Finish the independent correctness and safety review of the desired 180-day Hot + 90-day Warm own-state lifecycle before aggregate acceptance.
+- Did: Fixed two concrete capability/status gaps. The Elasticsearch preflight now requires index-level `manage` on the allow-listed audit/usage wildcards in addition to lifecycle/template privileges before enable can mutate anything. A separate `can_manage` signal permits explicit non-destructive detach when Warm capacity or ILM readiness is degraded, while enable still requires full Hot/Warm support. Added bounded attachment inspection for only the two owned ledgers (template plus existing index settings), so `active` now requires a matching policy and verified attachments; partial/external detachment reports drifted or blocked rather than falsely active. Effective target/tier labels now say managed only when enforcement is actually active, and disabled ledgers report Hot-only. Mirrored the disable gate and additive capability/attachment typing in Settings. No Codex Security review was run.
+- Tests: `backend/.venv/bin/python -m pytest -q tests/test_storage_lifecycle.py` passed 16/16; the focused Storage Settings Vitest passed 9/9; TypeScript, targeted ESLint, Python compile checks, and `git diff --check` passed.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published; no `memory.md` exists.
+- Next: Parent orchestrator to run aggregate backend/WebUI/docs/browser gates and include these bounded lifecycle hardening changes in the final handoff.
+
+### 2026-07-26 14:52Z — `/root` — Storage lifecycle implementation complete
+- Context: Complete the capability-aware 180-day Hot → 90-day Warm → desired Glacier retention work for Agentic SOC-owned state.
+- Did: Finalized the validated desired policy, capability/status/preview/apply API, exact Elasticsearch privilege and attachment checks, non-destructive disable path, and Organization → Storage & retention Console surface. Native ILM is deliberately allow-listed to append-only audit and usage ledgers; mutable cases and live metadata remain Hot, connected source logs remain external/read-only, and PostgreSQL/SQLite/in-memory backends report advisory/export-only/unsupported states instead of claiming movement. Glacier starts at the desired day-270 boundary but remains unconfigured until an independent immutable export, checksum, manifest, and tested restore pipeline exists; automatic deletion is code-enforced off. Updated active operator, deployment, API, security, compatibility, release, and handoff documentation. No Codex Security review was run.
+- Tests: Full backend suite passed with 2,005 collected tests; full WebUI suite passed 1,626/1,626 across 259 files. ESLint, generated OpenAPI/TypeScript drift check, production app plus version-matched Help Center build, strict documentation check, version consistency, authenticated lifecycle status/preview smoke, and `git diff --check` passed. Focused lifecycle coverage passed 16/16 backend and 9/9 UI; no `memory.md` exists.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: On an Elasticsearch deployment, grant the documented narrow management privileges, review Preview, then explicitly Apply. A future archive round can add the separate checksummed Glacier export/restore pipeline without weakening the no-delete or read-only-source boundaries.
+
+### 2026-07-26 21:48Z — `/root` — Agent Improvement alternatives and neutral groundwork started
+- Context: Explore multiple detailed ways to show whether the SOC agent is improving each day while continuing only non-opinionated product groundwork shared by every visual direction.
+- Did: Began two additional high-fidelity UI concepts plus an audit of existing case feedback, outcome, cost, posture, dashboard, and Standup seams. Engineering scope is intentionally limited to trustworthy metric definitions, efficient aggregation, and reusable presentation foundations until an operator-facing concept is selected. Existing dirty v0.1.1 Testing work is being preserved, and no Codex Security review is being run.
+- Tests: Product/data-contract and UI-foundation audits are in progress; no implementation gate has run yet.
+- Status: in progress.
+- Next: Compare distinct daily-quality, cohort/experiment, and learning-ledger concepts; identify the smallest safe shared implementation slice; then implement and verify only that neutral slice.
+
+### 2026-07-26 21:48Z — `/root/improvement_ui_foundation` — Agent Improvement UI foundation audit started
+- Context: Identify a flexible Console foundation for multiple detailed concepts showing whether the agent is improving over time, without prematurely locking the product into one score or layout.
+- Did: Began a read-only audit of the shared design system, feature registry, Dashboard, Metrics, Standup, chart primitives, responsive behavior, and accessibility contracts. This lane will also identify small density and efficiency cleanups common to every concept. No Codex Security review is being run.
+- Tests: Source-contract and existing-test inspection in progress; no application suite is planned for this advisory-only lane.
+- Status: in progress in the shared dirty v0.1.1 Testing tree; unrelated work is being preserved.
+- Next: Return exact reuse points, missing neutral primitives, responsive/accessibility requirements, and a small implementation sequence to the parent agent.
+
+### 2026-07-26 21:49Z — `/root/improvement_metric_contract` — Agent Improvement metric-contract audit started
+- Context: Define one defensible daily Agent Improvement measurement contract that can support several operator-facing UI concepts without inventing scores or changing deterministic case authority.
+- Did: Began a read-only trace of persisted case outcomes, analyst dispositions and feedback, status history, usage/cost records, posture metrics, tuning state, routes, RBAC, and audit seams. The audit will specify exact cohorts, denominators, comparison windows, missing-data states, and the smallest additive backend surface. No product implementation and no Codex Security review are in scope.
+- Tests: Source-contract and existing regression inspection in progress; no application suite is planned for this advisory-only lane.
+- Status: in progress in the shared dirty v0.1.1 Testing tree; unrelated work is being preserved.
+- Next: Return exact reuse anchors, three core metric definitions plus guardrails, daily/7-day/28-day normalization, privacy/RBAC/audit implications, and a focused API/test plan to the parent agent.
+
+### 2026-07-26 21:52Z — `/root/improvement_ui_foundation` — Agent Improvement UI foundation audit complete
+- Context: Finish the read-only Console foundation audit for multiple detailed ways to show whether the agent is improving over time without selecting one score or visual concept prematurely.
+- Did: Mapped the existing Analytics host, Metrics feedback/performance surfaces, Standup deltas, Dashboard shared-data provider/widget registry, and shared layout/chart primitives. Recommended an Analytics-hosted Improvement tab first, composed from `PageContainer`, `PageHeader`, `ControlBar`, `KpiTile`, `MultiSeriesTrend`, `BarList`, `DashboardGroup`, and the shared loading/error states; specified the missing neutral comparison, metric-explanation/evidence, sample-sufficiency, and change-annotation seams. Identified two shared cleanup opportunities: consolidate Standup's bespoke delta tiles onto the KPI/comparison grammar, and centralize reporting-window/fetch semantics without ever pulling the billed Standup LLM endpoint into Dashboard data. No product implementation file was edited and no Codex Security review was run.
+- Tests: Inspected existing Metrics, Standup, dashboard-provider, chart, route-registry, theme, responsive, loading, and jest-axe coverage. No application suite was run because this lane was advisory-only; Journal diff hygiene is the only write verification.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Parent agent can use the returned reuse map and phased plan to compare UI concepts, then implement a pure non-billing daily-improvement endpoint and one Analytics tab before promoting a dashboard widget or Standup summary.
+
+### 2026-07-26 21:54Z — `/root/improvement_ui_foundation` — Neutral comparison UI primitives started
+- Context: Implement the smallest reusable presentation groundwork shared by future Agent Improvement concepts without adding a route, score, or visible product opinion.
+- Did: Began a focused implementation of flat `ComparisonMetric` and keyboard/touch-accessible `MetricDefinition` primitives supporting prior-value comparison, explicit sample sufficiency, and evidence-oriented metric definitions. Existing dirty v0.1.1 Testing work is being preserved and no Codex Security review is being run.
+- Tests: Focused component coverage, TypeScript, scoped ESLint, and diff hygiene pending.
+- Status: in progress.
+- Next: Reuse the existing KPI and Radix vocabulary without duplicating delta logic, add accessibility-focused regressions, and run the scoped gates.
+
+### 2026-07-26 22:04Z — `/root/improvement_metric_contract` — Agent Improvement metric-contract audit complete
+- Context: Finish the read-only data-contract audit for a daily Agent Improvement surface that remains statistically honest and never feeds deterministic case authority.
+- Did: Traced the persisted `Case`, append-only `FeedbackEntry`, `StatusHistoryEntry`, human action/audit trail, `UsageDoc` cost ledger, lifecycle/posture functions, tuning ledger, ES/SQL paging limits, and RBAC matrix. Defined three cohort metrics: weighted verified decision agreement, material analyst correction rate, and median human review turnaround. The third is deliberately named elapsed turnaround, not active touch time, because the current product has no pause/resume work-session clock. Specified unique-case latest-grade deduplication; strict human-transition provenance; complete UTC daily buckets; pooled seven-day headline versus the preceding non-overlapping 28-day baseline; baseline-mix standardization by source and severity; no composite score; sample/coverage/truncation gates; and false-negative, reopen, response-tail, cost, and case-mix guardrails. Identified that the legacy feedback aggregate uses every grade and returns zero for no data, the old metrics routes are bounded and not narrowly permissioned, feedback actor and categorical fields are caller-supplied, and `decision_by` is overwritten by later analyst actions, so none of those shortcuts is suitable for a defensible improvement claim.
+- Tests: Completed source-level contract inspection across both bundled state backends, existing feedback/metrics/auth coverage, and diff hygiene. No application suite was run because this lane was advisory-only; no product implementation file was edited and no Codex Security review was run.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Only the required Journal start/end entries were added by this lane; nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Parent implementation agent can add one pure `GET /api/metrics/agent-improvement` endpoint behind `metrics:view`, with bounded exact updated-time paging, explicit null/unavailable states, aggregate-only output, and focused engine/route/store-parity tests before wiring any of the proposed UI concepts.
+
+### 2026-07-26 22:10Z — `/root/improvement_metric_contract` — Agent Improvement backend slice started
+- Context: Implement the smallest production-safe, read-only aggregation contract shared by the proposed Agent Improvement UI alternatives.
+- Did: Began a pure engine plus one `metrics:view` endpoint using the existing bounded case load and honest store-truncation provenance. Scope is limited to unique latest-valid feedback, weighted agreement, material corrections, strict human review turnaround, complete UTC daily/current/baseline cohorts, source-severity mix adjustment, and defensible safety guardrails. No cost rollup, persistence, LLM call, case write, or deterministic-decision dependency is in scope.
+- Tests: Focused pure-function, route/RBAC/privacy, compile, and diff-hygiene checks pending. No Codex Security review is being run.
+- Status: in progress in the shared dirty v0.1.1 Testing tree; unrelated work is being preserved.
+- Next: Implement and validate the pure contract, then return exact files and focused gate results without staging or publishing anything.
+
+### 2026-07-26 22:01Z — `/root/improvement_ui_foundation` — Neutral comparison component milestone
+- Context: Complete the component and regression slice before static verification.
+- Did: Added a flat divider-led `ComparisonMetric` that delegates value and delta semantics to the existing `KpiTile`, then adds prior value, required sample context for sufficient/insufficient states, explicit availability wording, and an optional structured definition trigger. Added `MetricDefinition`, a persistent Radix popover exposing formula, numerator, denominator, eligibility, and caveats through both keyboard and pointer/touch activation. Styling uses only shared semantic tokens and no new route, visible page, dependency, score, or product concept was introduced.
+- Tests: New focused suite passed 6/6, including sufficient/insufficient/unavailable behavior, inherited delta judgment, keyboard/Escape focus restoration, pointer opening, and jest-axe coverage.
+- Status: implementation milestone complete; static and compatibility gates in progress.
+- Next: Run the existing KPI compatibility tests, TypeScript, scoped ESLint, and scoped diff hygiene.
+
+### 2026-07-26 22:02Z — `/root/improvement_ui_foundation` — Neutral comparison UI primitives complete
+- Context: Finish the smallest reusable UI groundwork shared by future Agent Improvement concepts without selecting or exposing one concept now.
+- Did: Finalized `ComparisonMetric` and `MetricDefinition` with compile-time sample requirements for sufficient/insufficient readings, honest unavailable-value/delta suppression, token-only flat presentation, Radix focus behavior, and reduced-motion-safe trigger styling. `KpiTile` remains the single authority for trend direction, good-direction judgment, accessible delta naming, and KPI layout; no behavior was copied into the new layer. No Codex Security review was run.
+- Tests: Focused new-plus-KPI compatibility suite passed 24/24 across 4 files; full WebUI TypeScript passed; scoped ESLint passed with zero findings; scoped `git diff --check` passed before this closing Journal entry.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Parent agent can consume these primitives from any selected Improvement concept while the pure non-billing metric endpoint is developed independently.
+
+### 2026-07-26 22:05Z — `/root/improvement_ui_foundation` — Agent Improvement neutral documentation started
+- Context: Document the additive aggregate-only Agent Improvement metric contract and reusable UI groundwork without selecting or advertising an operator-facing concept.
+- Did: Began a narrow update to the API reference, analyst Analytics guide, Unreleased changelog, and handoff. Existing dirty v0.1.1 Testing work is being preserved and no Codex Security review is being run.
+- Tests: Documentation consistency, Help Center bundle/check, wording assertions, and diff hygiene pending.
+- Status: in progress.
+- Next: State the exact complete-UTC-day cohorts, three non-composite metrics, sufficiency/coverage/truncation/guardrail semantics, privacy/non-billing boundaries, and current no-route status.
+
+### 2026-07-26 22:19Z — `/root/improvement_backend_tests` — Agent Improvement contract verification started
+- Context: Add focused regression coverage for the new pure Agent Improvement aggregate and its permission-gated metrics route without changing implementation code.
+- Did: Began deterministic fixture and route tests for complete UTC windows, latest-valid analyst-grade deduplication, missing and insufficient evidence, material correction semantics, final human-review episode timing, honest truncation, aggregate-only privacy, query validation, and RBAC. Existing unrelated dirty v0.1.1 Testing work is being preserved; no Codex Security review is being run.
+- Tests: Focused backend suite pending.
+- Status: in progress.
+- Next: Inspect the exact response contract, implement only `backend/tests/test_agent_improvement.py`, run the focused tests, and report concrete failures or residual gaps to the parent agent.
+
+### 2026-07-26 22:24Z — `/root/improvement_backend_tests` — Agent Improvement focused contract suite green
+- Context: Lock the new aggregate and route behavior before aggregate acceptance.
+- Did: Added eight deterministic tests covering half-open complete-UTC cohorts and all 35 daily buckets; unique latest-valid grade selection with superseded/invalid accounting; unavailable versus insufficient evidence; explicit disagreement and allow-listed verdict/outcome correction conflicts; final-live-episode human turnaround with automatic/direct-close exclusions; truncation overriding otherwise complete evidence; aggregate-only route privacy and query validation; and an auth-on/RBAC-on `metrics:view` denial. No implementation file was changed and no Codex Security review was run.
+- Tests: New focused suite passed 8/8. New suite plus the existing Wave-2 metrics and Wave-5 posture honesty suites passed 42/42; the new test module compiled successfully.
+- Status: verification milestone complete in the shared dirty v0.1.1 Testing tree.
+- Next: Run final diff hygiene from the repository root, then hand the exact file and results to the parent agent without staging or publishing anything.
+
+### 2026-07-26 22:27Z — `/root/improvement_backend_tests` — Agent Improvement contract verification complete
+- Context: Finish the independent regression lane for the new read-only Agent Improvement aggregate and route.
+- Did: Finalized `backend/tests/test_agent_improvement.py` with eight pure/route regressions across UTC cohort boundaries, latest-grade uniqueness, evidence-state honesty, material correction semantics, final-episode review turnaround, store truncation, aggregate privacy, request bounds, authentication, and explicit RBAC denial. Confirmed the new tests remain compatible with the existing posture and metrics route suites. No implementation file was edited and no Codex Security review was run.
+- Tests: Focused new suite passed 8/8. Combined new + Wave-2 metrics + Wave-5 posture suites passed 42/42. Python compile and repository-root diff hygiene passed. Ruff is not installed in the backend virtual environment and was not a required project gate for this test-only slice.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published; no `memory.md` was created.
+- Next: Parent agent should include this test module in aggregate verification and retain the contract's explicit insufficient/truncated states when a visual concept is selected.
+
+### 2026-07-27 00:12Z — `/root/improvement_metric_contract` — Agent Improvement implementation audit started
+- Context: Perform the requested read-only audit of the newly added Agent Improvement engine and metrics route against the previously defined statistical, privacy, truncation, and authority contract.
+- Did: Began line-by-line inspection of `backend/app/engine/agent_improvement.py` and `backend/app/api/routes_metrics.py`. This lane will report only concrete correctness and privacy issues with minimal fixes; implementation and tests remain untouched. No Codex Security review is being run.
+- Tests: Static source inspection and read-only targeted probes pending; no code-change gate is in scope.
+- Status: in progress in the shared dirty v0.1.1 Testing tree; unrelated work is being preserved.
+- Next: Trace cohort boundaries, deduplication, turnaround provenance, mix normalization, guardrails, truncation gating, response privacy, query semantics, and RBAC, then return file-and-line-specific findings.
+
+### 2026-07-26 22:28Z — `/root/improvement_metric_contract` — Agent Improvement implementation audit complete
+- Context: Finish the requested read-only contract audit of the new Agent Improvement engine and permissioned metrics route. The preceding start entry's `00:12Z` label was a timestamp-conversion typo; this append-only correction records the actual UTC completion sequence without rewriting history.
+- Did: Verified the core unique-case feedback deduplication, complete half-open UTC buckets, strict final-human-terminal turnaround shape, bounded store truncation marker, `metrics:view` dependency, aggregate response construction, and absence of LLM/write/decision calls. Identified concrete blockers before a trustworthy improvement claim: baseline-only mix coverage can ignore almost the entire current cohort; sparse and unseen strata can be pooled as falsely comparable; the delta is mix-adjusted while displayed values are raw; raw source identifiers are returned; future `as_of` boundaries can include partial days; safety guardrails are treated as not breached when unevaluable and do not gate the headline; false negatives are undercounted/mis-denominated; reopen rates are right-censored with unequal follow-up; the weighted agreement uses a binomial Wilson interval; daily false-negative points use the wrong sample gate; and exclusion counts are not scoped to the 35-day cohort.
+- Tests: Ran read-only pure-function probes. One adversarial mix probe used a baseline of 30 agreeing source-A cases and a current cohort of one agreeing source-A case plus 29 disagreeing new-source cases: raw current agreement/correction were 3.33%/96.67%, yet the adjusted values were 100%/0%, coverage was reported as 100%, and the headline was `stable`. Static route inspection confirmed one bounded `_load_cases` call and the narrow `metrics:view` dependency. No implementation or test file was edited and no Codex Security review was run.
+- Status: audit complete in the shared dirty v0.1.1 Testing tree. Only required Journal entries were written by this lane; nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Fix exact common-support mix weighting and dual-cohort coverage first, remove source labels from the public aggregate, align displayed and comparison values, then enforce complete-day validation and honest guardrail availability/censoring before wiring any UI headline.
+
+### 2026-07-26 22:31Z — `/root/improvement_ui_foundation` — Agent Improvement neutral documentation complete
+- Context: Finish the narrow documentation slice for the additive Agent Improvement reporting contract and reusable comparison primitives without selecting a visible product concept.
+- Did: Documented `GET /api/metrics/agent-improvement` in the API reference, analyst Analytics guide, Unreleased changelog, and handoff: default seven complete UTC days versus the preceding 28; weighted analyst agreement, material correction rate, and human review turnaround; explicit sample, daily-point, cohort-coverage, truncation, and guardrail semantics; and the aggregate-only, non-billing, reporting-only privacy/authority boundary. Recorded that there is no synthetic composite, causal learning claim, case ID/raw-evidence/model-call payload, selected Console route, or operator-facing concept. Documented `ComparisonMetric` and `MetricDefinition` as neutral UI groundwork only. Preserved all unrelated dirty changes and coordinated the independent backend audit blockers to the parent before aggregate acceptance. No Codex Security review was run.
+- Tests: `npm run docs:bundle` passed; `npm run docs:check` passed for app 0.1.1 / docs 0.1; `python3 scripts/check_docs.py` passed across 64 public pages; focused docs tests passed 7/7; scoped `git diff --check` passed. No full application suite was run and no global test count was changed by this lane.
+- Status: documentation slice complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Land the audit-requested backend corrections so runtime behavior satisfies the documented contract, then select and review one visible Improvement concept before wiring these shared UI primitives into a route.
+
+### 2026-07-26 22:40Z — `/root/improvement_metric_contract` — Agent Improvement correction verification started
+- Context: Re-audit the updated Agent Improvement engine and metrics route against the eight prior contract findings, then inspect the focused regression suite for remaining coverage gaps.
+- Did: Began a read-only verification of mix standardization, identifier suppression, safety guardrail availability and gating, false-negative semantics, reopen censoring, complete-day `as_of` validation, interval validity, daily denominator gates, feedback provenance wording, and cohort-local exclusions. Implementation and tests remain untouched. No Codex Security review is being run.
+- Tests: Static source/test inspection and read-only adversarial pure-function probes pending.
+- Status: in progress in the shared dirty v0.1.1 Testing tree; unrelated work is being preserved.
+- Next: Mark every previous finding resolved or unresolved with current line evidence, identify focused test gaps, and return the bounded verification report to the parent agent.
+
+### 2026-07-26 22:46Z — `/root/improvement_metric_contract` — Agent Improvement correction verification complete
+- Context: Finish the requested read-only re-audit against the eight earlier statistical, privacy, provenance, and reporting-contract defects.
+- Did: Confirmed seven findings resolved: two-sided exact-stratum mix coverage with aligned adjusted values, source-identifier suppression, unavailable guardrails gating the headline, corrected false-negative numerator/denominator, fixed 24-hour reopen follow-up with censoring, explicit exclusive/future-rejected `as_of`, and removal of the invalid weighted-agreement Wilson interval plus the corrected daily positive-outcome gate. The eighth finding is only partially resolved: agreement is now honestly labelled analyst-reported, but human turnaround still classifies every actor other than blank/`agent`/`system` as human while claiming reliable provenance. Read-only probes also confirmed that exclusions count unrelated historical rows and that the headline can call agreement plus correction two independent improving signals even though both derive from the same grades.
+- Tests: `PYTHONPATH=. .venv/bin/pytest -q tests/test_agent_improvement.py --tb=short` passed 11/11. Adversarial pure-function probes reproduced: `by="case_manager"` counted as a human turnaround sample; a 2020 case outside both cohorts added `no_status_history`; and agreement/correction improvement alone produced headline `improving` with turnaround stable. No implementation or test file was edited and no Codex Security review was run.
+- Status: verification complete in the shared dirty v0.1.1 Testing tree. Only the required Journal start/end entries were added by this lane; nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Before exposing a promotional headline, require authenticated actor provenance (or rename/caveat turnaround), scope exclusions to the reporting horizon, and count the correlated quality pair as one evidence dimension or remove the word `independent`; add focused regression coverage for those cases plus actual reopen breach, guardrail-overrides-improvement, multi-stratum weighting, full-payload privacy, daily FN denominators, and authenticated RBAC success.
+
+### 2026-07-26 22:49Z — `/root/improvement_metric_contract` — Agent Improvement adversarial regressions started
+- Context: Add focused regression coverage for the remaining audit gaps without changing the production implementation.
+- Did: Began test-only cases for automation-actor provenance, cohort-local exclusions, independent headline evidence, promotion-eligible guardrail gating, observed reopen breaches, two-stratum standardization, daily false-negative denominators, expanded aggregate privacy, and authenticated `metrics:view` success. Existing shared-tree implementation work is being preserved. No Codex Security review is being run.
+- Tests: Focused suite and exact expected implementation failures pending.
+- Status: in progress in the shared dirty v0.1.1 Testing tree; implementation files remain untouched by this lane.
+- Next: Add only deterministic offline tests, run the focused module, and report production-contract failures before any green coverage results.
+
+### 2026-07-26 22:54Z — `/root/improvement_metric_contract` — Agent Improvement adversarial regressions complete
+- Context: Finish the requested test-only hardening of the corrected Agent Improvement aggregate and permissioned route.
+- Did: Added seven deterministic regressions for known automation actors, cohort-local exclusions, correlated quality-signal independence, promotion-eligible false-negative guardrail override, observed 24-hour reopen breach, swapped-volume two-stratum standardization, and daily confirmed-positive denominator boundaries. Expanded the route test to forbid source id/name, analyst identity, feedback comment, and rule id leakage, and expanded auth-on/RBAC-on coverage with an authenticated `metrics:view` success alongside 401/403 paths. No production implementation file was edited by this lane and no Codex Security review was run.
+- Tests: Focused Agent Improvement suite passed 18/18. Combined Agent Improvement + existing Round-3 Wave-2 metrics + Wave-5 posture suites passed 52/52. Python compilation, line-length inspection, and repository-root `git diff --check` passed. The first focused run had one test-fixture failure because the concurrently corrected implementation now groups agreement and correction into one quality domain; the fixture was corrected to improve turnaround as the second independent domain, after which the safety breach correctly overrode promotion.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Only `backend/tests/test_agent_improvement.py` and the required Journal entries were changed by this lane; nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Parent agent can include the 18-test focused module and 52-test compatibility result in aggregate verification; the newly covered audit contracts are currently green against the shared implementation.
+
+### 2026-07-26 22:55Z — `/root` — Agent Improvement alternatives and evidence groundwork milestone
+- Context: Continue product ideation beyond the first daily brief while advancing only shared, concept-neutral implementation that remains useful whichever visual direction is selected.
+- Did: Produced two additional detailed visual directions: an operational Agent Quality Control surface and an auditable Change Outcome Ledger. Added a pure, aggregate-only `GET /api/metrics/agent-improvement` evidence contract behind `metrics:view`, a typed WebUI client, generated OpenAPI artifacts, reusable flat comparison/definition primitives, and version-matched Help Center documentation. The endpoint performs one bounded case read, no model calls, no writes, and does not participate in deterministic case decisions. It compares complete 7-day and preceding 28-day UTC cohorts using analyst-reported agreement, material correction rate, and review turnaround with explicit sufficiency, exact shared source/severity mix coverage, truncation, definitions, and safety guardrails. No visible route or concept was selected. No Codex Security review was run.
+- Tests: Focused Agent Improvement suite passed 18/18; adjacent metrics compatibility passed 52/52. Independent adversarial review drove fixes for two-sided case-mix weighting, source-identifier suppression, false-negative denominators, fixed 24-hour reopen follow-up, future `as_of`, guardrail availability/gating, known automation actor handling, cohort-local exclusions, and correlated headline evidence.
+- Status: implementation and adversarial-review milestone complete in the existing dirty v0.1.1 Testing tree.
+- Next: Finish full backend, WebUI, build, lint, generated-type, Help Center, and diff-hygiene gates; then present the three product directions with a recommendation while leaving visible integration for an explicit product choice.
+
+### 2026-07-26 22:55Z — `/root` — Agent Improvement alternatives and neutral groundwork complete
+- Context: Complete the requested additional screenshot alternatives and continue efficient, trustworthy product groundwork without prematurely committing the Console to one layout.
+- Did: Finalized the Daily Outcome Brief, Agent Quality Control, and Change Outcome Ledger directions and the shared evidence layer that can power all three. The evidence contract remains aggregate-only and reporting-only: no source/case identifiers, analyst comments, entities, raw evidence, model calls, synthetic composite, causal-learning claim, or decision-authority change. Agreement and correction are one correlated quality domain; an `improving` headline also requires the independent review-turnaround domain, and evaluable fixed-horizon safety guardrails can veto promotion. UI groundwork follows the shared flat Console grammar and exposes definitions through keyboard, pointer, and touch without introducing a route. Updated API/analyst/handoff/changelog documentation and kept `memory.md` absent. No Codex Security review was run.
+- Tests: Full backend suite passed all 2023 collected tests. Full WebUI suite passed 1632/1632 across 260 files. Focused Agent Improvement passed 18/18 and compatibility metrics passed 52/52. Full production build passed with 3172 modules; TypeScript, ESLint, generated OpenAPI/type drift, Help Center bundle/check (app 0.1.1 / docs 0.1), and repository diff hygiene all passed. The expected test-only Elasticsearch warning for `verify_certs=False` remained unchanged.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Product owner can choose one direction or approve the recommended three-tab Agent Effectiveness workspace; the shared evidence contract and primitives are ready for that visible integration.
+
+### 2026-07-27 07:33Z — `/root` — Noise Reduction Sankey UI/UX refinement started
+- Context: Preserve the loved six-stage Noise Reduction flow and all live semantics while making its visual presentation materially more polished, operational, and intentional.
+- Did: Began official visualization/accessibility research, current implementation and test-contract inspection, and live-browser review planning. Scope is UI/UX only: proportional geometry, hierarchy, labels, semantic color, focus/hover evidence, responsive behavior, expanded-mode parity, and reduced motion. Existing API counts, stage order, lineage behavior, RBAC, and deterministic authority remain unchanged. Existing dirty v0.1.1 Testing work is being preserved; no Codex Security review is being run.
+- Tests: Focused component, design-gate, TypeScript, ESLint, production-build, and local browser checks pending.
+- Status: in progress.
+- Next: Compare the current graph against authoritative Sankey and operational-data-visualization guidance, define the smallest coherent redesign, implement it once in the shared component, then verify both themes and expanded mode.
+
+### 2026-07-27 07:35Z — `/root/sankey_code_audit` — Noise Reduction implementation audit started
+- Context: Perform the requested read-only audit of the current Noise Reduction flow before its UI/UX refinement.
+- Did: Began inspecting the shared `NoiseFunnel` geometry, semantic/accessibility contract, theme tokens, dashboard integration, expanded lineage mode, and focused regression coverage. Product code remains untouched and the existing dirty v0.1.1 Testing work is being preserved. No Codex Security review is being run.
+- Tests: Static source/test inspection pending; no implementation gate is in scope for this lane.
+- Status: in progress.
+- Next: Identify the exact visual and geometry defects, invariants that must remain, and the smallest coherent implementation/test plan for the parent agent.
+
+### 2026-07-27 07:40Z — `/root/sankey_code_audit` — Noise Reduction implementation audit complete
+- Context: Finish the read-only audit of the current aggregate flow, expanded lineage view, theme integration, and regression contract before UI implementation proceeds.
+- Did: Confirmed the smallest honest redesign boundary: keep the processing spine and conserved `cases -> auto-cleared | escalated` split, but treat `closed by human` as a downstream subset/continuation of the escalated branch rather than a third equal fan-out. The current layout normalizes three overlapping target shares at the source and expands every target ribbon, which visually creates volume; it also staggers the three outcomes into successive x-columns, implying a false temporal sequence. Identified additional UI issues: exact proportional terminal ribbons can collapse below one CSS pixel without a separate non-quantitative marker; flat-mode plot extension intentionally misaligns the first node from its label; drop annotations float at one top coordinate and use generic “filtered” language; the side-spur duplicates pre-clustering exclusion information; focus dims related nodes inconsistently; the headline/subtitle visually compares different populations; and the human-closed hover is incorrectly tagged “AI-assisted” because `deterministic=false` is overloaded. Expanded mode preserves lazy, bounded, redacted lineage correctly but uses mismatched 960/1180px minimum widths. No product code was edited and no Codex Security review was run.
+- Tests: `npx vitest run src/soc/components/__tests__/NoiseFunnel.test.tsx src/soc/__tests__/overview.commandcenter.test.tsx` passed 26/26 across 2 files. Existing stderr contains the known JSDOM zero-size Recharts warnings from adjacent dashboard charts. Coverage gaps remain for direct jest-axe on the real funnel, role copy (`Human-driven`), conserved branch geometry, overlap handling, touch/detail behavior, and expanded-width alignment.
+- Status: audit complete in the shared dirty v0.1.1 Testing tree. Only the required Journal entries were written by this lane; nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Parent agent should implement the revised pure geometry once in `NoiseFunnel`, reuse it in dashboard and expanded mode, update the focused contracts listed in the audit report, then inspect both themes and narrow/desktop/expanded states in the in-app browser.
+
+### 2026-07-27 07:35Z — `/root/sankey_research` — Noise Reduction visualization research started
+- Context: Research authoritative Sankey and operational-dashboard UI/UX guidance for a UI-only refinement of the existing six-stage Noise Reduction flow.
+- Did: Began a read-only review of the current Console contract and primary-source guidance for proportional geometry, layout, labels, semantic colour, opacity, hover/focus, annotations, accessibility, responsive behaviour, and dense expanded inspection. Product code remains untouched and no Codex Security review is being run.
+- Tests: Research synthesis and implementation-specific inspection pending.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Inspect the shared flow component and official D3, Plotly, Google, Grafana, Carbon, and W3C guidance, then return a concrete source-backed implementation brief.
+
+### 2026-07-27 07:39Z — `/root/sankey_research` — Noise Reduction visualization research complete
+- Context: Complete the bounded primary-source UI/UX research lane for the Sankey refinement without changing product behaviour or code.
+- Did: Reviewed the current custom SVG geometry and Console interaction contract against official D3 Sankey, Plotly, Google Charts, IBM Design Language/Carbon, Grafana, and W3C guidance. Recommended a stable responsive precision-flow treatment: actual-width geometry, fixed node/link order, one proportional processing spine, far-right aligned outcome sinks, sparse direct drop annotations, low-chroma links with semantic endpoint caps, stage-rail path highlighting, keyboard-equivalent detail, an ordered narrow-screen ladder, and bounded expanded inspection. Flagged the need to label auto-cleared/escalated/human-closed as overlapping operational views rather than imply a conserved partition. Product code was not edited and no Codex Security review was run.
+- Tests: Read-only source inspection and source cross-check complete; no implementation tests were applicable to this research-only lane.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Only required Journal entries were added by this lane; nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Parent agent can implement the precision-flow brief in the shared `NoiseFunnel` component, then verify exact proportionality, stable LIVE refresh, hover/focus parity, reduced motion, both themes, narrow layouts, expanded parity, and full WebUI gates.
+
+### 2026-07-27 08:00Z — `/root/sankey_final_review` — Noise Reduction final review started
+- Context: Independently inspect the current `NoiseFunnel` implementation and focused tests after the Sankey UI/UX refinement.
+- Did: Began a read-only review of data truthfulness, conserved/subset geometry, responsive layout, hover/focus accessibility, expanded-mode parity, and regression coverage. Product and test files remain untouched; no Codex Security review is being run.
+- Tests: Focused Noise Reduction tests pending.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Run the focused component suite, trace the rendered geometry and interaction paths, and return only actionable findings with exact source lines.
+
+### 2026-07-27 08:00Z — `/root/sankey_final_review` — Noise Reduction final review complete
+- Context: Complete the requested independent read-only review of the refined aggregate Noise Reduction flow and its focused regression contract.
+- Did: Confirmed the new processing spine is exactly proportional, the case split uses equal source/target ribbon thickness, human closure is rendered as an escalated subset, tiny non-zero nodes remain discoverable without inflating area, loss annotations are direct, SVG meaning is mirrored by a labelled rail, and the component re-measures its desktop surface. Identified remaining release-blocking truthfulness gaps: the displayed folded “Escalated” population is described and drilled as the narrower literal escalated status, while Auto-cleared and Closed-by-human both drill to the same generic closed population. Also identified non-blocking gaps in non-clickable keyboard/touch detail access, hover/focus state ownership, sub-640px card geometry, non-zero percentages rounding to 0%, and expanded-width coverage.
+- Tests: `npx vitest run src/soc/components/__tests__/NoiseFunnel.test.tsx src/soc/__tests__/overview.commandcenter.test.tsx src/soc/__tests__/overview.render.test.tsx` passed 45/45 across 3 files. Scoped ESLint for `NoiseFunnel.tsx` and its focused test passed with zero findings. Existing adjacent JSDOM Recharts zero-size warnings remained unchanged. No Codex Security review was run.
+- Status: review complete in the shared dirty v0.1.1 Testing tree. Product and test files were not edited; only the required Journal entries were added. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Align outcome labels/help and route filters to the exact displayed cohorts (or make the folded population explicit), then add regressions for all three outcome drill-downs, focus-plus-pointer ownership, non-clickable keyboard access, narrow card geometry, and `<1%` formatting before final visual QA.
+
+### 2026-07-27 08:29Z — `/root/sankey_human_closed_truth` — Human-closed Noise Reduction cohort correction started
+- Context: Correct the aggregate backend meaning of `closed by human` without changing the metrics wire shape or deterministic case-decision authority.
+- Did: Began a focused inspection of the Noise Reduction metric classifier and existing backend regression coverage. Scope is limited to excluding every terminal `decision_by=agent` case from the human-closed cohort, including opt-in true-positive auto-close; `engine/case_manager.py::decide()` remains untouched. Existing dirty v0.1.1 Testing work is being preserved and no Codex Security review is being run.
+- Tests: Focused backend metrics tests pending.
+- Status: in progress.
+- Next: Locate the classifier and fixtures, add a true-positive agent-closure regression, apply the smallest classifier correction, and run focused plus adjacent metrics tests.
+
+### 2026-07-27 08:29Z — `/root/sankey_human_closed_truth` — Human-closed authority correction implemented
+- Context: Record the focused product milestone before broader compatibility verification.
+- Did: Changed only the advisory Noise Reduction human-closed classifier to require a terminal state whose `decision_by` is not `AGENT`. This excludes both default false-positive auto-close and opt-in true-positive auto-close while preserving legacy terminal cases with no recorded authority and preserving the response wire shape. Added a report-level regression with FP-agent, TP-agent, and TP-analyst terminal cases; deterministic `decide()` was not touched. No Codex Security review was run.
+- Tests: `PYTHONPATH=. .venv/bin/pytest -q tests/test_round7_noise_counters.py --tb=short` passed 23/23.
+- Status: focused implementation is green in the shared dirty v0.1.1 Testing tree.
+- Next: Run adjacent metrics compatibility, Python compilation, and scoped diff hygiene, then return the exact files and evidence to the parent agent.
+
+### 2026-07-27 08:32Z — `/root/sankey_human_closed_truth` — Exact analyst-owned human-closed cohort complete
+- Context: Supersede the initial permissive `not AGENT` milestone after authority-model review showed that only `DecisionBy.ANALYST` is affirmative evidence of a human close.
+- Did: Finalized `_is_human_closed` as terminal AND explicitly analyst-decided. The cohort now excludes default false-positive agent auto-close, opt-in true-positive agent auto-close, system routing, and missing legacy provenance; response fields/order/types remain unchanged and deterministic `engine/case_manager.py::decide()` remains untouched. Extended the report-level regression across all four provenance shapes and updated the existing expected aggregate. Backward-compatibility note: historical terminal records with `decision_by=None` no longer contribute to `Closed by human`; this is an intentional fail-closed attribution correction rather than silently crediting unknown actors to humans. No Codex Security review was run.
+- Tests: Focused Noise Reduction suite passed 23/23. Combined Noise Reduction, metrics, posture, and Agent Improvement compatibility passed 75/75. `py_compile`, scoped line-length inspection (only pre-existing long lines), and scoped `git diff --check` passed.
+- Status: complete in the shared dirty v0.1.1 Testing tree. This lane changed only `backend/app/engine/noise_counters.py`, `backend/tests/test_round7_noise_counters.py`, and required Journal entries; nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Parent agent can include the corrected human-closed count in aggregate Sankey verification and should preserve the explicit analyst-only attribution in future metric consumers.
+
+### 2026-07-27 08:52Z — `/root` — Noise Reduction precision-flow redesign complete
+- Context: Finish the requested research-led aesthetic refinement of the existing Dashboard Sankey without replacing its familiar six-stage story or changing case-decision authority.
+- Did: Rebuilt the shared `NoiseFunnel` as a measured precision flow: one quiet matte processing spine, exact proportional node/ribbon thickness, stable stage ordering, square anchors, sparse directly-labelled loss annotations, and semantic colour reserved for outcomes. Corrected the topology to the conserved `Cases -> Auto-cleared | Escalated -> Closed by human` shape, renders optional review candidates as a side cohort rather than a mandatory step, and uses a hollow discoverability mark for truthful sub-pixel non-zero stages without inflating area. Added full-path pointer/keyboard focus, accessible stage definitions and severity evidence, partial-coverage disclosure, responsive text-rail fallback, expanded-view parity, exact selected-window Cases drill-downs, and explicit analyst-only attribution for human closure. Updated the Console visual standard, analyst Help Center, README, and changelog. Deterministic `case_manager.decide()` and the metrics response shape remain unchanged. No Codex Security review was run.
+- Tests: Focused Noise Reduction/Overview/Cases/registry suite passed 58/58. Full WebUI suite passed 1640/1640 across 261 files. Full ESLint, TypeScript, five design/contrast gates, production Vite build (3172 modules), bundled Help Center build/check (app 0.1.1 / docs 0.1), Python compilation, and repository diff hygiene passed. Focused and adjacent backend Noise Reduction/metrics/posture/Agent Improvement compatibility passed 75/75, including 23/23 Noise Reduction tests.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published; `memory.md` is absent.
+- Next: Product owner can review the refined flow in both themes and use Expand for the wide evidence view; future operational flows should follow the new precision-flow rules in `docs/development/ui-standard.md`.
+
+### 2026-07-27 09:03Z — `/root` — Sankey visual rollback and Console consistency audit started
+- Context: Restore the Noise Reduction graph to the last accepted pre-precision-flow presentation, retain corrected data semantics and drill-down behavior, then synchronize documentation and identify concrete UI/UX gaps without running Codex Security.
+- Did: Began source-history recovery, dirty-worktree boundary mapping, shared visual-standard review, documentation coverage audit, and local browser regression planning. Existing unrelated v0.1.1 Testing changes are being preserved; the deterministic case-decision authority remains out of scope.
+- Tests: Focused visual, interaction, documentation, lint, type, build, and browser checks pending.
+- Status: in progress.
+- Next: Reconstruct the immediately preceding NoiseFunnel presentation, independently audit UI and docs for drift, implement the smallest coherent rollback and gap fixes, then run broad regression gates.
+
+### 2026-07-27 09:04Z — `/root/sankey_rollback_recovery` — Pre-redesign Noise Reduction recovery started
+- Context: Read-only forensic recovery of the immediately preceding accepted Noise Reduction presentation so the visual rollback can preserve the later data-truth and exact drill-down corrections.
+- Did: Began comparing Git history, the current dirty diff, Journal milestones, focused tests, and safe local task artifacts. Product, test, and documentation files remain untouched; no Codex Security review is being run.
+- Tests: Static history and source inspection pending; no implementation gate is in scope for this recovery lane.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Identify an exact recoverable prior component source, classify redesign-only versus truth/drilldown changes, and return a minimal rollback plan to the parent agent.
+
+### 2026-07-27 09:05Z — `/root/docs_gap_audit` — Sankey rollback documentation audit started
+- Context: Remove documentation claims that prescribe the rejected precision-flow presentation while retaining the corrected Noise Reduction semantics, selected-window drill-downs, accessibility contract, and shared Console UI standard.
+- Did: Began auditing the authoritative README, changelog, handoff, UI/design-system standards, analyst Help Center pages, and directly related release/status documentation. Existing dirty v0.1.1 Testing work is being preserved; scope is documentation and Journal only. No Codex Security review is being run.
+- Tests: Documentation content/drift checks and scoped diff hygiene pending.
+- Status: in progress.
+- Next: Map every current Noise Reduction presentation claim, separate visual prescription from durable product semantics, make the smallest accurate documentation corrections, and report remaining gaps explicitly.
+
+### 2026-07-27 09:11Z — `/root/sankey_rollback_recovery` — Exact pre-precision Noise Reduction source recovered
+- Context: Complete the read-only forensic recovery of the immediately preceding accepted Noise Reduction presentation and separate it from the independent truth and drill-down corrections that must survive a visual rollback.
+- Did: Reconstructed the exact 1,086-line pre-redesign `NoiseFunnel.tsx` by reversing all 16 component patch events after the 07:33Z refinement start with zero fuzz, and reconstructed its exact 540-line focused test file from 10 test patch events. Forward replay reproduced the current component byte-for-byte, proving the boundary. Stored local-only recovery artifacts in `/tmp`; identified that a Git restore to `HEAD` would be wrong because the accepted state already contained substantial later Console work. Classified the component/test geometry as rollback scope while preserving analyst-only human closure, exact outcome and selected-window Cases navigation, route parameters, `1h` support, filter regressions, and semantic documentation. Flagged that an unmodified exact file swap would also reintroduce misleading three-sibling outcome geometry, candidate-as-parent topology, `0%` rounding for tiny nonzero values, an AI-assisted label on human closure, hover-only inspect-only detail, and dashboard-hidden partial-coverage evidence. Product, test, and documentation files were not edited; no Codex Security review was run.
+- Tests: All 16 reverse patches and 16 forward patches applied with `--fuzz=0`; forward replay SHA-256 matched the current component exactly. The recovered source SHA-256 is `c2af1c174dd7eabf88f1c79e47451cc98cb0e08747f0e1375ff4d6fcaaceaf95`; the current-to-prior patch SHA-256 is `fd7fc9df3f6270124c1a947e9e942176dc52ac432355cee0b85e9452c362ab6f`. Historical focused verification immediately before the redesign was 26/26; no product test was rerun in this read-only lane.
+- Status: recovery complete in the shared dirty v0.1.1 Testing tree. Only required Journal entries were written; nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Parent should use the recovered snapshot as the visual reference, not `HEAD`, preserve the listed backend/navigation/filter files wholesale, and either retain the current truth/accessibility micro-fixes or explicitly make the restored curves directional-only while keeping the labelled evidence rail authoritative.
+
+### 2026-07-27 09:11Z — `/root/docs_gap_audit` — Current Noise Reduction documentation reconciled
+- Context: Record the documentation milestone after separating the rejected presentation from durable metric and navigation semantics.
+- Did: Restored current operator/developer wording to the established horizontal ribbon and aligned evidence rail; removed the experimental exact-proportion/precision-flow prescription; retained the conserved Auto-cleared/Escalated split, analyst-only human-closure subset, optional-candidate distinction, selected-window outcome filters, coverage/truncation disclosures, and keyboard/pointer requirements. Corrected the prior linear outcome story in README, Usage, analyst Overview/Analytics, changelog, and the UI standard. Documented the concrete bounded-drilldown limitation: Cases fetches 200 records and filters locally, so visible rows can be a lower bound even when the aggregate is complete. Updated duplicated current test snapshots to the latest fully recorded 2023 backend and 1640/261 Console baseline. No Codex Security review was run.
+- Tests: Documentation consistency passed across 64 public pages; Help Center bundle and version check passed for app 0.1.1 / docs 0.1; documentation-bundle tests passed 4/4; scoped diff hygiene passed. A first documentation check was invoked from `webui/` and failed only because that directory has no `scripts/check_docs.py`; the corrected repository-root invocation passed.
+- Status: documentation changes complete; final post-edit bundle refresh and contradiction scan pending.
+- Next: Rebuild the Help Center after the final testing-page count edit, rerun strict docs checks, then hand the code-comment drift and bounded Cases drill-down gap to the parent agent.
+
+### 2026-07-27 09:14Z — `/root/docs_gap_audit` — Sankey rollback documentation audit complete
+- Context: Close the documentation lane for the requested rollback from the rejected precision-flow presentation while keeping corrected Noise Reduction data semantics and the shared Console UI contract accurate.
+- Did: Reconciled the README, changelog, handoff, Usage guide, analyst Overview and Analytics pages, UI standard, known limitations, testing guide, and AGENTS baseline. The docs now describe the accepted horizontal ribbon plus aligned evidence rail without promising exact geometric proportionality; retain the authoritative Auto-cleared/Escalated split and analyst-only human-closure subset; distinguish optional review candidates; and document selected-window drill-down, coverage, and truncation behavior. Audited the broader design-system guide and found no rejected presentation coupling. Reported two follow-ups to the parent: the Cases drill-down loads at most 200 records before client-side filtering, and stale backend comments still describe outcomes as MECE/linear even though the corrected cohorts overlap by design. No Codex Security review was run.
+- Tests: Final `git diff --check` passed for every touched documentation file and Journal. `python3 scripts/check_docs.py` passed across 64 public pages. The version-matched Help Center bundle/check passed for app 0.1.1 / docs 0.1, and the documentation-bundle regression passed 4/4. Contradiction and stale-baseline scans found no remaining non-Journal precision-flow claims or duplicated old test counts.
+- Status: complete in the shared dirty v0.1.1 Testing tree. This lane changed documentation and required Journal entries only; nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Parent should integrate the recovered visual component, run the full product/browser gate, and consider server-side time/outcome filters with cursor pagination before describing dashboard-to-Cases drill-downs as complete beyond the currently loaded 200-record window.
+
+### 2026-07-27 09:27Z — `/root/final_backend_suite` — Full backend verification started
+- Context: Run the complete offline backend regression suite for the restored Noise Reduction presentation and documentation reconciliation, without product edits or Codex Security tooling.
+- Did: Confirmed the existing backend Python 3.11 virtual environment and began an unfiltered `pytest -q` run from `backend/`; shared dirty-tree work is being preserved.
+- Tests: Full backend pytest suite in progress.
+- Status: in progress.
+- Next: Capture the exact pass/fail/skip/warning totals and elapsed time, append the verification closeout, and report the result to the orchestrator.
+
+### 2026-07-27 09:31Z — `/root/final_backend_suite` — Full backend verification complete
+- Context: Close the complete offline backend regression gate for the Noise Reduction visual rollback and documentation reconciliation.
+- Did: Ran the entire backend suite twice without changing product files: the repository-standard double-quiet invocation first confirmed a clean exit, then a single-quiet rerun exposed pytest's authoritative totals. No Codex Security tooling was run.
+- Tests: `./.venv/bin/python -m pytest -q -o addopts='--strict-markers'` passed **2,024/2,024** in **77.30s** with **0 failed, 0 errors, 0 skipped**, and **1 warning**. The warning is the expected Elasticsearch client `SecurityWarning` in `test_per_source_client_never_carries_mgmt_key`, caused by that isolated test fixture using `verify_certs=False` against `https://es.example:9200`.
+- Status: complete; backend regression gate is green. Only the required Journal entries were added in this verification lane; nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Orchestrator should use 2,024 as the current backend baseline, finish the remaining Console/docs gates, and reconcile any older 2,023 counts in mutable current documentation.
+
+### 2026-07-27 09:34Z — `/root` — Accepted Noise Reduction presentation restored and fully verified
+- Context: Close the requested rollback from the rejected precision-flow visual, reconcile current documentation, and report concrete remaining UI/UX gaps without running Codex Security.
+- Did: Restored the exact pre-precision horizontal-ribbon presentation recovered from the session history, then deliberately retained the later truth and accessibility corrections: analyst-only human closure, authoritative aligned counts, `<1%` non-zero shares, optional review-candidate semantics, keyboard-equivalent evidence, visible coverage disclosure, exact selected-window Cases drill-downs, and the existing expanded lineage inspection. Corrected stale backend comments without changing behavior. Reconciled README, changelog, handoff, Usage, analyst Help Center, testing, known limitations, and the Console visual standard. Documented the current 200-record client-side Cases drill-down ceiling and bounded non-failing Console test-harness warnings. Updated current verification baselines to 2,024 backend tests and 1,639 Console tests across 261 files. Deterministic `case_manager.decide()` and all response contracts remain unchanged. No Codex Security tooling was run.
+- Tests: Full backend passed **2,024/2,024** with zero failures/errors/skips and one expected Elasticsearch fixture warning. Full Console passed **1,639/1,639** across 261 files. Focused Noise Reduction/Overview/Cases/registry passed 57/57; focused and adjacent backend Noise Reduction/metrics coverage passed 72/72. Full ESLint, TypeScript, five design/contrast gates, version consistency, production build (3,172 modules), strict 64-page Help Center consistency, version-matched docs bundle/check (app 0.1.1 / docs 0.1), documentation bundle tests 4/4, and repository diff hygiene passed.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Before claiming exhaustive dashboard-to-Cases drill-downs, move time/outcome filtering and cursor pagination server-side beyond the current 200-row client window. Separately remove the documented jsdom/Recharts, React `act(...)`, and controlled/uncontrolled Select warning noise at the owning test fixtures; these warnings do not currently fail the suite.
+
+### 2026-07-27 15:23Z — `/root` — Workspace Chat ground-up redesign started
+- Context: Rebuild the current sparse, divider-heavy Workspace Chat into a cohesive analyst conversation workspace while preserving durable per-user history, the existing chat engine/API, RBAC, and separation from case-scoped Case Manager chat.
+- Did: Began a source/data-contract audit, visual hierarchy redesign, responsive and accessibility review, focused regression plan, and in-app browser QA workflow. Existing unrelated v0.1.1 Testing changes are being preserved; deterministic case-decision authority is out of scope.
+- Tests: Empty/history/active/error/race/responsive/theme/keyboard tests, TypeScript, lint, design gates, production build, and browser inspection pending.
+- Status: in progress.
+- Next: Map the current Chat page, history rail, composer, and server conversation lifecycle; define the replacement workspace; implement it with existing design-system primitives; then verify every state in code and the running Console.
+
+### 2026-07-27 15:24Z — `/root/chat_revamp_contract` — Workspace Chat contract audit started
+- Context: Produce a read-only state, behavior, data-contract, race, and accessibility map before the parent agent replaces the Workspace Chat presentation from scratch.
+- Did: Began tracing the current Chat page, desktop/mobile history navigation, shared chat panel, API types and requests, per-user backend conversation persistence, route lifecycle, and focused tests. Product files remain untouched; no Codex Security tooling is being run.
+- Tests: Source and test-contract inspection pending; implementation verification is owned by the parent redesign lane.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Identify invariants that must survive the rewrite, concrete defects and race risks, and clean component boundaries for an accessible responsive workspace.
+
+### 2026-07-27 15:28Z — `/root/chat_revamp_contract` — Workspace Chat contract audit complete
+- Context: Give the ground-up visual rewrite an exact behavior boundary so a cleaner workspace does not regress durable history, source/model restoration, case isolation, cost/provenance rendering, or accessible interaction.
+- Did: Traced the Workspace page, shared 1,748-line ChatPanel, history rail, typed API client, Pydantic contracts, per-user KV store, chat routes/engine, Case Manager wrapper, and all focused WebUI/backend tests. Confirmed the durable invariants and reported concrete implementation risks to the parent: first-turn persistence remount flicker; unguarded out-of-order list refreshes; stale delete closures; uncancelled sends creating hidden/orphaned persisted turns after reset; unconditional transcript auto-scroll; brittle viewport arithmetic; falsely optimistic readiness; mobile duplicate-rail state/IDs; IME submission; undisclosed transcript/response truncation; fail-soft history reads masquerading as empty; and a valid model answer being lost when the post-answer persistence write fails. Recommended separating a workspace controller/state machine, responsive history navigator, pure transcript renderer, shared session transport, composer, and response-evidence surfaces while preserving the single engine and separate case-scoped shell. No product file was edited and no Codex Security tooling was run.
+- Tests: Read-only source/test-contract audit only; existing focused suites were inspected rather than rerun. Journal diff hygiene passed.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Only required Journal entries were added; nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Parent should fix the request/selection races before styling, keep the active panel mounted through first persistence, replace hard-coded viewport offsets with the AppShell flex contract, then add race/mobile/IME/truncation tests alongside the visual rewrite.
+
+### 2026-07-27 15:24Z — `/root/chat_revamp_ux` — Workspace Chat UI/UX audit started
+- Context: Produce an implementation-ready visual and interaction specification for a ground-up Workspace Chat redesign while preserving the existing durable per-user history and chat API behavior.
+- Did: Began a read-only audit of the supplied screenshot, current Chat/ChatPanel/ChatHistoryRail implementation, focused tests, shared Console primitives, and the enforced light/dark responsive UI standard. Product files remain untouched and no Codex Security tooling is being run.
+- Tests: Source, interaction-state, responsive, theme, and accessibility inspection in progress; implementation verification belongs to the parent redesign lane.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Return exact desktop and narrow-layout geometry, hierarchy, empty/transcript/provenance/composer/history behavior, design-token guidance, and accessibility acceptance criteria to the parent.
+
+### 2026-07-27 15:29Z — `/root/chat_revamp_ux` — Workspace Chat UI/UX specification complete
+- Context: Close the read-only expert audit for the ground-up Workspace Chat redesign without changing its one chat engine, durable per-user history, Case Manager separation, or backend contracts.
+- Did: Audited the supplied screenshot, Console UI/design-system standards, current Chat page, shared ChatPanel, new ChatHistoryRail, API types, and focused tests. Identified the concrete visual failures: three competing title/status layers, duplicate New-chat controls, brittle viewport arithmetic, an empty-history search with no rows, history previews that are searchable but never shown, full-panel thread loading that removes the required docked composer, fragmented answer/query/provenance/action bands, unconditional scroll-to-bottom, developer-styled source/model metadata, and overly broad live-region announcements. Returned an implementation-ready flat 264px history + 54rem transcript workspace specification covering desktop/narrow geometry, empty/transcript/evidence/composer/loading/error states, both themes, keyboard/focus, conditional auto-scroll, and regression acceptance. No product files or API behavior were changed and no Codex Security tooling was run.
+- Tests: Read-only source/test contract inspection only; no test command was needed in this audit lane. Existing required regression surfaces and new acceptance cases were enumerated for the implementation owner.
+- Status: complete in the shared dirty v0.1.1 Testing tree; only the required Journal entries were added.
+- Next: Parent should implement the specification in Chat.tsx, ChatHistoryRail.tsx, and presentation-only ChatPanel subcomponents, then run focused Chat tests, axe, TypeScript, lint/design gates, full Console tests/build, and Light/Dark desktop+narrow browser QA.
+
+### 2026-07-27 15:25Z — `/root/chat_revamp_tests` — Workspace Chat regression audit started
+- Context: Map the exact regression coverage required for a ground-up Workspace Chat visual restructure while preserving the existing per-user history, chat engine/API, responsive navigation, keyboard behavior, and docked-composer contract.
+- Did: Began a read-only audit of Chat, ChatPanel, ChatHistoryRail, route/accessibility tests, shared design gates, and empty/history/active/loading/error/race states. Product code remains untouched and no Codex Security tooling is being run.
+- Tests: Source and test-contract inspection pending; implementation verification belongs to the parent redesign lane.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Return an exact focused test matrix, missing assertions, and likely regression traps to the parent agent.
+
+### 2026-07-27 15:29Z — `/root/chat_revamp_tests` — Workspace Chat regression audit complete
+- Context: Close the read-only test-contract audit for the ground-up Workspace Chat redesign without changing product code, APIs, the shared chat engine, or Case Manager chat behavior.
+- Did: Mapped current page/panel/history/route/design-gate coverage and returned an implementation-focused matrix for initial-list, true-empty, active-thread, response-loading, partial-list-error, thread-error/retry, rename/delete/search, mobile History Sheet, keyboard/IME, source/model, theme/token, one-composer, and no-duplicate-control states. Flagged the untested out-of-order thread-detail and list-refresh races, active-delete fallback, rename/delete failures, mobile focus-return path, populated/error/loading axe states, and the brittle tests that pin magic viewport offsets rather than usable layout outcomes. No product files were changed and no Codex Security tooling was run.
+- Tests: Focused current baseline passed **106/106** across 7 files: Chat page, ChatPanel, ChatHistoryRail, Case Manager chat, route visual standard, route registry, and all design gates.
+- Status: complete in the shared dirty v0.1.1 Testing tree; only the required Journal entries were added.
+- Next: Parent should add the prioritized contract tests alongside the redesign, especially stale A/B detail selection, overlapping list refresh, one reset/status/composer path, mobile Sheet focus restoration, and error recovery, then run the full Console acceptance gate.
+### 2026-07-27 16:11Z — `/root/chat_review` — Workspace Chat implementation review started
+- Context: Perform a read-only review of the current ground-up Workspace Chat implementation, with emphasis on async races, accessibility, responsive layout, UX regressions, and typed API-contract fidelity.
+- Did: Began tracing the shared dirty-tree implementations of `Chat.tsx`, `ChatPanel.tsx`, and `ChatHistoryRail.tsx` against their focused tests, API types, route lifecycle, and the current Console interaction standard. Product files remain untouched and no Codex Security tooling is being run.
+- Tests: Static source and contract inspection in progress; implementation verification remains owned by the parent lane.
+- Status: in progress in the shared v0.1.1 Testing tree.
+- Next: Return concise, prioritized findings with exact source locations, then append the required review closeout.
+
+### 2026-07-27 16:12Z — `/root/chat_docs` — Workspace Chat documentation alignment started
+- Context: Align the operator guide, Console UI standard, release notes, and handoff summary with the ground-up Workspace Chat rebuild while leaving implementation and tests to the parent lane.
+- Did: Began comparing the current `Chat`, shared `ChatPanel`, and `ChatHistoryRail` contracts with the existing durable-history documentation. No product code was edited and no Codex Security tooling is being run.
+- Tests: Documentation inspection in progress; implementation verification remains owned by the parent redesign lane.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Document the single-status/single-composer layout, response-evidence disclosure, restore/error continuity, and conditional transcript following without overwriting unrelated documentation work.
+### 2026-07-27 16:11Z — `/root/chat_tests` — Workspace Chat focused regression strengthening started
+- Context: Add focused regression coverage for the rebuilt Workspace Chat without changing production behavior or running Codex Security tooling.
+- Did: Began auditing the rewritten Chat page, shared ChatPanel, ChatHistoryRail, and their current focused tests for composition-safe keyboard handling, persistent composer states, response evidence, memory feedback, history interaction, and controller races.
+- Tests: Focused additions and execution pending.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Add narrowly scoped tests only, run the focused suites, and report any production issue rather than editing product code.
+
+### 2026-07-27 16:13Z — `/root/chat_docs` — Workspace Chat documentation contract aligned
+- Context: Record the operator-visible and reusable Console contract delivered by the rebuilt Workspace Chat before the parent lane closes implementation verification.
+- Did: Updated the Console UI standard, operator usage guide, Unreleased changelog, and current handoff summary for the 264px desktop history/mobile Sheet, preview-bearing recency groups, one thread status, one docked composer, consolidated `Evidence & execution`, in-place restore/error recovery, guarded thread switching, and conditional follow-scroll with `Jump to latest`.
+- Tests: `python3 scripts/check_docs.py` passed for all **64 public pages**; scoped `git diff --check` passed for the four documentation files plus Journal.
+- Status: milestone complete in the shared dirty v0.1.1 Testing tree; no implementation or test file was edited in this lane.
+- Next: Parent should run the full documentation bundle/build alongside the finished WebUI acceptance suite.
+
+### 2026-07-27 16:13Z — `/root/chat_docs` — Workspace Chat documentation alignment complete
+- Context: Close the documentation-only lane for the ground-up Workspace Chat rebuild.
+- Did: Re-read the final documentation changes against `Chat.tsx`, `ChatPanel.tsx`, and `ChatHistoryRail.tsx`; confirmed durable personal history and case-scoped chat remain distinct, and left all unrelated dirty-tree documentation intact.
+- Tests: Documentation consistency and whitespace gates remain green: **64 public pages** checked and scoped `git diff --check` clean.
+- Status: complete. Nothing was staged, committed, pushed, tagged, deployed, or published; no Codex Security tooling was run.
+- Next: Parent owns implementation/test/browser verification and final integration reporting.
+### 2026-07-27 16:15Z — `/root/chat_tests` — Workspace Chat focused regression strengthening complete
+- Context: Close the focused test lane for the ground-up Workspace Chat rebuild without modifying product behavior or running Codex Security tooling.
+- Did: Added regression coverage for IME-safe Enter handling; exactly one empty-state status; the single disabled docked composer across restoring and retryable error states; complete Evidence & execution disclosure; `remove` memory-action feedback; honest empty history, preview rendering/search, disabled history controls; stale A/B transcript responses; and the active-thread persistence skip-token lifecycle after switching away and back. Kept the shared Case Manager chat wrapper in the focused regression set. No production file was edited in this lane.
+- Tests: Focused Workspace/Case Chat passed **45/45 across 4 files**. Scoped ESLint passed with zero errors/warnings; TypeScript `tsc --noEmit` passed; scoped diff hygiene passed.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Parent should integrate these tests with the Workspace Chat production/docs changes and run the full Console, build, design-gate, and browser acceptance suite.
+
+### 2026-07-27 16:18Z — `/root` — Workspace Chat rebuild implemented and focused QA green
+- Context: Record the implementation milestone for the requested ground-up Workspace Chat redesign before the full Console and documentation acceptance gates.
+- Did: Replaced the sparse dashboard-like Chat presentation with one responsive analyst workspace: a 264px searchable recency-grouped history rail on desktop and focused History Sheet on narrow screens; preview-bearing durable rows; a single thread header/status; compact suggested investigations; flat speaker-led messages; one consolidated `Evidence & execution` disclosure; and one bottom-docked composer with source/model controls. Kept the active panel mounted across first persistence and restore/error states, added conditional transcript following with `Jump to latest`, IME-safe submission, and disabled cross-thread interaction while a response commits. Hardened list/detail generation handling, first-persist skip-token lifecycle, stale delete/rename protection, active-thread deletion, refreshed subtitle metadata, unique rail heading IDs, and mobile minimum-height behavior. Preserved the shared chat engine, per-user Workspace persistence, and strict separation from case-scoped Case Manager chat. No Codex Security tooling was run.
+- Tests: Focused Workspace/Case Chat passed **45/45 across 4 files**; TypeScript and full Console ESLint passed. Browser QA passed in Light and Dark themes and at a measured 390x844 narrow viewport, including the History Sheet, preview/search, active transcript, evidence disclosure, and docked composer without document overflow.
+- Status: implementation and focused QA complete in the shared dirty v0.1.1 Testing tree; full Console/build/docs acceptance remains in progress. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Run the full Console suite, design gates, production/docs build, version/docs checks, backend conversation regression, final browser console/accessibility inspection, and repository diff hygiene.
+
+### 2026-07-27 16:22Z — `/root/chat_review` — Workspace Chat implementation review complete
+- Context: Close the read-only post-implementation review of the rebuilt Workspace Chat after the parent integrated focused race, history, responsive, and accessibility corrections.
+- Did: Re-read the final `Chat.tsx`, `ChatPanel.tsx`, and `ChatHistoryRail.tsx` against the conversation API/store contract. Confirmed the first-persist skip lifecycle, manual-selection reset, stale list/detail invalidation, rename re-sort, active deletion, unique rail heading ids, and reduced narrow-screen minimum height are present. Reported three remaining follow-ups to the parent: synchronously mark a selected thread pending so one paint cannot pair the new title with the prior transcript; disclose the backend's bounded-response `truncated` marker when old evidence snapshots are compacted; and restrict the chat `role=log` live region to actual messages instead of restore/empty/error controls. Also noted that default-model execution metadata appears only after restoration because the live response does not expose the effective model.
+- Tests: Read-only source and contract inspection. The sibling focused regression lane passed **45/45 across 4 files**, plus scoped ESLint and TypeScript; no duplicate test run was needed here. Journal diff hygiene is the only mutation in this lane. No Codex Security tooling was run.
+- Status: review complete in the shared dirty v0.1.1 Testing tree. No product file was edited, staged, committed, pushed, tagged, deployed, or published by this lane.
+- Next: Parent should decide whether to close the three remaining interaction/accessibility/contract gaps in this release, then run the already-planned full Console, build, docs, and browser acceptance gates.
+
+### 2026-07-27 16:30Z — `/root` — Workspace Chat ground-up redesign complete
+- Context: Close the requested total Workspace Chat revamp with the durable conversation contract, shared Case Manager engine, Console visual standard, and responsive behavior intact.
+- Did: Completed the responsive split conversation workspace with a searchable newest-first 264px desktop history rail and mobile History Sheet; preview-bearing recency groups; one thread header/status; compact suggested investigations; flat speaker-led transcript; one `Evidence & execution` disclosure; and one bottom-docked source/model-aware composer. Closed the post-review gaps by synchronously clearing the prior transcript during thread switches, honoring the selected-thread restoring state, disclosing compacted saved evidence, restricting `role=log` to populated messages, and preserving the independent scroll-lane contract. Hardened stale list/detail responses, first-turn persistence, rename/delete ordering, active deletion, IME submission, conditional follow-scroll with `Jump to latest`, and memory-action feedback. Updated the Console UI standard, Usage guide, current handoff, and Unreleased changelog. Deleted the required local-only `memory.md` scratchpad. Deterministic case-decision authority and Case Manager chat isolation remain unchanged. No Codex Security tooling was run.
+- Tests: Focused Workspace/Case Chat passed **95/95 across 5 files**. Full Console passed **1,647/1,647 across 261 files**; full ESLint, TypeScript, five design/contrast gates, and the production build passed with **3,172 modules**. The version-matched Help Center bundle/check passed for app **0.1.1** and docs **0.1**; repository documentation consistency passed for **64 public pages**; docs bundle unit tests passed **4/4**; backend conversation persistence passed **7/7**; version consistency and repository diff hygiene passed. Browser acceptance passed on desktop and 390x844 narrow layouts in Light and Dark themes, including saved history, active and empty states, mobile History Sheet, evidence disclosure, and the docked composer; a clean reload produced no new console errors.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: The lower-priority execution-metadata follow-up is to return the effective default model in the live chat response so its exact model label is available before a saved transcript is restored; current answer, query, tool, citation, reasoning, and cost behavior is complete.
+
+### 2026-07-27 18:05Z — `/root` — Workspace Chat residual-gap audit started
+- Context: Review the completed Workspace Chat redesign for remaining product bugs, scale limits, accessibility gaps, and unverified behavior without changing production code.
+- Did: Began a read-only source, contract, test, and runtime-coverage audit focused on durable history, persistence failure behavior, effective model metadata, long-history navigation, cross-session freshness, and keyboard/mobile accessibility. No Codex Security tooling is being run.
+- Tests: Existing green acceptance evidence is being reviewed; no new mutation or regression run is planned unless the audit uncovers a disputed behavior.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Return a prioritized, evidence-backed list distinguishing concrete bugs from reasonable follow-up enhancements, then append the required audit closeout.
+
+### 2026-07-27 18:06Z — `/root/chat_docs` — Workspace Chat UX/product-gap audit started
+- Context: Independently assess the finalized Workspace Chat against the Console conversation-workspace standard and its current responsive browser behavior, separating release bugs from optional product enhancements.
+- Did: Began a read-only audit of history scale/search, draft versus saved semantics, evidence metadata, keyboard/mobile interaction, and analyst workflow coverage. No product code is being changed and no Codex Security tooling is being run.
+- Tests: Source, contract, and live interaction inspection in progress.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Return a concise, line-cited bug/enhancement inventory to the parent and close the audit lane.
+
+### 2026-07-27 18:06Z — `/root/chat_review` — Finalized Workspace Chat residual correctness audit started
+- Context: Perform a second, strictly read-only pass over the finalized Workspace Chat after the previous review findings were integrated.
+- Did: Began tracing the current page controller, shared panel, history rail, typed client, `/chat` routes, and bounded persistence store only for concrete races, incorrect state transitions, or durable data-loss behavior. Presentation preferences and speculative enhancements are excluded; no Codex Security tooling is being run.
+- Tests: Current accepted regression evidence is being inspected; focused reproduction will be added only if a concrete residual defect is disputed.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Report only severity-ranked residual defects with exact file and line evidence, then append this lane's required closeout without editing product code.
+
+### 2026-07-27 18:31Z — `/root/chat_review` — Finalized Workspace Chat residual correctness audit complete
+- Context: Close the strictly read-only second pass after tracing the finished Workspace controller, shared panel, typed client, `/chat` route, source selection, and bounded per-user persistence path.
+- Did: Reported four concrete residual defects to the parent: a state-write failure can be returned as a successfully saved conversation; a missing, disabled, push-only, or unbuildable selected source can run against Primary while the requested source id is persisted and later displayed; a failed first draft turn can remain in model history but disappear from the durable transcript that follows; and a response lost after commit has no request-level idempotency/reconciliation, allowing duplicate billed turns or an orphan second thread. Separately identified the silent 50-conversation/100-message caps as an intentional bounded-retention policy that still needs operator disclosure if broader history is promised. No product code was changed and no Codex Security tooling was run.
+- Tests: A focused in-memory failure reproduction confirmed the persistence-truth defect: `append_exchange` returned a `chat-*` conversation while immediate `get` returned `None` after `put_if` raised. Existing focused backend tests for unknown-source fallback and bounded retention passed **2/2**. Source/contract inspection supplied the remaining deterministic path evidence.
+- Status: review complete in the shared dirty v0.1.1 Testing tree. Only the required Journal entries were added; nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Fix persistence error propagation first, then return the effective source (or reject unusable explicit scopes), add draft-failure history rollback/reconciliation, and introduce an idempotency key before treating Workspace history as fully durable under failures.
+### 2026-07-27 18:06Z — `/root/chat_tests` — Finalized Workspace Chat coverage-gap audit started
+- Context: Read-only audit of the finalized Workspace Chat test evidence, prioritizing long-history behavior, real provider/persistence paths, multi-tab freshness, mobile keyboard/focus, and accessibility beyond mocked green suites.
+- Did: Began tracing the focused page/panel/history tests against the real API client, conversation store, responsive Sheet, transcript/composer lifecycle, and full Console test boundaries. Product files remain untouched and no Codex Security tooling is being run.
+- Tests: Static source-to-test coverage audit in progress; no product verification command required unless needed to confirm a suspected gap.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Return prioritized unverified scenarios and misleading-green risks with exact file/test evidence, then append the required closeout.
+
+### 2026-07-27 18:24Z — `/root/chat_tests` — Finalized Workspace Chat coverage-gap audit complete
+- Context: Close the independent read-only audit of the finalized Workspace Chat test evidence after mapping the green UI suites to the real client, route, provider, bounded store, responsive Sheet, and transcript behavior.
+- Did: Confirmed the focused UI tests are intentionally split at two mock boundaries: the page suite stubs `ChatPanel`, while the panel suite stubs the API. Identified the highest-value missing coverage as a real page-to-panel-to-route persistence test; model-success/store-failure and in-flight-reset side effects; silent 50-conversation/100-message retention behavior; cross-tab concurrency/freshness; browser-level mobile Sheet, keyboard, focus, and follow-scroll behavior; and axe/keyboard coverage for populated, error, evidence, rename, and open-Sheet states. Distinguished these from existing backend evidence for per-user isolation, CRUD, SQLite persistence, server-authoritative resume, caps, and case-chat separation. No product code was changed and no Codex Security tooling was run.
+- Tests: Read-only source-to-test audit. The accepted green evidence remains **45 focused UI tests across 4 files**, **1,647 full Console tests**, and **7 backend conversation tests**; no duplicate regression run was needed. CI currently runs Vitest/jsdom rather than a browser E2E lane.
+- Status: audit complete in the shared dirty v0.1.1 Testing tree. Only the required Journal entries were added; nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Add a thin real integration harness first, then failure/race and bounded-retention tests, followed by Playwright-class responsive/focus/scroll coverage and stateful accessibility checks.
+
+### 2026-07-27 18:29Z — `/root/chat_tests` — Workspace Chat frontend hardening started
+- Context: Implement the frontend-only follow-up for resilient Workspace drafts, retryable failed turns, bounded-history honesty, effective execution provenance, IME-safe rename, and conservative cross-tab/focus freshness without changing the backend or Case Manager chat contract.
+- Did: Began re-reading the current shared Chat page/panel/history implementation and tests, and requested the sibling backend review lane's final additive field names before binding the typed client. The dirty worktree is being preserved and no Codex Security tooling is being run.
+- Tests: Focused regression additions planned for per-thread drafts, failure/retry history, idempotency forwarding, retention disclosure, provenance, IME rename, focus refresh, and cross-tab invalidation.
+- Status: implementation in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Lock additive field names, patch the frontend state machine and types, add focused tests, then run scoped Vitest, TypeScript, ESLint, and diff hygiene.
+
+### 2026-07-27 18:31Z — `/root/chat_docs` — Workspace Chat UX/product-gap audit complete
+- Context: Close the independent read-only product/interaction audit of the finalized Workspace Chat against the Console conversation-workspace standard.
+- Did: Confirmed the final split workspace, honest local-draft semantics, one docked composer, server-authoritative restore, 50-thread client window, responsive History Sheet, conditional follow-scroll, and Case Manager separation are coherent. Identified concrete follow-ups: a history-store read failure is converted into a misleading empty history; a failed Workspace-history write can still be reported as a successfully saved conversation; every user's bounded histories are still decoded and rewritten through one global KV document, creating a multi-user scale/contention ceiling; bounded transcripts and the 50-thread ring silently discard older context without a retained-history marker; changing threads or starting a new chat discards an unsent composer draft; stored assistant turns do not retain their effective source, so per-turn telemetry provenance is lost when source scope changes or falls back; and the history rename input lacks the composer's IME guard. Classified full-transcript search, focus/visibility refresh, mobile search autofocus, one-click failed-turn retry, exact live default-model metadata, and production tool/knowledge/citation disclosure as valuable enhancements rather than release-blocking visual defects.
+- Tests: Read-only source/contract inspection plus review of the accepted desktop/narrow Light/Dark browser evidence and supplied screenshot. Confirmed the frontend requests all **50** conversations permitted by the store, so no pagination gap exists at the current cap. No duplicate regression command or Codex Security tooling was run.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Only the required Journal entries were added; no product file was edited, staged, committed, pushed, tagged, deployed, or published.
+- Next: Fix the persistence/error truthfulness and retention/provenance issues first; then add draft preservation and the small keyboard/mobile refinements before expanding history search or cross-session freshness.
+
+### 2026-07-27 18:32Z — `/root/chat_review` — Workspace Chat backend correctness hardening started
+- Context: Implement the approved backend-only follow-up for truthful durable Workspace history, effective execution provenance, retry-safe idempotency, per-user storage partitions, and bounded-retention disclosure while preserving stateless and Case Manager chat behavior.
+- Did: Re-read the dirty chat route/models/store plus ES and SQL KV adapters before editing. Published the additive wire contract to the parent and frontend/docs lanes: `idempotency_key`; effective model/source response metadata; per-message source/model provenance; conversation/list retention sentinels; and typed 409/422/503 errors. No frontend or documentation file is in this lane, and no Codex Security tooling is being run.
+- Tests: Implementation and focused backend regressions pending.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Add strict partitioned storage with lazy legacy migration and pre-LLM reservations, then wire route validation/replay and run focused conversation/source/backend gates.
+
+### 2026-07-27 18:15Z — `/root` — Workspace Chat residual-gap audit complete
+- Context: Close the requested follow-up assessment of the rebuilt Workspace Chat, distinguishing verified correctness risks from scale, UX, and test-hardening work.
+- Did: Confirmed two release-priority truthfulness defects (optimistic success after a failed history write and explicit-source fallback being persisted/displayed as the requested source), plus misleading empty history on store-read failure, failed-draft context divergence, and missing turn idempotency. Recorded the bounded-retention, one-global-KV-document, per-turn execution-provenance, unsent-draft, cross-session freshness, IME, and integration-browser coverage gaps as subsequent hardening rather than visual regressions. No product code was changed and no Codex Security tooling was run.
+- Tests: Read-only source/contract/test audit, one focused failing-KV reproduction from the review lane, and review of the already-green **1,647/1,647** Console, **95/95** focused UI, **7/7** backend conversation, build, documentation, and responsive Light/Dark browser acceptance evidence. Repository diff whitespace remains clean.
+- Status: audit complete in the shared dirty v0.1.1 Testing tree. Only required Journal entries were added; nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Before promoting to Stable, make persistence failures explicit, return/store the effective telemetry source, preserve/reconcile failed turns, and add request-level idempotency; then partition history storage and expose retention/provenance metadata.
+
+### 2026-07-27 18:18Z — `/root` — Workspace Chat correctness hardening started
+- Context: Implement the approved fixes from the residual-gap audit while preserving the shared dirty v0.1.1 Testing worktree and the separate Case Manager chat contract.
+- Did: Started coordinated backend, frontend, persistence, documentation, and regression work for verified-write truthfulness, honest history-read failures, effective source/model provenance, failed-turn reconciliation, request idempotency, bounded-retention disclosure, draft preservation, and storage partitioning. Browser acceptance will recheck the live responsive workflow. No Codex Security tooling is being run.
+- Tests: Baseline accepted evidence is **1,647/1,647** Console, **95/95** focused Chat, and **7/7** backend conversation tests; new focused gates will run before full acceptance.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Land disjoint implementation lanes, integrate the API/UI contract, run focused and full gates, perform browser QA, update companion docs, and remove the temporary scratchpad.
+
+### 2026-07-27 19:00Z — `/root` — Workspace Chat frontend and documentation hardening integrated
+- Context: Record the first implementation milestone from the approved residual-gap fixes while backend persistence/idempotency work continues independently.
+- Did: Integrated per-thread unsent drafts, retryable failed turns that stay out of subsequent model history, stable retry idempotency keys, retained-history disclosure, effective per-turn source/model labels, IME-safe history rename, focus/visibility and cross-tab rail refresh, and a thin real Chat + ChatPanel + typed-client integration boundary. Aligned the Console UI standard, Usage, Handoff, API reference, and Unreleased notes with the additive contract. Case Manager chat remains case-scoped and unchanged. No Codex Security tooling was run.
+- Tests: Focused Workspace/Case Chat passed **55/55 across 5 files**, including the real page-to-panel transport integration; TypeScript passed. Documentation consistency passed for **64 public pages**, and the strict version-matched Help Center bundle/check passed for app **0.1.1 Testing** and docs **0.1**.
+- Status: frontend/documentation milestone complete in the shared dirty Testing tree; strict backend storage/reservation/source handling and full acceptance remain in progress. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Finish and independently review the backend path, regenerate the typed OpenAPI artifact, then run focused/full backend and Console gates plus responsive Light/Dark browser acceptance.
+
+### 2026-07-27 18:34Z — `/root/chat_docs` — Workspace Chat correctness documentation started
+- Context: Align the Console contract, operator guide, current handoff, release notes, and API/reference documentation with the approved post-rebuild Chat hardening while implementation proceeds in separate backend/frontend lanes.
+- Did: Began a documentation-only review for verified durable saves, explicit source-scope failure and effective per-turn provenance, idempotent retry, per-user storage partitioning with backward-compatible migration, bounded-retention disclosure, per-thread draft preservation, and focus/cross-tab freshness. Requested the final wire-field names from the backend owner before documenting additive API details. No product code or tests are being edited and no Codex Security tooling is being run.
+- Tests: Documentation consistency and scoped diff checks pending after the implementation contract settles.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Prepare behavior-level updates without inventing wire names, incorporate the confirmed API contract, then run the repository documentation gates.
+
+### 2026-07-27 18:26Z — `/root/chat_docs` — Workspace Chat correctness contract documented
+- Context: Record the finalized additive backend/frontend contract without changing product code or overwriting unrelated documentation work in the shared Testing tree.
+- Did: Updated the Console interaction standard, operator guide, handoff, changelog, and API reference for verified StateStore commits, strict source-scope failure, effective per-turn model/source provenance, 8–128 character `idempotency_key` replay, typed 409/422/503 failures, fail-closed history reads, per-thread local drafts, focus freshness, explicit 50-conversation/100-message retention metadata, and hashed per-user partitions with lazy legacy-document migration. Kept stateless and Case Manager chat compatibility explicit. No Codex Security tooling was run.
+- Tests: Scoped `git diff --check` passed; documentation consistency and Help Center bundle checks remain pending.
+- Status: documentation content complete against the confirmed field/error names; implementation integration is still in progress in separate lanes.
+- Next: Reconcile the final merged schemas, run strict documentation gates, and close this documentation lane.
+
+### 2026-07-27 18:35Z — `/root/chat_docs` — Workspace Chat correctness documentation complete
+- Context: Close the documentation-only lane after reconciling the approved behavior with the additive `ChatRequest`, `ChatResponse`, conversation, message, list-envelope, retention, and typed-error field names now present in the shared models/types.
+- Did: Finalized `docs/development/ui-standard.md`, `docs/USAGE.md`, `docs/HANDOFF.md`, `docs/reference/api.md`, and `CHANGELOG.md`. The installed Help Center now explains verified durable saves, exact idempotent replay semantics, strict source scope, effective execution provenance, honest read/write failure states, per-thread local drafts, focus/cross-tab refresh, retained-versus-total counts, and compatibility migration into hashed per-user StateStore partitions. Preserved stateless and case-scoped Chat compatibility and unrelated dirty documentation. No Codex Security tooling was run.
+- Tests: `python3 scripts/check_docs.py` passed for 64 public pages; the supported docs runner completed a strict MkDocs bundle for Agentic SOC 0.1.1 / docs 0.1; `npm run docs:check` passed against the installed bundle; scoped `git diff --check` passed.
+- Status: complete in the shared dirty v0.1.1 Testing tree. No code/test file was edited, and nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Integration lead can finish backend/frontend tests and browser acceptance, then update the aggregate verification totals without changing this documented Chat contract.
+
+### 2026-07-27 18:35Z — `/root/chat_backend_audit` — Workspace Chat backend hardening review started
+- Context: Independently review the in-flight backend correctness work before the integrated Chat changes are accepted.
+- Did: Began a read-only contract and race review covering strict StateStore failures, hashed per-user partitions and legacy migration, factory reset reach, pre-model idempotency reservations, concurrent duplicate suppression, conflict/replay/stale-recovery semantics, execution provenance, retention accounting, and stateless/case-scoped compatibility. No product code will be changed and no Codex Security tooling is being run.
+- Tests: Focused read-only backend tests will run after the shared implementation settles.
+- Status: review in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Wait for the backend owner to finish, inspect exact source paths and race boundaries, run focused tests, then report severity-ranked evidence or confirm no release blocker.
+
+### 2026-07-27 18:55Z — `/root/chat_backend_audit` — Workspace Chat backend hardening review complete
+- Context: Close the independent read-only correctness review of the finalized Workspace Chat persistence, reservation, source/model provenance, retention, migration, and compatibility paths.
+- Did: Confirmed strict storage failures propagate before model invocation; hashed per-principal partitions and lazy legacy migration preserve isolation; replay is attempted before source resolution; completed receipts survive transcript eviction; lease tokens prevent an expired worker from aborting or completing a reclaimed reservation; explicit source failures stay typed; effective model/source and response truncation are truthful; explicit deletion keeps retained-versus-total accounting coherent; factory reset reaches the partition manifest and registered partitions; and stateless plus case-scoped callers remain separate. Reported one remaining bounded-storage defect: request pruning evicts only completed receipts, so more than 256 distinct stale/in-progress crash receipts can grow a user's partition without bound. Also reported missing regression assertions for partitioned chat factory-reset reach and adapter-specific ES/SQL failure injection.
+- Tests: `cd backend && .venv/bin/python -m pytest tests/test_chat_conversations.py tests/test_source_customizability.py tests/test_round4_wave4_reset.py -ra` passed **46/46**. Source inspection covered `stores/chat_conversations.py`, strict ES/SQL KV adapters, `api/routes.py`, `agents/chat.py`, and `engine/reset.py`. No Codex Security tooling was run.
+- Status: review complete in the shared dirty v0.1.1 Testing tree. No product or test file was edited; only the required Journal entries were added. The receipt-pruning defect is a bounded-storage hardening issue, not evidence of duplicate billing on the tested same-key path.
+- Next: Evict expired reservations while preserving live leases, reject new reservations when the live-lease cap is full, add the missing reset/adapter regression coverage, then rerun the same focused backend gate before Stable promotion.
+
+### 2026-07-27 18:55Z — `/root/chat_backend_audit` — Workspace Chat backend follow-up verified
+- Context: Re-review the parent's immediate receipt-pruning and factory-reset regression fixes before integration handoff.
+- Did: Confirmed completed receipts and stale abandoned leases are now the only eviction candidates, live lease tokens remain protected, and both fake-ES and SQLite factory-reset tests seed and verify partitioned Workspace-history clearance. One low-frequency capacity edge remains documented for follow-up: when all 256 retained receipts are non-stale live leases, a 257th reservation is not yet rejected, so the hard bound can temporarily be exceeded under extreme per-user concurrency.
+- Tests: The focused backend gate reran green at **47/47**: `test_chat_conversations.py`, `test_source_customizability.py`, and `test_round4_wave4_reset.py`.
+- Status: no release-blocking backend correctness defect found in normal operation. The extreme all-live capacity edge was reported to the integration lead; no product or test file was edited in this audit lane and no Codex Security tooling was run.
+- Next: Add a typed capacity rejection for the 257th simultaneously live per-user reservation when practical; otherwise proceed with full integration and browser acceptance.
+
+### 2026-07-27 18:37Z — `/root/chat_tests` — Workspace Chat frontend hardening milestone
+- Context: Complete the frontend resilience contract for durable Workspace conversations while preserving the shared Chat engine and Case Manager isolation.
+- Did: Added per-thread and new-chat unsent drafts; visible/retryable failed turns that never enter later model history; stable per-request idempotency keys across retries; effective model/source execution provenance; explicit retained-versus-total history disclosures; IME-safe rename; conservative focus/visibility and BroadcastChannel rail refresh; and typed chat error copy. Added a thin integration test using the real Chat page, real ChatPanel, and real typed API client with only `fetch` stubbed.
+- Tests: Focused Chat regression command passed **55/55 tests across 5 files**; `tsc --noEmit`, scoped ESLint, and scoped `git diff --check` passed.
+- Status: implementation and focused verification complete in the shared dirty v0.1.1 Testing tree. No Codex Security tooling was run.
+- Next: Parent integration should reconcile the sibling backend schema, run full Console/build/browser acceptance, and update aggregate verification totals.
+
+### 2026-07-27 18:37Z — `/root/chat_tests` — Workspace Chat frontend hardening complete
+- Context: Close the frontend-only lane after verifying the additive history/idempotency/provenance contract and the unchanged case-scoped path.
+- Did: Finalized changes in `webui/src/lib/{api,types}.ts`, `webui/src/soc/pages/Chat.tsx`, `webui/src/soc/components/{ChatPanel,ChatHistoryRail}.tsx`, and their focused tests, including the new real-page transport integration. Preserved unrelated dirty-tree work; nothing was staged, committed, pushed, tagged, deployed, or published.
+- Tests: `npm test -- --run src/soc/components/__tests__/ChatPanel.test.tsx src/soc/components/__tests__/ChatHistoryRail.test.tsx src/soc/pages/__tests__/Chat.demo.test.tsx src/soc/pages/__tests__/Chat.integration.test.tsx src/soc/pages/casedetail/__tests__/CaseChatPanel.test.tsx` passed **5/5 files, 55/55 tests**. `npm run typecheck`, scoped ESLint, and scoped diff whitespace checks passed with no warnings or errors.
+- Status: frontend lane complete and ready for parent integration.
+- Next: Run the repository-wide frontend gate and browser QA after the backend owner lands the matching wire contract.
+
+### 2026-07-27 19:10Z — `/root` — Workspace Chat correctness hardening complete
+- Context: Close the approved post-rebuild hardening work and verify the durable Workspace Chat as a release-ready v0.1.1 Testing feature without changing the separate Case Manager chat contract.
+- Did: Shipped strict hashed per-user conversation partitions with lazy legacy migration, verified-write failure behavior, bounded retention and live-lease capacity enforcement, pre-model idempotency reservations with ownership-safe stale recovery, truthful effective source/model provenance, strict source selection, replay/conflict handling, and factory-reset coverage. Completed the responsive searchable history rail, per-thread drafts, retryable failed turns excluded from later model context, IME-safe rename, focus/cross-tab refresh, and retention disclosure. Fixed a demo-source route typo, the first-save hydration race that could leave a live conversation stuck on “Restoring conversation,” and a 5px compact-header overflow. Updated the Console standard, Usage, Handoff, API reference, changelog, OpenAPI artifact, generated TypeScript types, and version-matched Help Center. No Codex Security tooling was run.
+- Tests: Focused backend regressions passed **49/49** and focused Workspace/Case Chat passed **55/55**. The full backend passed **2,033/2,033** tests. The full Console passed **1,657/1,657** tests across **262 files**, ESLint, all five design-system gates, TypeScript, production Vite build, generated-type drift check (**199 OpenAPI paths**), version check (**app 0.1.1; docs 0.1**), documentation consistency (**64 public pages**), and `git diff --check`. Responsive browser acceptance passed in Light and Dark at desktop and compact widths with durable reload/resume, history search/sheet, first-save flow, no horizontal overflow, and no browser warnings or errors.
+- Status: complete in the shared dirty v0.1.1 Testing tree. The temporary task scratchpad was removed; nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Promote through the normal Testing-to-Stable release workflow when ready; no known Workspace Chat release blocker remains from this scope.
+
+### 2026-07-27 20:17Z — `/root` — Remaining-fix and Batch/Flex behavior audit started
+- Context: Answer whether any additional fixes remain after Workspace Chat hardening and whether OpenAI Batch/Flex is truly the default execution path across the product.
+- Did: Started a read-only implementation, configuration, test, roadmap, and current official OpenAI documentation audit. The review will distinguish live latency-sensitive Flex requests, asynchronous Batch jobs, non-OpenAI providers, unsupported models, and truthful standard-tier fallback rather than treating Batch and Flex as interchangeable. No Codex Security tooling is being run.
+- Tests: Pending targeted source/test inspection and current official documentation verification.
+- Status: in progress in the shared dirty v0.1.1 Testing tree; no product change is authorized by this question.
+- Next: Reconcile code defaults with documented provider capability behavior, rank concrete remaining fixes, and report any misleading defaults or release blockers.
+
+### 2026-07-27 20:18Z — `/root/remaining_fixes_audit` — Remaining product-gap audit started
+- Context: Independently identify concrete remaining v0.1.1 Testing work after the Workspace Chat hardening, without conflating completed or stale roadmap notes with current gaps.
+- Did: Began a read-only review of the roadmap, Unreleased changelog, handoff, research audit findings, release/channel documentation, and TODO/FIXME markers. No product code will be changed and no Codex Security tooling is being run.
+- Tests: Pending documentation/status reconciliation and targeted read-only checks.
+- Status: in progress in the shared dirty Testing tree.
+- Next: Rank confirmed items as release blockers, near-term product gaps, or optional polish, with file-and-line evidence and stale-item callouts.
+
+### 2026-07-27 20:18Z — `/root/batch_flex_audit` — Batch and Flex execution audit started
+- Context: Independently verify whether inference is actually routed through OpenAI Flex or asynchronous provider Batch by default, and distinguish configuration intent from confirmed execution and ledger attribution.
+- Did: Began a read-only trace across preferences, provider adapters, gateway and pipeline call sites, Batch job orchestration, settings/API surfaces, documentation, and focused tests. No Codex Security tooling is being run.
+- Tests: Pending targeted source inspection and focused regression execution.
+- Status: in progress in the shared dirty v0.1.1 Testing tree; no product code is being edited in this audit lane.
+- Next: Produce an evidence-backed call-path matrix covering defaults, eligibility, unsupported models/providers, fallback behavior, and any misleading UI or documentation.
+
+### 2026-07-27 20:24Z — `/root/batch_flex_audit` — Batch and Flex execution audit complete
+- Context: Close the independent read-only audit of discounted inference defaults, effective execution, fallback behavior, and operator-facing claims.
+- Did: Confirmed that the live Flex preference is default-on only for compatible official OpenAI GPT-5/o3/o4-mini calls on the automated-scan and investigate surfaces, while the fresh role-model defaults are Anthropic and therefore run standard service. Confirmed chat, standup, overview, embeddings, model tests, non-OpenAI/custom/Azure endpoints, and unsupported model families remain standard; Flex capacity failures can truthfully retry standard. Confirmed true asynchronous provider Batch is default-off and limited to the aggregated EVENT-feed detection funnel. Identified four concrete follow-ups: the async Batch `severity_floor` and `flex` controls are persisted but do not affect execution despite UI/docs claims; batch provider selection can disagree with the router model's provider; funnel submission failure is swallowed before its independently advanced source cursor is saved, risking unrecoverable EVENT-feed work loss; and Batch result claims can be marked retrieved before a usage write whose store currently logs-and-swallows persistence failure. Also found that Cost analytics do not expose the already-recorded `processing_tier`, so operators cannot verify effective Flex/Batch coverage from the normal UI.
+- Tests: Focused backend discounted-inference, provider, event-funnel, scheduler, config, and autopilot suites passed **118/118**; the focused Batch Jobs Console suite passed **8/8**. Static call-site tracing confirmed that current tests exercise config round-trip and happy-path tier behavior but do not prove the two advertised async knobs influence routing or cover submit/ledger-persistence failure recovery.
+- Status: audit complete in the shared dirty v0.1.1 Testing tree. No product/test file was edited, no Codex Security tooling was run, and only the required Journal entries were appended.
+- Next: Before enabling asynchronous Batch by default, add a durable pre-cursor outbox/retry path, align and validate provider/model selection, either wire or remove the dead controls and correct UI/docs, make ledger writes durable/idempotent, and expose actual standard/Flex/Batch call and cost ratios. For current production behavior, describe Flex as an eligible preference—not a guarantee that every default call is discounted.
+
+### 2026-07-27 20:20Z — `/root/remaining_fixes_audit` — Remaining product-gap audit complete
+- Context: Close the independent read-only audit of remaining v0.1.1 Testing work after Workspace Chat hardening.
+- Did: Reconciled the live roadmap, Unreleased notes, handoff, release/channel contract, public limitation register, Round-5 implementation/audit records, current TODO markers, remote branch topology, and dirty-tree state. Confirmed the explicit Stable blockers remain branch protection/topology, licensing, reproducible signed publication, durable push receipt/checkpoints, restart-durable dynamic secrets, versioned state migrations, and stronger incident/case identity. Confirmed near-term product gaps include a true cross-source per-tick investigation cap, preferences CAS for concurrent edits, the intentionally opt-in asynchronous Batch funnel, the unselected agent-improvement Console surface, complete paginated Noise Reduction drill-down, honest Syslog TLS handling, and campaign/storage/mapping lifecycle work. Identified stale verification totals in Handoff/Changelog/Roadmap versus the latest recorded 2,033 backend and 1,657 Console run. No product code was changed and no Codex Security tooling was run.
+- Tests: Read-only source/status audit only. The latest authoritative Journal acceptance remains **2,033/2,033 backend** and **1,657/1,657 Console** plus build/lint/design/docs/browser acceptance; those totals have not yet been propagated to every summary document.
+- Status: complete. Round-5's 9 must-fix findings and P1–P18 polish sweep are explicitly shipped and must not be reopened from the historical audit document; dashboard builder and Workspace Chat hardening are also complete. The shared candidate remains a large uncommitted dirty tree and cannot enter release promotion until its intended scope is reconciled, committed, and rerun through the exact frozen-tree gate.
+- Next: Resolve the owner-controlled branch/license/release-pipeline prerequisites; decide whether the data-durability blockers are required for the first Stable claim or the release should remain an evaluation-only Testing candidate; then fix the highest-risk runtime gaps before optional feature polish.
+
+### 2026-07-27 20:24Z — `/root` — Remaining-fix and Batch/Flex behavior audit complete
+- Context: Close the read-only audit requested after the Workspace Chat hardening and answer whether discounted OpenAI execution is the universal default.
+- Did: Confirmed that eligible live official-OpenAI alert and case work on the automated-scan and investigation surfaces prefers Flex by default, with truthful actual-tier ledger attribution and an enabled standard-tier fallback for unsupported models, custom endpoints, capacity errors, or provider rejection. Confirmed that asynchronous provider Batch is intentionally opt-in and limited to latency-tolerant event work; Workspace Chat, Standup, Overview, model tests, embeddings, non-OpenAI providers, and unsupported/custom OpenAI paths are not universally routed through Batch/Flex. Reconciled the remaining release and product gaps: literal protected Stable/main and publication controls, licensing, durable push receipts/checkpoints and dynamic secrets, versioned migrations and stronger case identity, a global cross-source investigation cap, preferences compare-and-swap, honest Syslog TLS handling, the unselected Agent Effectiveness Console surface, paginated Noise Reduction drill-down, and the incomplete archive/restore lifecycle. Identified stale verification totals in summary documentation. No product code was changed and no Codex Security tooling was run.
+- Tests: Focused discounted-inference and Batch regressions passed **50/50** across gateway usage, discounted export, event detection, and tuning/Batch routes. Current official OpenAI documentation was checked for Flex capacity/fallback semantics and asynchronous Batch latency/cost behavior.
+- Status: audit complete in the shared dirty v0.1.1 Testing tree. The current defaults are cost-aware but do not and should not claim that every inference is guaranteed to run at a discounted tier.
+- Next: Preserve Flex-by-default for eligible live alert/case calls; define an explicit latency/recovery SLA before widening asynchronous Batch; then address the release/data-integrity blockers before optional product expansion.
+
+### 2026-07-27 21:49Z — `/root` — Discounted-inference correctness implementation started
+- Context: Implement the approved follow-up package after the Batch/Flex and remaining-gap audit, prioritising repository-owned correctness work rather than making owner-only licensing or remote branch-protection decisions.
+- Did: Began coordinated implementation of durable asynchronous Batch handoff, provider/model consistency, truthful Batch controls, retry-safe usage attribution, processing-tier Cost visibility, and the adjacent tests and operator documentation. The shared v0.1.1 Testing tree is already materially dirty from completed Console work, so every lane must preserve unrelated edits and use disjoint ownership. No Codex Security tooling will be run.
+- Tests: Pending focused backend/Console gates, full regression suites, documentation checks, and browser acceptance where the operator-facing Cost/Batch surfaces change.
+- Status: in progress on `Testing`; nothing is staged, committed, pushed, tagged, deployed, or published.
+- Next: Land disjoint implementation lanes, reconcile the API/UI contract, run focused and full verification, update current documentation totals, then remove the temporary task scratchpad.
+
+### 2026-07-27 21:57Z — `/root` — Syslog TLS transport made truthful and fail-closed
+- Context: Resolve the audited connector mismatch where selecting `tls` exposed a plaintext TCP listener while the wizard implied an encrypted Syslog transport.
+- Did: Implemented a real stdlib TLS 1.2+ server context backed by mounted certificate/private-key paths, an optional write-only private-key password, and optional client-CA/mTLS enforcement. Selecting TLS now fails closed when material is missing or unreadable and can never silently bind plaintext. Updated the connector manifest and setup help so the wizard explains the mounted-file contract and distinguishes unauthenticated UDP/TCP from certificate-authenticated TLS. Preserved all unrelated receiver and shared-tree work; no Codex Security tooling was run.
+- Tests: Focused receiver and ingest-customisation suites passed **83/83**, including manifest truthfulness, missing-material rejection, TLS context construction, optional mTLS, and existing receiver behavior.
+- Status: connector correctness milestone complete; broader discounted-inference lanes remain in progress.
+- Next: Integrate Batch and Cost analytics lanes, then update the public support matrix and deployment guidance for the verified Syslog TLS contract.
+
+### 2026-07-27 22:03Z — `/root` — Automated-investigation cap made global across source fan-out
+- Context: Close the cost-governance gap where every concurrently polled source could independently consume the full configured per-tick investigation allowance.
+- Did: Added a concurrency-safe tick-scoped `InvestigationBudget`, threaded it through the built-in Poller and shared ingest path, and made PollerManager allocate one allowance across every concurrent source. Over-cap eligible clusters remain durable deferred candidates and drain later; direct/single-source and extension pollers retain compatible behavior. Deferred draining now uses the one global remaining allowance rather than summing per-source caps. Risk scoring and deterministic `decide()` remain untouched. No Codex Security tooling was run.
+- Tests: Focused multi-source manager, concurrency, and autopilot-ingestion suites passed **42/42**, including a new concurrent two-source regression proving cap=1 yields exactly one investigation and one deferred candidate.
+- Status: cost-governance milestone complete; Batch durability, tier analytics, and Agent Effectiveness UI lanes remain in progress.
+- Next: Reconcile sibling implementations and run the larger backend gate before updating the roadmap item as complete.
+
+### 2026-07-27 22:10Z — `/root` — Rule CRUD moved onto atomic Preferences mutations
+- Context: Resolve the known lost-update window where rule CRUD and rollback copied `state.prefs` before the application-wide preferences lock, allowing a concurrent settings/source/tuner write to be overwritten.
+- Did: Reworked detection, correlation, case-automation, enable/disable, delete, and rollback handlers so each pure per-rule transform executes inside `AppState.mutate_prefs` against the freshest document. Auditing/versioning still occurs after the committed mutation; 404 and validation failures happen before any save. The deterministic decision path and rule semantics are unchanged. No Codex Security tooling was run.
+- Tests: Focused rule-router and atomic-preferences suites passed **25/25**, including CRUD/rollback/deep-merge/RBAC contracts and the existing forced-interleave `mutate_prefs` regressions.
+- Status: Preferences concurrency milestone complete; broader implementation remains in progress.
+- Next: Reconcile all sibling lanes and extend the final backend gate across rules, source fan-out, Batch, usage, and connector behavior.
+
+### 2026-07-27 21:51Z — `/root/tier_analytics` — Processing-tier observability implementation started
+- Context: Make the existing single-gateway usage ledger visibly prove which calls actually ran at standard, Flex, Batch, or an unattributed legacy tier without inferring execution from requested policy.
+- Did: Began an additive, exact aggregation and Console Cost-surface implementation covering Elasticsearch, aggregation-less fake, and SQL stores plus focused API/UI contracts. The new reporting will expose calls, tokens, and recorded spend by actual `UsageDoc.processing_tier`, discounted coverage, and an explicit unconfirmed bucket; it will not mislabel ordinary standard calls as confirmed Flex fallbacks because the current ledger cannot prove that distinction. No Codex Security tooling is being run.
+- Tests: Pending focused backend store/API and Console Cost tests, typecheck, and scoped lint.
+- Status: in progress in the shared dirty v0.1.1 Testing tree; unrelated product work is being preserved.
+- Next: Implement the shared summary contract, render a compact accessible execution-tier section, then verify exact cross-backend behavior and legacy-row attribution.
+
+### 2026-07-27 21:59Z — `/root/tier_analytics` — Actual processing-tier visibility implemented
+- Context: Record the implementation milestone before the integration lane runs its broader gates.
+- Did: Extended the unbounded usage summary with exact fixed standard/Flex/Batch/unconfirmed buckets and combined Flex+Batch call, token, and recorded-spend ratios. Elasticsearch uses non-truncating filters; aggregation-less fake and SQL paths use the same normalization and coverage builder. Missing, legacy, and future unknown values remain unconfirmed, while fallback attribution remains explicitly unavailable instead of being inferred from a standard row. Added a flat, theme-token-driven Execution tiers section to Cost & usage with all four tiers, coverage, and truthful attribution copy plus matching TypeScript contracts.
+- Tests: Focused backend storage/API tests passed **5/5**, then the wider `test_api.py`, `test_round3_wave5_models.py`, and `test_state_store_sql.py` gate passed **51/51**. Focused Cost/Analytics tests passed **14/14**, subsequent tier/race rerun passed **4/4**, and Console TypeScript plus scoped ESLint passed. Scoped diff whitespace checks passed. Existing zero-size Recharts warnings in the Analytics test harness remain unrelated and non-failing.
+- Status: implementation complete pending one final concurrent-write-path reconciliation and handoff; no Codex Security tooling was run.
+- Next: Recheck the shared UsageStore after the Batch lane settles, rerun the final focused gate, then hand exact contract/files/tests to the integration lead.
+
+### 2026-07-27 21:50Z — `/root/batch_pipeline_fix` — Durable asynchronous Batch correctness started
+- Context: Implement the backend Batch/event-funnel correctness lane approved after the discounted-inference audit.
+- Did: Began a scoped implementation review covering provider/model binding, EVENT severity eligibility, durable cursor acceptance, custom-id idempotency, and retry-safe usage attribution. Work is confined to backend Batch/event code and focused regressions; unrelated shared-tree edits will be preserved. No Codex Security tooling will be run.
+- Tests: Pending focused backend regression design and execution.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Trace the existing poller and Batch job state machine, land additive backward-compatible safeguards, and prove failure recovery with focused tests.
+
+### 2026-07-27 21:51Z — `/root/agent_effectiveness_ui` — Agent Effectiveness Console integration started
+- Context: Make the existing aggregate-only Agent Effectiveness reporting contract visible to operators without adding another primary-navigation destination or implying causal model learning.
+- Did: Began a scoped Console-only implementation inside the existing Metrics/Analytics surface, reusing `ComparisonMetric`, the flat Agentic SOC design system, and the existing `metrics:view` API contract. The surface will preserve explicit insufficient/evaluable states, source-suppression and guardrail disclosures, RBAC, accessibility, and both themes. Unrelated shared-tree work and the Batch/Cost implementation lanes will be preserved. No Codex Security tooling will be run.
+- Tests: Pending focused component/page/route tests, TypeScript, scoped lint, design checks, and practical browser acceptance.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Inspect the current Metrics information architecture and generated endpoint types, implement the smallest honest visible surface, then run focused verification and independent review.
+
+### 2026-07-27 22:05Z — `/root/tier_analytics` — Processing-tier observability verified and handed off
+- Context: Close the actual standard/Flex/Batch usage-reporting lane after reconciling the sibling Batch implementation's strict usage-ledger write path.
+- Did: Preserved the new strict `UsageStore.write_strict` path while confirming the exact fixed-tier aggregation remained intact. The API now reports calls, tokens, and recorded spend for standard, Flex, Batch, and unconfirmed rows across Elasticsearch, aggregation-less fake, and SQL stores; combined discounted coverage includes unconfirmed rows in the denominator; fallback attribution remains explicitly unavailable instead of inferred from standard execution. The Cost surface renders the same contract as a compact, accessible, theme-token-driven section and degrades honestly against an older backend response.
+- Tests: The post-reconciliation backend tier/API/SQL gate passed **4/4**. The focused Cost tier/race gate passed **4/4**. The complete Console production gate `npm run build:app` passed (TypeScript plus Vite, **3,174 modules**). Earlier wider gates remained green at **51/51 backend** and **14/14 Console**, with scoped ESLint and diff checks passing.
+- Status: complete in the shared dirty v0.1.1 Testing tree. No Codex Security tooling was run; nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: The Batch lane will complete lease/result recovery tests and run the combined usage-persistence gate; the integration lead can then include this additive API/Cost contract in the broader release verification and documentation update.
+
+### 2026-07-27 22:15Z — `/root` — Preferences API writers made atomic against the freshest document
+- Context: Extend the rule/source lost-update correction to adjacent organization writers that were serialised only while saving but still assembled their replacement document from an earlier `state.prefs` snapshot.
+- Did: Moved setup completion, the main partial settings deep-merge, budget, notification configured-secret metadata, branding, organization customization, and terminology writes onto `AppState.mutate_prefs`. Each read, read-only-policy check, validation/merge, and save now happens inside one shared Preferences lock, so concurrent source/rule/tuner/settings edits preserve unrelated sibling blocks. Deliberate whole-stack replacement paths such as reset and secret-driven rewiring remain explicit full-document operations. No Codex Security tooling was run.
+- Tests: Focused settings round-trip, user preferences, notifications, model/budget, atomic-preferences, and rules suites passed **122/122**.
+- Status: same-process Preferences lost-update coverage is materially broader; cross-process optimistic revisioning remains a separate scale-out concern.
+- Next: Integrate the durable Batch and processing-tier analytics lanes, then run the complete backend regression gate.
+
+### 2026-07-27 22:03Z — `/root/agent_effectiveness_ui` — Agent Effectiveness Console integration complete
+- Context: Close the visible Console lane for the existing aggregate-only `GET /api/metrics/agent-improvement` contract.
+- Did: Added an `Effectiveness` tab and stable `#/effectiveness` Analytics deep-link under the existing `metrics:view` gate, without adding top-rail clutter. Implemented a flat evidence-led surface for complete 7-day versus preceding 28-day UTC cohorts: explicit headline qualification, three reusable comparison metrics with formula/eligibility/caveat popovers, independent quality/turnaround domains, false-negative and reopen safety guardrails, comparable source-by-severity mix coverage, exclusion/truncation disclosure, and a daily evidence table. Weak/missing cohorts remain unavailable or collecting evidence; the Console shows no composite score and explicitly says observed agent-assisted outcomes do not establish learning or causation. The Effectiveness tab owns its aggregate endpoint and no longer depends on the generic windowed metrics request. Expanded the typed response contract and route/RBAC/render regressions. Unrelated Batch/Cost and shared-tree edits were preserved; no Codex Security tooling was run.
+- Tests: Console TypeScript passed; focused ESLint passed; route/RBAC/comparison/Analytics Vitest suites passed **36/36**; token-existence, WCAG contrast, arbitrary-size/raw-hex, and CVD design gates passed; app-only Vite production build passed. The existing zero-size Recharts warnings in Cost test DOM remain unrelated and non-failing.
+- Status: Agent Effectiveness is now a visible, honest Analytics surface in the shared v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: The integration lead should reconcile concurrent Batch/Cost work, run the full Console suite, and include the Effectiveness route in final browser acceptance before promotion.
+
+### 2026-07-27 22:06Z — `/root/tier_analytics` — Batch result-folding durability review started
+- Context: Independently verify the in-progress Batch fold and strict usage-ledger path after processing-tier reconciliation, without editing implementation files owned by the active Batch lane.
+- Did: Began read-only source and regression inspection of result retrieval/finalization ordering, strict usage persistence, custom-id idempotency, surfaced failure states, and Elasticsearch/fake/SQL backend semantics. No Codex Security tooling will be run.
+- Tests: Pending targeted source tracing and focused existing regression execution.
+- Status: review in progress in the shared dirty v0.1.1 Testing tree; product code is not being edited in this lane.
+- Next: Produce concrete findings and missing-test coverage for the integration lead, then append a review closeout.
+
+### 2026-07-27 22:06Z — `/root/agent_effectiveness_ui` — Integrated feature documentation reconciliation started
+- Context: Reconcile current operator/developer documentation with the newly visible Agent Effectiveness analytics, actual Cost execution-tier observability, the global cross-source investigation cap, and fail-closed Syslog TLS behavior.
+- Did: Began a docs-only, conflict-aware review of the current handoff, usage, deployment, compatibility, environment, UI-standard, and release-facing references. Existing concurrent documentation edits will be preserved. Final test totals, Batch default claims, code, branches, licensing, and release state are explicitly out of scope. No Codex Security tooling will be run.
+- Tests: Pending targeted link/content checks and scoped diff validation.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Identify stale claims, patch only the smallest authoritative operator/developer sections, then verify exact wording and links without changing release totals.
+
+### 2026-07-27 22:12Z — `/root/tier_analytics` — Batch result-folding durability review complete
+- Context: Close the independent read-only review of the active Batch lane's result-folding, strict usage persistence, retry identity, and backend-specific durability claims.
+- Did: Confirmed the intended ordering is correct: each result receives a stable `batch:<job>:<custom_id>` ledger identity, strict usage persistence runs before retrieval finalization, ES/fake retries converge on one deterministic document, and third-party usage stores without the strict contract fail closed. Found two concrete durability defects in the current snapshot. First, `BatchJobStore` still routes outbox saves and lease/finalize mutations through fail-soft `kv_mutate`; a forced CAS failure made `save()` return success with no durable row, while a forced finalize failure returned a newly recorded result even though durable `retrieved` remained false. After lease expiry the same result was returned again (the ledger stayed one row), allowing duplicate detection re-entry. Second, SQL strict usage uses a JSON check-then-insert without a unique constraint/atomic upsert; two concurrent writes with the same idempotency key produced two SQLite rows, and PostgreSQL has the same logical race. Also confirmed a usage-write failure remains retryable but is visible only in logs: the result stayed unretrieved, `last_error` remained empty, and the Batch jobs API does not expose that failure.
+- Tests: Existing focused Batch/SQL suites passed **52/52**. Read-only failure probes reproduced false-success outbox persistence, false-success finalize plus duplicate post-lease result return, hidden strict-usage failure state, sequential SQL dedup (**1 row**), and concurrent SQL duplication (**2 rows**). Missing regressions are strict KV save/lease/finalize failures, no-reentry-before-durable-finalize, concurrent SQL idempotency, and operator-visible result-fold errors.
+- Status: review complete; findings were sent to both the implementation lane and integration lead. No product code was edited, no Codex Security tooling was run, and nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Add a strict KV mutation boundary for Batch durability, make SQL idempotency atomic, persist/expose fold failures, then rerun the same failure probes before integration.
+
+### 2026-07-27 22:14Z — `/root/agent_effectiveness_ui` — Integrated analytics and ingest documentation reconciled
+- Context: Close the docs-only follow-up after Agent Effectiveness, actual processing-tier observability, the manager-wide poll-tick investigation budget, and real Syslog TLS landed in the shared v0.1.1 tree.
+- Did: Updated `AGENTS.md`, `docs/HANDOFF.md`, `README.md`, `docs/USAGE.md`, and `docs/development/ui-standard.md` so operators and developers can find Analytics → Agent effectiveness / `#/effectiveness`, understand the 7 complete UTC day versus preceding 28 day aggregate comparison, preserve explicit insufficient/unavailable evidence, treat agreement and corrections as one quality domain, and avoid any composite or causal-learning claim. Documented Cost's actual Standard/Flex/Batch/Unconfirmed ledger buckets, discounted coverage denominators, and unavailable fallback attribution without changing the default live-Flex or opt-in asynchronous-Batch policies. Reconciled the cap language in `AGENTS.md`, `README.md`, `docs/ENVIRONMENT.md`, and `docs/USAGE.md`: one concurrency-safe allowance spans all concurrent pull sources in a PollerManager tick, while direct push batches enforce the same configured cap locally. Preserved the already-landed deployment edits and added operator/compatibility guidance for TLS 1.2+, mounted certificate/key paths, optional mTLS, and fail-closed Syslog startup. No product code, release totals, branch state, licensing, or deterministic decision behavior changed; no Codex Security tooling was run.
+- Tests: `npm run docs:bundle` and `npm run docs:check` passed after the final edits; `git diff --check` passed; targeted stale-claim and exact-field scans found no remaining per-source-manager-cap, hidden-Effectiveness, inferred-fallback, or plaintext-TLS drift in the authoritative files.
+- Status: documentation reconciliation complete in the shared dirty Testing tree; nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Integration lead can include these preserved documentation edits in the final combined gate and browser acceptance.
+### 2026-07-27 22:14Z — `/root/chat_backend_audit` — Workspace Chat live-reservation capacity fix started
+- Context: Close the final per-user idempotency-cap edge without evicting a valid in-flight model invocation.
+- Did: Began a narrow backend change to refuse the 257th non-stale live Workspace-chat reservation with a typed busy outcome, while retaining completed/stale receipt pruning and allowing capacity recovery after completion or expiry. Preserving all unrelated shared-tree edits; no Codex Security tooling will be run.
+- Tests: Focused store/API regressions and the existing Chat/source/reset backend suite are pending.
+- Status: implementation in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Add the typed store exception and API mapping, cover live-cap rejection plus completion/expiry recovery, then run focused and aggregate backend gates.
+
+### 2026-07-27 22:14Z — `/root/chat_backend_audit` — Workspace Chat capacity contract implemented
+- Context: Record the implementation milestone before aggregate verification.
+- Did: Added a dedicated `ChatRequestCapacityBusy` store outcome, mapped it to retryable `409 chat_request_capacity_busy` before model invocation, preserved all active lease tokens, and documented the 256-live-lease boundary. Added readable Console error copy plus store/API regressions proving overflow is not persisted or billed and capacity recovers after either a completed receipt becomes evictable or a lease expires.
+- Tests: `cd backend && .venv/bin/python -m pytest tests/test_chat_conversations.py -ra` passed **16/16**.
+- Status: narrow implementation complete; aggregate backend, frontend type, documentation, and diff-hygiene gates remain.
+- Next: Run the source/reset companion suite, TypeScript, documentation consistency, and scoped whitespace checks, then close the task.
+
+### 2026-07-27 22:17Z — `/root/chat_backend_audit` — Workspace Chat live-reservation capacity fix complete
+- Context: Close the final bounded-idempotency edge identified during the independent backend review.
+- Did: Enforced an exact 256 live-reservation ceiling per principal without evicting any non-stale lease. The 257th reservation now returns typed retryable `409 chat_request_capacity_busy` before source preparation, model invocation, billing, or persistence. Completed and expired leases free capacity through the existing safe pruning path. Updated Console error copy, API/operator documentation, and the Unreleased changelog while preserving all unrelated shared-tree edits. No Codex Security tooling was run.
+- Tests: Chat backend passed **16/16**; the aggregate Chat/source/reset backend gate passed **49/49**; `npm run typecheck` passed; documentation consistency passed for **64 public pages**; scoped `git diff --check` passed.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Exact product/test files changed by this lane: `backend/app/stores/chat_conversations.py`, `backend/app/api/routes.py`, `backend/tests/test_chat_conversations.py`, `webui/src/lib/api.ts`, `docs/reference/api.md`, `docs/USAGE.md`, and `CHANGELOG.md`, plus required Journal entries. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Parent integration can run the full repository/browser acceptance gate and promote only after the existing Testing release process passes.
+
+### 2026-07-27 22:16Z — `/root/agent_effectiveness_ui` — Full supported Console verification started
+- Context: Run the complete Console acceptance lane against the reconciled shared v0.1.1 Testing tree, including all tests, lint, enforceable gates, and the version-matched Help Center production build.
+- Did: Started a read-only verification pass from `webui/`; only Journal milestones will be written. No implementation fixes, staging, commits, publishing, or Codex Security tooling are in scope.
+- Tests: Pending complete Vitest, `npm run lint`, `npm run gates`, and `npm run build`.
+- Status: verification in progress.
+- Next: Run each gate independently, preserve exact output/warnings, and report any failure without modifying unrelated code.
+
+### 2026-07-27 22:17Z — `/root/agent_effectiveness_ui` — Complete Console test suite passed
+- Context: First milestone in the full supported Console verification lane.
+- Did: Ran the complete `npm test` / `vitest run` suite from `webui/` without changing product code.
+- Tests: **263 test files passed; 1,661 tests passed; 0 failures**. Non-failing stderr consisted of the known JSDOM zero-size Recharts notices, React test updates not wrapped in `act(...)`, and one controlled/uncontrolled Select notice; exact warning counts are being gathered before final reporting.
+- Status: Vitest gate complete; lint, enforceable gates, and the full docs-plus-app build remain.
+- Next: Quantify warning instances, then run `npm run lint`, `npm run gates`, and `npm run build` independently.
+
+### 2026-07-27 22:18Z — `/root/agent_effectiveness_ui` — Console lint and design gates passed
+- Context: Second milestone in the full supported Console verification lane.
+- Did: Re-ran the complete Vitest suite through a read-only warning counter, then ran full source ESLint and the repository's enforceable Console gate script.
+- Tests: Vitest reproduced **263/263 files and 1,661/1,661 tests passing** with **108** zero-size Recharts notices, **167** React `act(...)` notices, **1** controlled/uncontrolled Select notice, and **0** other `Warning:` lines. `npm run lint` passed with **0 errors and 0 warnings**. `npm run gates` passed token existence (**37 tokens**), WCAG contrast (**82 axes across both themes**), no-new-arbitrary-text-size, no-new-raw-hex, and chart-ramp separability (**3 dichromacies across both themes**).
+- Status: tests, lint, and enforceable design gates are complete; the full Help Center plus application production build remains.
+- Next: Run `npm run build`, record documentation/version and bundle output exactly, then close the verification lane without fixing unrelated warning debt.
+
+### 2026-07-27 22:19Z — `/root/agent_effectiveness_ui` — Full supported Console verification complete
+- Context: Close the complete Console acceptance lane requested for the reconciled shared v0.1.1 Testing tree.
+- Did: Ran complete Vitest twice (the second read-only pass counted warning instances), full ESLint, all enforceable design gates, and `npm run build`, which bundled the same-version Help Center before TypeScript and Vite. No unrelated implementation was changed and no Codex Security tooling was run.
+- Tests: Vitest passed **263/263 files and 1,661/1,661 tests** with **0 failures**. Non-failing test-environment stderr contained **108** zero-size Recharts notices, **167** React `act(...)` notices, **1** controlled/uncontrolled Select notice, and **0** other `Warning:` lines. ESLint passed with **0 errors / 0 warnings**. All five gate families passed: token existence (**37 tokens**), contrast (**82 axes, both themes**), no new arbitrary text sizing, no new raw hex, and chart-ramp CVD separation (**3 dichromacies, both themes**). The full build bundled Agentic SOC **0.1.1 Testing** docs at `/docs/0.1/`, TypeScript passed, Vite transformed **3,174 modules**, and production output completed in **3.92s** with no build warnings or failures. Final `git diff --check` passed.
+- Status: all requested supported Console gates are green. Only `Journal.md` was written by this verification lane; nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Treat the test-only warning debt as a separate cleanup item; the integration lead can proceed with the remaining backend/integration gates and final browser acceptance.
+
+### 2026-07-27 22:23Z — `/root/batch_docs_truth` — Processing-tier contract audit started
+- Context: Independently reconcile the current Standard, live OpenAI Flex, and asynchronous Batch defaults across configuration, provider/gateway guards, ledger attribution, Console copy, and operator/developer documentation.
+- Did: Began a read-only audit focused on stale or over-broad cost-tier claims, the deprecated `BatchConfig.flex` compatibility field, provider support and truthful fallback, and operator-visible asynchronous folding errors. Product files will not be edited and no Codex Security tooling will be run.
+- Tests: Pending exact source tracing and targeted stale-claim scans.
+- Status: audit in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Return file-and-line findings plus a concise default matrix to the integration lead, then append a read-only closeout.
+
+### 2026-07-27 22:24Z — `/root/batch_pipeline_fix` — Durable Batch acceptance and result state machine implemented
+- Context: Record the implementation milestone that closes cursor-loss, fail-soft state, ledger duplication, and post-ledger detection-loss paths in the asynchronous EVENT Batch pipeline.
+- Did: Bound the funnel to the configured router provider/model; separated deprecated asynchronous `flex` compatibility from live OpenAI Flex preference; applied `severity_floor` to EVENT routing; staged baseline learning until durable outbox acceptance; preserved EVENT cursors on rejected work; and added a deterministic local submission outbox. Added a strict KV mutation boundary for Batch state, atomic SQL usage idempotency via a hashed claim in the existing KV table plus UsageRow in one transaction, operator-visible `last_error`, and a separate durable detection re-entry lease (`pending` → `processing` → `complete`) so a pipeline failure retries without another ledger row. The provider-accepted/local-provider-id crash window is explicitly documented as a provider-API limitation rather than described as universal exactly-once remote submission. No Codex Security tooling was run.
+- Tests: Failure-path regressions passed for unconfirmed local outbox save, failed retrieval finalization, fail-once detection re-entry, and concurrent SQLite usage folding. The combined focused Batch/SQL/EVENT/wiring/noise suite passed **117/117**.
+- Status: implementation milestone complete in the shared dirty v0.1.1 Testing tree; nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Run the Batch API route regressions and final scoped hygiene gate, then close this delegated lane.
+
+### 2026-07-27 22:24Z — `/root/batch_pipeline_fix` — Durable asynchronous Batch correctness complete
+- Context: Close the delegated backend lane after independent reviewer repros and the integration lead's re-entry-ordering check were addressed.
+- Did: Confirmed every cursor/outbox/result/re-entry acceptance boundary now fails closed on unconfirmed persistence; a ledger row is durable before retrieval, and a retrieved EVENT detection stays scheduler-open until its case-pipeline handoff completes. SQL retries converge through the existing unique KV primary key without a new migration. Batch job reads expose bounded fold/re-entry errors. Preserved concurrent investigation-budget and Cost aggregation edits in the shared tree. No Codex Security tooling was run.
+- Tests: Combined focused suite passed **117/117**; Batch/tuning API route suite passed **9/9**; final scoped `git diff --check` passed.
+- Status: delegated implementation and verification complete. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Integration lead can run the full backend suite and include the documented provider acceptance/persistence limitation in release truth; asynchronous Batch remains opt-in while compatible live OpenAI alert/case Flex preference remains default-on with truthful standard fallback.
+
+### 2026-07-27 22:26Z — `/root/tier_analytics` — Completed Batch durability re-audit started
+- Context: Independently re-audit the completed asynchronous Batch durability patch against the concrete failure modes found in the first review: fail-soft KV closure, concurrent SQL idempotency, ledger-before-retrieval ordering, retry-safe detection re-entry, and operator-visible fold errors.
+- Did: Began a read-only source and adversarial-probe pass in the shared dirty v0.1.1 Testing tree. Product code will not be edited and no Codex Security tooling will be run.
+- Tests: Focused Batch/SQL regressions, compile/source hygiene, and forced persistence/re-entry failure probes are pending.
+- Status: verification in progress.
+- Next: Trace the current state machine, rerun the exact prior repros, and report exact pass totals plus any remaining defects to the integration lead.
+
+### 2026-07-27 22:35Z — `/root/tier_analytics` — Batch durability failure probes re-verified after remediation
+- Context: Record the independent re-test milestone after the integration lead closed the initial reviewer repros and three first-pass residuals.
+- Did: Confirmed strict KV save failures raise before persistence/provider work; ledger persistence precedes retrieval; a failed retrieval finalization returns no re-entry-ready result; retry converges on one ledger row; fail-once detection re-entry retries to complete without another ledger row; concurrent cross-engine SQLite writes with one idempotency key converge on one row; recovered jobs clear stale `last_error`; strict registry reads propagate outages; and simultaneous identical submit callers create one local job and one remote call. Compile/source checks found no undefined-name or adjacent duplicate-docstring defect in the audited files. A further scheduler race remains: while the creator awaits remote submission, the visible no-provider-id outbox row can be picked up by `poll()` and submitted a second time because remote submission itself has no durable lease.
+- Tests: Focused Batch/EVENT/wiring/API/SQL regression gate passed **120/120**. Seven independent adversarial probes passed for the remediated guarantees; a separate submit-vs-scheduler probe reproduced **2 remote provider calls for 1 local outbox id**.
+- Status: initial durability defects are closed; one newly isolated local submission-concurrency defect was sent to the integration lead. No product code was edited and no Codex Security tooling was run.
+- Next: Add one durable provider-submission lease shared by `submit()` and `poll()`, then rerun the submit-vs-scheduler probe and final focused gate.
+
+### 2026-07-27 22:36Z — `/root/tier_analytics` — Durable Batch provider-submission lease implementation started
+- Context: Close the independently reproduced race where the immediate submit path and scheduler poll path can both submit one visible local outbox row to the provider.
+- Did: Began a narrow implementation of one strict, durable submission lease with bounded stale recovery, shared by both entry points. The already documented provider-acceptance/local-provider-id persistence limitation remains explicit and unchanged; unrelated shared-tree edits will be preserved.
+- Tests: Forced same-process interleaving, stale-lease recovery, focused Batch regressions, and source hygiene are pending.
+- Status: implementation in progress; no Codex Security tooling will be run.
+- Next: Add the state transition and regressions, then independently rerun the original two-call probe.
+
+### 2026-07-27 22:28Z — `/root/batch_docs_truth` — Processing-tier contract audit complete
+- Context: Close the independent truth audit for Standard, live OpenAI Flex, and asynchronous provider Batch behavior after the durable Batch pipeline work landed.
+- Did: Traced current defaults, gateway capability guards, provider fallback, asynchronous Batch routing, actual-tier ledger attribution, Batch job errors, Console controls, and authoritative documentation. Confirmed every LLM call still crosses the single gateway, but discounted execution is deliberately conditional: asynchronous Batch is OFF by default; the live Flex preference is ON but fresh completion-role defaults are Anthropic and therefore run Standard; only eligible official OpenAI GPT-5/o3/o4-mini calls on `automated_scan` or `investigate` can use live Flex. Identified current-contract drift for the shared `batch.providers` allow-list (documented/UI-grouped as async-only but also used by live Flex), stale BatchProvider-plus-Flex claims, the old baseline-default wording, the ignored `flex` TypeScript description, an obsolete usage-model pricing comment, and Batch registry read failures that still masquerade as an empty list/404. Product files were not edited and no Codex Security tooling was run.
+- Tests: Instantiated `Preferences()` from the repository venv and confirmed `batch.enabled=False`, `prefer_discounted_alerts=True`, `fallback_to_standard=True`, legacy `flex=False`, `baseline.enabled=True`, Anthropic completion-role defaults, and OpenAI embeddings. Exact source/doc line tracing completed; no behavior test suite was required for this read-only audit.
+- Status: audit complete in the shared dirty v0.1.1 Testing tree; only the required Journal entries were written. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Integration lead should either decouple live Flex from `batch.providers` (matching the declared async-only contract) or explicitly split/rename the allow-lists, then reconcile the listed current docs/comments and return typed 503 errors for Batch registry read failures.
+
+### 2026-07-27 22:36Z — `/root/tier_analytics/submission_lease_review` — Batch submission-lease design review started
+- Context: Independently inspect the current asynchronous Batch outbox/service state machine after the submit-vs-scheduler duplicate-provider-call race was reproduced.
+- Did: Began a read-only review focused on the smallest durable lease shared by immediate `submit()` and scheduler `poll()`, stale-lease recovery, and preservation of the documented provider-acceptance/local-provider-id persistence limitation. Product code will not be edited and no Codex Security tooling will be run.
+- Tests: Source tracing and regression-design review are pending.
+- Status: review in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Map every provider-submission entry point and KV transition, then return concrete invariants, edge cases, and focused race tests to the implementation owner.
+
+### 2026-07-27 22:40Z — `/root/tier_analytics/submission_lease_review` — Batch submission-lease design review complete
+- Context: Close the read-only design review after tracing the local outbox, strict KV CAS boundary, immediate submit path, no-provider-id scheduler path, provider SPI timeout, and the implementation that landed concurrently.
+- Did: Recommended one strict token/timestamp lease claimed before every provider POST, token-fenced failure/completion transitions over the latest durable row, a five-minute stale recovery window, and durable attempt counting before network work. Confirmed the landed shape prevents the reproduced immediate-submit versus scheduler double POST and preserves backward-compatible pending/accepted inference from lease plus provider id. Identified one ordering gap: provider acceptance is still persisted only after awaiting client close, unnecessarily widening the explicitly documented remote-accepted/local-id-unsaved window; completion should be saved before best-effort close. Also identified missing stale-token, concurrent-reclaim, blocked-close, old-snapshot, separate-store SQL, and completion-CAS regression cases, plus the existing Elasticsearch strict-CAS single-process limitation for multi-replica deployments.
+- Tests: Read-only source tracing only; no test suite was run by this review lane. The implementation lane had added direct blocking-interleave and stale-lease regressions while this review was active.
+- Status: review complete; findings and concrete regression structure were sent to `/root/tier_analytics`. No product code was edited, and no Codex Security tooling was run.
+- Next: Persist provider acceptance before client close, make lost-token completion ownership explicit, add the focused regressions, then rerun the original two-call probe and focused Batch suite.
+### 2026-07-27 22:43Z — `/root/es_batch_cas` — Elasticsearch Batch CAS hardening started
+- Context: Audit the strict Batch-job KV mutation boundary for true optimistic concurrency across separate backend processes and replicas.
+- Did: Began a narrow source and test review of `EsKVStore`, the Elasticsearch client abstraction, fake-ES behavior, and `BatchJobStore` submission/re-entry claims. The SQL paths and unrelated shared dirty-tree work are explicitly out of scope; no Codex Security tooling will be run.
+- Tests: Focused Elasticsearch CAS/concurrency regressions are pending.
+- Status: implementation audit in progress.
+- Next: Add native Elasticsearch sequence-number/primary-term compare-and-set where the existing abstractions permit it, then exercise conflict, create, retry, and two-store concurrency paths.
+
+### 2026-07-27 22:47Z — `/root/tier_analytics` — Durable provider-submission lease complete
+- Context: Close the last reproduced asynchronous Batch race: the immediate submit path and scheduler could both POST one visible no-provider-id outbox row while the first network call was in flight.
+- Did: Added a strict per-job submission token/timestamp lease shared by `submit()` and `poll()`, bounded five-minute stale recovery, attempt counting at durable claim, and token-fenced failure/acceptance transitions that merge provider state into the latest stored row. Provider acceptance is now persisted before best-effort client close, shortening the unavoidable remote-accepted/local-id-unsaved boundary; an unconfirmed acceptance save keeps its lease and cannot immediately resubmit. Forced tests cover blocked submit/scheduler interleaving, stale reclaim, old-token fencing, blocked close, stale snapshots, and acceptance-persistence failure. An independent-store regression exposed SQLite ignoring `SELECT FOR UPDATE`; `SqlKVStore.put_if` now uses an atomic JSON-revision UPDATE plus primary-key-arbitrated insert, so separate SQL store instances converge on one claimant. Documented the current Elasticsearch multi-replica CAS limitation pending the dedicated native-ES lane. No Codex Security tooling was run.
+- Tests: Focused Batch/EVENT/wiring/API/SQL gate passed **126/126**. Relevant `compileall` and scoped `git diff --check` passed. Pyflakes found no new undefined names; its only reports were three pre-existing unused imports in the audited files.
+- Status: delegated implementation and independent durability verification complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Integration lead should reconcile the known-limitations paragraph if native Elasticsearch CAS lands, then run the full backend/release gates and retain the provider-acceptance/local-persistence limitation in release truth.
+
+### 2026-07-27 22:48Z — `/root/es_batch_cas` — Native Elasticsearch Batch CAS implemented
+- Context: Close the separate-replica lost-update gap in strict Batch submission and re-entry mutations.
+- Did: Added a backward-compatible Elasticsearch-client CAS operation; the bundled real client now checks the embedded revision and commits existing rows with `_seq_no` plus `_primary_term`, while absent rows use create-only insertion. Wired `EsKVStore` strict and ordinary conditional writes to that backend operation, added an atomic fake implementation, and updated the release constraint to distinguish Batch-registry CAS safety from the broader single-replica application constraint. SQL behavior was left to the concurrent SQL lane. No Codex Security tooling was run.
+- Tests: New native request-shape, revision mismatch, OCC conflict, absent-create, failure-propagation, two-store lost-update retry, and single-active-claim regressions passed **6/6**; the combined Elasticsearch-CAS plus Batch LLM suite passed **44/44**.
+- Status: narrow implementation complete; companion store regressions and final scoped hygiene remain.
+- Next: Run Memory/Dashboard/Batch/SQL companion tests, compile the touched backend modules, and close the delegated lane with the precise residual limitation.
+
+### 2026-07-27 22:49Z — `/root/es_batch_cas/cas_review` — Native Elasticsearch CAS review started
+- Context: Independently review the new Elasticsearch KV compare-and-set path for official async-client semantics, absent/existing races, compatibility, exception handling, and whether Batch claim tests cross independent store instances.
+- Did: Began a read-only audit of the ES abstraction, real/fake clients, `EsKVStore`, and focused regressions. Product files will not be edited and no Codex Security tooling will be run.
+- Tests: Source tracing and focused verification are pending.
+- Status: review in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Validate request/response behavior against the installed `AsyncElasticsearch` API and exercise the concurrency cases that are not purely single-store.
+
+### 2026-07-27 22:53Z — `/root/es_batch_cas` — Native Elasticsearch Batch CAS complete
+- Context: Close the strict Batch-registry multi-process/multi-replica Elasticsearch race without changing SQL contracts or claiming whole-application scale-out.
+- Did: Completed native Elasticsearch OCC for existing rows (`_seq_no` + `_primary_term`) and create-only insertion for absent rows, with embedded `_rev` validation and bounded strict-mutation retry. `EsKVStore` now uses that operation for strict Batch state and ordinary KV CAS; the fake performs an atomic event-loop transition. Added forced independent-store regressions for simultaneous outbox creation, submission lease claims, and detection re-entry claims. Independent review confirmed official `elasticsearch-py` 8.12 request semantics and no product blocker; its one test-quality finding (duplicate re-entry keys could collapse in a merged dict) was fixed to require exactly one non-empty claimant. Updated release truth: the shared Batch registry is cross-worker CAS-safe, while the broader receiver/scheduler/realtime architecture remains single-replica. No Codex Security tooling was run.
+- Tests: Native CAS tests passed **7/7**; CAS plus Batch LLM passed **45/45**. The final combined ES-CAS, Memory, Dashboards, Batch, SQL, Workspace Chat, collaboration, and RBAC companion gate passed **174/174**. Relevant `compileall` and scoped `git diff --check` passed.
+- Status: delegated implementation complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Integration lead can run the full backend/release gate. Retain the exact provider-accepted/local-provider-ID persistence limitation: provider acceptance and local state cannot be one transaction because neither bundled provider exposes a universal recovery/idempotency key.
+
+### 2026-07-27 22:53Z — `/root/es_batch_cas/cas_review` — Native Elasticsearch CAS review complete
+- Context: Close the independent read-only review of the new Elasticsearch strict-KV compare-and-set path and its separate-store Batch claim coverage.
+- Did: Confirmed the bundled real client matches official Elasticsearch optimistic-concurrency semantics: existing writes are fenced by the exact sequence number and primary term, absent writes use create-only insertion, 409 is a normal CAS miss, and other failures propagate. Confirmed backward-compatible revision-zero handling and that the tests instantiate independent `BatchJobStore`/`EsKVStore` locks over one shared backend. Found one test-only blind spot where merging two re-entry claim dicts could collapse duplicate claimants; the implementation owner corrected it to require exactly one non-empty claim set.
+- Tests: Re-ran the corrected native CAS suite: **7/7 passed**. Scoped diff hygiene was clean; the implementation owner's broader companion gate passed **174/174**.
+- Status: review complete with no remaining product correctness blocker. No product files were edited by this lane and no Codex Security tooling was run.
+- Next: Integration lead can proceed to the full backend/release gates.
+
+### 2026-07-27 22:55Z — `/root` — Discounted-inference hardening and evidence-led analytics complete
+- Context: Close the requested follow-on reliability work and establish truthful default behavior for Standard, live OpenAI Flex, and asynchronous provider Batch inference without changing deterministic case-decision authority.
+- Did: Completed durable async-Batch outbox, cursor acceptance, token-fenced provider-submission and detection-re-entry leases, retry-safe one-row usage attribution, operator-visible job errors, atomic SQL and native Elasticsearch cross-worker CAS, actual Standard/Flex/Batch/Unconfirmed Cost reporting, and a visible aggregate-only Agent Effectiveness surface that withholds improvement claims when evidence or safety guardrails are insufficient. Decoupled live Flex eligibility from the async-Batch provider list, made Batch registry outages explicit 503s, corrected fresh-install/default copy and documentation, and retained the provider-accepted/local-provider-ID boundary as an explicit provider-API limitation. Adjacent hardening completed in the same integration included global investigation caps, strict Syslog TLS, atomic preferences, and bounded durable Workspace Chat history. No Codex Security tooling was run.
+- Tests: Full backend suite passed **2,072/2,072**. Full Console suite passed **263/263 files and 1,662/1,662 tests**; ESLint, all five design-gate families, TypeScript, Vite production build (**3,174 modules**), version-matched Agentic SOC **0.1.1 Testing** Help Center bundle/check, and final `git diff --check` all passed. Browser acceptance confirmed the release badge, evidence-qualified Effectiveness states, actual execution-tier Cost cards, separated Flex/Batch controls, theme persistence, and zero browser console warnings/errors.
+- Status: requested implementation, documentation reconciliation, durability review, and supported verification are complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Promote through the normal Testing-to-Stable release workflow when desired. Keep async Batch opt-in because it is delayed work; compatible official OpenAI alert investigations prefer live Flex by default with truthful Standard fallback, while fresh Anthropic model assignments and interactive/non-eligible surfaces remain Standard.
+
+### 2026-07-28 08:41Z — `/root` — Login surface redesign started
+- Context: Rework the Agentic SOC sign-in experience into a polished, responsive authentication surface while preserving existing auth, MFA, SSO, white-label branding, theme, accessibility, and deployment contracts.
+- Did: Began a focused audit of the current dirty-tree Login composition, shared design-system rules, branding preview coupling, and regression coverage; delegated read-only architecture, visual, and test reviews before implementation.
+- Tests: Focused Login tests, TypeScript, lint/design gates, production build, and browser acceptance in Light/Dark/narrow layouts are pending.
+- Status: in progress; no authentication or backend behavior has been changed.
+- Next: Implement the approved command-center composition in the existing shared primitives, add regressions, and visually verify the running Console.
+
+### 2026-07-28 08:47Z — `/root/login_architecture` — Login redesign contract audit
+- Context: Audited the current dirty-tree Login implementation and focused regressions before a full aesthetic redesign.
+- Did: Read HANDOFF, AGENTS, Console UI standard, and design-system contract; inspected Login.tsx, loginParts.tsx, branding-preview coupling, and focused identity tests; documented preserved contracts, visual weaknesses, and safe component boundaries. No product files edited.
+- Tests: Focused identity suite green — 57 passed across 10 test files.
+- Status: done.
+- Next: Rework the visual composition behind the existing auth controller, preserve branding/layout enums and eager first-paint behavior, then browser-QA every mode/layout/theme.
+
+### 2026-07-28 08:48Z — `/root/login_branding_tests` — Login redesign regression audit
+- Context: Audited login Vitest coverage, branding-preview coupling, theme persistence, responsive stability, and first-paint requirements before the visual redesign.
+- Did: Mapped existing behavioral contracts, identified class-coupled tests and preview drift, and proposed a focused accessibility/theme/responsive regression set. No files changed.
+- Tests: Focused login/branding suite passed — 10 files, 56 tests.
+- Status: complete.
+- Next: Preserve the auth state machine, white-label/theme contracts, first-paint gate, and eager bundle guard; migrate layout assertions to semantic anchors and add responsive/theme/error-state coverage.
+
+### 2026-07-28 08:48Z — `/root/login_visual_review` — Login redesign audit
+- Context: Audited the current Login and Branding preview against the Agentic SOC command-center UI contract and proposed a cohesive aesthetic redesign.
+- Did: Read HANDOFF, AGENTS, UI-standard and design-system contracts; inspected the Login state machine, shared auth parts, Branding preview and existing rendered screenshot; specified a flat Secure Access Workspace covering desktop, responsive layouts, both themes, loading, error, SSO, MFA, setup and preview fidelity. No product files were edited.
+- Tests: Read-only audit; visual findings were validated against the supplied rendered screenshot and current JSX/CSS contracts.
+- Status: done.
+- Next: Implement the shared workspace/panes, preserve auth behavior and white-label wire values, replace the local loader, reuse the visual system in Branding preview, then complete static and browser QA.
+
+### 2026-07-28 09:01Z — `/root` — Secure Access Workspace implemented
+- Context: Replace the generic aurora-marketing login with a polished SOC-native identity surface while preserving all authentication behavior.
+- Did: Reworked the split, centered, and wide layouts into theme-native workspaces; replaced blur/aurora decoration with static signal topology; added a divider-led assurance rail and evidence-to-decision trust path; made the form a flat identity pane with a single h1, clearer demo-access row, audited-session footer, 44px credential grammar, and an accessible pre-auth System/Light/Dark control. Replaced the blocking page spinner with shared LoadingState and brought the Branding preview and visible layout names into the same geometry. Updated the Console UI standard.
+- Tests: Focused Login/Branding tests, static gates, production build, and final browser QA remain in progress. TypeScript and scoped ESLint passed; initial browser acceptance passed in Light, Dark, 390×844, and 320×568 with no horizontal overflow.
+- Status: implementation milestone complete; verification in progress.
+- Next: Run the full focused identity suite, production build and browser runtime/error checks; then close the task.
+
+### 2026-07-28 09:06Z — `/root` — Secure Access Workspace complete
+- Context: Close the full aesthetic Login redesign with supported static and live-browser evidence.
+- Did: Completed the theme-native Secure Access Workspace across split, centered, and wide layouts; synchronized the Branding preview; documented the identity-surface contract; and normalized all new typography to the shared scale after the design gate rejected one-off text sizes. Existing sign-in, first-admin setup, MFA, password-change, SSO, branding, and auth boot behavior remain on their prior controller and API paths.
+- Tests: Focused identity suite passed **57/57** across 10 files; scoped ESLint, all design gates, TypeScript, Vite production build (**3,174 modules**), and scoped `git diff --check` passed. Browser acceptance passed in Light and Dark at 1280×720 plus 390×844 and 320×568; both narrow widths had zero horizontal overflow, the compact-height view scrolls vertically as intended, and the final browser window contained no fresh warnings or errors.
+- Status: requested Login redesign is complete in the shared dirty v0.1.1 Testing tree. The local Console remains available for review. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Review the Login locally; promote through the normal Testing-to-Stable workflow when desired.
+### 2026-07-28 10:35Z — `/root` — Minimal Login correction started
+- Context: The completed Secure Access Workspace was visually over-designed for the requested sign-in experience; the operator wants a simple, exceptionally clean, minimal page instead.
+- Did: Reframed the target as one quiet identity surface with restrained branding, excellent spacing, minimal copy, no operational storytelling, and no decorative command-center composition. Began a focused implementation and browser-QA pass while preserving all auth, MFA, SSO, setup, branding, theme, and accessibility contracts.
+- Tests: Pending focused identity tests, design gates, production build, and Light/Dark/narrow browser acceptance.
+- Status: correction in progress in the shared dirty v0.1.1 Testing tree; no backend or authentication behavior is being changed.
+- Next: Simplify the Login composition and matching Branding preview, update semantic regressions, and verify the live surface.
+
+### 2026-07-28 10:48Z — `/root/minimal_branding_tests` — Minimal BrandingEditor test update started
+- Context: Align the focused BrandingEditor login and preview regressions with the already-implemented minimal Login surface while preserving legacy white-label wire values.
+- Did: Read the repository handoff and canonical agent rules, checked the shared dirty worktree, and scoped the session to the two assigned BrandingEditor test files plus required Journal entries.
+- Tests: Focused Vitest for `BrandingEditor.login.test.tsx` and `BrandingEditor.preview.test.tsx` is pending.
+- Status: in progress; no product implementation changes are authorized.
+- Next: Inspect the current component/test contract, update only stale assertions, and run the two focused Vitest files.
+
+### 2026-07-28 10:52Z — `/root/minimal_branding_tests` — Minimal BrandingEditor tests complete
+- Context: Bring the two focused BrandingEditor regressions into agreement with the minimal Login correction without changing product implementation.
+- Did: Updated visible-label assertions to `Short welcome line`, `Sign-in description`, and `Add note`; asserted the legacy layout/illustration selects stay hidden while their existing values survive Save; and locked the preview to `data-login-preview-shell="minimal"` with preserved `data-login-preview-layout` metadata for split, centered, and full legacy values.
+- Tests: `npx vitest run src/soc/components/__tests__/BrandingEditor.login.test.tsx src/soc/components/__tests__/BrandingEditor.preview.test.tsx` passed — **14/14 tests across 2 files**. Scoped `git diff --check` passed.
+- Status: done; only the two assigned test files and required Journal entries were changed, with no product implementation edits or blockers.
+- Next: Include these regressions in the orchestrator's broader minimal Login verification.
+
+### 2026-07-28 10:37Z — `/root/minimal_login_visual` — Minimal login audit started
+- Context: Audit the newly introduced Secure Access Workspace after operator feedback that the sign-in page should be simple, minimal, and aesthetic.
+- Did: Read the project handoff, agent rules, Console UI standard, and current Login/loginParts implementation without modifying product files.
+- Tests: Not applicable; read-only visual and architecture audit.
+- Status: in progress.
+- Next: Define the exact minimal desktop/mobile/theme/branding contract and identify removable chrome.
+
+### 2026-07-28 10:37Z — `/root/minimal_login_visual` — Minimal login specification complete
+- Context: Replace the rejected multi-pane Secure Access Workspace direction with a genuinely minimal sign-in surface.
+- Did: Specified one top-anchored 400px identity column; identified BrandHero, illustrations, layout shells, assurance copy, trust path, duplicate labels, and decorative chrome for removal while preserving every authentication flow and branding wire value.
+- Tests: Not run; no files changed.
+- Status: done.
+- Next: Orchestrator should implement the single minimal shell, update Branding preview/tests and the Identity surfaces section of the UI standard, then browser-QA both themes and narrow widths.
+
+### 2026-07-28 10:38Z — `/root/minimal_login_tests` — Minimal login test audit started
+- Context: Audit the current Login and Branding test contracts for a simple, centered, minimal sign-in redesign without weakening authentication, MFA, SSO, setup, branding, theme, or accessibility behavior.
+- Did: Read the project handoff and agent rules, inspected the current Login implementation and all focused Login/Branding/Auth tests, and separated functional contracts from presentation-specific assertions.
+- Tests: Not run at session start.
+- Status: in progress.
+- Next: Run the focused identity suite and return the exact assertion migration plan.
+
+### 2026-07-28 10:38Z — `/root/minimal_login_tests` — Minimal login test audit complete
+- Context: Establish the regression-test contract for replacing the current complex login hero with one minimal centered sign-in surface.
+- Did: Identified the obsolete hero, multi-layout, scaled-preview, and brittle Tailwind assertions; preserved the auth-mode, OOBE, MFA, password-change, SSO, first-paint, branding-refresh, theme, accessibility, and eager-bundle contracts; supplied browser acceptance criteria.
+- Tests: Focused Vitest identity suite passed **55/55 tests across 9 files**.
+- Status: done.
+- Next: Update only presentation-specific assertions alongside the minimal Login and matching Branding preview implementation, then re-run this same suite plus lint/build and Light/Dark responsive browser QA.
+
+### 2026-07-28 10:55Z — `/root` — Minimal sign-in correction complete
+- Context: Close the correction from the rejected command-center-style login to the simple, clean, minimal sign-in experience the operator requested.
+- Did: Removed the hero, illustrations, split/wide compositions, assurance rail, trust path, repeated security copy, card chrome, glow, and decorative telemetry. Replaced them with one top-anchored 24rem identity column, restrained product mark, one `h1`, concise description, credential form, optional SSO/demo context, quiet audited-session footer, and the existing pre-auth System/Light/Dark selector. Legacy layout and illustration values still round-trip for compatibility but converge on the same minimal shell; the Branding preview and Console UI standard now match it. Authentication controllers, API paths, MFA, setup, forced-password, SSO, branding, theme, and first-paint behavior were preserved.
+- Tests: Focused identity suite passed **59/59 tests across 10 files**; scoped ESLint, all five design-gate families, TypeScript, Vite production build (**3,174 modules**), and scoped `git diff --check` passed. Browser acceptance passed at 1280×720 in Light and Dark plus 390×844 and 320×568; both narrow widths had zero horizontal overflow, compact height scrolls vertically as intended, and the browser reported no warnings or errors.
+- Status: requested minimal Login correction is complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Review the simplified sign-in surface and promote through the normal Testing-to-Stable workflow when desired.
+
+### 2026-07-28 11:41Z — `/root` — Practical Login refinement started
+- Context: Continue the minimal Login direction with practical product polish and remove the operator-rejected “Session activity is audited” message.
+- Did: Began a focused hierarchy, spacing, demo-access, support-link, theme-control, responsive, and accessibility review without expanding the authentication surface or inventing unsupported flows.
+- Tests: Focused identity tests, design gates, production build, and Light/Dark/narrow browser acceptance are pending.
+- Status: in progress in the shared dirty v0.1.1 Testing tree; no backend or authentication behavior changes are planned.
+- Next: Refine the existing one-column shell, update its preview/regressions where needed, and verify the running Console.
+
+### 2026-07-28 11:42Z — `/root/login_practical_review` — Practical Login audit started
+- Context: Review the current minimal one-column Login for cleaner, practical refinements, including removal of the rejected audited-session message.
+- Did: Read the repository handoff and canonical agent rules, confirmed the shared dirty integration state, and scoped the session to a read-only audit of current Login/auth UI contracts.
+- Tests: Not run at session start; browser and regression acceptance implications will be specified from the current implementation.
+- Status: in progress; no product implementation edits are authorized.
+- Next: Inspect Login, shared auth parts, theme/support/demo behavior, focused tests, and the current UI standard; return prioritized recommendations.
+
+### 2026-07-28 11:47Z — `/root/login_practical_review` — Practical Login audit complete
+- Context: Review the live minimal Login correction for pragmatic hierarchy, demo, help, theme, accessibility, and responsive polish without adding unsupported authentication behavior.
+- Did: Re-read the concurrently updated Login and shared credential controls; confirmed the audited-session copy is gone and the new optional help link, tighter spacing, and non-submitting demo-fill action are present; returned seven prioritized follow-ups covering mobile input sizing, explicit demo semantics, white-label wrapping, required/error/focus semantics, new-tab help disclosure, theme targets, and quieter loading copy.
+- Tests: Read-only audit; no product tests were run. Browser connection was unavailable in this agent session, so exact Light/Dark, responsive, zoom, keyboard, demo, support, SSO, and error-state acceptance checks were handed to the orchestrator rather than claimed complete.
+- Status: done; no product files were edited, staged, committed, pushed, or deployed.
+- Next: Orchestrator should select the remaining refinements, update focused regressions, and include them in the active static and browser verification pass.
+
+### 2026-07-28 11:59Z — `/root` — Practical Login refinement complete
+- Context: Finish the clean one-column Login with practical operator-facing polish and remove the rejected audited-session message.
+- Did: Removed “Session activity is audited”; tightened the identity hierarchy and short-viewport spacing; made seeded demo username/password semantics explicit with a fill-only `Use` action; made credential fields required and 16px on mobile; allowed long white-label wordmarks/subtitles to wrap; enlarged the pre-auth theme targets; simplified the blocking loader; and exposed the optional external destination as `Help & support` with new-tab semantics only when a support URL exists. The Branding preview and identity UI standard remain aligned with the minimal shell.
+- Tests: Focused identity/auth/branding suite passed **59/59 across 10 files**; scoped ESLint, all design gates, TypeScript, Vite production build (**3,174 modules**), and scoped `git diff --check` passed. Browser acceptance passed in Light and Dark at 1280×720 plus 390×844 and 320×568: no horizontal overflow, 16px mobile credential text, exactly one `h1`, demo fill enabled but did not submit, optional support remained absent when unconfigured, the audited text remained absent, and the console contained no warning/error-level entries.
+- Status: requested practical Login refinement is complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Review the final Login locally; promote it with the surrounding Testing work through the normal release workflow when desired.
+### 2026-07-28 13:33Z — `/root/mistral_login_research` — Mistral-inspired Login research started
+- Context: Research the current official Mistral sign-in experience and extract reusable layout, hierarchy, control, copy, and responsive patterns for the Agentic SOC Login without copying Mistral branding.
+- Did: Read the repository handoff, canonical agent rules, prior minimal/practical Login milestones, and scoped this session to official/public evidence plus a read-only comparison against the current implementation.
+- Tests: Not applicable at session start; this is a read-only design research pass.
+- Status: in progress; no product files will be edited.
+- Next: Inspect official Mistral authentication surfaces and current Agentic SOC Login, then return prioritized, evidence-backed recommendations to the orchestrator.
+
+### 2026-07-28 13:37Z — `/root/mistral_login_research` — Mistral-inspired Login research complete
+- Context: Establish which parts of the current Mistral authentication UI are worth adapting to the Agentic SOC Login without copying brand assets, promotional copy, or unsupported authentication behavior.
+- Did: Followed the live official `console.mistral.ai` redirect into the current Mistral identity flow, inspected its rendered responsive structure and semantics, compared it with a June 2026 public capture and the current Agentic SOC Login, and returned a prioritized adaptation spec. The reusable direction is a neutral 480px identity slab with 384px content, left-aligned hierarchy, 48px controls, desktop-only hairline framing, and a full-width mobile surface; identifier-first progression, Mistral color/mark treatment, icon-only generic SSO, and a synthetic password-recovery link were explicitly rejected for this product.
+- Tests: Read-only research; no product implementation or tests changed. Official endpoint structure and responsive classes were inspected on 2026-07-28; the in-app browser was unavailable in this worker, so no interactive pixel claim was made.
+- Status: done; only the required Journal entries were added. No product files were edited, staged, committed, pushed, deployed, or published.
+- Next: Orchestrator can implement the 480/384 slab and left-aligned hierarchy, then run the existing identity suite plus Light/Dark and 1280/390/320 browser acceptance.
+
+### 2026-07-28 13:34Z — `/root/login_visual_audit` — Mistral-inspired Login visual audit started
+- Context: Audit the current one-column Login and Branding preview for a calmer, more editorial Mistral-like refinement while preserving Agentic SOC themes, white-labeling, accessibility, and authentication behavior.
+- Did: Read the repository handoff, canonical agent rules, prior Login milestones, and scoped this session to a read-only desktop/mobile visual audit of Login, shared auth controls, Branding preview, and the current UI standard.
+- Tests: Not applicable at session start; no product implementation changes are authorized.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Inspect current geometry, typography, controls, demo/SSO/help treatment, theme selector, and responsive behavior; return a concise proposed design spec.
+
+### 2026-07-28 13:33Z — `/root/login_refine_tests` — Mistral-inspired Login regression audit started
+- Context: Define the functional, accessibility, and browser acceptance contract for a Mistral-inspired but Agentic SOC-native Login refinement.
+- Did: Read the repository handoff and canonical agent rules, reviewed the completed practical Login milestone, and scoped this session to a read-only audit of Login, shared identity controls, and focused regressions.
+- Tests: Not run at session start; the current focused suite and presentation-sensitive assertions will be inspected before recommendations are returned.
+- Status: in progress; no product implementation files are authorized for this subtask.
+- Next: Separate authentication invariants from replaceable presentation details, run the focused identity suite, and return an actionable regression and browser acceptance plan.
+
+### 2026-07-28 13:35Z — `/root/login_refine_tests` — Mistral-inspired Login regression audit complete
+- Context: Protect the product/authentication contract while the minimal Login receives a typography, spacing, and control-hierarchy refinement inspired by Mistral rather than a copied brand surface.
+- Did: Audited Login, shared credential controls, first-paint/branding/theme gates, the Branding preview, and all focused regressions; separated semantic invariants from brittle border/shadow/Tailwind assertions; and supplied an exact unit/browser acceptance matrix covering Sign-in, Setup, MFA, enrollment, forced-password, SSO, demo, support, themes, long branding, errors, keyboard use, and narrow/short viewports.
+- Tests: Current focused identity baseline passed **59/59 tests across 10 files**. Scoped `git diff --check -- Journal.md` passed.
+- Status: done; only required Journal entries were appended and no product or test implementation files were edited.
+- Next: Orchestrator should update only presentation-specific expectations alongside the refined Login and matching Branding preview, add the duplicate-heading/error-focus regressions where implemented, then re-run this 59-test baseline plus lint/design gates/build and browser acceptance.
+
+### 2026-07-28 13:33Z — `/root` — Mistral-inspired Login refinement started
+- Context: Refine the approved minimal Login toward the calm, editorial practicality of Mistral's sign-in experience while retaining Agentic SOC identity and every authentication contract.
+- Did: Began official-reference research, current implementation/test review, and Light/Dark responsive acceptance planning. The goal is adaptation of spacing, typography, field rhythm, and restrained supporting actions—not copied branding or a return to a marketing-heavy login.
+- Tests: Focused identity suite, design gates, production build, and browser acceptance are pending.
+- Status: in progress in the shared dirty v0.1.1 Testing tree; no backend authentication behavior is being changed.
+- Next: Finalize the product-native visual specification, implement the Login and matching Branding preview, then verify every auth mode and narrow viewport.
+
+### 2026-07-28 13:42Z — `/root/login_visual_audit` — Mistral-inspired Login visual audit complete
+- Context: Define the highest-value visual refinement from the approved minimal Login toward a calmer editorial identity surface without copying another product's branding.
+- Did: Audited the current Login geometry, duplicated copy hierarchy, framed brand mark, icon-heavy credential controls, demo placement, SSO order, theme selector, support/chip/footer treatment, narrow-screen flow, and Branding preview. Returned a prioritized product-native specification: one unframed brand lockup, one title/description pair, quieter icon-free fields and submit action, a compact post-form demo strip, SSO-first ordering when configured, a borderless theme control, sentence-case footer copy, and exact preview parity.
+- Tests: Read-only audit; no product tests were run. The local browser surface was unavailable in this agent session, so Light/Dark and responsive acceptance criteria were handed to the orchestrator rather than claimed complete.
+- Status: done; no product implementation files were edited, staged, committed, pushed, or deployed.
+- Next: Orchestrator should apply the specification incrementally, preserve every auth/branding contract, and run the existing 59-test identity baseline plus design gates/build and desktop/mobile browser acceptance.
+
+### 2026-07-28 13:52Z — `/root` — Mistral-inspired Login structure and responsive acceptance complete
+- Context: Translate the current Mistral identity pattern into the approved minimal Agentic SOC Login without copying Mistral branding or changing authentication behavior.
+- Did: Introduced the 480px semantic slab and 384px content measure; moved the brand lockup, single heading, description, labels, and controls onto one left-aligned hierarchy; raised credential inputs and primary actions to 48px; moved labelled SSO ahead of credentials; made the demo helper subordinate and fill-only; quieted the theme/support/footer treatment; removed decorative sign-in field icons; and matched the Branding preview. A configured welcome headline now replaces the default `h1`, and a failed password attempt preserves the username, clears/refocuses the password, and exposes the error association.
+- Tests: Focused identity suite passed **60/60 across 10 files** and scoped ESLint passed. Design gates passed after replacing one initially rejected arbitrary type-size class with the established token scale; Vite production build passed (**3,174 modules**); scoped `git diff --check` passed. Browser checks passed at 1280×720 Light/Dark, 390×844, and 320×568 with one `h1`, 48px controls, measured 16px narrow-screen input text, theme persistence, and zero horizontal overflow.
+- Status: implementation and responsive acceptance milestone complete in the shared dirty v0.1.1 Testing tree; broader final regression/build confirmation remains in progress.
+- Next: Run the complete webui suite and final static gates, inspect the final diff/console, then close the product work session.
+
+### 2026-07-28 13:54Z — `/root` — Mistral-inspired Login refinement complete
+- Context: Complete the product-native refinement of the minimal Agentic SOC Login using the current Mistral sign-in surface only as a structural reference.
+- Did: Finished the restrained 480/384 identity slab, single left-aligned hierarchy, 48px credential rhythm, labelled SSO-first ordering when configured, subordinate fill-only demo helper, quiet appearance/support controls, and matching Branding preview. Preserved setup, forced-password, MFA, SSO, demo, white-label, theme, and accessibility contracts; added failed-sign-in focus/error handling.
+- Tests: Focused identity suite passed **60/60 across 10 files**; full webui suite passed **1,666/1,666 across 263 files**; scoped ESLint, design-token and visual-standard gates, Vite production build (**3,174 modules**), and scoped `git diff --check` passed. Final browser acceptance passed at desktop Light/Dark and 390px/320px widths with one `h1`, 48px controls, measured 16px mobile input text, no horizontal overflow, persisted theme selection, the restored 1280×720 viewport, and **zero browser warnings or errors** on `#/login`.
+- Status: done in the shared dirty v0.1.1 Testing tree. No files were staged, committed, pushed, deployed, or published.
+- Next: Review the local Login deliverable and promote the existing Testing work only when the broader release scope is ready.
+
+### 2026-07-28 14:02Z — `/root` — Live-reference Login rebuild started
+- Context: The restrained interpretation was rejected visually; rebuild the Agentic SOC Login from the current live Mistral authentication page as the visual source of truth while preserving product identity and every authentication branch.
+- Did: Began a side-by-side live-browser study, current Login/Branding preview audit, and regression-contract review. Scope is the authentication surface only; no backend authentication behavior or wire contract will change.
+- Tests: Focused identity regressions, design gates, production build, and desktop/mobile browser comparison are pending.
+- Status: in progress in the shared dirty v0.1.1 Testing tree. No files are staged, committed, pushed, deployed, or published.
+- Next: Capture the exact live reference geometry and responsive behavior, implement the rebuilt Login and preview, then verify all authentication modes and visual breakpoints.
+
+### 2026-07-28 14:12Z — `/root/login_contract_guard2` — Live-reference Login contract audit started
+- Context: Protect every authentication, setup, MFA, SSO, demo, branding, theme, error, and focus branch while the Login is rebuilt against the current Mistral reference.
+- Did: Scoped a read-only audit of the current Login, shared authentication controls, Branding preview, focused regressions, and canonical UI guidance; product files will remain untouched.
+- Tests: Focused identity baseline is pending.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Separate behavioral invariants from presentation-only assertions, run the focused baseline, and return an exact preservation matrix to the orchestrator.
+
+### 2026-07-28 14:12Z — `/root/mistral_exact_spec` — Exact live Mistral Login study started
+- Context: Measure the current official Mistral authentication surface as the visual source of truth for a second Agentic SOC Login rebuild.
+- Did: Scoped a read-only browser study covering desktop/mobile geometry, typography, controls, states, and responsive behavior; no product implementation files are authorized for this subtask.
+- Tests: Not applicable at session start; visual evidence and measurements are pending.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Inspect the official redirected auth page at desktop and mobile breakpoints, capture implementation-ready measurements, and return them to the orchestrator.
+
+### 2026-07-28 14:12Z — `/root/login_layout_audit2` — Mistral-faithful Login layout audit started
+- Context: Audit the current Agentic SOC Login and Branding preview against a centered Mistral-style authentication surface without changing product behavior or white-label/theme contracts.
+- Did: Scoped a read-only review of the canonical handoff and UI guidance, `Login.tsx`, shared login parts, theme tokens, Branding preview, and visual-design enforcement gates.
+- Tests: Not applicable at session start; static contract inspection is pending.
+- Status: in progress in the shared dirty v0.1.1 Testing tree; no product files will be edited.
+- Next: Return a concrete file-level implementation proposal and the exact constraints the rebuild must preserve.
+
+### 2026-07-28 14:16Z — `/root/login_layout_audit2` — Mistral-faithful Login layout audit completed
+- Context: Translate the current Login and Branding preview into an implementation-ready, centered Mistral-style authentication surface while preserving Agentic SOC branding, themes, and authentication behavior.
+- Did: Audited the Login shell, shared controls, Branding preview, semantic theme tokens, visual-contract tests, and UI-standard identity guidance. Identified the top-anchored bordered slab, viewport guide rules, and horizontal brand lockup as the main visual departures; returned a file-level rebuild plan with safe-centering, preview parity, and responsive/authentication constraints.
+- Tests: Static source and contract inspection only; no product code was changed and no executable test was required for this read-only subtask.
+- Status: complete. The proposal preserves setup/sign-in/MFA/change-password/SSO/demo branches, first-paint probes, white-label fields, theme switching, autofill/paste/focus behavior, support links, and the no-eager-motion bundle constraint.
+- Next: The orchestrator should combine this structural proposal with the live Mistral measurements, update the identity UI standard and presentation-only assertions, then run focused identity tests, design gates, production build, and desktop/mobile browser QA.
+
+### 2026-07-28 14:18Z — `/root/login_contract_guard2` — Live-reference Login contract audit completed
+- Context: Preserve the full authentication and branding behavior while the Login is rebuilt from the current Mistral reference.
+- Did: Audited `Login.tsx`, shared authentication controls and API helpers, the app boot gate, theme provider, Branding editor and preview, and focused identity regressions. Returned an invariant matrix covering boot, sign-in, SSO, Demo Mode, first-admin setup, optional MFA enrollment, MFA verification and recovery, forced password change, branding, theme, errors, and focus/accessibility; also separated brittle presentation assertions from functional gates and identified missing focused coverage.
+- Tests: `cd webui && npx vitest run src/soc/__tests__/login.render.test.tsx src/soc/__tests__/login-layout-fixes.test.tsx src/soc/__tests__/login-jank-reserve.test.tsx src/soc/__tests__/login-branding-sync.test.tsx src/soc/__tests__/loginParts-fixes.test.tsx src/soc/__tests__/auth-boot-gates.test.tsx src/soc/__tests__/theme-refresh-branding.test.tsx src/soc/components/__tests__/BrandingEditor.login.test.tsx src/soc/components/__tests__/BrandingEditor.preview.test.tsx src/soc/__tests__/App.smoke.test.tsx` — 10 files passed, 51 tests passed, 0 failures.
+- Status: complete. No product or test files were changed; only this agent's required Journal entries were appended.
+- Next: Preserve every behavioral invariant, update only obsolete presentation assertions for the new reference, add coverage for the enumerated SSO/MFA/error/theme/keyboard gaps, then run the focused suite, design gates, production build, and desktop/mobile browser QA.
+
+### 2026-07-28 14:20Z — `/root/mistral_exact_spec` — Exact live Mistral Login study completed
+- Context: Measure the current official Mistral authentication surface as the visual source of truth for a second Agentic SOC Login rebuild.
+- Did: Inspected the canonical redirect through the current `v2.auth.mistral.ai` identity page and its official server-rendered DOM, CSS, and animation bundle. Returned the exact centered 480px/384px slab, padding, typography, controls, guide grid, ambient square motion, theme tokens, content order, and mobile collapse behavior; identified the animated external grid and no-card slab as the defining visual details.
+- Tests: Read-only research; no product tests were run. Browser control was unavailable in this worker, so no screenshot claim was made; official live HTML/CSS/JS were inspected directly on 2026-07-28.
+- Status: complete; only this agent's required Journal entries were added, with no product code edited, staged, committed, pushed, or deployed.
+- Next: Rebuild Login and the Branding preview from the measured reference while preserving all Agentic authentication branches, then compare side-by-side and browser-QA desktop Light/Dark plus narrow viewports.
+### 2026-07-28 14:24Z — `/root/login_final_review` — Live-reference Login final review started
+- Context: Perform a read-only final audit of the Mistral-reference Login rebuild, shared controls, Branding preview, theme tokens, and identity UI standard.
+- Did: Began source-level comparison against the measured live Mistral composition and the repository's auth, accessibility, responsive, and design-gate contracts; product code is out of scope for this worker.
+- Tests: Static inspection is in progress; no product test execution is planned unless needed to validate a concrete finding.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Return only evidence-backed actionable findings ranked by severity, then append the required closeout entry.
+
+### 2026-07-28 14:37Z — `/root/login_full_tests` — Live-reference Login full web gate started
+- Context: Independently validate the current Login rebuild against the complete WebUI Vitest and ESLint gates without changing product code.
+- Did: Read the canonical handoff and agent rules, preserved the shared dirty tree, and scoped exact pass/fail accounting for the full suites.
+- Tests: Full `npx vitest run` and `npm run lint` are pending.
+- Status: in progress.
+- Next: Run the full WebUI suites, record exact file/spec/error totals, and report any regression to the orchestrator.
+
+### 2026-07-28 14:39Z — `/root/login_full_tests` — Live-reference Login full web gate completed
+- Context: Independently validate the Mistral-reference Login rebuild across the complete WebUI rather than only the focused identity surface.
+- Did: Ran the full Vitest and ESLint gates read-only, then independently reran the five design-system, visual-route, first-paint, and token gates; checked the Login/Branding/UI-standard diff for whitespace errors.
+- Tests: `cd webui && npx vitest run --reporter=dot` — **263 files passed, 1,666 tests passed, 0 failures**; `npm run lint` — **0 errors, 0 warnings**; explicit design/visual gate — **5 files passed, 84 tests passed**; scoped `git diff --check` — clean.
+- Status: done. No Login or other product code was changed. The only output noise was non-failing jsdom/React diagnostics already outside the Login path (zero-size Recharts containers, a few missing-`act()` updates, and one Radix controlled-state warning); no Login regression surfaced.
+- Next: Orchestrator can combine this green static gate with the final live Light/Dark desktop/mobile browser comparison before handoff.
+
+### 2026-07-28 14:47Z — `/root/login_full_tests` — Final identity-first Login full web gate started
+- Context: Revalidate the complete WebUI after the final identity-first Login implementation landed in the shared tree.
+- Did: Preserved the shared dirty tree, confirmed the scoped Login/Branding/UI-standard diff has no whitespace errors, and started a fresh full-suite acceptance run.
+- Tests: Full `npx vitest run` and `npm run lint` are pending.
+- Status: in progress.
+- Next: Record exact file/spec/error totals and report any final regression to the orchestrator.
+
+### 2026-07-28 14:48Z — `/root/login_full_tests` — Final identity-first Login full web gate completed
+- Context: Revalidate the complete WebUI against the final identity-first Login implementation after the last presentation and regression-test update.
+- Did: Ran the full Vitest and ESLint suites read-only and rechecked the scoped Login/Branding/UI-standard diff for whitespace errors.
+- Tests: `cd webui && npx vitest run --reporter=dot` — **263 files passed, 1,667 tests passed, 0 failures**; `npm run lint` — **0 errors, 0 warnings**; scoped `git diff --check` — clean.
+- Status: done. No product code was changed. Non-failing jsdom diagnostics remained outside the Login path (zero-size Recharts containers, a few missing-`act()` notices, and one Radix controlled-state warning); no final identity regression surfaced.
+- Next: Orchestrator can finish browser comparison and handoff from this green acceptance snapshot.
+
+### 2026-07-28 14:25Z — `/root` — Live-reference Login rebuild implemented
+- Context: Replace the rejected Login composition with a measured adaptation of the current official Mistral authentication surface while retaining Agentic SOC identity and every existing authentication path.
+- Did: Rebuilt Login around a centred borderless 480px slab and 384px content measure, standalone 56px mark, 32/40 medium heading, 48px credential controls, compact 40px action, icon-led SSO row, concise Demo Mode hint, exact mobile full-height collapse, and four reduced-motion-safe ambient grid cells outside the credential surface. Mirrored the same geometry in the Branding preview and updated the canonical identity UI standard.
+- Tests: Focused identity suite 48/48 passed; TypeScript passed; scoped ESLint passed; all design gates passed; app-only production build passed; `git diff --check` passed. Browser QA passed at 1280×720 in Light/Dark and at 390×844 plus 320×568: exact 480/384 desktop geometry, 32/40 heading, 48px input, mobile ambient-grid removal, zero horizontal overflow, and reachable controls on short screens.
+- Status: implementation complete; independent read-only review and full frontend test/lint gates are running.
+- Next: Address any evidence-backed review finding, re-run the affected gate, finalize the browser deliverable, and close the Journal session.
+### 2026-07-28 14:28Z — `/root/login_final_review` — Live-reference Login final review completed
+- Context: Independently review the completed Mistral-reference Login rebuild without altering product code.
+- Did: Compared the final Login, shared credential controls, Branding preview, ambient-grid CSS, and identity UI contract against the measured live reference and the preserved authentication/accessibility branches. Found no auth, security, accessibility, responsive-flow, token, or design-gate blocker; returned one concrete preview-parity defect and two remaining visual-fidelity gaps to the orchestrator.
+- Tests: Read-only source review; no tests were run by this worker. The orchestrator separately reported the full 1,666-test WebUI suite, lint, and design gates green.
+- Status: done; no product or test implementation file was edited by this worker.
+- Next: Make the runtime/preview default mark identical, then decide whether strict reference fidelity warrants a staged identity-first form and exact 14px desktop field typography before final browser acceptance.
+
+### 2026-07-28 14:44Z — `/root/login_identity_step_tests` — Identity-first Login test contract started
+- Context: Convert the normal sign-in presentation contract to the Mistral-style identity-first flow without changing setup, MFA, password-change, SSO, branding, or authentication semantics.
+- Did: Began auditing the Login render and compatibility suites for assertions that currently assume username and password are painted together.
+- Tests: Focused Login tests are pending the presentation-only assertion update.
+- Status: in progress; this worker is limited to Login-related test files and will not edit product code.
+- Next: Encode Username + Continue, Password + Back / Sign in, error-focus, Demo credential, MFA, and must-change transitions, then run the focused identity suite.
+
+### 2026-07-28 14:47Z — `/root/login_identity_step_tests` — Identity-first Login test contract completed
+- Context: Lock the normal sign-in presentation to the live-reference identity-first sequence while retaining every existing authentication branch.
+- Did: Updated the Login render, legacy-layout, first-paint/SSO, branding-refresh, and App boot-gate regressions to require Username-only first paint; conditional Continue after a trimmed identity; Password + Back + Sign in on the second step; preserved username/focus on Back; Demo credential handoff directly to the password step; and unchanged MFA, forced-password-change, error-focus, setup, SSO, branding, and theme behavior.
+- Tests: Focused staged-login gate passed **31/31 tests across 5 files**; broader identity gate passed **52/52 tests across 10 files**; scoped ESLint passed with **0 errors / 0 warnings**; scoped `git diff --check` passed.
+- Status: complete. Only Login-related test files and this Journal were edited by this worker; product code was not changed.
+- Next: Orchestrator can use these assertions with the staged product implementation, then run the full WebUI gate and desktop/mobile browser acceptance.
+
+### 2026-07-28 14:50Z — `/root` — Mistral-reference Login rebuild completed
+- Context: Finish the rejected sign-in redesign against the current official Mistral authentication surface while preserving Agentic SOC branding, white-label settings, themes, and all authentication states.
+- Did: Matched the live identity-first composition with a centred borderless 480px slab and 384px measure, standalone 56px mark, 32/40 heading, one initial Username field, conditional Continue, a focused Password step with Back/Sign in, compact configured SSO actions, and a fill-only Demo credential handoff. Corrected the Branding preview to use the same mark and initial state, removed unconfigured provider claims, restored visible guide geometry, set credential text to 16px mobile/14px desktop, and updated the canonical identity standard.
+- Tests: Full WebUI Vitest passed **263/263 files and 1,667/1,667 tests**; full ESLint passed with **0 errors / 0 warnings**; TypeScript, all design gates, production app build, documentation consistency, and scoped `git diff --check` passed. Browser acceptance passed in Light and Dark at 1280×720, 390×844, and 320×568 with exact 480/384 desktop geometry, 32/40 heading, 48px input, no mobile ambience, no horizontal overflow, and working Continue/Back/Demo transitions.
+- Status: complete in the shared dirty v0.1.1 Testing tree. No Codex Security tooling was run, and no files were staged, committed, or pushed.
+- Next: Operator can review the finished sign-in surface; any later white-label copy or provider configuration continues to render through the existing Branding and SSO contracts.
+
+### 2026-07-28 15:09Z — `/root` — Exact Mistral theme and dynamic-background parity started
+- Context: Tighten the accepted Login structure to the current live Mistral sign-in visual system, with particular emphasis on exact canvas/slab theming, external guide grid, and animated background cells while preserving Agentic SOC identity and authentication contracts.
+- Did: Re-opened the canonical browser workflow, preserved the shared dirty v0.1.1 Testing tree, and scoped a live-reference comparison across desktop Light/Dark and mobile states before implementation.
+- Tests: Pending live CSS/geometry inspection, focused identity regressions, design gates, production build, and browser comparison.
+- Status: in progress.
+- Next: Measure the live page, translate its background/theming mechanics into isolated Login tokens and shared preview styles, then validate interaction and responsive behavior end to end.
+
+### 2026-07-28 15:11Z — `/root/login_exact_tests` — Exact Login background contract tests started
+- Context: Lock the refined Mistral-style Login and Branding preview background/theming mechanics without changing authentication behavior or product implementation.
+- Did: Read the canonical handoff and agent rules, preserved the shared dirty Testing tree, and scoped stable DOM/data-attribute assertions for the Login canvas, centred slab, external guide grid, ambient cells, and preview parity.
+- Tests: Focused Login/Branding test inspection and execution are pending.
+- Status: in progress; this worker is limited to Login/Branding test files and Journal entries.
+- Next: Update only the focused tests after confirming the implementation contract, then run the targeted Vitest and scoped lint gates.
+
+### 2026-07-28 15:10Z — `/root/login_clone_contract` — Exact Login clone contract audit started
+- Context: Audit the current Login, Branding preview, theme layer, and regression suite for exact Mistral canvas/slab/background parity without changing Agentic SOC identity or authentication behavior.
+- Did: Read the canonical handoff and agent rules, confirmed the shared dirty-tree boundary, and scoped a read-only invariant/delta matrix around isolated Login tokens, motion, themes, mobile, accessibility, and branding-preview parity.
+- Tests: Read-only audit in progress; no product or test files will be edited by this worker.
+- Status: in progress.
+- Next: Trace the current implementation and tests, identify the smallest safe file/test change set, and return the contract to the orchestrator.
+
+### 2026-07-28 15:19Z — `/root/login_clone_contract` — Exact Login clone contract audit completed
+- Context: Define the smallest safe implementation boundary for matching the current Mistral authentication canvas and motion while retaining Agentic SOC branding and every existing auth path.
+- Did: Audited Login, shared auth controls, Branding preview, theme persistence, token resolution, UI standard, and focused regression contracts; identified the ambient-layer stacking defect, loading-to-final palette flash risk, and fixed-gradient mismatch; delivered the exact isolated dual-theme palette, responsive geometry, randomized four-tile scheduler, reduced-motion behavior, preview-parity contract, no-touch auth invariants, and browser acceptance matrix to the orchestrator.
+- Tests: Read-only source and contract audit; no tests were run and no product or test implementation was changed by this worker.
+- Status: complete. Only the required Journal entries were edited; nothing was staged, committed, pushed, or deployed.
+- Next: Implement the login-scoped backdrop and tokens in the shared Login/Branding preview path, preserve the auth state machine unchanged, then run the focused identity suite, static gates, and Light/Dark desktop/mobile/reduced-motion browser QA.
+
+### 2026-07-28 15:10Z — `/root/mistral_background_forensics` — Live Mistral background forensics started
+- Context: Independently measure the current official Mistral sign-in canvas, slab, guide grid, animated background cells, responsive behavior, typography, and controls so the Login parity pass is evidence-led rather than approximate.
+- Did: Read the project handoff, canonical agent rules, and browser-control contract; preserved the shared dirty tree and limited this worker to read-only live-page inspection plus Journal evidence.
+- Tests: Live desktop Light/Dark and mobile measurements are pending.
+- Status: in progress.
+- Next: Inspect computed DOM/CSS and several animation frames, then return exact actionable deltas to the orchestrator without editing product code.
+
+### 2026-07-28 15:23Z — `/root/mistral_background_forensics` — Exact Mistral background forensics completed
+- Context: Supply the implementation worker with exact current-production Mistral authentication canvas, slab, guide, tile-motion, palette, typography, control, and responsive measurements.
+- Did: Inspected the canonical `v2.auth.mistral.ai/login` server response and its official CSS/JavaScript assets. Recovered the exact 480px borderless slab, four 240px state-driven external tiles, 0.5px viewport guides, Light/Dark semantic colours, stochastic timing/path rules, occasional gold-to-red directional trails, 32/40 heading, 48px identity input, 40px action/provider controls, and full-viewport mobile collapse. Compared those mechanics with the current Agentic SOC implementation and reported the concrete deltas to the orchestrator and test-contract workers.
+- Tests: Read-only primary-source inspection; no product test was needed. Browser control was unavailable in this worker, so no screenshot or computed-layout claim was made; all exact claims come directly from the official production HTML/CSS/JavaScript fetched on 2026-07-28.
+- Status: complete. No product or test code was edited, staged, committed, pushed, or deployed; only the mandatory Journal entries were added.
+- Next: Replace the current looping gradient-cell keyframes with the measured state-driven tile component, isolate the Mistral canvas/slab tokens to Login and Branding preview, then run focused identity tests plus Light/Dark desktop and narrow browser comparison.
+
+### 2026-07-28 15:26Z — `/root/login_exact_tests` — Exact Login background contract tests completed
+- Context: Lock the live-reference Login and Branding preview background/theming mechanics without changing product implementation or weakening any authentication path.
+- Did: Updated only the focused Login/Branding regression contracts to require the isolated `login-auth-canvas`/`login-auth-slab`, one inert desktop-only ambient layer, exactly four indexed tiles, four top/bottom/left/right guides, and runtime/preview parity; migrated the legacy-layout assertion from the removed global canvas token to the isolated Login canvas.
+- Tests: Focused background gate passed **23/23 tests across 2 files**; broader Login/Branding gate passed **54/54 tests across 10 files**; scoped ESLint passed with **0 errors / 0 warnings**; scoped `git diff --check` passed.
+- Status: complete. Only Login/Branding test files and this Journal were edited; no product code was changed, staged, committed, pushed, or deployed by this worker.
+- Next: Orchestrator can combine this green static contract with the product implementation’s type/build/design gates and Light/Dark desktop/mobile/reduced-motion browser comparison.
+
+### 2026-07-28 15:28Z — `/root/login_exact_tests` — Ambient scheduler lifecycle regression completed
+- Context: Add a robust component-level guard for the dynamic Login backdrop beyond its structural runtime/preview assertions.
+- Did: Added a focused `LoginAuthBackdrop` test that verifies the exact four-tile/four-guide structure, the combined desktop/no-reduced-motion media gate, zero ambient scheduling when that gate is false, matchMedia listener cleanup, and cleanup of all four outstanding tile timers on unmount.
+- Tests: Scheduler test passed **2/2**; expanded Login/Branding gate passed **56/56 tests across 11 files**; scoped ESLint passed with **0 errors / 0 warnings**; scoped `git diff --check` passed.
+- Status: complete; test-only scope remained intact.
+- Next: Orchestrator can use this as the scheduler/reduced-motion lifecycle acceptance evidence alongside live browser checks.
+
+### 2026-07-28 15:29Z — `/root/login_exact_tests` — Login backdrop test contract typechecked
+- Context: Confirm the new scheduler regression is valid under the repository’s TypeScript compiler, not only Vitest transpilation.
+- Did: Ran the full WebUI TypeScript check after the test-only Login backdrop additions.
+- Tests: `npm run typecheck` passed with **0 TypeScript errors**.
+- Status: complete.
+- Next: No further test-contract work is pending from this worker.
+
+### 2026-07-28 15:30Z — `/root/login_exact_tests` — Exact Login full WebUI acceptance gate started
+- Context: Independently validate the complete shared WebUI after the Mistral-reference Login background and test-contract changes.
+- Did: Preserved the shared dirty Testing tree and started the full Vitest plus full ESLint gates without changing product code.
+- Tests: `npx vitest run --reporter=dot` and `npm run lint` are in progress.
+- Status: in progress.
+- Next: Record exact file/spec/error totals, report any regression, and append the stable acceptance result.
+
+### 2026-07-28 15:31Z — `/root` — Exact Mistral identity canvas implemented and browser-verified
+- Context: Replace the approximate Login decoration with the measured current Mistral authentication theming and dynamic background while keeping Agentic SOC identity and authentication behavior intact.
+- Did: Added one shared Login/Branding-preview backdrop with the exact isolated Light/Dark canvas and slab palette, four 240px stochastic tiles, four edge guides, outer masks, occasional directional colour trails, 1.8s state transitions, desktop-only motion, and reduced-motion shutdown. Kept the credential slab opaque and above every ambient layer, applied the same palette during the initial loading gate, and documented the identity-surface contract.
+- Tests: Focused Login/Branding suite passed 56/56 across 11 files; TypeScript, scoped ESLint, design-token/contrast/size/hex gates, documentation consistency, production app build, and `git diff --check` passed. Live browser comparison against `v2.auth.mistral.ai` passed at 1280x720 in Light and Dark and 390x844 in Light: exact #fbfbf8/#fff and #1a1a1e/#101013 canvas/slab pairs, 480px desktop slab, 384px control measure, zero horizontal overflow, clean full-width mobile collapse, and observed tile movement/fade/trail transitions across seven samples.
+- Status: implementation and primary browser acceptance complete; complete WebUI Vitest/ESLint and bundled production build confirmations are running.
+- Next: Record the final full-suite result, preserve the local deliverable tab, and close the work session without staging or pushing the shared dirty tree.
+
+### 2026-07-28 15:32Z — `/root/login_exact_tests` — Exact Login full WebUI acceptance gate completed
+- Context: Independently validate the complete shared WebUI after the Mistral-reference Login background and test-contract changes.
+- Did: Ran the complete Vitest and ESLint suites read-only against the current shared dirty Testing tree; no product code was changed during this acceptance run.
+- Tests: `npx vitest run --reporter=dot` passed **264/264 files and 1,669/1,669 tests with 0 failures**; `npm run lint` passed with **0 errors and 0 warnings**.
+- Status: complete. Nothing was staged, committed, pushed, or deployed by this worker.
+- Next: Orchestrator can combine this green full static gate with the completed production build and live Light/Dark desktop/mobile browser acceptance.
+
+### 2026-07-28 15:33Z — `/root` — Exact Mistral Login parity pass completed
+- Context: Close the exact current-Mistral theming and dynamic-background pass for the Agentic SOC sign-in surface.
+- Did: Completed the shared runtime/Branding-preview implementation, compared the result side by side with the live reference, exercised the identity-to-password and Back transitions, confirmed all four ambient paths visibly move/fade and the top trail animates, checked desktop Light/Dark plus narrow Light geometry, and left the existing Agentic SOC mark, copy, demo behavior, MFA, SSO, setup, and theme controls intact.
+- Tests: Full WebUI Vitest passed 264/264 files and 1,669/1,669 tests; full ESLint passed with 0 errors/warnings; complete docs-plus-app production build and docs consistency passed; browser console had 0 errors; final `git diff --check` passed.
+- Status: done in the shared dirty v0.1.1 Testing tree. No Codex Security tooling ran, and nothing was staged, committed, or pushed.
+- Next: Review the running Login at `/login`; later branding or provider configuration continues through the existing settings and auth contracts without changing the identity canvas.
+### 2026-07-28 15:39Z — `/root` — Login motion visibility and exact slab geometry refinement started
+- Context: Make the accepted Mistral-reference Login background animation visibly active more often and copy the live reference slab dimensions exactly without changing Agentic SOC identity or authentication behavior.
+- Did: Re-opened the live-reference/browser QA workflow, preserved the shared dirty v0.1.1 Testing tree, and scoped the change to the shared Login backdrop, slab geometry, Branding preview parity, focused regressions, and the identity UI standard.
+- Tests: Pending live geometry/motion measurement, focused Login tests, full static gates, production build, and desktop/mobile browser comparison.
+- Status: in progress.
+- Next: Re-measure the current reference and local surfaces, tune visible colour cadence conservatively, then verify exact dimensions and interaction states.
+
+### 2026-07-28 15:57Z — `/root/motion_geometry_tests` — Login cadence and geometry regression work started
+- Context: Lock the exact live-Mistral desktop slab dimensions and the requested higher-visibility ambient/color cadence without changing product implementation.
+- Did: Read the canonical handoff and agent rules, preserved the shared dirty-tree boundary, and scoped this worker to focused Login/Branding test contracts plus read-only verification.
+- Tests: Pending source/test inspection, focused Vitest, TypeScript, and scoped ESLint.
+- Status: in progress.
+- Next: Add stable contract assertions after the shared implementation exposes its cadence/geometry hooks, then run the focused acceptance gate.
+
+### 2026-07-28 16:03Z — `/root/motion_geometry_tests` — Login cadence and geometry regression work completed
+- Context: Lock the refined Mistral-reference Login geometry and more observable ambient/color motion without touching product implementation.
+- Did: Extended the focused runtime and Branding-preview contracts for the 480px desktop slab, 492px minimum normal-state height, 384px control measure, 48/48/96 desktop padding, full-viewport mobile behavior, non-fixed growth for taller auth states, the `prominent` cadence hook, immediate tile visibility, deterministic timing, 80% trail probability, both color-trail paths, and timer/media-query cleanup.
+- Tests: Focused geometry/cadence suite passed **26/26 tests across 3 files**; expanded Login/Branding suite passed **56/56 tests across 10 files**; `npm run typecheck`, scoped ESLint, and scoped `git diff --check` passed with 0 errors.
+- Status: complete. Only focused Login/Branding test contracts and required Journal entries were edited; no product implementation was changed, staged, committed, pushed, or deployed by this worker.
+- Next: Orchestrator can combine these contracts with live browser measurement confirming the normal identity slab computes to exactly 480×492 and the enhanced animation remains visible in both themes.
+
+### 2026-07-28 15:57Z — `/root/motion_visibility_forensics` — Login motion and slab parity analysis started
+- Context: Independently measure the current Agentic SOC Login backdrop and the live Mistral auth surface so colour animation is visibly active more often while the central slab matches the reference geometry.
+- Did: Read the canonical handoff, agent rules, browser workflow, and current UI-memory boundary; preserved the shared dirty tree and limited this worker to read-only source/browser analysis.
+- Tests: Pending exact source inspection and live reference/local geometry sampling.
+- Status: in progress.
+- Next: Return measured dimensions, conservative cadence constants, risks, and acceptance checks to the orchestrator without editing product or test code.
+### 2026-07-28 16:01Z — `/root/motion_code_review` — Login motion and exact geometry review started
+- Context: Independently review the shared Mistral-reference Login refinement for more-visible ambient colour and exact central-slab dimensions.
+- Did: Read the canonical handoff and agent rules, preserved the shared dirty v0.1.1 Testing tree, and limited this worker to read-only product/test/document inspection plus the mandatory Journal evidence.
+- Tests: Focused source review and, if useful, a targeted type/test check are pending.
+- Status: in progress; no product or test files will be changed by this worker.
+- Next: Audit timer lifecycle, reduced-motion behavior, runtime/Branding-preview parity, exact 480x492 desktop geometry, and likely visual regressions, then report only evidence-backed issues.
+
+### 2026-07-28 16:09Z — `/root/motion_code_review` — Login motion and exact geometry review completed
+- Context: Independently validate the higher-visibility ambient cadence and exact current-Mistral Login slab geometry after the shared implementation settled.
+- Did: Reviewed the runtime backdrop, Login slab, Branding preview, scoped identity CSS, regression contract, and UI standard; identified and confirmed fixes for fixed-height clipping, vertical-flow/viewport scrolling, stale overflow assertions, documentation drift, and the Strict-Mode-unsafe first-trail ref write. Final code keeps the normal desktop state at a 480x492 minimum with a 384px measure and exact padding, lets taller auth states scroll safely, guarantees both first warm paths, retains 80% later cadence, and schedules nothing for narrow or reduced-motion users.
+- Tests: Focused Login backdrop/runtime/Branding preview Vitest passed **26/26 across 3 files** after the final replay-safe trail fix; scoped `git diff --check` passed.
+- Status: complete and clean. No unresolved evidence-backed issue remains in this review scope; no product/test implementation was edited by this worker, nothing was staged/committed/pushed, and no Codex Security tooling ran.
+- Next: Orchestrator can combine this clean review with its live desktop/mobile/reduced-motion browser comparison and full WebUI acceptance gates.
+
+### 2026-07-28 16:05Z — `/root/motion_visibility_forensics` — Login motion and slab parity analysis completed
+- Context: Measure the current Agentic SOC Login backdrop against the live Mistral auth implementation and define a visibly active but restrained colour cadence.
+- Did: Inspected the current Mistral auth bundles and shared Login implementation; confirmed the exact 480px desktop slab, 384px content measure, 48/48/96px desktop insets, full-viewport mobile geometry, 1800ms tile transition, and state-specific 492px identity height; quantified the refined first-tile and first-colour timing and returned a deterministic first-trail recommendation to the orchestrator.
+- Tests: Read-only source/bundle inspection completed; the sibling regression worker independently reported 56/56 focused Login/Branding tests, typecheck, scoped ESLint, and diff-check passing. No browser was available in this worker, so final visual acceptance remains with the orchestrator's live browser run.
+- Status: complete; no product or test code changed.
+- Next: Keep the exact Mistral palette and two trail-capable paths, optionally force the first warm trail, and validate desktop/mobile/tall-auth geometry plus reduced motion in the live browser.
+
+### 2026-07-28 16:10Z — `/root/motion_build_qa` — Login refinement production gate started
+- Context: Independently verify the current shared Login motion-visibility and exact-slab refinement without changing product code or tests.
+- Did: Read the canonical handoff and agent rules, preserved the shared dirty-tree boundary, and scoped this worker to the full WebUI production build, version-matched documentation artifact check, and repository diff hygiene.
+- Tests: `npm run build`, `npm run docs:check`, and `git diff --check` pending.
+- Status: in progress; no product/test edits, staging, commits, pushes, deployments, or Codex Security tooling are in scope.
+- Next: Run the three requested gates and report their exact results to the orchestrator.
+
+### 2026-07-28 16:12Z — `/root/motion_build_qa` — Login refinement production gate completed
+- Context: Independently verify the current shared Login motion-visibility and exact-slab refinement without changing product code or tests.
+- Did: Rebuilt the version-matched Help Center and production SPA from the shared dirty v0.1.1 Testing tree, validated the generated documentation contract, and checked repository diff hygiene.
+- Tests: `npm run build` passed (MkDocs bundle; TypeScript; Vite **3,175 modules transformed**, production entry `319.55 kB` / `95.13 kB` gzip); `npm run docs:check` passed (`app 0.1.1; docs 0.1`); root `git diff --check` passed with no output.
+- Status: complete; no product/test files were edited, and nothing was staged, committed, pushed, or deployed. No Codex Security tooling ran.
+- Next: Orchestrator can combine this clean artifact gate with the already-green Login regression suites and live desktop/mobile browser acceptance.
+
+### 2026-07-28 16:10Z — `/root` — Exact Login geometry and visible-colour browser milestone
+- Context: Verify that the refined Mistral-reference identity surface is pixel-exact in its normal state and that the requested background colour is visible during an ordinary sign-in visit.
+- Did: Matched the live identity slab at 480x492 with a 384px content measure, exact 48/48/96 desktop insets, no border/radius/elevation, and safe slab-local scrolling for taller auth modes; made all four ambient tiles visible from first paint, guaranteed the first warm trail on both eligible paths, and retained an 80% trail cadence thereafter. Kept motion hidden on narrow viewports and disabled by the existing reduced-motion query.
+- Tests: Focused Login/Branding Vitest passed 36/36; TypeScript, scoped ESLint, and design gates passed. Browser acceptance passed Light and Dark at 1280x720 (exact 480x492 slab, 0px horizontal overflow, both warm trail transforms visible, 0 console errors) and Light at 390x844 (390x844 slab, 326px content, ambient grid hidden, 0px horizontal overflow).
+- Status: implementation and live visual acceptance complete; full WebUI suites and production build are running as final independent gates.
+- Next: Record the full-suite/build results, recheck the final diff, and close the task without staging, committing, or pushing.
+
+### 2026-07-28 16:12Z — `/root/motion_full_qa` — Refined Login full WebUI acceptance started
+- Context: Independently verify the complete WebUI after the visible-motion cadence and exact 480x492 Login slab refinement settled in the shared Testing tree.
+- Did: Preserved the shared dirty tree and limited this worker to read-only full Vitest and ESLint acceptance; no product or test implementation will be changed.
+- Tests: `npx vitest run --reporter=dot` and `npm run lint` pending.
+- Status: in progress.
+- Next: Record exact suite/spec/error totals and report any regression to the orchestrator.
+
+### 2026-07-28 16:12Z — `/root/motion_full_qa` — Refined Login full WebUI acceptance completed
+- Context: Independently verify the complete WebUI after the visible-motion cadence and exact 480x492 Login slab refinement settled in the shared Testing tree.
+- Did: Ran the complete Vitest and ESLint suites read-only against the current shared dirty tree; no product or test implementation was changed by this worker.
+- Tests: `npx vitest run --reporter=dot` passed **264/264 files and 1,670/1,670 tests with 0 failures**; `npm run lint` passed with **0 errors and 0 warnings**; `git diff --check` passed.
+- Status: complete. Nothing was staged, committed, pushed, deployed, or scanned with Codex Security.
+- Next: Orchestrator can combine this clean full-suite result with its production build and live desktop/mobile Login browser acceptance.
+
+### 2026-07-28 16:13Z — `/root` — Login motion visibility and exact slab refinement completed
+- Context: Finish the requested Mistral-reference Login refinement: clearly visible background movement/colour and an exact central identity-box match.
+- Did: Set the normal desktop slab to the measured 480x492 geometry with a 384px content measure and 48/48/96 insets; aligned runtime and Branding preview; kept taller setup/MFA states safely scrollable; made ambient tiles visible immediately; guaranteed both first warm trails and retained an 80% subsequent colour cadence; preserved narrow-screen hiding and reduced-motion behavior. Updated the identity standard and focused regression contract.
+- Tests: Focused Login/Branding Vitest 36/36, TypeScript, scoped ESLint, and design gates passed. Independent full WebUI Vitest passed 264/264 files and 1,670/1,670 tests; full ESLint passed with 0 errors/warnings. Production docs-plus-app build passed with 3,175 modules; docs check passed for app 0.1.1/docs 0.1; final `git diff --check` passed. Browser QA passed Light/Dark desktop and 390x844 mobile with exact dimensions, no horizontal overflow, visible warm trails, and 0 console errors.
+- Status: done in the existing shared dirty v0.1.1 Testing tree. The local Login remains available for review; nothing was staged, committed, pushed, or deployed, and no Codex Security tooling ran.
+- Next: Operator can review `/login`; future auth-mode or branding changes should preserve the shared 480x492 normal-state geometry and viewport-local scrolling contract.
+
+### 2026-07-28 16:32Z — `/root` — Continuous all-side Login colour refinement started
+- Context: Keep warm colour visibly present throughout the desktop Login animation and distribute it around all four sides rather than limiting colour to the top and bottom paths.
+- Did: Re-opened the browser-led motion workflow, preserved the exact 480x492 identity geometry and existing shared dirty v0.1.1 Testing tree, and scoped the change to the shared backdrop state machine, motion regression contract, Branding preview parity, and identity UI standard.
+- Tests: Pending focused motion tests, TypeScript/lint/design gates, full WebUI acceptance, production build, and live Light/Dark desktop plus mobile/reduced-motion checks.
+- Status: in progress.
+- Next: Implement a continuously visible rotating warm accent with all-side trails, then prove there is no colourless animation frame or layout regression.
+
+### 2026-07-28 16:33Z — `/root/continuous_color_design` — Continuous all-side Login colour design review started
+- Context: Independently determine the smallest robust backdrop design that keeps warm colour visible throughout normal desktop motion and distributes it around all four sides without changing the exact 480x492 identity slab.
+- Did: Read the canonical handoff and agent rules, preserved the shared dirty Testing tree, and limited this worker to read-only implementation/test inspection plus the required Journal evidence.
+- Tests: Source, state-machine, StrictMode, reduced-motion, geometry, and focused-regression review pending.
+- Status: in progress; no product or test implementation will be edited by this worker.
+- Next: Return an evidence-backed continuity design, race/accessibility risks, and explicit acceptance criteria to the orchestrator.
+
+### 2026-07-28 16:33Z — `/root/continuous_color_review` — Continuous Login colour review started
+- Context: Independently audit the shared Login backdrop refinement for continuous warm-colour presence, four-sided distribution, lifecycle safety, reduced-motion behavior, and preserved 480x492 runtime/Branding geometry.
+- Did: Read the canonical handoff, agent rules, and relevant UI-memory boundary; preserved the shared dirty tree and limited this worker to read-only product/test inspection plus required Journal evidence.
+- Tests: Source review and focused regression checks pending.
+- Status: in progress; no product or test code will be edited by this worker.
+- Next: Inspect the evolving state machine and contracts, run the focused Login/Branding suite if stable, and return only evidence-backed issues to the orchestrator.
+
+### 2026-07-28 16:41Z — `/root/continuous_color_review` — Continuous Login colour review completed
+- Context: Independently validate that the refined Login backdrop keeps warm colour visible throughout normal desktop motion and distributes it around every side without regressing lifecycle, accessibility, preview, or geometry contracts.
+- Did: Verified the structural four-anchor clockwise cycle, 1,400ms focus handoff, 1,100ms same-easing crossfade, 16% inactive-anchor floor, all-side first trails plus 80% later trail cadence, first-paint visibility, short-landscape left/right fallback, interval/recursive-timeout cleanup, Strict Mode safety, narrow-screen hiding, reduced-motion suppression, shared static Branding preview, and unchanged 480x492 slab/384px measure.
+- Tests: Focused Login backdrop/runtime/Branding preview Vitest passed **27/27 across 3 files**; full TypeScript check, scoped ESLint, all design gates, and scoped `git diff --check` passed with 0 errors.
+- Status: complete and clean; no evidence-backed issue remains in this review scope. No product or test code was edited by this worker, nothing was staged/committed/pushed, and no Codex Security tooling ran.
+- Next: Orchestrator can combine this clean independent review with its live Light/Dark, short-viewport, mobile, and reduced-motion browser acceptance plus full WebUI/build gates.
+
+### 2026-07-28 16:33Z — `/root/continuous_color_tests` — Continuous all-side Login colour regression contract started
+- Context: Add test-only coverage proving that desktop Login colour remains continuously present, can travel around all four sides, cleans up every timer, honors reduced motion, and preserves the exact runtime/Branding geometry.
+- Did: Read the canonical handoff and agent rules, inspected the current shared backdrop and Login/Branding regression surface, preserved the shared dirty v0.1.1 Testing tree, and limited this worker to tests plus required Journal evidence.
+- Tests: Focused Vitest, TypeScript, scoped ESLint, and diff hygiene pending after the shared implementation settles.
+- Status: in progress; no product implementation, staging, commit, push, deployment, or Codex Security work is in scope.
+- Next: Coordinate the regression contract with the evolving backdrop state machine, run the focused gates, and report exact results to the orchestrator.
+
+### 2026-07-28 16:42Z — `/root/continuous_color_design` — Continuous all-side Login colour design review completed
+- Context: Audit the integrated four-anchor Login treatment against the requested guarantee that warm colour remains on-screen continuously and appears around every side.
+- Did: Confirmed that the dedicated clockwise anchor layer is a stronger continuity guarantee than relying on stochastic tile trails alone: one anchor is fully active, the other three remain at a 16% floor, left/right anchors retain visible viewport intersections even when short viewports clip top/bottom, and the opaque 480x492 identity slab remains untouched. Verified pure state updates, Strict Mode-safe interval/timeout cleanup, pointer/focus inert decoration, narrow-screen hiding, reduced-motion suppression, and timer-free static Branding preview behavior. No concrete implementation blocker remains.
+- Tests: Focused `LoginAuthBackdrop` Vitest passed **5/5**. Source-level acceptance also confirmed the unchanged 480x492 slab and 384px content measure. No product or test code was edited by this worker; no Codex Security tooling ran.
+- Status: complete; findings returned to the orchestrator. Nothing was staged, committed, pushed, deployed, or published.
+- Next: Complete live browser acceptance by sampling every edge across two full cycles in both themes, then check a short desktop viewport, mobile hiding, and emulated reduced motion.
+
+### 2026-07-28 16:42Z — `/root/continuous_color_tests` — Continuous all-side Login colour regression contract completed
+- Context: Lock the requested continuously visible, all-side warm Login animation without changing authentication behavior or exact identity geometry.
+- Did: Added test-only coverage for the four-side persistent accent cycle, nonzero idle warmth at every phase, all four trail-eligible tile paths, StrictMode timer cleanup, reduced/narrow and static-preview no-scheduling behavior, Branding-preview parity, and the preserved runtime/preview 480x492 slab plus 384px content measure.
+- Tests: Focused Login/Branding Vitest passed **38/38 across 5 files**; `npm run typecheck` passed; scoped ESLint passed with 0 errors/warnings; scoped `git diff --check` passed.
+- Status: complete; no product implementation changed by this worker, and nothing was staged, committed, pushed, deployed, or scanned with Codex Security.
+- Next: Orchestrator can combine this regression contract with browser proof that all four side accents are visibly distributed in Light/Dark desktop and absent under reduced motion/mobile.
+
+### 2026-07-28 16:43Z — `/root/continuous_full_qa` — Continuous all-side Login full acceptance started
+- Context: Independently run the complete WebUI regression and lint gates after the continuous four-side Login colour refinement settled in the shared Testing tree.
+- Did: Read the canonical handoff and agent rules, preserved the shared dirty tree, and limited this worker to read-only Vitest, ESLint, and diff-hygiene verification plus required Journal evidence.
+- Tests: `npx vitest run --reporter=dot`, `npm run lint`, and root `git diff --check` pending.
+- Status: in progress; no product or test implementation will be edited by this worker.
+- Next: Report exact file/spec/error totals and any regression to the orchestrator.
+
+### 2026-07-28 16:45Z — `/root/continuous_full_qa` — Continuous all-side Login full acceptance completed
+- Context: Independently verify the complete WebUI after the continuous four-side Login colour refinement settled in the shared Testing tree.
+- Did: Ran the complete Vitest and ESLint gates read-only against the current shared dirty tree, then checked repository diff hygiene; no product or test implementation was changed by this worker.
+- Tests: `npx vitest run --reporter=dot` passed **264/264 files and 1,672/1,672 tests with 0 failures**; `npm run lint` passed with **0 errors and 0 warnings**; root `git diff --check` passed with no output.
+- Status: complete. Nothing was staged, committed, pushed, deployed, or scanned with Codex Security.
+- Next: Orchestrator can combine this clean full-suite result with its live all-edge animation acceptance and production build gate.
+
+### 2026-07-28 16:44Z — `/root/continuous_build_qa` — Continuous all-side Login production gate started
+- Context: Independently verify the production WebUI and version-matched Help Center after the continuous four-side Login colour refinement settled in the shared Testing tree.
+- Did: Read the canonical handoff and agent rules, preserved the shared dirty tree, and limited this worker to the supported docs-plus-app build, strict docs validation, and generated-diff hygiene audit.
+- Tests: `npm run build`, `npm run docs:check`, root `git diff --check`, and tracked generated-change comparison pending.
+- Status: in progress; no product or test implementation will be edited by this worker.
+- Next: Report exact build/docs results and whether the production build introduced any tracked generated changes.
+
+### 2026-07-28 16:46Z — `/root/continuous_build_qa` — Continuous all-side Login production gate completed
+- Context: Independently verify the production WebUI and version-matched Help Center after the continuous four-side Login colour refinement settled in the shared Testing tree.
+- Did: Ran the supported full docs-plus-app production build twice, validated the installed Help Center, and compared SHA-256 digests for all 1,154 tracked files across the repeat build to distinguish generated output from the pre-existing shared dirty tree.
+- Tests: Both `npm run build` runs passed with TypeScript clean, Vite transforming 3,175 modules and producing the same artifact names/sizes; `npm run docs:check` passed for app 0.1.1/docs 0.1; all 1,154 tracked-file hashes were unchanged across the repeat build; `git diff --check` passed. `webui/dist/` and `webui/public/docs/` remain ignored generated outputs.
+- Status: complete and clean. No product/test implementation changed by this worker; nothing was staged, committed, pushed, deployed, or scanned with Codex Security.
+- Next: Orchestrator can combine this clean production gate with the independent full test/lint and live browser acceptance results.
+
+### 2026-07-28 16:44Z — `/root` — Continuous all-side Login colour browser milestone
+- Context: Prove that the refined Login background never enters a colourless normal-motion frame and that warmth appears around every side without changing the accepted identity geometry.
+- Did: Added one full-opacity warm anchor with three 16%-opacity companion anchors, rotating clockwise left/top/right/bottom every 1,400ms with a 1,100ms crossfade; enabled the existing directional trail treatment on all four moving tile paths; retained first-paint colour, narrow-screen hiding, reduced-motion suppression, pointer/focus inertness, and the shared static Branding preview.
+- Tests: Focused Login/Branding Vitest passed 38/38; TypeScript, scoped ESLint, and design gates passed. Browser sampling at 250ms across multiple cycles saw all four active sides in Light and Dark, a minimum total anchor opacity of 1.48 with no colourless sample, all four trail sides, exact 480x492 slab/384px content, and 0px horizontal overflow. A 640x360 check retained at least 0.48 visible warm opacity despite bottom clipping; 390x844 mobile hid the ambient parent and preserved 0px overflow; browser console errors remained 0.
+- Status: implementation and browser acceptance complete; independent full WebUI and production-build gates are running.
+- Next: Record the complete suite/build results, finalize the local preview, and close without staging, committing, or pushing.
+
+### 2026-07-28 16:47Z — `/root` — Continuous all-side Login colour refinement completed
+- Context: Complete the requested higher-frequency Login background in which warm colour remains visible throughout normal animation and appears around the left and right as well as above and below the identity slab.
+- Did: Shipped the continuous four-anchor clockwise crossfade with a 16% idle floor, extended warm first-cycle and 80%-cadence trails to all four moving paths, preserved reduced-motion/mobile suppression and static Branding parity, and kept the accepted 480x492 slab plus 384px content geometry unchanged. Updated the identity UI standard and regression contracts.
+- Tests: Focused Login/Branding Vitest passed 38/38; TypeScript, scoped ESLint, and design gates passed. Full WebUI Vitest passed 264/264 files and 1,672/1,672 tests; full ESLint passed with 0 errors/warnings. Production docs-plus-app build passed twice with 3,175 modules and deterministic artifacts; docs check passed for app 0.1.1/docs 0.1; all 1,154 tracked hashes stayed unchanged across repeat build; final `git diff --check` passed. Browser acceptance covered Light/Dark multi-cycle sampling, 640x360 short landscape, 390x844 mobile, exact geometry, 0px overflow, and 0 console errors.
+- Status: done in the existing shared dirty v0.1.1 Testing tree. The local preview remains available; nothing was staged, committed, pushed, or deployed, and no Codex Security tooling ran.
+- Next: Operator can review the continuous all-side colour at the local Login; future changes should keep the structural nonzero colour floor, reduced-motion boundary, and exact identity geometry.
+
+### 2026-07-28 16:49Z — `/root` — Login horizontal motion glitch repair started
+- Context: The continuous all-side refinement exposed an unacceptable horizontal treatment: coloured blocks can appear stationary, and trail scaling while the carrier tile translates reads as an expanding block rather than the clean top/bottom moving-tile behavior.
+- Did: Re-opened the live browser-led motion workflow, preserved the accepted Login slab/auth contracts and the shared dirty v0.1.1 Testing tree, and scoped the repair to one coherent tile motion model for all four sides with no independent flashing accent blocks.
+- Tests: Pending frame-by-frame browser inspection, focused Login/Branding motion tests, TypeScript/lint/design gates, full WebUI acceptance, production build, and Light/Dark/responsive/reduced-motion browser checks.
+- Status: in progress.
+- Next: Reproduce the glitch live, replace the detached anchor/trail behavior with horizontal movement equivalent to the established vertical paths, and verify fixed-size tiles throughout every transition.
+
+### 2026-07-28 16:51Z — `/root/login_motion_tests` — Login unified carrier-motion regression started
+- Context: Add test-only protection for the reported Login glitches where detached colour blocks appear without moving and horizontal colour shapes expand while their carrier translates.
+- Did: Read the canonical handoff and current motion implementation/tests, preserved the shared dirty v0.1.1 Testing tree, and scoped coverage to one fixed-size 240px carrier model on all four sides with no independent accent/trail blocks, unchanged identity geometry, and intact reduced-motion/mobile/static-preview/timer-cleanup boundaries.
+- Tests: Focused Login/Branding Vitest, TypeScript, scoped ESLint, and diff hygiene pending.
+- Status: in progress; this worker will not edit product implementation.
+- Next: Land the regression assertions against detached or scaling colour treatments, coordinate hook expectations with the implementation worker, and report exact gate results.
+
+### 2026-07-28 16:56Z — `/root/login_motion_tests` — Login carrier-only regression contract landed
+- Context: Convert the reported visual glitches into a deterministic DOM/timer/geometry contract before accepting the product repair.
+- Did: Updated test-only Login and Branding-preview coverage to require exactly four 240x240 warm carrier tiles, no detached anchor/trail nodes or scale transforms, continuous carrier visibility, no stationary recolour, horizontal-only top/bottom movement, vertical-only left/right movement, timer cleanup, timer-free static/reduced/mobile behavior, and the existing 480x492 slab plus 384px content measure.
+- Tests: The pre-repair focused suite failed at the five intended stale anchor/trail assertions (6 other tests passed); TypeScript and scoped ESLint passed cleanly. This is the expected red phase while product code still contains detached `ACCENT_ANCHORS` and scale trails.
+- Status: in progress; awaiting the carrier-only product implementation before final green verification.
+- Next: Re-run the focused Login/Branding suite after the backdrop/CSS repair, reconcile only genuinely implementation-neutral hook differences, then run typecheck, scoped lint, and diff hygiene.
+
+### 2026-07-28 17:02Z — `/root/login_motion_tests` — Login carrier-motion regression completed
+- Context: Verify the repaired Login backdrop eliminates expanding/scaling horizontal colour and stationary detached colour while retaining identity and accessibility boundaries.
+- Did: Finalized test-only coverage for the four fixed 240x240 carrier nodes; carrier-owned warm colour; neutral-at-rest and warm-while-moving coupling; neutral-to-warm only with a simultaneous position change; continuous overlapping stagger until all four sides participate; top/bottom left-only motion; left/right top-only motion; no anchor/trail/scale descendants; constant opacity; complete timer cleanup; no scheduling under reduced motion/mobile or static Branding preview; and unchanged 480x492/384 identity geometry.
+- Tests: Focused Login/Branding Vitest passed **47/47 across 8 files** (the direct backdrop plus preview pair passed 11/11); `npm run typecheck` passed; scoped ESLint passed with 0 errors/warnings; scoped `git diff --check` passed.
+- Status: complete in the shared dirty v0.1.1 Testing tree. This worker changed tests and Journal only; nothing was staged, committed, pushed, deployed, or scanned with Codex Security.
+- Next: Orchestrator can combine this green regression contract with frame-sampled Light/Dark/responsive/reduced-motion browser acceptance and its full WebUI/build gates.
+
+### 2026-07-28 16:51Z — `/root/login_motion_css_review` — Login carrier-motion CSS review started
+- Context: Independently inspect the current Login backdrop geometry and transitions, focusing on a clean Mistral-like left/right treatment equivalent to the accepted top/bottom moving tiles.
+- Did: Preserved the shared dirty Testing tree and limited this worker to read-only source/CSS/test inspection plus the required Journal evidence; auth, branding, accessibility, and accepted 480x492 geometry remain out of mutation scope.
+- Tests: Source geometry, transition, lifecycle, reduced-motion, and browser-acceptance review pending.
+- Status: in progress; no product or test implementation will be edited by this worker.
+- Next: Trace the current carrier/trail/anchor composition and return an implementation recommendation with a frame-by-frame browser checklist.
+
+### 2026-07-28 16:50Z — `/root/login_motion_audit` — Login horizontal motion model audit started
+- Context: Independently identify why the current left/right Login colour treatment reads as expanding or stationary instead of matching the accepted top/bottom moving tiles.
+- Did: Read the canonical handoff and agent rules, preserved the shared dirty v0.1.1 Testing tree, and scoped this worker to a read-only source/test/documentation audit plus concrete acceptance criteria.
+- Tests: Source inspection and motion-contract analysis pending; no product or test implementation will be edited by this worker.
+- Status: in progress.
+- Next: Trace the backdrop state, DOM layers, inline transforms, and CSS transitions; return the smallest coherent fixed-size all-side motion model and its regression risks.
+
+### 2026-07-28 16:56Z — `/root/login_motion_audit` — Login horizontal motion model audit completed
+- Context: Independently identify why the current left/right Login colour treatment reads as expanding or stationary instead of matching the accepted top/bottom moving tiles.
+- Did: Proved three separate causes in the current composition: fixed warm anchor nodes only cross-fade opacity; warm child trails scale while their neutral parent translates, creating a mathematically expanding rectangle; and the reveal-then-wait scheduler can make a carrier appear while stationary before its move. Returned a smallest coherent model with exactly four fixed-size warm carriers, two same-axis positions per side, no anchor/trail child DOM, no scale/size animation, and no independent stationary reveal phase.
+- Tests: Completed line-level source/CSS/test/documentation inspection. Acceptance criteria cover fixed 240px geometry, top/bottom horizontal-only and left/right vertical-only movement, stable colour ownership, timer cleanup, reduced motion, narrow hiding, static-preview parity, opaque slab layering, and unchanged 480x492 slab plus 384px content measure. No product or test code was edited by this worker.
+- Status: complete; findings and risks delivered to the orchestrator. Nothing was staged, committed, pushed, deployed, or scanned with Codex Security.
+- Next: Implementation should remove the obsolete anchor/trail tests and documentation, then prove carrier width/height and background ownership across sampled frames in both themes and responsive/reduced-motion states.
+
+### 2026-07-28 16:53Z — `/root/login_motion_css_review` — Login carrier-motion CSS review completed
+- Context: Independently diagnose the expanding/stationary horizontal Login treatment and define a fixed-size Mistral-like carrier model without changing product code.
+- Did: Traced the four position lattices, transition interpolation, layer order, and viewport clipping. Found that left/right mix 252px vertical travel with optional 240px outward moves and a simultaneously scaling child, while four separately opacity-cycled anchors create stationary colour flashes. Recommended two inner-edge side endpoints, carrier-only warm fill, top/left position interpolation, and removal of detached trail/anchor layers; preserved the accepted 480x492 slab, dynamic taller auth modes, mobile/reduced-motion/static-preview behavior, and all auth contracts.
+- Tests: Read-only source/CSS/test review completed; `git diff --check -- Journal.md` passed. No product test or browser run was claimed by this worker.
+- Status: complete; no product or test implementation was edited, staged, committed, pushed, deployed, or scanned with Codex Security.
+- Next: Implement the fixed 240x240 carrier topology, then browser-sample full transitions in Light/Dark and short/mobile/reduced-motion viewports using the supplied acceptance checklist.
+
+### 2026-07-28 17:05Z — `/root/login_motion_build_qa` — Login carrier-motion production gate started
+- Context: Independently run the supported docs-plus-app production gate after the carrier-only Login motion repair and prove that generated output does not alter tracked source artifacts.
+- Did: Read the canonical handoff and agent rules, preserved the shared dirty v0.1.1 Testing tree, and scoped this worker to build/docs/diff verification plus required Journal evidence only.
+- Tests: `npm run build`, `npm run docs:check`, tracked-file hash comparison, and root `git diff --check` pending.
+- Status: in progress; no product or test files will be edited, and nothing will be staged, committed, pushed, deployed, or scanned with Codex Security.
+- Next: Snapshot tracked content, run the supported production build and docs check, compare tracked hashes, then report exact artifact and diff-hygiene results.
+
+### 2026-07-28 17:05Z — `/root/login_motion_full_qa` — Login carrier-motion full WebUI acceptance started
+- Context: Independently verify the repaired fixed-size Login carrier motion against the complete WebUI regression and lint suites.
+- Did: Loaded the canonical handoff and agent rules, preserved the shared dirty v0.1.1 Testing tree, and scoped this worker to full Vitest, full ESLint, repository diff hygiene, and required Journal evidence only.
+- Tests: Complete `npm test`, complete `npm run lint`, and root `git diff --check` pending.
+- Status: in progress; no product or test implementation will be edited, and nothing will be staged, committed, pushed, deployed, or scanned with Codex Security.
+- Next: Run the full WebUI gates against the settled carrier-only repair, record exact file/test/error totals, and return the acceptance result to the orchestrator.
+### 2026-07-28 17:05Z — `/root/login_motion_final_review` — Login carrier-motion final review started
+- Context: Independently review the carrier-only Login backdrop repair for timing gaps, stationary warm blocks, wrong-axis or size-changing motion, lifecycle leaks, responsive/reduced-motion/static-preview regressions, auth geometry drift, and documentation mismatch.
+- Did: Read the canonical handoff and browser workflow, preserved the shared dirty v0.1.1 Testing tree, and scoped this worker to read-only source/test/documentation inspection plus live visual verification and required Journal evidence.
+- Tests: Focused Login/Branding tests and live Light/Dark/responsive/reduced-motion sampling pending.
+- Status: in progress; no product, test, or documentation files will be edited by this worker.
+- Next: Trace the repaired scheduler and CSS, run the focused suite, then sample actual carrier geometry and motion in the local Login before returning only evidence-backed findings.
+
+### 2026-07-28 17:07Z — `/root/login_motion_full_qa` — Login carrier-motion full WebUI acceptance completed
+- Context: Independently verify the repaired fixed-size Login carrier motion against the complete WebUI regression and lint suites.
+- Did: Ran the complete WebUI regression and lint gates against the settled shared carrier-only repair, then validated repository-wide whitespace hygiene; no product or test implementation was edited by this worker.
+- Tests: `npm test` passed **264/264 files and 1,672/1,672 tests** with 0 failures; `npm run lint` passed with **0 errors and 0 warnings**; root `git diff --check` passed. Vitest retained non-fatal console stderr from known JSDOM chart sizing and React test-act/select diagnostics, but no assertion or process failed.
+- Status: complete and clean. Nothing was staged, committed, pushed, deployed, or scanned with Codex Security.
+- Next: Orchestrator can combine this full-suite result with production-build and live browser acceptance before final handoff.
+
+### 2026-07-28 17:07Z — `/root/login_motion_build_qa` — Login carrier-motion production gate completed
+- Context: Independently run the supported docs-plus-app production gate after the carrier-only Login motion repair and prove that generated output does not alter tracked source artifacts.
+- Did: Ran the complete versioned Help Center plus SPA artifact build twice, checked the bundled documentation contract twice, and compared all non-Journal tracked working-tree bytes around the repeat build so concurrent Journal appends could not contaminate the result. Confirmed `webui/dist/` and `webui/public/docs/` remain ignored generated output.
+- Tests: Both `npm run build` runs passed MkDocs, `tsc --noEmit`, and Vite with 3,175 modules transformed; main entry 317.69 kB (94.57 kB gzip), lazy motion chunk 83.85 kB (29.50 kB gzip). Both `npm run docs:check` runs passed for app 0.1.1/docs 0.1. The non-Journal tracked digest stayed byte-identical (`b1d354010649735f67498e47bc15191dd09efb73c0b74930ed4ea441f2f8be19`) and root `git diff --check` passed.
+- Status: complete and clean in the shared dirty v0.1.1 Testing tree. This worker edited Journal only; nothing was staged, committed, pushed, deployed, or scanned with Codex Security.
+- Next: Orchestrator can combine this production artifact result with the green full WebUI suite and live browser acceptance before final handoff.
+
+### 2026-07-28 17:08Z — `/root/login_motion_final_review` — Login carrier-motion final review completed
+- Context: Independently review the carrier-only Login backdrop repair for timing gaps, stationary warm blocks, wrong-axis or size-changing motion, lifecycle leaks, responsive/reduced-motion/static-preview regressions, auth geometry drift, and documentation mismatch.
+- Did: Confirmed the implementation contains exactly four fixed 240x240 carriers, no detached anchors, trail children, scaling transforms, or size animation; top/bottom change only `left`, left/right change only `top`; warm colour is coupled to movement and resting carriers return to neutral; timer cleanup, reduced motion, mobile hiding, Branding preview, and identity geometry contracts remain covered.
+- Tests: Focused Login/Branding suite passed 11/11. No code, test, or documentation files were changed by this reviewer.
+- Status: complete and clean. The reviewer could not attach to the in-app browser, so live visual acceptance remained with the orchestrator.
+- Next: Orchestrator combines this source/test review with its own live Light/Dark/responsive frame sampling and full gates.
+
+### 2026-07-28 17:10Z — `/root` — Login carrier-motion glitch repair completed
+- Context: Repair the reported expanding, flashing, and stationary Login colour tiles while making left/right movement match the accepted top/bottom treatment.
+- Did: Removed independently fading accent anchors and scale-grown trail children; replaced them with one shared four-carrier model where every tile stays 240x240, colour belongs only to a moving carrier, resting carriers are neutral, top/bottom translate horizontally, and left/right translate vertically along the identity slab. Updated the Console UI standard and added deterministic motion, cleanup, reduced-motion, mobile, preview, and geometry regression coverage. Live in-app browser frame sampling confirmed fixed dimensions, constant opacity, no transforms or detached colour nodes, correct single-axis motion, clean Light/Dark rendering, no horizontal overflow at 640x360 or 390x844, mobile hiding below the breakpoint, and no console errors.
+- Tests: Focused Login/Branding suite passed 47/47; full WebUI Vitest passed 264/264 files and 1,672/1,672 tests; full ESLint passed with 0 errors/warnings; production `npm run build` passed twice including versioned Help Center, TypeScript, and Vite; `npm run docs:check` passed twice; repeat-build tracked digest was byte-identical; root `git diff --check` passed.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, or deployed, and no Codex Security tooling was run.
+- Next: Preserve this carrier-only identity motion contract in future Login and Branding changes; do not reintroduce detached warm anchors, scaling trails, or independently timed colour reveals.
+
+### 2026-07-28 17:21Z — `/root` — Live Mistral login parity pass started
+- Context: The repaired Login motion is mechanically clean but still does not reproduce the live Mistral sign-in theme and animation language closely enough; use the supplied screen recording and the current Mistral page as visual truth.
+- Did: Scoped a reference-first pass covering live palette, tile topology, direction, cadence, easing, layering, first paint, responsive behavior, and the unchanged Agentic SOC authentication contracts. Preserving the shared dirty v0.1.1 Testing tree and the accepted minimal form geometry.
+- Tests: Reference capture, current-page comparison, implementation, focused regression, full WebUI, build/docs, and browser acceptance pending.
+- Status: in progress. No Codex Security tooling will be run.
+- Next: Inspect the supplied recording and live Mistral page frame-by-frame, document the exact mismatch, then implement the smallest faithful shared motion system and verify it locally.
+
+### 2026-07-28 17:22Z — `/root/login_motion_code_audit` — Mistral parity architecture audit started
+- Context: Independently audit the current Login backdrop, auth layout, shared theme CSS, Branding preview, and regression tests against the live Mistral sign-in motion model before product implementation.
+- Did: Read the canonical handoff and repository rules, preserved the shared dirty v0.1.1 Testing tree, and scoped this worker to read-only product inspection plus a concrete implementation/test architecture.
+- Tests: Static source/test trace and live-reference inspection pending.
+- Status: in progress; no product, test, or documentation implementation will be edited by this worker, and no Codex Security tooling will be run.
+- Next: Trace the current renderer and contracts, compare the real Mistral page and supplied recording frame-by-frame, then return exact file/line guidance and a deterministic acceptance plan.
+
+### 2026-07-28 17:23Z — `/root/login_recording_audit` — Mistral Login recording motion audit started
+- Context: Independently inspect the supplied Login screen recording frame by frame and convert the visible mismatch into exact motion, colour, geometry, and layering acceptance criteria.
+- Did: Read the canonical handoff and agent rules, preserved the shared dirty v0.1.1 Testing tree, and scoped this worker to read-only ffprobe/ffmpeg/image analysis plus required Journal evidence only.
+- Tests: Recording metadata, sampled-frame geometry, and temporal motion comparison pending.
+- Status: in progress; no product code, tests, or documentation will be edited, and no Codex Security tooling will be run.
+- Next: Extract contact sheets and frame sequences, quantify moving-tile behavior and visible glitches, then return timestamped requirements to the orchestrator.
+
+### 2026-07-28 17:33Z — `/root/login_recording_audit` — Mistral Login recording motion audit completed
+- Context: Independently inspect the supplied Login recording and identify why the mechanically fixed carrier animation still reads unlike the Mistral reference.
+- Did: Extracted 74 exact frames across the 7.388-second 2288x1290 capture and measured the slab, carrier bounds, paths, hand-offs, colours, and neutral-layer changes. Confirmed a 720x738 physical slab (480x492 CSS at the captured scale) and fixed 360x360 physical carriers (240x240 CSS), but found an arbitrary right→bottom→top→left repeating hand-off, 1.8-second ease-in-out motion with 0.9-second starts, visible endpoint recolouring before meaningful travel, random warm colours, and random white/muted rest states. Those rest states make neutral squares appear/disappear and sometimes fuse with the white slab, so the background topology changes even when no coloured tile should be moving. Produced timestamped acceptance criteria: a stable neutral field independent of movers, deterministic reference paths/palette, off-canvas or masked reset/recolour, transform-only constant-size travel, and frame-level assertions forbidding stationary warm flashes or neutral-grid mutation.
+- Tests: Swift/AVFoundation extracted all 74 requested 100ms samples through 7.300s at 2288x1290; PIL/NumPy/SciPy component measurements confirmed constant carrier size and quantified every visible start/settle endpoint; `git diff --check -- Journal.md` pending after this append. The browser runtime exposed no controllable browser in this worker, so live Mistral inspection remains with the orchestrator/reference agent and was not falsely claimed here.
+- Status: complete; no product code, tests, or documentation were edited, and no Codex Security tooling was run.
+- Next: Replace the four-carrier ping-pong/background hybrid with the exact live-reference tile field and animation, then browser-sample at sub-100ms cadence to prove stable neutral geometry, continuous travel, and masked colour hand-offs.
+
+### 2026-07-28 17:22Z — `/root/mistral_live_research` — Live Mistral sign-in reference inspection started
+- Context: Independently inspect the current official Mistral sign-in page as visual truth for the Agentic SOC Login parity pass.
+- Did: Read the canonical handoff, agent rules, and browser-control workflow; scoped a read-only live inspection of viewport geometry, palette, tile motion, timing, layering, first paint, responsive behavior, and reduced-motion behavior. Product code will not be edited by this worker.
+- Tests: Live browser capture and source/style measurements pending.
+- Status: in progress; preserving the shared dirty v0.1.1 Testing tree and running no Codex Security tooling.
+- Next: Capture the current official page at desktop and compact viewports, trace tile positions over time, and report concrete mismatches to the orchestrator.
+
+### 2026-07-28 17:29Z — `/root/mistral_live_research` — Official Mistral sign-in motion contract measured
+- Context: Replace assumption-driven Login animation work with exact evidence from the current official Mistral authentication surface.
+- Did: Followed the canonical Console redirect into the current `Login - Mistral AI` page, inspected its server-rendered geometry/theme and the live `AuthBackgroundFrame` JavaScript asset, then returned the exact 240px grid topology, sparse randomized cadence, directional coloured-trail behavior, z-index occlusion model, first-paint state, responsive cutoff, and reduced-motion limitation to the orchestrator. Confirmed the Agentic SOC light/dark colour tokens already match; its carrier-only cadence and all-side warm movers are the primary parity mismatch.
+- Tests: Read-only official-page HTML/CSS/JavaScript inspection at the desktop `sm` layout; verified exact palette values, 480x492 normal desktop slab geometry, four-layer stacking, timing ranges, motion paths, and the under-640 hidden layout. The shared browser was unavailable to this worker, so visual frame acceptance remains with the orchestrator and the separate supplied-recording auditor.
+- Status: complete; Journal was the only repository file edited by this worker. No product code, tests, documentation, dependencies, commits, pushes, deployments, or Codex Security tooling were touched.
+- Next: Orchestrator should restore the official sparse neutral-carrier plus occasional top/bottom trail model, retain the local reduced-motion safeguard as an accessibility improvement, and validate it against both the live page and supplied recording.
+
+### 2026-07-28 17:35Z — `/root/login_motion_code_audit` — Exact live Mistral Login architecture audit completed
+- Context: Replace the prior carrier-only approximation with the current official Mistral sign-in choreography without altering Agentic SOC authentication behavior or responsive form geometry.
+- Did: Extracted and inspected the official `AuthBackgroundFrame` client chunk plus palette CSS, compared it line-by-line with the shared Login backdrop, theme, slab, Branding preview, and tests, and returned the exact implementation contract to the orchestrator. The official model is four intermittent 240px neutral tiles—not a continuous track system: top/bottom have two horizontal endpoints, left/right use four outer-lattice positions, all reveal/dwell/move/hide on randomized timers, and only top/bottom may render a 35%-chance warm directional trail. The shared implementation now matches the official positions, delay offsets, timing ranges, movement selection, layering, and trail geometry while retaining the local reduced-motion/mobile scheduling guard.
+- Tests: Focused `LoginAuthBackdrop` plus Branding-preview Vitest was run during the concurrent implementation and reported 6/11 passing, with all five failures attributable to the still-old test contract (`cadence=prominent`, no trail nodes, every tile always visible/warm). No auth-state assertion failed. Live in-app Browser attachment was unavailable to this worker, so final visual frame acceptance remains with the orchestrator.
+- Status: audit complete. This worker changed Journal only; no product, test, documentation, dependency, commit, push, deployment, or Codex Security operation was performed.
+- Next: Rewrite the focused tests around the official sparse lifecycle and top/bottom-only trails, keep Login auth/state tests unchanged, then run deterministic fake-timer, Light/Dark, reduced-motion, mobile, Branding-preview, full WebUI, build/docs, and live multi-frame acceptance.
+### 2026-07-28 17:35Z — `/root/mistral_motion_tests` — Live Mistral Login regression pass started
+- Context: Update the Login and Branding backdrop regression suite for the newly implemented live-Mistral choreography without changing product code or documentation.
+- Did: Read the canonical handoff and agent rules, preserved the shared dirty v0.1.1 Testing tree, and scoped this worker to the backdrop tests only.
+- Tests: Focused Login/Branding tests, TypeScript, scoped ESLint, and repository diff hygiene pending.
+- Status: in progress; nothing will be staged, committed, pushed, or scanned with Codex Security.
+- Next: Trace the implementation contract, replace obsolete carrier-only assertions with exact live-Mistral motion invariants, and run the scoped gates.
+
+### 2026-07-28 17:36Z — `/root/login_recording_audit` — Recording-audit evidence hygiene verified
+- Context: Close the pending repository-hygiene check after appending the frame-analysis closeout.
+- Did: Rechecked the Journal-only audit delta after all recording findings and handoff criteria were written.
+- Tests: `git diff --check -- Journal.md` passed with no whitespace errors.
+- Status: complete; the recording audit remains read-only outside required Journal entries.
+- Next: Orchestrator applies the official live-reference motion contract and runs browser frame acceptance.
+### 2026-07-28 17:38Z — `/root/mistral_motion_tests` — Live Mistral Login regression pass completed
+- Context: Replace obsolete carrier-only Login/Branding assertions with the exact choreography implemented from the current official Mistral sign-in reference.
+- Did: Rebuilt `LoginAuthBackdrop.test.tsx` around four neutral fixed-size carriers, two horizontal-edge directional trails, sparse reveal/dwell/move/hide timing, 2-endpoint top/bottom motion, 2x2 side lattices, the 35% trail gate, static/reduced-motion behavior, and lifecycle cleanup; updated the Branding preview and runtime Login cadence assertions from `prominent` to `mistral` while preserving all slab/auth geometry checks.
+- Tests: All 8 Login/Branding files passed **49/49 tests**; `npx tsc --noEmit` passed; scoped ESLint passed with 0 errors/warnings; root `git diff --check` passed.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Only Login/Branding regression files plus this required Journal entry were edited by this worker; nothing was staged, committed, pushed, deployed, or scanned with Codex Security.
+- Next: Orchestrator can combine these deterministic regression gates with its live official-page/browser comparison and full WebUI/build acceptance.
+
+### 2026-07-28 17:47Z — `/root` — Live Mistral Login parity pass completed
+- Context: Replace the mechanically clean but visibly different Login animation with the current official Mistral sign-in theme and choreography, using the supplied recording and the live page as visual truth.
+- Did: Rebuilt the backdrop around the reference's four sparse neutral 240px carriers, exact two-endpoint/top-bottom and 2x2 side lattices, randomized reveal/dwell/hide cadence, 1,800ms easing, and occasional warm directional trails on top/bottom only. Removed the previous all-side coloured orbit behavior, kept the opaque 480x492 identity slab and authentication flows unchanged, retained mobile/reduced-motion safeguards, made Branding preview use the same topology, and prevented Light/Dark switches from interpolating large white tiles through a grey flash while motion continues. Updated the UI standard and deterministic regression contract. Live browser comparison against the official page confirmed matching slab/canvas geometry and palette; local Light/Dark, 1280x720, 390x844, theme-switch, overflow, sparse lifecycle, and console-error checks passed.
+- Tests: Focused post-theme-switch suite passed **24/24**; complete WebUI Vitest passed **264/264 files and 1,674/1,674 tests**; TypeScript passed; full ESLint passed with 0 errors/warnings; all design gates passed; versioned Help Center bundle/check passed for app 0.1.1/docs 0.1; production Vite build passed with 3,175 modules; root `git diff --check` passed. Independent final review found no blocker.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, or scanned with Codex Security.
+- Next: Preserve the live-reference sparse-neutral-plus-horizontal-trail contract; future animation changes should be evaluated against the official page and frame-sampled rather than inferred from still screenshots.
+
+### 2026-07-28 17:48Z — `/root/mistral_parity_final_review` — Final Mistral Login parity review started
+- Context: Independently review the completed Agentic SOC Login changes against the exact current Mistral authentication motion contract already measured in this task.
+- Did: Read the canonical handoff and agent rules; scoped a read-only audit of motion timing and paths, directional trails, timer lifecycle, theme switching, stacking and clipping, compact/reduced-motion behavior, focused regression coverage, and the documented UI contract.
+- Tests: Focused static inspection and regression checks pending.
+- Status: in progress; preserving the shared dirty v0.1.1 Testing tree and running no Codex Security tooling.
+- Next: Inspect the implementation and focused tests line-by-line, run bounded verification, and report only concrete blockers or a clean verdict.
+
+### 2026-07-28 17:50Z — `/root/mistral_parity_final_review` — Final Mistral Login parity review completed
+- Context: Independently verify the final Login implementation against the exact current Mistral authentication backdrop contract measured from the official page.
+- Did: Reviewed the four neutral 240px carrier lattices, randomized reveal/dwell/move/hide cadence, top/bottom-only warm directional trails, side-colour exclusion, transition geometry, timer cleanup, theme-palette snap, slab/guide/mask stacking, mobile hiding, reduced-motion suppression, focused assertions, and the identity-surface documentation. Found no release-blocking mismatch or lifecycle defect; the retained narrow/reduced-motion scheduling guard is an intentional accessibility improvement over the reference.
+- Tests: Read-only line review completed; relied on the orchestrator's contemporaneous green evidence for the post-theme-snap focused suite (24/24), prior full WebUI suite (1,674/1,674), full ESLint/design gates/build/docs, and live Light/Dark/390px/no-console browser acceptance. This worker ran no duplicate broad suite after being asked to prioritize closeout.
+- Status: complete with a clean verdict. Journal was the only file edited by this worker; no product code, tests, documentation, dependencies, commit, push, deployment, or Codex Security operation was performed.
+- Next: None for this scope; retain browser multi-frame acceptance as the final visual gate for future Login-motion changes.
+
+### 2026-07-28 17:59Z — `/root` — Auto-tuning Agent Effectiveness integration started
+- Context: Add the verified aggregate Agent Effectiveness evidence to Auto-tuning as a clean, understandable operational surface without obscuring the existing tuning workflow.
+- Did: Began a focused review of the current Tuning page, the aggregate-only `GET /api/metrics/agent-improvement` contract, shared comparison primitives, current Console visual standard, responsive behavior, and existing tests. The implementation will preserve deterministic tuning and case-decision authority, use no additional model calls, and keep insufficient evidence and guardrails explicit. Browser QA will cover Light/Dark, responsive layout, and interactions. Existing unrelated dirty work is being preserved and no Codex Security review is being run.
+- Tests: Focused component/page tests, TypeScript, ESLint/design gates, production build, docs consistency, and live browser inspection pending.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Map the current page and evidence contract, delegate independent UX and test audits, then implement the smallest coherent Auto-tuning integration.
+
+### 2026-07-28 18:03Z — `/root/tuning_test_audit` — Auto-tuning effectiveness test audit started
+- Context: Independently map the focused regression contract for presenting aggregate Agent Effectiveness evidence inside Auto-tuning.
+- Did: Began the required read of the repository handoff, agent rules, and Console UI standard before inspecting the page, typed API contract, shared metric primitive, and their existing tests. This worker is limited to test-only edits if an isolated location is unambiguous; production code remains untouched.
+- Tests: Contract and coverage audit in progress; no Codex Security review will be run.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Identify success, insufficient/unavailable/error, disclosure, interaction, responsive, and accessibility coverage with the smallest stable test matrix.
+
+### 2026-07-28 18:07Z — `/root/tuning_test_audit` — Auto-tuning effectiveness test audit completed
+- Context: Define the smallest durable regression contract for adding aggregate Agent Effectiveness evidence to Auto-tuning without weakening its existing deterministic tuning workflow.
+- Did: Read the handoff, agent rules, and Console UI standard in full; inspected the current Auto-tuning page and four focused test suites, the typed `GET /api/metrics/agent-improvement` client contract, aggregate backend state semantics, the existing Analytics effectiveness implementation, and the shared `ComparisonMetric` accessibility tests. Recommended an independently loaded compact evidence section with a stable `effectiveness` deep link so a metrics permission/network failure cannot replace or disable tuning recommendations/config. Defined focused coverage for sufficient, insufficient/unavailable, guardrail/truncation, localized error/retry, disclosure/definition, responsive, and accessibility behavior. No production or test files were changed because the integration component boundary is still being authored by the orchestrator.
+- Tests: Existing focused baseline passed: **6 files / 25 tests** (`Tuning.render`, `Tuning.ledger`, `Tuning.busy`, `Tuning.round6`, `ComparisonMetric`, and analytics consolidation). The only stderr was the known jsdom zero-size Recharts warning in Analytics; no test failed.
+- Status: complete; Journal was the only file edited by this worker. No dependency, backend, production UI, commit, push, deployment, or Codex Security operation was performed.
+- Next: Add one dedicated Auto-tuning evidence integration suite after the orchestrator fixes the component boundary; keep full metric-state logic covered by `ComparisonMetric` and Analytics tests rather than duplicating it across every Tuning fixture.
+
+### 2026-07-28 18:03Z — `/root/tuning_docs_audit` — Auto-tuning effectiveness Help Center audit started
+- Context: Identify the smallest version-matched operator-documentation update needed when aggregate Agent Effectiveness evidence appears inside Auto-tuning.
+- Did: Read the canonical handoff, agent rules, and Console UI standard in full; scoped a docs-only audit around conservative evidence language, window/sample disclosure, safety guardrails, and the prohibition on composite or causal-learning claims.
+- Tests: Help Center article discovery, link validation, and docs build/check pending; no production code or Codex Security review is in scope.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Locate the authoritative Auto-tuning and Agent Effectiveness articles, reconcile them with the current API/UI contract, and make only an unambiguous conflict-free docs update.
+
+### 2026-07-28 18:03Z — `/root/tuning_ux_audit` — Auto-tuning effectiveness UX audit started
+- Context: Define the cleanest information architecture for placing verified aggregate Agent Effectiveness evidence inside Auto-tuning without competing with rule proposals or implying causal learning.
+- Did: Read the repository handoff, agent rules, and current Console UI standard in full; began a read-only audit of the Auto-tuning page, Effectiveness analytics surface, shared evidence components, API contract, and responsive/accessibility states.
+- Tests: Read-only audit in progress; no code tests or Codex Security review are in scope for this worker.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Return exact file/line anchors, hierarchy, copy, state handling, and light/dark/narrow recommendations to the orchestrator.
+
+### 2026-07-28 18:07Z — `/root/tuning_docs_audit` — Auto-tuning effectiveness Help Center update completed
+- Context: Keep the installed v0.1 Help Center and internal usage guide synchronized with the new compact Agent Effectiveness evidence inside Auto-tuning.
+- Did: Added a concise Observed outcome evidence section to the tuning guide; corrected the Analytics article's stale “groundwork only” claim; and added matching cross-references in `docs/USAGE.md`. The guidance distinguishes the `automation:read` and `metrics:view` grants, treats agreement plus correction as one quality domain and review turnaround as the independent second domain, preserves explicit missing-evidence states and guardrail qualification, directs operators to the full Analytics surface, and prohibits composite scores or causal/model-learning claims. No production code was changed.
+- Tests: Strict version-matched Help Center bundle passed for app 0.1.1/docs 0.1; `npm run docs:check` passed; all **7/7** documentation script tests passed; rendered HTML contained the new sections; targeted `git diff --check` passed. An initial direct module-form unittest command used the wrong import context and failed before tests ran; the documented discovery form then passed all seven.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Nothing was staged, committed, pushed, deployed, or scanned with Codex Security.
+- Next: Orchestrator should preserve the documented permission split and ensure the compact summary links to the existing Analytics → Agent effectiveness detail surface.
+
+### 2026-07-28 18:07Z — `/root/tuning_ux_audit` — Auto-tuning effectiveness UX audit completed
+- Context: Define a concise, evidence-safe Auto-tuning integration for aggregate Agent Effectiveness metrics.
+- Did: Completed a read-only audit of the Auto-tuning hierarchy, Agent Effectiveness endpoint and presentation, shared `ComparisonMetric`/loading primitives, permissions, and Console visual contract. Recommended a full-width flat “Observed outcomes” band after tuning-health KPIs and before Proposed changes, with three comparisons, exact current/baseline UTC windows, sample/coverage/exclusion/truncation disclosure, separate guardrail states, non-causal copy, and a link to the full analysis. Flagged that reporting must be fetched independently behind `metrics:view` so its failure never blocks tuning, and that semantic meaning belongs in text/icon/badges rather than a colored title.
+- Tests: Read-only review only; no files were changed beyond Journal, and no Codex Security review was run.
+- Status: complete; recommendations and current implementation gaps were sent to the orchestrator.
+- Next: Orchestrator should verify light/dark and narrow layouts, keyboard definition popovers, non-blocking refresh, error isolation, not-applicable guardrails, and explicit truncated/insufficient states.
+
+### 2026-07-28 18:29Z — `/root` — Auto-tuning Agent Effectiveness integration completed
+- Context: Put trustworthy day-over-day Agent Effectiveness evidence directly beside Auto-tuning without turning it into a vanity score or changing deterministic tuning and case-decision authority.
+- Did: Added a permission-gated, independently loaded **Observed outcomes** band after rule-health KPIs and before recommendations. It compares the latest 7 complete UTC days with the preceding 28 across analyst agreement, correction rate, and human-review turnaround; exposes exact windows, sample coverage, exclusions, suppressed strata, truncation, false-negative/reopen guardrails, and keyboard/pointer metric definitions; preserves stale evidence during refresh failure; and links to the canonical Analytics effectiveness view. Fixed the compact metric primitive so its evidence footer no longer overflows into the next row at narrow widths. Updated the tuning, Analytics, usage, changelog, and handoff documentation while leaving `engine/case_manager.py` unchanged.
+- Tests: Browser acceptance passed in Light and Dark themes at desktop and 768px widths, including definition popovers, responsive no-overlap geometry, and a clean console. Focused effectiveness/tuning/component regressions passed, including real-router navigation and permission isolation. Complete WebUI Vitest passed **265/265 files and 1,681/1,681 tests**; complete backend pytest passed **2,072/2,072 tests** with only the existing Elastic TLS warning; full ESLint, all design gates, TypeScript/Vite production build (3,175 modules), version-matched 0.1.1/docs 0.1 bundle/check, and `git diff --check` passed.
+- Status: complete in the shared dirty v0.1.1 Testing tree. No model calls, decision-authority changes, dependencies, staging, commit, push, deployment, or Codex Security review were introduced.
+- Next: Keep the panel reporting-only; any future metric must retain an explicit denominator, evidence window, missing-data state, and guardrail disclosure rather than contributing to a composite score.
+
+### 2026-07-28 18:32Z — `/root` — Auto-tuning visual-standardization pass started
+- Context: The first Auto-tuning effectiveness integration is functionally correct but visually does not yet match the Security Command Center and Case Manager grammar closely enough.
+- Did: Began a reference-led browser and source audit of Auto-tuning against the dashboard and Case Manager, using the current Console UI standard as the contract. The pass is scoped to hierarchy, spacing, typography, separators, semantic density, responsive behavior, evidence disclosures, and shared loading/error states; reporting permissions and deterministic tuning/case-decision authority remain unchanged.
+- Tests: Light/Dark desktop and narrow browser comparison, focused page/component tests, TypeScript, ESLint/design gates, complete Console suite, production build, and diff/decision-authority checks pending.
+- Status: in progress in the shared dirty v0.1.1 Testing tree; existing unrelated changes are being preserved and no Codex Security review will be run.
+- Next: Capture the three reference surfaces side by side, identify the exact visual mismatch, then implement the smallest shared-primitive redesign rather than adding more page-local chrome.
+
+### 2026-07-28 18:34Z — `/root/tuning_visual_tests` — Auto-tuning visual regression audit started
+- Context: Define focused regression coverage for bringing Auto-tuning and its Observed outcomes evidence into the flat, divider-led Dashboard and Case Manager visual grammar.
+- Did: Began the required handoff, agent-rule, and Console UI-standard read before auditing the current Tuning, Agent Effectiveness, and ComparisonMetric tests. This worker is scoped to test-only changes where the intended contract is unambiguous; shared dirty production work will be preserved.
+- Tests: DOM hierarchy, semantic heading order, loading/error isolation, responsive class contracts, accessibility, canonical navigation, and focused Vitest coverage pending. No Codex Security review is in scope.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Map the exact current DOM and test seams, then add only durable contract assertions that do not overfit incidental styling.
+
+### 2026-07-28 18:34Z — `/root/tuning_visual_audit` — Auto-tuning reference-surface visual audit started
+- Context: Audit why Auto-tuning and its Observed outcomes band feel inconsistent with the canonical Security Command Center and Case Manager surfaces before the orchestrator restyles them.
+- Did: Read the current handoff, agent rules, and Console UI standard in full; began a read-only rendered/source comparison covering hierarchy, typography, dividers, density, both themes, narrow layout, loading/error geometry, and evidence disclosure.
+- Tests: Rendered browser inspection and line-anchored source comparison pending. No product files will be changed and no Codex Security review will be run.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Compare the live Auto-tuning route with Dashboard and Case Manager references, then return the smallest hierarchy/primitives plan to the orchestrator.
+
+### 2026-07-28 18:34Z — `/root/tuning_primitives_audit` — Dashboard and Case Manager primitive audit started
+- Context: Identify the exact established Dashboard and Case Manager visual primitives that Auto-tuning should reuse so the redesign follows the Console contract instead of adding another page-local grammar.
+- Did: Read the current handoff, canonical agent rules, and Console UI standard in full; began a read-only audit of shared section rails, stat bands, control bars, separators, typography, feedback states, and responsive density. Product files will not be edited by this worker.
+- Tests: Read-only source inspection pending; no Codex Security review is in scope.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Trace the exact component definitions and their Dashboard/Case Manager call sites, then return reuse and minimal-extraction recommendations with line anchors.
+
+### 2026-07-28 18:38Z — `/root/tuning_primitives_audit` — Dashboard and Case Manager primitive audit completed
+- Context: Give the Auto-tuning visual pass an exact, existing Console vocabulary rather than another local card grammar.
+- Did: Completed a read-only source audit of Dashboard, Case Manager, embedded case-detail panels, Auto-tuning, Agent Effectiveness, and the shared page, KPI, control, table, loading, empty, and error primitives. Recommended retaining the wide page/header and canonical tables, replacing default KPI cards with the Dashboard telemetry strip, flattening Observed outcomes into one hairline-led major section, using Case Manager's 16–24px content rail and compact squared control density, and limiting any new shared extraction to a small generic flat section rail/header because the existing equivalent is case-detail-local. Flagged the current stacked comparison borders and nested rule-detail stat cards as the main visual mismatch.
+- Tests: Read-only source inspection only; no product files were changed, no runtime assertions were made, and no Codex Security review was run.
+- Status: complete; exact component/class anchors and reuse guidance returned to the orchestrator.
+- Next: Orchestrator should implement the smallest flat-band redesign, keep reporting failures isolated from tuning, and verify both themes plus desktop/narrow responsive geometry before handoff.
+
+### 2026-07-28 18:39Z — `/root/tuning_visual_audit` — Auto-tuning reference-surface visual audit completed
+- Context: Explain precisely why Auto-tuning and Observed outcomes diverge from the canonical Dashboard and Case Manager visual grammar, then give the orchestrator a compact, implementation-ready hierarchy using existing Console primitives and tokens.
+- Did: Completed a read-only line-anchored audit of Auto-tuning, the aggregate effectiveness summary, shared comparison/table/loading primitives, Security Command Center, Case Manager, and the UI standard. Identified the main mismatches as stacked title/status layers, card-within-card rule and proposal details, doubled metric dividers, overlarge comparison telemetry, a 2XL-only master split that wastes width, and refresh/error behavior that replaces usable tuning data. Recommended a plain header, Dashboard-style KPI strip, one compact flat Observed outcomes band with collapsed evidence-quality disclosure, a divider-led recommendations/approvals band, full-width rules, flat selected-rule detail, and secondary Audit/Policy groups using the existing accessible `DashboardGroup` primitive.
+- Tests: Source and contract audit only. The in-app browser runtime was unavailable (`agent.browsers.list()` returned no browsers), so no new rendered claim was made; the orchestrator's existing light/dark desktop/narrow browser evidence remains the current runtime evidence. No product files were changed and no Codex Security review was run.
+- Status: complete; Journal was the only repository file edited by this worker, and the shared dirty v0.1.1 Testing worktree was otherwise preserved.
+- Next: Orchestrator should apply the flat hierarchy, retain stale data during refresh failures, and re-run light/dark desktop/narrow browser QA plus focused Tuning/ComparisonMetric tests.
+
+### 2026-07-28 18:46Z — `/root/tuning_visual_tests` — Auto-tuning visual regression contract completed
+- Context: Protect the Dashboard/Case Manager visual grammar while Auto-tuning is flattened from cards into divider-led operational bands.
+- Did: Added focused DOM and accessibility coverage for a single page heading, the responsive continuous health strip, one shared centered initial loader, stale-data-preserving refresh with an inline refresh failure, semantic Proposed changes → Rules → Pending review order, flat Pending and selected-rule detail surfaces, and canonical Agent Effectiveness navigation/permission isolation. Extended the Observed outcomes suite with flat-surface, heading, loading-geometry, and axe assertions, and protected the compact comparison metric from inheriting full-height card geometry.
+- Tests: ESLint passed for all three changed test files. The existing Tuning busy/ledger/Round-6 suites plus the new Agent Effectiveness and ComparisonMetric suites passed **27/27** tests. The pre-refactor Tuning render suite has exactly **5 expected red assertions** for the still-missing health strip, page loader, refresh isolation, flat Pending surface, and flat rule detail; no unrelated regression surfaced.
+- Status: test work complete in the shared dirty v0.1.1 Testing tree. No production code, dependencies, staging, commit, push, deployment, or Codex Security review was performed by this worker.
+- Next: Orchestrator should land the visual implementation against these anchors, then rerun the six-file focused slice and keep all 32 assertions green.
+
+### 2026-07-28 18:49Z — `/root/tuning_post_impl_audit` — Auto-tuning post-implementation visual audit started
+- Context: Independently verify the current Auto-tuning visual-standardization diff against the established Dashboard and Case Manager hierarchy, density, responsive behavior, accessibility, and loading/error contracts.
+- Did: Began a read-only review of the updated Tuning, Observed outcomes, ComparisonMetric, and KPI implementations plus their focused regression coverage. Product files will not be edited by this worker.
+- Tests: Focused lint and Vitest checks pending. No Codex Security review is in scope.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Inspect the exact diff and rendered-contract seams, run the focused checks, and return only concrete line-anchored issues or a clean audit result.
+
+### 2026-07-28 18:54Z — `/root/tuning_post_impl_audit` — Auto-tuning post-implementation visual audit completed
+- Context: Verify the settled visual-standardization implementation before the orchestrator's final browser and full-suite gates.
+- Did: Completed a read-only audit of the flattened page hierarchy, Dashboard-style telemetry, compact Observed outcomes band, loading/error isolation, selected-rule detail, Pending proposals, and shared comparison/KPI primitives. The main implementation direction now matches the Dashboard and Case Manager grammar. Identified three narrow/intermediate-width divider defects: the 2-column health strip loses its row separator, the mobile rule-detail stats draw a half-width first-row divider, and the full Effectiveness evidence-quality grid repeats the 2-column separator error. Returned exact line anchors and index-aware class guidance to the orchestrator.
+- Tests: Focused ESLint passed; TypeScript `tsc --noEmit` passed; six Auto-tuning/Effectiveness/ComparisonMetric suites passed 32/32; four KpiTile suites passed 20/20; `git diff --check` passed for the scoped production files. Browser discovery returned no available runtime, so no rendered browser claim was made by this worker. No Codex Security review was run.
+- Status: complete with three concrete responsive polish findings; Journal was the only repository file edited by this worker.
+- Next: Correct the index-aware separators, add one narrow-width contract assertion, then complete the orchestrator's light/dark desktop/narrow browser QA and full gates.
+
+### 2026-07-28 19:02Z — `/root/tuning_full_webui_verify` — Auto-tuning full frontend verification started
+- Context: Independently run the complete WebUI acceptance lane for the Auto-tuning and Observed outcomes visual-standardization work in the shared dirty v0.1.1 Testing tree.
+- Did: Began read-only verification of the current integrated frontend; product files, dependencies, staging, commits, pushes, and deployment remain out of scope.
+- Tests: Full lint, design gates, Vitest, and production build are pending. No Codex Security review is in scope.
+- Status: in progress.
+- Next: Run the requested frontend commands, diagnose any failures without editing product files, and report exact counts to the orchestrator.
+
+### 2026-07-28 19:02Z — `/root/tuning_backend_verify` — Auto-tuning backend regression verification started
+- Context: Independently verify that the Auto-tuning visual-standardization work preserves the complete offline backend contract and protected deterministic case-decision authority.
+- Did: Read the current handoff and canonical agent rules; began a read-only complete backend pytest run and a working-tree diff check for `backend/app/engine/case_manager.py`. No product code will be edited.
+- Tests: Complete offline backend suite and protected-file diff check pending. No Codex Security review is in scope.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Run `.venv/bin/python -m pytest -q`, capture exact pass/fail/skip and timing, and report whether the protected case-manager file is untouched.
+
+### 2026-07-28 19:06Z — `/root/tuning_backend_verify` — Auto-tuning backend regression verification completed
+- Context: Independently verify that the Auto-tuning visual-standardization work preserves the complete offline backend contract and protected deterministic case-decision authority.
+- Did: Ran the documented complete offline backend suite from `backend/`, confirmed the current exact collection count independently, and checked staged, unstaged, and HEAD-relative state for `backend/app/engine/case_manager.py`.
+- Tests: `.venv/bin/python -m pytest -q` passed **2,072/2,072 tests** with **0 failures, 0 errors, 0 skipped**, exit 0, and one existing Elasticsearch `verify_certs=False` warning; `/usr/bin/time -p` recorded **146.37s real**, **70.06s user**, and **7.79s sys**. Collection-only confirmation reported `2072 tests collected in 2.24s`. All protected-file diff/status checks passed with no output.
+- Status: complete; no product code, dependency, staging, commit, push, deployment, or Codex Security review was performed. The shared dirty v0.1.1 Testing tree was preserved.
+- Next: Orchestrator can include the exact backend result in the final visual-standardization acceptance evidence; deterministic case-decision authority remains untouched.
+
+### 2026-07-28 19:06Z — `/root/tuning_full_webui_verify` — Auto-tuning full frontend verification completed
+- Context: Re-verify the integrated Auto-tuning and compact Observed outcomes visual-standardization changes after the final compact-density assertion landed.
+- Did: Ran the full read-only WebUI acceptance lane without changing product code, dependencies, or repository state beyond this required Journal entry. Investigated one first-run lazy Dashboard grid timeout: the isolated file passed and the exact complete suite passed on rerun, confirming unrelated concurrency timing noise rather than an Auto-tuning regression.
+- Tests: `npm run lint -- --quiet` passed with 0 errors; `npm run gates` passed all 5 design gates (37 tokens, 82 contrast axes, arbitrary-size grep, raw-hex grep, and both-theme CVD separation); exact full `npx vitest run --silent --reporter=dot` rerun passed 1,687/1,687 across 265 files; isolated Dashboard grid passed 5/5; final focused `Tuning.render` passed 13/13; `npm run build` passed the Testing 0.1 docs bundle, `tsc --noEmit`, and Vite with 3,175 modules transformed. No Codex Security review was run.
+- Status: complete; the full frontend gate is green in the shared dirty v0.1.1 Testing tree.
+- Next: Orchestrator can combine these results with browser and backend verification for final handoff.
+
+### 2026-07-28 19:12Z — `/root` — Auto-tuning visual standardization completed
+- Context: Bring the Auto-tuning workflow and embedded Observed outcomes evidence into the same flat, compact, divider-led visual language as the Security Command Center and Case Manager without changing tuning behavior or deterministic case authority.
+- Did: Replaced the page-local card hierarchy with a plain page header, quiet authority rail, compact four-cell operational health strip, one integrated Observed outcomes band, full-width compact proposal/rule/audit tables, and flat selected-rule, pending-proposal, and rollback sections. Removed the narrow decorative side rail, preserved stale data during refresh failures, standardized initial/refresh loading on `LoadingState` and `LoadingBar`, added compact/integrated variants to the shared KPI/comparison primitives, corrected one-/two-/four-column divider ownership, and documented the resulting reusable contract in `docs/development/ui-standard.md`. Metric definitions remain keyboard/pointer accessible and unavailable evidence remains explicit rather than becoming zero.
+- Tests: Browser acceptance passed in Light and Dark at the 1,280px desktop surface with one `h1`, zero horizontal overflow, a compact 92px health strip, the 353px outcome band, working metric-definition and rule-detail interactions, and a clean fresh-session console; responsive divider behavior is protected by focused breakpoint-class tests. Focused lint, TypeScript, and component/page suites passed, including the final 31/31 outcome/tuning/metric slice and 20/20 compact KPI/tuning slice. Complete WebUI lint passed, all 5 design gates passed, Vitest passed **1,687/1,687 across 265 files**, and the production docs/TypeScript/Vite build passed with **3,175 modules**. Complete backend pytest passed **2,072/2,072**; `git diff --check`, absence of root `memory.md`, and the no-diff guard for `backend/app/engine/case_manager.py` all passed.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Existing unrelated work was preserved; nothing was staged, committed, pushed, deployed, or reviewed with Codex Security.
+- Next: Keep future tuning metrics inside the integrated band with an explicit denominator, evidence state, and definition; do not reintroduce nested cards or a composite improvement score.
+
+### 2026-07-28 19:17Z — `/root` — Auto-tuning daily effectiveness views started
+- Context: Extend the newly standardized Auto-tuning workflow with the richer daily progress, change-driver, and evidence views previously explored for showing how observed agent outcomes move over time.
+- Did: Re-read the current handoff, browser workflow, Console UI contract, and the aggregate-only Agent Effectiveness boundary. Began mapping the prior concepts onto the existing flat Dashboard/Case Manager grammar while preserving explicit evidence states, shared complete-UTC windows, and the rule that no synthetic improvement score or causal-learning claim is shown.
+- Tests: Implementation and focused browser/test acceptance are pending. No Codex Security review is in scope.
+- Status: in progress in the shared dirty v0.1.1 Testing tree; unrelated changes remain untouched.
+- Next: Inspect the available metric series and prior concepts in parallel, render the current Auto-tuning surface, implement the smallest truthful daily/evidence module, then run focused and full regression gates.
+
+### 2026-07-28 19:18Z — `/root/tuning_backend_verify` — Agent Effectiveness daily-contract audit started
+- Context: Determine which truthful day-by-day, driver, and cohort evidence the existing aggregate-only Agent Effectiveness backend already exposes, and define the smallest additive contract needed for the richer Auto-tuning UI.
+- Did: Began a read-only audit of the engine, feature route, web types, and backend/frontend regression contracts. The audit preserves aggregate-only reporting, complete UTC windows, conservative evidence states, and the deterministic case-decision boundary.
+- Tests: Source and contract inspection pending. No product code will be edited and no Codex Security review is in scope.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Trace every response field to its computation and tests, then return an implementation-ready bounded schema with explicit privacy/cardinality/test constraints.
+
+### 2026-07-28 19:18Z — `/root/tuning_full_webui_verify` — Auto-tuning daily trajectory design audit started
+- Context: Define an implementation-ready, accessible daily trajectory/change-driver/evidence module for Auto-tuning that follows the Dashboard and Case Manager visual grammar without nested card clutter or a synthetic composite score.
+- Did: Re-read the current handoff and canonical agent rules; began a read-only inspection of the Auto-tuning, Agent Effectiveness, comparison/chart primitives, focused tests, and current Console UI standard. Product code will not be edited.
+- Tests: Source and test-contract inspection pending. No Codex Security review is in scope.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Map reusable components and responsive semantics, identify truthful data boundaries, and return focused implementation/test guidance to the orchestrator.
+
+### 2026-07-28 19:18Z — `/root/tuning_post_impl_audit` — Prior daily-effectiveness concept recovery started
+- Context: Recover the exact earlier screenshot and brainstorming concepts for showing how observed agent-assisted outcomes change day by day, then translate them into the current Auto-tuning information architecture without overstating evidence.
+- Did: Re-read the current handoff and canonical agent rules in full; began a read-only trace through the prior rollout summary/session, visualization artifacts, and existing aggregate Effectiveness contract. Product code will not be edited.
+- Tests: Source/artifact inspection pending. No Codex Security review is in scope.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Extract the prior panels, copy, interactions, denominator/evidence rules, and return one compact implementation-ready IA with exact source anchors.
+
+### 2026-07-28 19:22Z — `/root/tuning_full_webui_verify` — Auto-tuning daily trajectory design audit completed
+- Context: Define the smallest truthful day-by-day outcome module that can extend the standardized Auto-tuning flow without reintroducing dashboard-card clutter or a synthetic improvement score.
+- Did: Mapped the existing 35 complete-UTC-day aggregate contract, current seven-day reporting window, comparison metrics, daily evidence thresholds, safety guardrails, and case-mix qualification to the Console UI standard and the Dashboard/Case Manager divider-led grammar. Recommended one integrated `Daily trajectory` continuation beneath the existing comparison strip: three independent small-multiple lanes (agreement, material correction, review p50) sharing dates but not a mixed unit axis; a responsive evidence rail showing first-to-latest measured movement, measurable-day coverage, guardrail state, comparable-mix coverage, and exclusions; explicit copy that daily points are raw eligible daily cohorts while the headline comparison is source-by-severity adjusted; and a visually hidden or disclosed table as the authoritative accessible fallback. Existing `MultiSeriesTrend` can preserve null gaps, while `Sparkline`, `AreaSpark`, `MiniBars`, and `BarList` must not be used for sparse evidence because their current adapters coerce missing/non-finite values to zero. No source-level "driver" claim is supportable from the current identifier-free contract; the UI may say `What changed` only for measured aggregate/day-to-day movements, never what caused them.
+- Tests: Read-only source and test-contract inspection only; no runtime command was needed for this design audit. Proposed focused coverage for null-gap transforms, two-point minimum movement summaries, explicit collecting/unavailable states, separate units, accessible chart/table names, non-causal copy, guardrail breach signaling, responsive flat chrome, metrics-permission isolation, stale-data refresh, and the existing full-evidence navigation. No product files or security review were involved.
+- Status: complete; Journal is the only file edited by this worker during this design subtask, and the shared dirty v0.1.1 Testing tree was otherwise preserved.
+- Next: Orchestrator should implement the flat small-multiple/evidence-rail module from the existing daily contract, or add a bounded aggregate `change_factors` contract before showing source/severity drivers; then run focused accessibility/responsive tests and light/dark browser QA.
+
+### 2026-07-28 19:23Z — `/root/tuning_backend_verify` — Agent Effectiveness daily-contract audit completed
+- Context: Determine which truthful day-by-day, driver, and cohort evidence the existing aggregate-only Agent Effectiveness backend already exposes, and define the smallest additive contract needed for the richer Auto-tuning UI.
+- Did: Traced the pure engine, `metrics:view` route, manual WebUI types/client, Auto-tuning recommendation and ledger contracts, operator docs, and privacy/RBAC tests. Confirmed that the current response already contains all 35 complete UTC daily points (28 baseline + 7 current), per-series null gaps and denominators, global adjusted deltas/directions, feedback composition, turnaround quartiles, guardrails, mix coverage, exclusions, and truncation. Confirmed that applied tuning records already provide bounded timestamp/target/before/after/FP-rate/sample/rollback context, but do not establish causal attribution. Identified that named cohort/driver rows are intentionally absent and that the generated OpenAPI response is currently untyped (`Record<string, never>`), while several real payload fields remain only behind the WebUI reading's index signature.
+- Tests: Focused backend contract suite passed **18/18** in **0.50s**. Existing tests cover complete-day boundaries, 35-point stability, latest-grade restatement, null-not-zero thresholds, mix adjustment and source-name suppression, guardrail denominators/censoring, truncation, aggregate-only privacy, query validation, and `metrics:view` RBAC. No Codex Security review was run.
+- Status: complete; Journal was the only file edited. No product code, dependency, staging, commit, push, or deployment was changed.
+- Next: Build the daily UI from the existing payload. Treat tuning-ledger markers as contextual events, never causes. If an actionable cohort view is still required, add at most five fixed severity-only descriptive rows with per-domain samples/statuses, null suppression below five samples in either window, explicit `descriptive_not_causal`/`affects_headline:false`, typed response models, and privacy/cardinality regressions; defer per-rule impact attribution to a separately designed pre/post study.
+
+### 2026-07-28 19:24Z — `/root/tuning_post_impl_audit` — Prior daily-effectiveness concept recovery completed
+- Context: Recover the exact earlier screenshot and brainstorming concepts for showing how observed agent-assisted outcomes change day by day, then translate them into the current Auto-tuning information architecture without overstating evidence.
+- Did: Recovered the four surviving high-fidelity mockups and their exact generation briefs from the prior rollout session: Daily Outcome Brief, the non-causal “Why performance changed” drill-down, Agent Quality Control, and Change Outcome Ledger. Recovered the prior recommendation for one Agent Effectiveness workspace with Daily brief / Quality control / Change outcomes depth, and mapped it onto today’s flat Auto-tuning flow. Recommended implementing only a compact `Daily trajectory` continuation now—three synchronized but separately scaled metric lanes, contextual tuning-ledger markers, a concise evidence-quality rail, and an accessible daily table—while retaining Quality Control as the canonical full evidence view and deferring the Change Outcome Ledger until a bounded pre/post study can connect changes to outcomes without pretending causation. The old `visualizations/...` folder is empty, but all four referenced PNGs survive under the rollout’s generated-images directory.
+- Tests: Read-only session, image, source, and documentation inspection only; no runtime test was needed. No product code or Codex Security review was involved.
+- Status: complete; Journal is the only repository file edited by this worker, and the shared dirty v0.1.1 Testing tree was otherwise preserved.
+- Next: Orchestrator should reuse the recovered daily brief hierarchy and labels, but use the current honest term `Human review turnaround`, preserve null/collecting states and complete-UTC windows, and label tuning-ledger events as context rather than drivers. Do not expose case drill-downs, cost-per-verified-case, feedback-coverage percentages, or per-change outcome attribution until their contracts exist.
+
+### 2026-07-28 19:40Z — `/root` — Auto-tuning daily effectiveness views completed
+- Context: Implement the richer outcome-measurement ideas previously explored as screenshots directly inside the standardized Auto-tuning workflow.
+- Did: Added one flat `Daily trajectory` continuation below the three period comparisons with independent agreement, correction, and human-review-p50 lanes across all 35 complete UTC days; preserved nullable evidence as chart gaps and an accessible daily table; disclosed raw-daily versus source-by-severity-adjusted period semantics; added measurable-day movement summaries; replaced the duplicate guardrail chip row with a compact quality-control rail for case-mix coverage, false negatives, reopens, retrieval coverage, exclusions, and suppressed strata; and added the in-window tuning ledger as explicitly non-causal chronology. Extended the shared multi-series chart with optional legend, stable domain, and current-window reference-line controls, corrected nullable case-mix types, and documented the reusable UI/evidence contract in the analyst, tuning, and development guides.
+- Tests: Browser acceptance passed in Light and Dark on the live local Auto-tuning route, including truthful collecting states, flat responsive geometry, and working `View full evidence` navigation to the selected Effectiveness tab. Focused lint, TypeScript, accessibility, and page/component tests passed; design gates passed all 5 checks; complete WebUI lint passed; Vitest passed **1,687/1,687 across 265 files**; and the version-matched docs + TypeScript + Vite production build passed with **3,176 modules**. The existing backend daily contract audit passed **18/18**, the full backend suite remains green at **2,072/2,072**, `git diff --check` passed, and no root `memory.md` exists. No Codex Security review was run.
+- Status: complete in the shared dirty v0.1.1 Testing tree. Existing unrelated work was preserved; nothing was staged, committed, pushed, or deployed.
+- Next: Let eligible analyst grades and completed human-review episodes accumulate. Until a bounded pre/post study exists, keep tuning events contextual and do not add per-change outcome attribution, named source drivers, or a composite agent score.
+
+### 2026-07-28 20:18Z — `/root` — Auto-tuning outcome workspace and proposal started
+- Context: Rework the full Auto-tuning outcome-measurement surface around the supplied Quality Control and Change Outcome Ledger references, add the useful graphs and operational metrics without crowding the page, and produce a detailed visual PDF comparing several practical future directions.
+- Did: Began a reference-led audit of the current page, existing aggregate-only effectiveness contract, tuning ledger, Console UI standard, responsive behavior, and browser-rendered information density. The implementation will preserve null evidence, denominators, complete UTC windows, aggregate privacy, and the rule that tuning chronology is contextual rather than causal.
+- Tests: Implementation, browser acceptance in both themes, focused accessibility/responsive coverage, full regression gates, and rendered-PDF inspection are pending. No Codex Security review is in scope.
+- Status: in progress in the shared dirty v0.1.1 Testing tree; unrelated work remains untouched.
+- Next: Map a progressive-disclosure page hierarchy, implement the truthful metric and ledger views, browser-QA the final surface, then generate and visually verify the detailed proposal PDF with screenshots and annotated concepts.
+### 2026-07-28 19:29Z — `/root/tuning_backend_verify` — Quality Control outcome-ledger contract audit started
+- Context: Audit the supplied Quality Control / Change Outcome Ledger concepts against the new AgentOutcomeReview implementation and the current aggregate-only Agent Effectiveness and Auto-tuning contracts.
+- Did: Began a read-only trace of the backend evidence fields, WebUI derivations, disclosure states, and focused tests. The audit will distinguish measured outcomes, safe client derivations, contextual tuning events, and unavailable causal claims.
+- Tests: Source and contract inspection pending. No product code will be edited and no Codex Security review is in scope.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Map every requested metric and graph to its exact source, denominator, evidence threshold, and privacy boundary; then return the smallest progressive-disclosure information architecture and regression matrix.
+
+### 2026-07-28 20:20Z — `/root/tuning_full_webui_verify` — Auto-tuning outcome-workspace revamp audit started
+- Context: Define a full-page Dashboard/Case Manager-consistent Auto-tuning revamp around the current `AgentOutcomeReview`, with useful graphs and operational evidence but no congested or nested-card layout.
+- Did: Began a read-only audit of the current page/component hierarchy, canonical shared primitives, responsive breakpoints, disclosure behavior, accessibility paths, and focused tests. Product code will not be edited.
+- Tests: Source and test-contract inspection pending. No Codex Security review is in scope.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Trace the exact current outcome-review implementation and its integration seam, compare it with Dashboard/Case Manager anatomy, then return an implementation-ready hierarchy and regression plan.
+
+### 2026-07-28 20:21Z — `/root/tuning_post_impl_audit` — Agent-improvement visual PDF brief started
+- Context: Prepare a decision-ready visual PDF content architecture that presents three to four practical ways to show observed agent-assisted outcome improvement, using the four previously generated reference concepts and the current aggregate evidence boundary.
+- Did: Began consolidating the Daily Outcome Brief, evidence drill-down, Agent Quality Control, and Change Outcome Ledger concepts into one executive narrative, comparison matrix, annotated page sequence, and exact evidence-safe operator copy. Product code and the existing image assets will not be edited.
+- Tests: Content and source-evidence inspection only; no runtime or Codex Security review is in scope.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Verify the remaining reference image, map each proposed visual to supported versus future data, then return an implementation-ready PDF production brief.
+
+### 2026-07-28 20:23Z — `/root/tuning_post_impl_audit` — Agent-improvement visual PDF brief completed
+- Context: Prepare a decision-ready visual PDF content architecture that presents three to four practical ways to show observed agent-assisted outcome improvement, using the four previously generated reference concepts and the current aggregate evidence boundary.
+- Did: Produced a fourteen-page, 16:9 visual-PDF brief structure covering the executive thesis, defensible definition of “better,” four concept alternatives, annotated reference screens, comparison matrix, progressive-disclosure recommendation, current-versus-future data support, exact operator copy, interaction/accessibility guidance, and a phased implementation decision. Each reference concept is explicitly separated into currently supportable measurements, contextual-only tuning events, and future study-dependent attribution. The brief keeps Dashboard/Case Manager flat section grammar and replaces unsupported causal, confidence, cost, source-driver, and supporting-case claims with evidence-qualified copy.
+- Tests: Verified all four surviving 1672×941 reference PNGs, current Agent Effectiveness formulas/thresholds/guardrails, the daily-trajectory component, tuning-ledger context, and the Console UI standard. No runtime test, product-code edit, asset edit, or Codex Security review was involved.
+- Status: complete; Journal is the only repository file edited by this worker, and the shared dirty v0.1.1 Testing tree was otherwise preserved.
+- Next: Produce the PDF from this brief using the four supplied screenshots, preserving their full-screen legibility and numbered callout overlays; use the recommended Auto-tuning + Analytics progressive-disclosure architecture as the decision page rather than presenting all four concepts as equally shippable today.
+
+### 2026-07-28 20:38Z — `/root/tuning_post_impl_audit` — Agent Outcome Measurement Options PDF production started
+- Context: Generate the requested detailed illustrated PDF proposal from the approved fourteen-page architecture and four reference screenshots, with exact evidence and guardrail language.
+- Did: Read the PDF skill in full, verified the bundled ReportLab/pdfplumber/pypdf runtime and Poppler tools, and began a confined generate-render-inspect-validate workflow under `tmp/pdfs/` and `output/pdf/`. No product source or documentation file will be edited.
+- Tests: Dependency and toolchain checks passed; PDF generation and rendered-page inspection pending. No Codex Security review is in scope.
+- Status: in progress in the shared dirty v0.1.1 Testing tree.
+- Next: Build the PDF with ReportLab, render every page with `pdftoppm`, inspect the page montage and representative pages, validate structure/text with `pdfinfo` and `pdfplumber`, fix any defects, and publish only the final artifact.
+
+### 2026-07-28 20:32Z — `/root/tuning_full_webui_verify` — Auto-tuning outcome-workspace revamp audit completed
+- Context: Define a full-page Dashboard/Case Manager-consistent Auto-tuning revamp around the current daily outcome evidence without nested-card congestion or unsupported causal claims.
+- Did: Traced the page hierarchy, outcome-review integration, shared chart/tab/disclosure/table/settings primitives, shell width contract, router option limits, canonical Dashboard and Case Manager geometry, and focused accessibility/render tests. The recommended architecture is a three-view workspace: `Operations` by default for proposals, approvals, monitored rules, and a desktop master/detail inspector; `Outcomes` for one compact comparison strip, a selectable daily chart, a quality-control rail, and collapsed evidence/change chronology; and `Policy & history` for the editable policy plus append-only ledger. This removes duplicate evidence and audit blocks, prevents three same-unit/mixed-unit plots from consuming the default operations flow, and keeps tuning changes explicitly contextual rather than causal. The implementation should reuse `Tabs`, `SegmentedControl`, `KpiTile`, `ComparisonMetric`, `MultiSeriesTrend`, `DashboardGroup`, `DataTable`, `SettingsGrid`, `StickySaveBar`, and the existing rule/proposal panels; at desktop use 7/5 or 8/4 single-divider splits, while tablet/mobile stack and move selected-rule detail into a focus-managed Sheet or inline region.
+- Tests: Read-only source and focused-test inspection only. The browser-control runtime was unavailable in this worker slot, so no rendered-browser claim is made. Defined regression coverage for one H1, tab/deep-link state, `metrics:view` isolation, keyboard tab/radio/disclosure behavior, stale-data refresh, null-not-zero daily gaps, separate units, visible exact-value table access, no duplicate evidence/audit regions, flat chrome, mobile detail focus return, both themes, and overflow/console checks. No product files or Codex Security review were involved.
+- Status: complete; Journal is the only file edited by this worker in this subtask, and the shared dirty v0.1.1 Testing tree was otherwise preserved.
+- Next: Orchestrator should implement the three-view workspace in `Tuning.tsx`, simplify `AgentOutcomeReview.tsx` to one metric-selectable chart plus a quality rail, retain exact-value disclosure and non-causal chronology, extend router serialization only if bookmarked Auto-tuning subviews are required, then run focused Vitest/axe, lint/typecheck/build, and light/dark responsive browser acceptance.
+
+### 2026-07-28 20:27Z — `/root/tuning_backend_verify` — Quality Control outcome-ledger contract audit completed
+- Context: Audit the supplied Quality Control and Change Outcome Ledger references against the implemented Agent Outcome Review and the aggregate-only Agent Effectiveness and Auto-tuning contracts.
+- Did: Mapped every requested metric, chart, cohort, control, and evidence label to the current engine, API, WebUI, tuning-ledger, proposal, and rule-version fields. Confirmed that period agreement/correction/turnaround comparisons, raw daily trajectories with nullable gaps, feedback composition, turnaround quantiles, guardrails, case-mix coverage, exclusions, and tuning chronology are truthful today when their distinct denominators and contextual-only boundaries stay visible. Confirmed that confidence intervals, named source/rule/entity cohorts, calibration, per-change outcome attribution, supporting cases, cost per verified case, and human approval/version stories are not supported by the current aggregate contract and must not be inferred in the client. Recommended a flat progressive-disclosure workspace with `Trajectory`, `Quality controls`, and `Change history`, plus the existing full-evidence page for formulas and caveats.
+- Tests: Focused backend Agent Improvement contract suite passed **18/18** in **0.60s**. Focused WebUI Agent Effectiveness summary/outcome-review suite passed **5/5** in **1.73s**; Recharts emitted its expected zero-dimension JSDOM warnings only. No Codex Security review was run.
+- Status: complete; Journal is the only repository file edited by this worker. No product code, dependency, staging, commit, push, or deployment was changed.
+- Next: Keep comparable-grade and human-review denominators separate, label daily points as raw complete-UTC-day cohorts, expose tuning records as contextual chronology with Wilson-LB/sample evidence, and add focused regressions preventing unsupported causal/approval/confidence/cost copy before the outcome workspace ships.
+
+### 2026-07-28 20:53Z — `/root/tuning_post_impl_audit` — Agent Outcome Measurement Options PDF completed
+- Context: Generate and validate the requested illustrated decision proposal from the approved fourteen-page architecture and four supplied Agentic SOC reference screens.
+- Did: Produced `output/pdf/agent-outcome-measurement-options.pdf` with ReportLab in the Console's dark, divider-led visual language. The fourteen 16:9 pages cover the outcome-measurement thesis, defensible definition of improvement, four concept alternatives, all four annotated reference screens, Auto-tuning placement, progressive disclosure, supported-now versus future-contract boundaries, exact operator copy, formulas, thresholds, and the staged recommendation. Corrected two first-pass layout collisions in the readiness table and operator-copy page; retained explicit non-causal language and current-versus-future labels throughout. The reproducible source is `tmp/pdfs/build_agent_outcome_options.py`.
+- Tests: `pdfinfo` confirms **14 pages**, **960 x 540 pt**, no encryption, JavaScript, or forms. Rendered every page at 130 DPI with `pdftoppm`; inspected the complete contact sheet plus cover, comparison, annotated concepts, readiness, copy, formulas, and decision pages. `pdfplumber` confirmed all fourteen pages have text, all expected page titles and required truth/guardrail language are present, every text character is in bounds, and no replacement characters or placeholders exist. `pypdf` confirmed the exact metadata title, fourteen pages, eight embedded screenshot image objects, and no annotations. The ReportLab source contains no non-ASCII authored text. No product source, application documentation, dependency, deployment, or Codex Security review was changed.
+- Status: complete; the final PDF is ready for review under `output/pdf/`, with generation and rendered-QA artifacts confined to `tmp/pdfs/`.
+- Next: Product leadership can select the Daily Brief plus Quality Control architecture now and keep the governed Outcome Ledger deferred until the bounded pre/post evidence contract exists.
+
+### 2026-07-28 21:01Z — `/root` — Auto-tuning workspace revamp and browser acceptance completed
+- Context: Integrate the supplied outcome graphs and metric ideas into Auto-tuning without reproducing the cramped all-in-one reference layouts, and keep every claim within the existing aggregate evidence contract.
+- Did: Reorganised Auto-tuning into task-focused **Operations**, permission-gated **Outcomes**, and **Policy & history** workspaces; kept Operations as the default; made Outcomes show one keyboard-selectable trajectory at a time for agreement, correction, or review turnaround; consolidated safety, mix, retrieval, exclusion, and suppressed-strata evidence into one quality-control rail; moved applied changes into a collapsed, explicitly non-causal disclosure; removed the duplicate evidence-quality block; and synchronised the tuning, usage, handoff, and UI-standard documentation. Kept missing demo evidence visibly unavailable or collecting instead of generating synthetic improvements.
+- Tests: Focused TypeScript and **21/21** Auto-tuning/Agent Effectiveness WebUI tests passed. Browser acceptance passed for Operations, Outcomes, and Policy & history on the local app at a 1280 px desktop viewport: one H1, working tabs and metric selector, no horizontal overflow, Operations reduced to 1,143 px document height, truthful unavailable states, and the ledger/policy controls remained reachable. Full lint, gates, WebUI, build, and backend verification are next. No Codex Security review was run.
+- Status: implementation and browser acceptance complete in the shared dirty v0.1.1 Testing tree; final repository gates remain in progress.
+- Next: Run the complete static/test/build gates, perform final PDF inspection and diagnostics, then close the local-only preview without recording runtime details.
+
+### 2026-07-28 20:55Z — `/root/tuning_full_webui_verify` — Final Auto-tuning WebUI regression gate started
+- Context: Verify the current shared v0.1.1 Testing WebUI tree after the Auto-tuning workspace revamp, without modifying product files.
+- Did: Began the required complete static and runtime-independent checks: quiet lint, Console design gates, full Vitest suite, and the version-matched documentation plus TypeScript/Vite production build.
+- Tests: Commands and exact counts pending. No Codex Security review is in scope.
+- Status: in progress in the shared dirty tree; concurrent work remains untouched.
+- Next: Run each gate independently, capture warnings/failures exactly, journal milestones, and report the final result to the orchestrator.
+
+### 2026-07-28 20:56Z — `/root/tuning_full_webui_verify` — WebUI lint and design gates passed
+- Context: First milestone in the final complete WebUI verification after the Auto-tuning workspace revamp.
+- Did: Ran the repository-defined quiet ESLint command and all Console design-system gates against the current shared tree.
+- Tests: `npm run lint -- --quiet` passed with zero reported warnings/errors. `npm run gates` passed all **5/5** checks: **37** required tokens, **82** contrast axes in both themes, no new arbitrary `text-[…]` sizes, no new raw hex colours in TSX, and chart-ramp separability across **3** dichromacies in both themes.
+- Status: lint and design gates green; full Vitest and production build remain pending.
+- Next: Run the complete Vitest suite, then build the pinned Help Center plus TypeScript/Vite application artifact.
+
+### 2026-07-28 20:55Z — `/root/tuning_backend_verify` — Final backend regression gate started
+- Context: Verify the complete offline backend suite against the current shared v0.1.1 Testing tree after the Auto-tuning outcome-workspace work.
+- Did: Recorded the existing dirty-tree boundary and began the full backend pytest gate without changing product files.
+- Tests: Full offline backend pytest is pending. No Codex Security review is in scope.
+- Status: in progress; concurrent repository work remains untouched.
+- Next: Run the suite to completion, capture the exact test count, duration, warnings, skips, and any failures, then record the final result.
+
+### 2026-07-28 20:56Z — `/root/tuning_full_webui_verify` — Full Vitest gate found one stale ledger expectation
+- Context: Complete WebUI regression run after Auto-tuning moved its append-only ledger from the default Operations view into Policy & history.
+- Did: Ran the entire `vitest run` corpus and isolated the only failure to the tuning-ledger render test; product and test files remain untouched by this verifier. Reported the exact failing assertion to the orchestrator for correction.
+- Tests: **264/265 files passed** and **1,687/1,688 tests passed** in **23.05s**. The sole failure is `src/soc/pages/__tests__/Tuning.ledger.test.tsx:123`, which searches for `rule-live` without first selecting the new `Policy & history` tab. Existing jsdom/Recharts zero-width/zero-height warnings were emitted in chart-render tests but were non-fatal.
+- Status: full Vitest gate red on one integration expectation; lint and design gates remain green.
+- Next: Continue the production build independently. After the orchestrator updates the test to enter Policy & history, rerun the focused ledger test and the full suite.
+
+### 2026-07-28 20:57Z — `/root/tuning_full_webui_verify` — Version-matched WebUI production build passed
+- Context: Independent build milestone while the single stale tuning-ledger test expectation is being handed back for correction.
+- Did: Built the pinned Help Center and complete v0.1.1 Testing application bundle from the current shared tree, including TypeScript validation and Vite production chunking.
+- Tests: Documentation bundled successfully at `/docs/0.1/` in **0.55s**; `tsc --noEmit` passed; Vite transformed **3,176 modules** and built in **5.32s**. No build warnings were emitted. Largest compressed chunks were Recharts **112.55 kB**, main app **95.32 kB**, Settings **61.91 kB**, and Case Detail **52.40 kB**.
+- Status: documentation, TypeScript, and production build green; only the stale Vitest integration expectation remains red.
+- Next: Await the bounded test correction, rerun the focused ledger test and complete Vitest suite, then record the final consolidated gate result.
+
+### 2026-07-28 20:57Z — `/root/tuning_backend_verify` — Full backend suite reached a clean exit
+- Context: First complete backend execution for the final shared-tree regression gate.
+- Did: Ran every offline backend test from the canonical `backend/` working directory; the run reached 100% with exit code 0 and no failures.
+- Tests: All collected tests passed. One expected Elasticsearch client `SecurityWarning` was emitted by `test_per_source_client_never_carries_mgmt_key` because its synthetic URL intentionally uses `verify_certs=False`. A second reporting pass is in progress to capture pytest's exact count and duration, which double-quiet mode suppressed.
+- Status: backend behavior is green; exact summary metadata pending.
+- Next: Repeat with pytest's normal summary enabled, then record final counts and close this read-only verification task.
+
+### 2026-07-28 20:58Z — `/root/tuning_full_webui_verify` — Corrected full Vitest gate passed
+- Context: Revalidate the complete WebUI suite after the bounded ledger test correction and 2XL proposals-layout adjustment.
+- Did: Confirmed the focused Policy & history ledger behavior first, then reran every WebUI test against the updated shared tree.
+- Tests: Focused `Tuning.ledger.test.tsx` passed **5/5** in **1.07s**. The full suite passed **265/265 files** and **1,688/1,688 tests** in **24.07s**. Non-fatal stderr remained limited to existing jsdom/Recharts zero-dimension messages, one Users Select uncontrolled-to-controlled warning, and React `act(...)` warnings in Inbox stale-revalidate and Demo Mode/Radix Slider tests; there were no test failures.
+- Status: full Vitest gate green. Because product layout changed after the first lint/build pass, final static and production gates are being repeated on the exact current tree.
+- Next: Rerun quiet lint, design gates, and the version-matched production build, then journal and report the consolidated result.
+
+### 2026-07-28 20:59Z — `/root/tuning_backend_verify` — Final backend regression gate passed
+- Context: Verify the complete offline backend suite against the final current shared v0.1.1 Testing tree after the Auto-tuning outcome-workspace work.
+- Did: Completed two clean full-suite executions from the canonical backend working directory and confirmed the repository-wide diff has no whitespace errors. No product file was edited by this worker.
+- Tests: Final reporting run passed **2,072/2,072 tests** with **0 failures**, **0 skips**, and **1 warning** in **82.97s**. The sole warning is the expected Elasticsearch client `SecurityWarning` from `test_per_source_client_never_carries_mgmt_key`, whose synthetic test URL intentionally sets `verify_certs=False`. `git diff --check` also passed.
+- Status: complete; the final offline backend gate is green. Journal is the only repository file edited by this worker, and no Codex Security review was run.
+- Next: Orchestrator may use **2,072/2,072 in 82.97s** as the final backend verification receipt for the current shared tree.
+
+### 2026-07-28 21:00Z — `/root/tuning_full_webui_verify` — Final WebUI regression gate passed
+- Context: Complete final verification of the exact shared v0.1.1 Testing WebUI tree after the Auto-tuning workspace, ledger-test, and 2XL responsive-layout corrections.
+- Did: Repeated every requested gate after the last product change: quiet ESLint, all Console design checks, focused ledger behavior, the full Vitest corpus, version-matched documentation bundling, TypeScript validation, and the Vite production build. Product files were not edited by this verifier.
+- Tests: `npm run lint -- --quiet` passed with **0 reported warnings/errors**. `npm run gates` passed **5/5** checks (**37** tokens, **82** contrast axes across both themes, both forbidden-style greps, and **3** CVD simulations across both themes). Focused ledger coverage passed **5/5**. The final logged full suite passed **265/265 files** and **1,688/1,688 tests** with **0 failures** in **23.28s**. Test stderr contained **286 non-fatal warning lines**: **118** Recharts zero-dimension messages from jsdom, **167** React `act(...)` messages (**96** SelectItemText, **16** SliderThumbProvider, **16** ForwardRef, **12** SelectItem, **8** NotificationsEditor, **6** SelectProvider, **4** Presence, **3** Inbox, **2** FocusScope, **2** DismissableLayer, **1** Standup, **1** DemoModeSection), and **1** Users Select uncontrolled-to-controlled message. Documentation 0.1.1 Testing bundled at `/docs/0.1/` in **0.56s**; `tsc --noEmit` passed; Vite transformed **3,176 modules** and built in **5.59s** with no build warnings.
+- Status: complete; every requested WebUI gate is green on the final current tree. Journal is the only repository file edited by this verifier, and no Codex Security review was run.
+- Next: The orchestrator may use these counts as the final WebUI verification receipt; the non-fatal test-harness warning backlog can be cleaned separately without blocking this release.
+
+### 2026-07-28 21:07Z — `/root` — Auto-tuning outcome workspace and illustrated proposal delivered
+- Context: Complete the practical, uncongested Auto-tuning redesign requested from the supplied Quality Control and Outcome Ledger references, add the defensible graphs and metrics supported by the current aggregate contract, and deliver a detailed illustrated options paper.
+- Did: Finalised the three-workspace Auto-tuning information architecture (**Operations**, permission-gated **Outcomes**, and **Policy & history**); kept one keyboard-selectable outcome trajectory visible at a time; consolidated review readiness, guardrails, case-mix quality, exclusions, and retrieval state into a single decision rail; retained change records as collapsed non-causal chronology; removed duplicate evidence presentation; fixed the shell and workspace grid so primary content can shrink without horizontal overflow; updated usage, handoff, tuning-baseline, UI-standard, and changelog documentation; and produced the fourteen-page `output/pdf/agent-outcome-measurement-options.pdf` with four visual alternatives, annotated reference screens, formulas, implementation boundaries, staged recommendation, and operator-copy guidance.
+- Tests: Final browser acceptance covered all three workspaces, both themes, tab and metric-selector interactions, truthful unavailable states, and responsive geometry at 1280 px: Operations and Outcomes both held `scrollWidth === 1280`, with no post-reload console errors. Focused current-tree WebUI coverage passed **37/37**; complete WebUI coverage passed **265/265 files** and **1,688/1,688 tests**; quiet lint passed; design gates passed **5/5**; documentation checks passed **4/4**; TypeScript and the v0.1.1 Testing production build passed over **3,176 modules** without build warnings. The full backend suite passed **2,072/2,072 tests** with no failures or skips. `git diff --check` passed. PDF validation passed across all **14 pages** with all four supplied screens embedded, no clipping, malformed characters, placeholders, forms, JavaScript, encryption, or annotations; SHA-256 is `70282b668517cdde84266cf5405a82393709ecb96cb4f935c033c84c857ac04a`. No Codex Security review was run.
+- Status: complete in the shared dirty v0.1.1 Testing tree. The application uses only supportable observed-association claims, unavailable evidence remains explicit, the requested PDF is ready under `output/pdf/`, and no root `memory.md` remains.
+- Next: Review the PDF's recommended **Daily Brief + Quality Control** path for product approval; defer the governed per-change Outcome Ledger until the bounded pre/post evidence contract can support it without causal overclaiming.
+
+### 2026-07-29 03:49Z — `/root` — Outcome-measurement PDF brief revision started
+- Context: Replace the presentation-style outcome-measurement proposal with the requested short, text-first ideas guide.
+- Did: Confirmed the revised boundary: no screenshots or visual mockups; retain only four practical options, concise trade-offs, evidence-safe metric guidance, and a staged recommendation.
+- Tests: Pending regeneration, render inspection, and structural validation. No application behavior or Codex Security review is in scope.
+- Status: in progress.
+- Next: Rebuild the existing stable PDF artifact as a compact four-page brief, render every page, inspect legibility and spacing, and validate content and structure before delivery.
+
+### 2026-07-29 03:56Z — `/root` — Concise outcome-measurement ideas brief completed
+- Context: Replace the fourteen-page screenshot-led proposal with the requested short, text-only guide.
+- Did: Rebuilt `output/pdf/agent-outcome-measurement-options.pdf` as a four-page A4 brief with no screenshots or diagrams. It now contains only the framing principles, four practical options (Daily Outcome Brief, Agent Quality Control, Change Outcome Ledger, and Guided Improvement Queue), their audience/cadence/trade-offs, a staged recommendation, decision rules, and minimum metric definitions. The stable filename remains unchanged; the reproducible ReportLab source remains under `tmp/pdfs/build_agent_outcome_options.py`.
+- Tests: Rendered and visually inspected all **4/4** pages at 130 DPI; spacing, hierarchy, footer, and page transitions are clean with no orphan sections. `pdfinfo` confirms four A4 pages, no encryption, JavaScript, or forms. `pdfplumber` and `pypdf` confirm text on every page, all required option headings, clean character bounds, no replacement characters, **0 embedded images**, **0 annotations**, and **0 fields**. `git diff --check` passed. Final SHA-256 is `e1b8c33e318fe0afe1a98bd0b9bb01db9bc790bb3ee71cce6fafe81f163fd10c`. No application behavior or Codex Security review changed.
+- Status: complete; the prior presentation-style PDF has been replaced by the concise ideas brief the user requested.
+- Next: Product stakeholders can review the four options and use the final rollout page to choose immediate versus later scope.
+### 2026-07-29 13:45Z — `/root` — Stable v0.1.1 Console hardening pass started
+- Context: Perform a release-candidate visual and interaction audit across the supported Agentic SOC WebUI, fix verified UI bugs and standardization gaps, document the resulting contract, and validate the application in the browser without running Codex Security.
+- Did: Read the canonical handoff, agent rules, current UI/browser workflow, existing release state, and dirty-tree boundary; established a page-by-page browser, responsive, theme, accessibility, loading/error-state, documentation, and full-regression plan that preserves existing API/RBAC behavior and unrelated work.
+- Tests: Baseline static, browser, and full-suite results are pending.
+- Status: in progress on the shared dirty `Testing` tree; nothing has been staged, committed, pushed, tagged, or scanned with Codex Security.
+- Next: Capture the exact current route and design-system baseline, start the local demo if needed, audit every supported surface in-browser, then implement only reproduced defects with focused regressions.
+
+### 2026-07-29 13:46Z — `/root/ui_docs_audit` — Stable v0.1.1 UI documentation consistency audit started
+- Context: Read-only companion audit for the release-candidate Console hardening pass, focused on whether operator, administrator, design-system, release-channel, responsive, loading, navigation, and browser-QA documentation still matches the current WebUI route and component contracts.
+- Did: Read the canonical handoff and agent rules, preserved the shared dirty-tree boundary, and scoped comparison to current source plus versioned Help Center documentation. No product or documentation files will be changed by this worker.
+- Tests: Documentation/source inspection is in progress. No Codex Security review is in scope.
+- Status: in progress on the shared dirty `Testing` tree.
+- Next: Map supported routes and shared primitives to their documented contracts, identify stale or missing statements with exact paths and line references, then return a prioritized correction list to the orchestrator.
+
+### 2026-07-29 13:46Z — `/root/ui_release_gates` — Stable v0.1.1 WebUI release-gate baseline started
+- Context: Independently verify the current shared WebUI candidate with lint, design-system gates, full Vitest, version-matched documentation checks, TypeScript, and the production build while the orchestrator performs browser-led UI hardening.
+- Did: Read the canonical handoff and agent rules, recorded the pre-existing dirty-tree boundary, and reserved this lane for read-only verification; no product or test files will be edited.
+- Tests: Pending WebUI lint, design gates, full Vitest, docs checks, TypeScript, and production build. Codex Security is explicitly out of scope.
+- Status: in progress on the shared dirty `Testing` tree.
+- Next: Run the static and test gates against the exact current tree, preserve complete logs and warning counts, then report any failures without changing product behavior.
+
+### 2026-07-29 13:48Z — `/root/ui_release_gates` — Fast WebUI release gates passed
+- Context: Establish the static/design/documentation baseline before the full browser-led Stable v0.1.1 hardening work advances.
+- Did: Ran the WebUI checks read-only against the shared candidate; product and test files remain untouched by this verifier.
+- Tests: Quiet ESLint passed with **0 reported errors or warnings**; TypeScript `tsc --noEmit` passed; all **5/5** design gates passed (**37** tokens, **82** contrast axes across both themes, both forbidden-style greps, and **3** CVD simulations across both themes); `docs:check` confirmed app **0.1.1** and docs **0.1** are consistent.
+- Status: fast baseline gates green; full Vitest and the production docs+app build remain.
+- Next: Run the complete WebUI test corpus with warning capture, then build the version-matched production artifact and report exact counts.
+
+### 2026-07-29 13:50Z — `/root/ui_release_gates` — Stable v0.1.1 WebUI baseline verification completed
+- Context: Finish an independent read-only release-gate receipt for the shared Stable v0.1.1 candidate before browser-led UI corrections are integrated.
+- Did: Ran the complete WebUI test corpus twice (the second pass classified all known stderr categories without persisting a log), rebuilt the version-matched Help Center and production SPA, rechecked the documentation artifact, and verified the repository diff has no whitespace errors. No product or test file was edited by this verifier.
+- Tests: Quiet ESLint passed with **0 reported errors or warnings**; TypeScript passed; all **5/5** design gates passed (**37** tokens, **82** contrast axes across both themes, both forbidden-style greps, and **3** CVD simulations across both themes); full Vitest passed **265/265 files** and **1,688/1,688 tests** with **0 failures**. The classified run emitted **283 non-fatal test-harness warnings**: **115** jsdom/Recharts zero-dimension messages, **167** React `act(...)` messages, and **1** Select uncontrolled-to-controlled message. `npm run build` bundled app **0.1.1 Testing** docs at `/docs/0.1/` in **0.57s**, transformed **3,176 modules**, and completed Vite in **7.61s** with **no build warnings**; the post-build `docs:check` passed. `git diff --check` passed. No Codex Security review was run.
+- Status: complete; every requested baseline WebUI gate is green on the shared dirty tree. Journal is the only tracked file intentionally edited by this verifier.
+- Next: Re-run these same gates on the orchestrator's final integrated UI-hardening tree; the 283 non-blocking jsdom/test-synchronization warnings remain cleanup opportunities, not release failures.
+
+### 2026-07-29 13:46Z — `/root/ui_static_audit` — Stable v0.1.1 static Console audit started
+- Context: Independently inspect the supported WebUI for high-confidence release-blocking or release-polish defects without changing product code.
+- Did: Established a read-only audit boundary covering layout/overflow, loading/error states, accessibility, and drift from the canonical Console design system; confirmed the shared working tree is already materially dirty and must be preserved.
+- Tests: Static source and contract inspection in progress; no Codex Security review is in scope.
+- Status: in progress; Journal is the only file this auditor may edit.
+- Next: Map supported routes to their page anatomy and shared primitives, then return exact file/line findings with bounded fixes and regression tests.
+
+### 2026-07-29 13:54Z — `/root/ui_docs_audit` — Stable v0.1.1 documentation corrections started
+- Context: Apply the bounded Help Center, release, Settings, and browser-acceptance corrections from the completed source/documentation audit while the orchestrator owns product UI fixes and final volatile verification receipts.
+- Did: Reconfirmed the current Settings and feature registries, public MkDocs navigation, in-app Docs discovery data, focused Docs tests, and the shared dirty-tree boundary. Scoped this pass to stable documentation/discovery contracts only; the footer label and final test/build counts remain with the orchestrator.
+- Tests: Pending focused Docs discovery coverage, strict/version-matched documentation validation, and repository diff checks. No Codex Security review is in scope.
+- Status: in progress; existing product changes remain preserved.
+- Next: Add the dedicated Workspace Chat guide and discovery links, correct Settings and Analytics hierarchy, define a repeatable release-candidate browser matrix, update release scope/identity notes, then validate the bounded diff.
+
+### 2026-07-29 13:52Z — `/root/ui_docs_audit` — Stable v0.1.1 UI documentation consistency audit completed
+- Context: Finish the read-only comparison between the current Console feature/settings registries and the versioned operator, administrator, design-system, testing, and release documentation before Stable promotion.
+- Did: Confirmed the same-origin Help Center, release-channel/provenance, shared loading, navigation-rail, identity, Settings, and responsive design contracts are substantially documented and source-aligned. Identified bounded release-documentation drift: the Settings inventory still says 26 instead of the registry's 27 sections and omits Storage & retention; several baseline receipts still cite 2,024/1,639 instead of the latest 2,072/1,688; Workspace Chat lacks a dedicated public Help Center article and in-app discovery entry; the visible footer label `Docs` conflicts with documentation that instructs operators to open `Documentation`; Analytics describes Agent effectiveness as nested despite its sibling route; release notes omit the current minimal identity surface and claim application-wide migration while the UI standard still calls migration incremental; and the Stable release gate lacks an explicit route/theme/narrow/keyboard/loading/error browser-acceptance matrix.
+- Tests: Read-only source/document inspection only; no product/documentation file was changed, no runtime gate was rerun, and no Codex Security review was performed.
+- Status: complete; exact file/line findings and recommended corrections were returned to the orchestrator. Journal is the only tracked file intentionally edited by this worker.
+- Next: Fold the bounded documentation corrections into the final UI-hardening tree after browser acceptance establishes the truthful migration scope and final test/build counts, then rerun strict docs and version-matched production build gates.
+
+### 2026-07-29 13:54Z — `/root/ui_warning_cleanup` — Users role Select warning cleanup started
+- Context: Remove the single uncontrolled-to-controlled Radix Select warning observed in the release-candidate WebUI suite without changing operator behavior or broadening into unrelated test-harness warnings.
+- Did: Isolated the warning to the Users administration role-assignment flow and scoped a controlled-state fix plus a focused regression assertion.
+- Tests: Focused reproduction and regression evidence are pending. No Codex Security review is in scope.
+- Status: in progress on the shared dirty `Testing` tree; backend, unrelated UI warnings, and product behavior remain untouched.
+- Next: Reproduce the warning in the focused Users test, make the Select controlled from its first render, add regression coverage, then run focused tests, typecheck, quiet lint, and diff validation.
+
+### 2026-07-29 13:57Z — `/root/ui_warning_cleanup` — Users role Select warning cleanup completed
+- Context: Finish the bounded release-candidate cleanup of the sole uncontrolled-to-controlled Select warning from the WebUI baseline.
+- Did: Kept the Assign roles base-role Radix Select controlled from its first render, preserved the selected-role behavior, and added a regression that opens the dialog, verifies the human-readable role, and rejects either controlled-mode transition warning. The focused flow emitted no related React `act(...)` warning, so unrelated jsdom/Radix harness warnings were deliberately left untouched.
+- Tests: Before the fix, focused Users coverage passed **2/2** while reproducing the exact warning. After the fix, focused Users coverage passed **3/3** with clean stderr; `npx tsc --noEmit`, quiet ESLint, and `git diff --check` all passed.
+- Status: complete; only `webui/src/soc/pages/Users.tsx`, its focused Users admin test, and this Journal receipt were changed by this worker. No backend work, staging, commit, push, or Codex Security review was performed.
+- Next: The orchestrator can include this correction in the final integrated v0.1.1 WebUI corpus and warning classification run.
+
+### 2026-07-29 13:59Z — `/root/ui_docs_audit` — Stable v0.1.1 documentation corrections completed
+- Context: Close the bounded documentation/discovery implementation requested after the release UI audit, without touching the orchestrator-owned footer label or volatile final-suite receipts.
+- Did: Added a dedicated public Workspace Chat guide covering saved history, narrow History Sheet, drafts, strict source/model provenance, evidence disclosure, bounded retention, failures/retries, safety, and the separation from case-scoped Chat; linked it from MkDocs, the Help Center home, Investigation, and the in-app Docs directory; added Campaigns and Analytics to in-app discovery; corrected Settings to 27 sections with Storage & retention; corrected Agent effectiveness as an Analytics sibling; documented narrow Settings navigation, deep links, dirty state, and the one sticky save path; added the complete Stable release-candidate browser acceptance matrix and release-gate receipt requirement; narrowed the application-wide migration overclaim; and recorded the minimal identity surface plus Workspace Chat in 0.1.1 release scope.
+- Tests: Focused Help Center coverage passed **10/10**; TypeScript passed; focused ESLint reported no errors or warnings; strict version-matched documentation bundled successfully at `/docs/0.1/` in **0.53s** and `docs:check` confirmed application **0.1.1** / docs **0.1**; `git diff --check` passed; a source assertion confirmed the Settings registry contains **27** sections and no corrected 26-section/Agent-effectiveness hierarchy wording remains. No Codex Security review was run.
+- Status: complete on the shared dirty Testing tree. Final repository-wide test/build counts and the `Docs`/`Documentation` source-label decision remain intentionally assigned to the orchestrator.
+- Next: Re-run the strict docs, focused Help Center, and complete WebUI gates after the final browser-led product edits, then stamp the resulting exact counts and acceptance receipt once.
+### 2026-07-29 13:59Z — `/root/ui_hit_targets` — Verified icon-control target cleanup started
+- Context: Apply the bounded Stable v0.1.1 hit-target findings from the static Console audit without changing visible glyph size or unrelated interaction design.
+- Did: Scoped implementation and regression coverage to Advanced allowlist removal, Case Tasks completion, both Knowledge tag removals, Columns Menu reordering, and Sources clear-search controls; the shared dirty tree is being preserved.
+- Tests: Focused rendered accessibility/class assertions, TypeScript, scoped lint, and diff validation are pending. No Codex Security review is in scope.
+- Status: in progress; no staging, commit, or push is authorized.
+- Next: Inspect each control and its nearest tests, migrate suitable controls to the shared icon-button contract, then validate the bounded diff.
+
+### 2026-07-29 14:00Z — `/root/ui_static_audit` — Stable v0.1.1 static Console audit completed
+- Context: Finish the read-only supported-WebUI review against the current Console UI and design-system contracts before the Stable v0.1.1 browser acceptance pass.
+- Did: Audited the supported `webui/` surface for release-relevant layout, overflow, loading, error, accessibility, and standardization drift. Found no P0 issue. Returned exact source findings for fail-closed MFA state, truthful partial-dashboard failures, undersized icon hit targets, competing shimmer loaders, duplicate Settings error chrome, embedded Settings hierarchy/card drift, and inconsistent viewport units. No product file was changed by this worker.
+- Tests: `cd webui && npx tsc --noEmit` passed. Read-only source checks found 58 `Skeleton`/`SkeletonCard` call sites across 24 production TSX files. Browser acceptance remains orchestrator-owned and is not claimed here. No Codex Security review was performed.
+- Status: complete; the ranked P1/P2 findings, bounded fixes, and focused regression suggestions were returned to the orchestrator. Journal is the only tracked file intentionally edited by this worker.
+- Next: Integrate the high-confidence fixes, then exercise the release matrix across both themes, narrow and desktop viewports, keyboard operation, loading, partial-failure, and retry states before stamping the Stable receipt.
+
+### 2026-07-29 14:01Z — `/root/overview_partial_failures` — Overview partial-failure honesty hardening started
+- Context: Fix the verified release-candidate gap where Noise Reduction and LLM spend failures could be silently omitted or rendered as empty/zero while other dashboard slices remained healthy.
+- Did: Read the canonical handoff and agent rules, preserved the shared dirty-tree boundary, and scoped this lane to per-slice availability/error state, compact retry affordances, and focused Overview regressions only.
+- Tests: Focused Overview tests, TypeScript, scoped lint, and diff validation are pending. No Codex Security review is in scope.
+- Status: in progress on the shared dirty `Testing` tree; no staging, commit, or push is authorized.
+- Next: Inspect the existing all-settled load path and dashboard geometry, retain successful sibling data, render truthful named failures in place, and verify both single-endpoint rejection cases.
+
+### 2026-07-29 14:06Z — `/root/overview_partial_failures` — Overview slice-only failure states implemented
+- Context: Make optional dashboard telemetry fail honestly without turning one endpoint outage into a whole-page error or destroying the last valid operator context.
+- Did: Added independent availability/error state and slice-only retry paths for Noise Reduction and LLM spend; a failed Noise Reduction refresh now keeps the last funnel mounted behind a compact named Unavailable/Retry state, while a failed usage refresh renders `Unavailable`, retains the last loaded cost in supporting copy, and turns that tile into an in-place retry. Healthy KPI, case, burndown, and timing siblings remain mounted.
+- Tests: Focused Overview command-center coverage passed **8/8**, including single-endpoint rejection/recovery for both slices; TypeScript passed; scoped ESLint reported no errors or warnings; `git diff --check` passed. Existing jsdom/Recharts zero-dimension diagnostics remain unrelated test-harness noise.
+- Status: implementation milestone complete; broader Overview regressions and final bounded diff review remain.
+- Next: Run every Overview-focused render, coverage, and accessibility test, then record the bounded completion receipt for the orchestrator.
+
+### 2026-07-29 14:07Z — `/root/overview_partial_failures` — Overview partial-failure honesty hardening completed
+- Context: Close the bounded Stable v0.1.1 fix for optional Overview telemetry that previously disappeared or impersonated empty data after a failed read.
+- Did: Finalized the independent Noise Reduction and usage-summary availability/error contracts, retained last usable slice data across refresh failures, kept healthy dashboard siblings mounted, and exposed named in-place retry paths using the shared flat Console components. No backend, policy, RBAC, routing, or unrelated UI behavior changed.
+- Tests: The full focused Overview corpus passed **30/30 tests across 4 files**, including render, command-center, source-coverage, and jest-axe accessibility coverage. TypeScript passed; scoped ESLint reported no errors or warnings; `git diff --check` passed. Existing jsdom/Recharts zero-dimension diagnostics are unchanged test-harness noise. No Codex Security review was run.
+- Status: complete on the shared dirty `Testing` tree; nothing was staged, committed, pushed, or tagged.
+- Next: The orchestrator can include these two slice regressions in the final complete WebUI gate and browser acceptance pass before Stable promotion.
+
+### 2026-07-29 14:03Z — `/root/ui_hit_targets` — Shared 24px icon-control contract applied
+- Context: Record the implementation milestone for the verified compact-control target defects before closing validation.
+- Did: Routed all five audited control families through the shared `IconButton`: Advanced allowlist removal, Case Tasks completion, both Knowledge import tag removals, Columns Menu up/down reordering, and Sources clear-search. Kept the existing 12–16px glyph sizes through local SVG-size overrides while raising every named target to at least 24×24.
+- Tests: Focused rendered coverage passed **25/25** across **4/4** files, including accessible names, minimum-target classes, preserved glyph sizing, and click outcomes.
+- Status: implementation milestone complete; final type, lint, and bounded diff validation is green and being recorded separately.
+- Next: Confirm the touched-file boundary, append the completion receipt, and return the exact handoff to the orchestrator.
+
+### 2026-07-29 14:03Z — `/root/ui_hit_targets` — Verified icon-control target cleanup completed
+- Context: Close the bounded Stable v0.1.1 hit-target standardization lane requested from the static Console audit.
+- Did: Preserved existing operator behavior and visual glyph scale while standardizing every assigned icon-only affordance on the shared accessible target primitive; added focused rendered regressions beside the relevant page/component coverage. Existing unrelated changes in Knowledge, Sources, and Advanced settings were preserved.
+- Tests: Focused Vitest passed **25/25** tests in **4/4** files; `npx tsc --noEmit` passed; scoped ESLint passed with zero errors/warnings; scoped `git diff --check` passed. No Codex Security review, staging, commit, or push was performed.
+- Status: complete on the shared dirty `Testing` tree; the orchestrator owns final full-corpus and browser acceptance.
+- Next: Include these controls in the final desktop/narrow keyboard and pointer acceptance sweep, then rerun the integrated WebUI release gates.
+
+### 2026-07-29 14:05Z — `/root` — Stable v0.1.1 Console hardening implementation milestone
+- Context: Record the integrated UI corrections selected from the static, documentation, warning, and accessibility audits before the final release-candidate verification pass.
+- Did: Made Skeleton geometry motionless so the shared named LoadingState ring remains the sole blocking-load animation; kept long PageHeader titles readable; consolidated Settings load failure into one retryable surface; changed MFA, SSO, and session-policy reads to fail closed with named Retry states instead of editable guessed defaults; flattened embedded SSO/session-policy chrome and corrected its h2/h3 hierarchy; standardized the product destination label to Documentation; named the Case Activity loader; and normalized full-height shells, the navigation rail, Login loading gate, and collaboration rail to dynamic viewport units. Integrated the separately verified Users Select and 24px icon-target fixes and the versioned documentation corrections from the parallel lanes.
+- Tests: Focused regression groups passed **17/17**, **19/19**, **61/61**, and **56/56** in successive runs; the separately verified icon-target group passed **25/25**. TypeScript, complete lint/design/docs/build, full Vitest, backend, and browser acceptance are reserved for the final integrated tree. No Codex Security review was run.
+- Status: implementation milestone complete; the Overview partial-failure lane remains in progress and final release verification is pending.
+- Next: Integrate truthful Noise Reduction and LLM spend partial-failure states, run the complete frontend/backend/docs gates, then execute and document the browser acceptance matrix across themes and desktop/narrow layouts.
+
+### 2026-07-29 14:06Z — `/root/backend_release_gate` — Stable v0.1.1 backend release gate started
+- Context: Independently verify the current shared Testing tree with the documented offline backend release gates while WebUI-only work may continue in parallel.
+- Did: Confirmed the supported backend virtual environment and scoped this lane to the complete pytest corpus, Python bytecode compilation, and repository diff validation only. No product, documentation, test, Git-state, or security-review changes are authorized.
+- Tests: Full backend verification is starting; exact totals, duration, warnings, and blockers are pending.
+- Status: in progress; shared WebUI edits remain outside this read-only backend lane.
+- Next: Run the complete offline backend suite, compile every backend Python module, validate the working-tree patch, and record a release-blocker verdict.
+### 2026-07-29 14:09Z — `/root/frontend_release_gate` — Stable v0.1.1 WebUI release gate started
+- Context: Independently verify the final supported Console candidate on the current shared `Testing` worktree after the UI, documentation, loading, error-state, accessibility, and partial-dashboard hardening lanes landed.
+- Did: Read the canonical handoff and agent contract, preserved the dirty-tree/no-Git-mutation boundary, and scoped this lane to the complete Vitest corpus with stderr classification, TypeScript, quiet ESLint, all five design gates, the full versioned Help Center plus application production build, strict documentation validation, and repository diff hygiene.
+- Tests: Complete WebUI verification is starting; exact files/specs, warning classes, build metadata, and blockers are pending. No Codex Security review is in scope.
+- Status: in progress; no product-code edits, staging, commit, push, tag, or local-runtime mutation is authorized.
+- Next: Run each deterministic gate against one shared snapshot, classify non-fatal test diagnostics without hiding them, then record an exact release-candidate receipt for the orchestrator.
+
+### 2026-07-29 14:13Z — `/root/frontend_release_gate` — WebUI tests, type safety, lint, and design gates green
+- Context: Record the first complete release-gate milestone for the integrated Stable v0.1.1 Console candidate before artifact production.
+- Did: Ran the supported WebUI corpus twice—once canonically and once through a streaming diagnostic classifier—without suppressing Console diagnostics; then verified TypeScript, quiet ESLint, and every design-system enforcement gate.
+- Tests: Vitest passed **1,708/1,708 tests across 267/267 files** (canonical **28.35s**, diagnostic receipt **24.15s**). The diagnostic run classified **147** Recharts zero-dimension messages and **167** React `act(...)` warnings as jsdom/Radix test-harness noise, with **0** uncontrolled/controlled transitions and **0** error heads. `npx tsc --noEmit` passed; quiet ESLint passed with **0 errors / 0 warnings**; all five design gates passed (**37** required tokens, **82** contrast axes in both themes, no new arbitrary text-size or raw-hex regressions, and the chart ramp remained separable across three dichromacies in both themes).
+- Status: milestone complete; there are no deterministic test, type, lint, or design-gate blockers. No Codex Security review was run.
+- Next: Build the version-matched Help Center and production SPA, validate the installed docs artifact, then finish whole-tree diff hygiene and the exact release receipt.
+
+### 2026-07-29 14:14Z — `/root/frontend_release_gate` — Stable v0.1.1 WebUI release gate completed
+- Context: Finish the independent supported-Console verification receipt for the current `Testing` candidate after all final UI and Help Center corrections were integrated.
+- Did: Produced the complete version-matched documentation/application artifact, validated the installed Help Center identity, and checked the entire shared patch for whitespace errors. The release artifact identifies Agentic SOC **0.1.1 · Testing**; it is a verified promotion candidate, not an already-published Stable build.
+- Tests: `npm run build` passed: Help Center **0.1** bundled in **0.51s** for app **0.1.1 · Testing**, TypeScript reran cleanly, Vite **5.4.11** transformed **3,176 modules** and built without warnings in **6.19s**. Representative production assets were entry **320.38 kB / 95.31 kB gzip**, CSS **147.60 kB / 41.98 kB gzip**, lazy motion **83.85 kB / 29.50 kB gzip**, and lazy Settings **221.34 kB / 61.87 kB gzip**. `npm run docs:check` confirmed app **0.1.1** ↔ docs **0.1**; whole-tree `git diff --check` passed. Together with the prior milestone: **1,708/1,708 Vitest tests in 267/267 files**, TypeScript clean, ESLint **0/0**, and all five design gates green.
+- Status: complete with no deterministic WebUI release blocker. Known stderr is limited to **147** Recharts zero-size jsdom diagnostics and **167** Radix/React `act(...)` test-harness warnings; there are **0** controlled-mode transitions and **0** error heads. No product code was changed by this gate, nothing was staged/committed/pushed/tagged, and no Codex Security review was run.
+- Next: The orchestrator can combine this static artifact receipt with backend and browser acceptance, update volatile documentation counts once, then promote the exact accepted `Testing` commit through the protected Stable-main workflow.
+
+### 2026-07-29 14:11Z — `/root/backend_release_gate` — Stable v0.1.1 backend release gate completed
+- Context: Close the independent offline backend verification lane on the current shared Testing candidate without altering backend product, documentation, tests, or Git state.
+- Did: Executed the complete suite twice—the documented quiet invocation and a canonical-summary repeat—then compiled every Python source into an isolated temporary cache and reran staged plus unstaged repository diff hygiene. No Codex Security review was run.
+- Tests: `backend/.venv/bin/python -m pytest -q` passed at 100% in **83.04s**; the canonical repeat passed **2,072/2,072** in **106.47s** (**108.39s** wall), with **0 failures, 0 skips, and 1 warning**. The warning is the Elasticsearch client's `SecurityWarning` in `test_per_source_client_never_carries_mgmt_key`, whose fixture intentionally constructs `https://es.example:9200` with `verify_certs=False`. `compileall` passed **353/353** backend and test Python files using a disposable out-of-tree cache. Full staged and unstaged `git diff --check` passed.
+- Status: complete; no backend functional release blocker was found. The warning is test-fixture-specific and non-blocking. The shared tree still contains **57 backend status entries / 49 tracked backend diff files / 0 staged backend files**, so Stable promotion still requires the orchestrator's intentional final diff closure and immutable release commit.
+- Next: Combine this exact backend receipt with the final WebUI, documentation, build, and browser-acceptance receipts before promoting and tagging v0.1.1.
+
+### 2026-07-29 14:16Z — `/root` — v0.1.1 Testing UI hardening and release gate completed
+- Context: Close the release-candidate cleanup requested for a clean, minimal, standardized Console before the first Stable v0.1.1 promotion.
+- Did: Integrated the verified loading, error, responsive-viewport, PageHeader, Settings hierarchy, icon-target, Users role-select, Overview partial-failure, Documentation discovery, Workspace Chat guide, and release-browser-matrix corrections. Kept Skeleton geometry static and permanently decorative to assistive technology, retained one shared named loading animation, preserved last valid optional dashboard telemetry behind explicit Unavailable/Retry states, and stamped every authoritative current-baseline document with one final suite receipt. The artifact remains **0.1.1 · Testing**; no Stable publication, tag, stage, commit, or push was performed.
+- Tests: Backend passed **2,072/2,072** with **353/353** Python files compiling. Console passed **1,708/1,708** across **267/267** files; TypeScript passed; ESLint reported **0 errors / 0 warnings**; all five design gates passed (**37** required tokens, **82** contrast axes, Light/Dark and CVD chart checks); the final post-documentation `npm run build` bundled Help Center **0.1** for app **0.1.1 · Testing**, transformed **3,176** Vite modules without warnings in **6.08s**, and `docs:check`, the focused Skeleton regression (**3/3**), and whole-tree `git diff --check` passed. Non-blocking test-harness diagnostics remain **147** Recharts zero-size jsdom messages and **167** React/Radix `act(...)` warnings, with **0** controlled-state transitions and **0** error heads. No Codex Security review was run.
+- Status: deterministic backend, Console, design, documentation, and production-artifact gates are green with no product blocker. Automated live browser acceptance is **not claimed**: the Browser controller rejected the local application origin under its URL policy even after attaching to the user-visible tab. This is an outstanding release-evidence gap, not a reproduced application failure.
+- Next: Record the documented desktop/narrow, Light/Dark/System, keyboard, loading/error/retry browser matrix against a Browser-permitted candidate deployment, then perform intentional final-diff review and promote that exact accepted `Testing` commit through the protected Stable-main/tag workflow.
+
+### 2026-07-29 20:03Z — `/root` — v0.1.1 pre-release UI and theme defect hunt started
+- Context: Perform one more evidence-led release sweep for functional defects, visual glitches, color-system drift, and incomplete UI standardization before promoting the current 0.1.1 Testing candidate.
+- Did: Re-read the canonical handoff and agent contract, preserved the existing shared dirty tree, selected the supported standalone WebUI as the only product surface, and split the review into theme/color, interaction/responsive, and release-gap lanes. Browser verification will be attempted through the supported Browser workflow; no visual pass will be claimed without direct evidence.
+- Tests: Baseline and focused verification are pending. No Codex Security review is in scope.
+- Status: in progress; no staging, commit, push, tag, or Stable promotion is authorized.
+- Next: Inventory the shared tokens and their real consumers, audit high-risk routes and states, compare findings across independent reviewers, implement bounded fixes, and rerun the affected plus release-level gates.
+
+### 2026-07-29 20:04Z — `/root/theme_color_audit` — v0.1.1 theme and color-system audit started
+- Context: Independently inspect the supported WebUI theme contract and real route consumers for release-blocking color, contrast, semantic-axis, Light/Dark/System, branding-isolation, chart-palette, focus/selection, and visual-density defects.
+- Did: Preserved the shared dirty tree and scoped this lane to read-only product inspection plus required Journal receipts. No product-code, documentation, Git-state, runtime, or Codex Security changes are authorized.
+- Tests: Existing design/color gates and safe static scans are pending.
+- Status: in progress.
+- Next: Read the authoritative design contracts and token implementation, trace representative consumers, run the color/design gates, and return only evidenced P0-P3 defects with bounded fixes.
+
+### 2026-07-29 20:04Z — `/root/interaction_ui_audit` — v0.1.1 interaction and UI-standard audit started
+- Context: Independently inspect the supported WebUI for release-blocking interaction, responsive-layout, state-feedback, accessibility, and UI-standardization defects before Stable v0.1.1 promotion.
+- Did: Read the canonical handoff, agent contract, UI standard, and testing matrix; preserved the shared dirty tree; and scoped this lane to read-only product inspection plus required Journal receipts. No product-code, documentation, Git-state, runtime, or Codex Security changes are authorized.
+- Tests: Targeted static inspection and focused test verification are pending.
+- Status: in progress.
+- Next: Trace the feature registry, shell, shared primitives, and the high-risk Login, Wizard, Overview, Chat, Case Manager, Settings, table, modal, and responsive paths; return only evidence-backed P0-P3 findings with bounded fixes and regression suggestions.
+
+### 2026-07-29 20:05Z — `/root/chat_review/release_contract_audit` — v0.1.1 Testing release-contract audit started
+- Context: Independently inspect the current shared Testing candidate for concrete release-identity, documentation, artifact, branch-topology, and deploy-stamping gaps before Stable promotion.
+- Did: Preserved the dirty shared tree and scoped this lane to read-only repository checks plus required Journal receipts. No product-code, release-document, Git-state, runtime, staging, commit, push, tag, Stable promotion, or Codex Security changes are authorized.
+- Tests: Release/version documents, package metadata, compose identity, ignored/untracked artifacts, current branch topology, and staged/unstaged diff inspection are pending.
+- Status: in progress.
+- Next: Trace authoritative version sources through build and deployment surfaces, compare them with the documented Testing-to-Stable workflow, and return only evidenced P1/P2 gaps with bounded fixes and verification commands.
+
+### 2026-07-29 20:05Z — `/root/chat_review` — v0.1.1 Testing release-gap audit started
+- Context: Independently inspect the current shared `Testing` candidate for concrete non-styling release blockers or actionable P1/P2 gaps after the Workspace Chat work.
+- Did: Preserved the dirty shared tree and scoped this lane to read-only repository, release-identity, API/route-contract, test-warning, packaging/artifact, branch-topology, and known-limitation evidence. No product-code, staging, commit, push, tag, local deployment, or Codex Security work is authorized.
+- Tests: Read-only inventories and bounded release checks are pending.
+- Status: in progress.
+- Next: Reconcile the current worktree and authoritative release documents, inspect generated and runtime contracts, classify only reproducible P1/P2 gaps, and return exact bounded fixes/tests.
+
+### 2026-07-29 20:13Z — `/root/chat_review` — v0.1.1 Testing release-gap audit completed
+- Context: Close the independent read-only release audit of the current shared `Testing` candidate before the orchestrator's final UI integration and release gates.
+- Did: Found no P0 or newly reproduced deterministic product blocker. Confirmed the existing Stable blockers remain real: there is no literal protected `main`, no `v0.1.1` tag, no project license, and no reproducible tag-publication pipeline; the release contract also still names durable push receipts/checkpoints, restart-persistent dynamic secrets, versioned migrations, and stronger open-case identity as prerequisites. Confirmed the working tree is not yet an immutable candidate (**301** status rows, **264** tracked files changed, **62** untracked files, **0** staged), the required final browser matrix remains unrecorded, and unignored `tmp/` plus the intentionally generated but untracked outcome PDF require an explicit release-asset decision. Identified bounded documentation cleanup: the known-warning section still names the already-fixed Users controlled-state warning, and the handoff verification date predates the latest release receipts. No release document or product code was edited.
+- Tests: Version metadata passed for application **0.1.1** / docs **0.1**; strict documentation consistency passed with **65** public pages; runtime OpenAPI byte-matched `webui/openapi.json`; freshly generated TypeScript byte-matched `api-types.gen.ts`; the installed docs bundle matched the release; staged and unstaged `git diff --check` passed; and focused feature-router discovery/auth, distribution, and storage-lifecycle coverage passed **45/45**. No Codex Security review was run.
+- Status: complete. The deterministic metadata, generated-contract, route-auth, distribution, and documentation checks found no new functional blocker. Stable promotion remains blocked by the explicit release contract and by the lack of one frozen, browser-accepted, fully gated commit.
+- Next: Orchestrator should reconcile the final intended diff and artifacts, rerun all complete backend/Console/design/docs/build/contract gates plus the documented Light/Dark/System desktop+narrow browser matrix on the exact candidate, then use the owner-controlled protected-main/tag workflow only after the declared Stable prerequisites are closed or deliberately re-scoped.
+
+### 2026-07-29 20:13Z — `/root/chat_review/release_contract_audit` — v0.1.1 Testing release-contract audit stopped
+- Context: Close the delegated release-identity lane when the parent audit was asked to return immediately.
+- Did: Stopped the read-only child lane without product, documentation, Git-state, release, runtime, or Codex Security changes; its version, branch, artifact, and publication evidence was independently reconciled into the parent audit above.
+- Tests: No additional child-only gate was claimed.
+- Status: stopped cleanly; no separate blocker remains unreported by the completed parent audit.
+- Next: Use the parent audit receipt and final integrated release gates as the authoritative closeout.
+
+### 2026-07-29 20:15Z — `/root` — Shared interaction and draft-safety defects corrected
+- Context: Record the first implementation milestone from the final v0.1.1 UI audit before the color-system lane and integrated release gates finish.
+- Did: Replaced interactive table rows with a dedicated named row-action button while retaining safe pointer row opening; inline checkboxes/links/buttons no longer trigger the row action. Restored a visible token-driven focus treatment to the shared Workspace and Case chat composer. Armed Settings preference and write-only-secret drafts against reload/tab-close loss, normalized the remaining login decoration heights to dynamic viewport units, and ignored local `/tmp/` review artifacts without touching the intentionally untracked release PDF.
+- Tests: Focused Vitest passed **43/43** across DataTable row-action, full Cases axe rules, ChatPanel, Settings render/draft guard, and dynamic-viewport suites. All five existing design gates passed before the color-lane changes. No Codex Security review was run.
+- Status: implementation milestone complete on the shared dirty `Testing` tree; color/branding corrections and complete integrated release verification remain in progress.
+- Next: Integrate the independently evidenced primary-foreground, semantic-wash, unsafe-override, and stale-branding-token fixes, update UI/release documentation, then rerun complete WebUI/backend/contracts/docs/build/diff gates.
+
+### 2026-07-29 20:16Z — `/root/theme_color_audit` — Theme audit moved into bounded remediation
+- Context: Convert the final v0.1.1 color-system audit into the four requested release fixes without disturbing unrelated shared-tree work.
+- Did: Confirmed the static design gates passed but did not exercise runtime branding overrides or text composited over semantic washes. Measured reproducible light-theme failures in shared badges, alerts, toasts, and health/status copy; confirmed custom accents paired with the dark theme's fixed near-black foreground can fail AA; confirmed operator semantic-fill overrides bypass contrast/CVD guarantees; and confirmed removed theme-token overrides remain stale inline.
+- Tests: Existing five design gates passed; focused theme/palette/alert/branding suites passed **68/68** before remediation. In-app Browser discovery found no available browser session, so no visual result is claimed.
+- Status: implementation in progress; no Codex Security review is being run.
+- Next: Derive the primary foreground from the effective accent, measure actual wash composites in CI, reject unsafe semantic overrides compatibly, clear the complete branding token set, and add focused client/backend regressions.
+
+### 2026-07-29 20:17Z — `/root/interaction_ui_audit` — Interaction audit completed with Settings route-leave protection
+- Context: Close the independent interaction/accessibility sweep and, at the orchestrator's follow-up request, correct the one bounded draft-loss defect that could be fixed without destabilizing the hash router.
+- Did: Verified the concurrently landed dedicated DataTable row action, shared chat-composer focus treatment, and Settings reload/tab-close guard. Added a reusable RouterProvider route-leave blocker that pauses Console `navigate()` transitions before React state or the hash changes, presents the shared accessible ConfirmDialog, preserves same-page Settings section jumps, and resumes the exact destination only after confirmation. Settings now registers both preference and write-only-secret drafts. Static inspection also identified two remaining bounded P2 standardization items for the orchestrator: the Scans card contains a CaseHoverCard-added nested tab stop, and shared modal/sheet primitives still use legacy `vh` sizing rather than dynamic viewport units.
+- Tests: Focused interaction verification passed **125/125** across 15 high-risk files before remediation. The new route-leave path plus Router, ConfirmDialog, and draft-hook coverage passed **41/41** across 4 files; `npx tsc --noEmit` passed. Recharts emitted only its known jsdom zero-dimension diagnostics in the broad focused run; there were no test failures. No Codex Security review was run.
+- Status: complete. Programmatic Console navigation can no longer silently discard a dirty Settings draft; browser back/manual hash edits remain an explicit narrow history-router edge rather than being patched with brittle URL rewrites or `window.confirm`. No staging, commit, push, tag, release, or local-runtime mutation was performed.
+- Next: Fix the Scans nested-interactive composition, normalize Dialog/AlertDialog/Sheet and legacy consumer overrides to `dvh`/`dvw`, and execute the documented desktop+narrow Light/Dark/System browser matrix on the frozen release candidate.
+
+### 2026-07-29 20:20Z — `/root/interaction_ui_audit` — Scans focus semantics and dynamic overlay viewports corrected
+- Context: Apply the two bounded P2 interaction/viewport corrections from the completed audit at the orchestrator's request, without redesigning overlay consumers or changing intended sheet size variants.
+- Did: Made the already-focusable Scans case card the CaseHoverCard trigger, removing the nested focusable header and preserving one Enter/Space activation target plus keyboard-reachable preview. The new axe regression exposed and corrected the adjacent page-heading skip (`h1` directly to card `h3`; cards are now `h2`). Replaced legacy viewport units in the shared Dialog, AlertDialog, and Sheet size variants with equivalent `dvh` values; side/full sheets now explicitly use the dynamic viewport. The expanded Noise Reduction inspection now uses `dvh`/`dvw` bounds. No consumer layout redesign was performed.
+- Tests: Focused Scans axe/keyboard, shared Dialog/Sheet, Noise Funnel, and viewport-contract coverage passed **41/41** across 5 files. `npx tsc --noEmit` passed and whole-tree `git diff --check` passed. The viewport source contract now rejects a return to legacy `vh`/`vw` in the four corrected surfaces. No Codex Security review was run.
+- Status: complete. The identified nested-interactive defect and the shared dynamic-viewport inconsistency are closed in the current shared Testing tree; no staging, commit, push, tag, release, or local-runtime mutation was performed.
+- Next: Include these focused regressions in the orchestrator's integrated WebUI gate and verify dialog/sheet clipping plus Scans focus/preview in the documented narrow-browser acceptance matrix.
+
+### 2026-07-29 20:26Z — `/root/theme_color_audit` — Runtime branding and semantic-wash contrast remediation complete
+- Context: Close the bounded v0.1.1 theme/color lane after aligning browser and backend behavior, correcting real semantic-wash contrast, and preserving legacy branding documents without allowing unsafe axis drift.
+- Did: Custom primary accents now derive the higher-contrast black/white foreground identically in Light and Dark, including the `#767676` crossover case; backend branding responses report that exact derived choice through the existing additive response shape. Reapplying Branding clears every writable inline token before applying the next document. Client and backend allow-lists now ignore legacy severity/status semantic-fill overrides compatibly because those fills, on-fill foregrounds, standalone text colors, and CVD pairings form one measured system. Retuned the four failing light-theme standalone text tokens, changed shared alerts/toasts and the audited status copy to use `*-text` on 10% washes, and made the contrast gate measure the actual card-plus-wash composite in both themes. Updated Branding editor copy/preview and the Console UI/design-system documentation to state the ownership contract. No Codex Security review was run.
+- Tests: Focused Console verification passed **75/75 across 5 files**; focused backend contrast/branding coverage passed **22/22**. TypeScript passed; scoped ESLint passed; all five design gates passed with **37** required tokens and **96** Light/Dark contrast axes; scoped `git diff --check` passed. Browser discovery had no available session, so no visual browser result is claimed.
+- Status: complete in the shared dirty `Testing` tree; no staging, commit, push, tag, deployment, or release action was performed.
+- Next: Orchestrator can freeze the shared tree and run the complete integrated backend, Console, docs, build, contract, and release-browser acceptance gates on the exact candidate.
+
+### 2026-07-29 20:28Z — `/root/final_frontend_gate` — Final supported WebUI release gate started
+- Context: Independently run the complete supported WebUI release gate on the frozen shared v0.1.1 candidate after the interaction and theme remediation lanes completed.
+- Did: Read `docs/HANDOFF.md` and `AGENTS.md`; preserved the frozen product/documentation tree; and limited writes to required Journal receipts. No product-code, documentation, Codex Security, Git staging/commit/push/tag, or runtime deployment work is authorized.
+- Tests: Full Vitest, TypeScript, quiet ESLint, design gates, package type checks, supported docs+app build, strict docs verification, and whole-tree whitespace validation are pending.
+- Status: in progress.
+- Next: Capture the exact preflight identity, run every requested command without suppressing stderr warnings, classify diagnostics, and return exact totals, build metadata, and a blocker verdict.
+
+### 2026-07-29 20:27Z — `/root/final_backend_gate` — Final backend release gate started
+- Context: Independently verify the frozen shared v0.1.1 Testing candidate with the complete offline backend suite, out-of-tree Python compilation, version and generated-contract checks, and whole-tree whitespace validation.
+- Did: Read the canonical handoff and agent contract, preserved the shared dirty tree, and scoped this lane to read-only validation plus required Journal receipts. No product code/documentation, Git state, deployment, or Codex Security changes are authorized.
+- Tests: Full backend pytest, disposable-cache compilation, version/OpenAPI/type artifact validation, and whole-tree `git diff --check` are pending.
+- Status: in progress.
+- Next: Run every backend gate on the same shared snapshot, capture exact totals and warnings, and return an explicit blocker verdict.
+
+### 2026-07-29 20:31Z — `/root/final_frontend_gate` — Complete WebUI test suite passed
+- Context: Record the first final-gate milestone on the frozen supported Console candidate.
+- Did: Ran the complete WebUI Vitest suite without filtering or warning suppression; no product or documentation files were edited.
+- Tests: **1,730/1,730 tests passed across 268/268 files** in **31.35s**. A compact non-interactive repeat is being used only to preserve and classify the complete diagnostic stream.
+- Status: test milestone complete; remaining static, design, generated-contract, build, docs, and whitespace gates are in progress.
+- Next: Classify all emitted test diagnostics, then run TypeScript, quiet ESLint, `gates`, `check:types`, the supported full build, strict docs verification, and whole-tree `git diff --check`.
+
+### 2026-07-29 20:32Z — `/root/final_backend_gate` — Final backend release gate passed
+- Context: Close the independent backend gate on the frozen shared v0.1.1 Testing candidate after the complete offline suite and all requested static contract checks.
+- Did: Validated the working tree without changing product code or documentation. Compiled every backend application, test, and playbook Python source into a disposable out-of-tree cache, regenerated OpenAPI and TypeScript types only in a disposable directory, and removed both temporary outputs automatically. No Codex Security, deployment, staging, commit, push, tag, or Stable promotion was performed.
+- Tests: The documented backend-directory run passed **2,073/2,073 tests** with **1 warning**: `SecurityWarning` from `tests/test_round4_wave2_poller_manager.py::test_per_source_client_never_carries_mgmt_key` for its intentional `verify_certs=False` client. The literal repository-root invocation first stopped at collection with `ModuleNotFoundError: No module named 'app'`; the same interpreter and arguments from the canonical `backend/` working directory passed. Out-of-tree compilation passed **354/354** Python files. `python3 scripts/check_version.py` passed at app **0.1.1** / docs **0.1**. Runtime OpenAPI (**199 paths, 118 schemas**) byte-matched `webui/openapi.json`, freshly generated TypeScript byte-matched `api-types.gen.ts`, and whole-tree `git diff --check` passed.
+- Status: complete; **PASS — no backend release blocker found on this frozen working tree**. The root-cwd import error is a command-context caveat, not a backend defect, because the documented test command runs from `backend/`.
+- Next: Combine this receipt with the independent Console/docs/browser and release-topology gates before any owner-controlled Stable promotion.
+
+### 2026-07-29 20:34Z — `/root/final_frontend_gate` — WebUI static, design, and generated-contract gates passed
+- Context: Record the second final-gate milestone before producing the supported Help Center and SPA artifact.
+- Did: Repeated the complete suite through a streaming classifier without hiding diagnostics, then ran the requested TypeScript, quiet ESLint, design-system, and generated-API drift checks. No product or documentation content changed.
+- Tests: Diagnostic Vitest passed **1,730/1,730 tests across 268/268 files** in **29.07s** and emitted **320 non-fatal test-harness notices**: **152** Recharts zero-dimension jsdom notices and **168** React/Radix `act(...)` notices, with **0** controlled-state transitions, **0** error heads, and **0** unimplemented-runtime errors. `npx tsc --noEmit` passed; quiet ESLint reported **0 errors / 0 warnings**; all **5/5** design gates passed (**37** required tokens, **96** Light/Dark contrast axes, both forbidden-style greps, and **3** CVD simulations in both themes); `npm run check:types` confirmed the **199-path** generated API contract has no drift.
+- Status: milestone complete; no deterministic test, type, lint, design, or generated-contract blocker found.
+- Next: Run the supported full documentation/application production build, strict installed-docs verification, final whole-tree whitespace check, and candidate-integrity comparison.
+
+### 2026-07-29 20:36Z — `/root/final_frontend_gate` — Final supported WebUI release gate passed
+- Context: Close the independent supported-Console release gate on the frozen shared v0.1.1 Testing candidate.
+- Did: Completed every requested WebUI test, static, design, generated-contract, documentation, production-build, and whitespace check. The full build regenerated the version-matched installed Help Center and production SPA; no product or documentation content was changed by this verifier. No Codex Security, runtime deployment, Git staging/commit/push/tag, or Stable promotion was performed.
+- Tests: Full Vitest passed **1,730/1,730 tests across 268/268 files**; TypeScript passed; quiet ESLint reported **0 errors / 0 warnings**; all **5/5** design gates passed (**37** tokens, **96** Light/Dark contrast axes, two forbidden-style checks, **3** CVD simulations in both themes); the **199-path** generated API contract had no drift. `npm run build` bundled app **0.1.1 · Testing** with docs **0.1** at `/docs/0.1/` in **0.60s**, then Vite **5.4.11** transformed **3,176 modules** and built in **5.80s** with **no build warnings**. Representative assets: entry **321.17 kB / 95.46 kB gzip**, CSS **147.77 / 42.00 kB**, lazy motion **83.85 / 29.50 kB**, Settings **221.63 / 62.01 kB**, Case Detail **219.61 / 52.51 kB**, and Recharts **421.76 / 112.55 kB**. `npm run docs:check` confirmed app **0.1.1** ↔ docs **0.1**; whole-tree `git diff --check` passed. Test stderr remained the documented non-fatal harness noise: **152** Recharts zero-dimension notices plus **168** React/Radix `act(...)` notices, with **0** controlled-state transitions, **0** error heads, and **0** unimplemented-runtime errors.
+- Status: complete; **PASS — no deterministic WebUI release blocker found in the requested supported static gate**. Browser acceptance and deployment remain separate release evidence and are not claimed here.
+- Next: Combine this receipt with the independent backend, browser-acceptance, final-diff, and release-topology evidence before any owner-controlled Stable promotion.
+
+### 2026-07-29 20:46Z — `/root` — v0.1.1 UI hardening and integrated release audit completed
+- Context: Close the requested pre-release defect, UI-standardization, and color-system pass on the shared dirty `Testing` candidate without performing Codex Security or owner-controlled release actions.
+- Did: Integrated the bounded table-row, chat-focus, Settings draft-safety, Scans semantics, and dynamic-viewport corrections; hardened Branding so semantic axes remain measured system colors, stale inline tokens are removed, legacy hex accents normalize safely, exact accent-foreground selection agrees across backend/editor/browser, and current or legacy font-stack documents round-trip to stable display-font keys. Updated the Help Center, UI/design-system contract, changelog, handoff, testing receipt, README, and master agent context to the final evidence. Preserved all unrelated shared-tree changes and the intentionally untracked outcome PDF; staged, committed, pushed, tagged, and released nothing.
+- Tests: Backend passed **2,073/2,073** tests with the one documented intentional `verify_certs=False` fixture warning and compiled **354/354** Python files out of tree. Console passed **1,732/1,732 tests across 268/268 files**; TypeScript and quiet ESLint passed; all **5/5** design gates passed with **37** required tokens, **96** Light/Dark contrast axes, both forbidden-style checks, and **3** CVD simulations per theme; the generated **199-path / 118-schema** OpenAPI and TypeScript contracts matched. The supported production build bundled app **0.1.1 · Testing** with docs **0.1**, transformed **3,176 modules**, completed without build warnings, and strict checks passed for all **65** public docs pages plus staged/unstaged whitespace. No Codex Security review was run.
+- Status: deterministic implementation, contract, documentation, and static design gates are green. No new P0/P1 product blocker was reproduced. The owner-controlled Stable gate still requires a frozen commit, the documented Light/Dark/System desktop+narrow browser matrix, branch/tag/publication decisions, and resolution of the repository-level license/publication-artifact prerequisites already recorded in the release contract.
+- Next: Run the visual browser matrix on the exact frozen candidate, decide whether `output/pdf/agent-outcome-measurement-options.pdf` is a release asset, then follow the protected Stable branch/tag workflow only after the declared publication prerequisites are closed or explicitly re-scoped.
+
+### 2026-07-30 17:44Z — `/root` — Agent outcome-metrics expansion started
+- Context: Turn operator feedback about cost direction, time saved, true-positive yield, tuning impact, week/month trends, and future source-gap guidance into an honest additive Agent Effectiveness contract and standardized Console presentation.
+- Did: Began an end-to-end audit of the existing aggregate-only improvement report, usage ledger, case lifecycle history, alert/noise counters, tuning evidence, source catalog, reusable outcome components, permissions, documentation, and release contracts. Scoped the work to evidence the product already records; missing human baselines must remain explicit rather than becoming synthetic estimates, and source recommendations must distinguish current evidence from a long-term objective.
+- Tests: Pending implementation and focused/full verification. No Codex Security review is being run.
+- Status: in progress.
+- Next: Specify additive bounded backend fields, implement them with deterministic insufficiency states, align Analytics and Auto-tuning presentation, update generated contracts/docs, and run the complete release gates.
+
+### 2026-07-30 17:46Z — `/root/outcomes_evidence` — Outcome-metrics truthfulness audit started
+- Context: Independently determine which requested cost, time-saved, true-positive-yield, tuning-impact, trend, and source-gap claims are supportable from current persisted evidence.
+- Did: Read the canonical handoff and agent contract, preserved the shared dirty product tree, and scoped this lane to read-only contract tracing plus required Journal receipts. Missing human baselines will remain unavailable rather than becoming synthetic estimates; observed associations will not be recast as AI or tuning causation.
+- Tests: Static source and contract audit is in progress. No Codex Security review is being run.
+- Status: in progress.
+- Next: Trace case lifecycle actors/timestamps, usage tiers and costs, noise counters, tuning records, source health/catalog, demo provenance, and return exact metric definitions and sufficiency gates to the orchestrator.
+
+### 2026-07-30 17:46Z — `/root/outcomes_frontend` — Outcome analytics UI audit started
+- Context: Audit Analytics Agent Effectiveness and Auto-tuning Outcomes against the new operator feedback and the current Console design standard, then propose an honest frontend information architecture before broader page edits.
+- Did: Began mapping the existing effectiveness report, shared comparison/review primitives, tuning Outcomes workspace, tests, and design-system guidance. Scoped this lane to frontend presentation and tests only; generated API types and backend files remain owned by the parent/backend lane.
+- Tests: Pending focused implementation and verification. No Codex Security review is being run.
+- Status: in progress.
+- Next: Send the parent a field-level presentation contract and visual hierarchy with explicit collecting, insufficient, and unavailable states, then implement only against finalized additive fields.
+
+### 2026-07-30 17:48Z — `/root/outcomes_frontend` — Outcome hierarchy and evidence-state contract proposed
+- Context: Establish the UI and field semantics before broader Agent Effectiveness or tuning Outcomes edits.
+- Did: Sent the parent a four-metric outcome brief, separate quality/speed-cost/volume-tuning detail domains, a non-composite AI-help outcome map, true week-over-week and month-over-month windows, and a bounded long-term coverage-opportunity contract. Required true-positive yield to use defensible alert lineage, time saved to expose its human counterfactual and never synthesize a value, cost to remain recorded agent spend rather than payroll, and tuning copy to distinguish upstream raw alerts from promoted investigations.
+- Tests: Design and contract audit only; no executable changes yet.
+- Status: milestone complete; implementation remains in progress.
+- Next: Inspect finalized backend/type changes as they land, then adapt shared frontend primitives and focused tests without touching generated API types or backend files.
+
+### 2026-07-30 17:51Z — `/root/outcomes_frontend` — Shared metric evidence states separated
+- Context: Prepare the reusable comparison primitive for the new outcome metrics without depending on unfinished backend fields.
+- Did: Extended `ComparisonMetric` with distinct collecting and not-applicable states alongside sufficient, insufficient, and unavailable; added a visible evidence-state reason; and suppressed stale measurements for unavailable/not-applicable states plus unsupported deltas while evidence is still collecting. Preserved existing flat/integrated layouts and definition controls.
+- Tests: Focused ComparisonMetric Vitest passed 8/8; TypeScript `tsc --noEmit` passed.
+- Status: milestone complete; outcome-page integration remains in progress.
+- Next: Wire the compact outcome strip and evidence-led detail after the backend lane confirms its optional field names.
+
+### 2026-07-30 17:46Z — `/root/outcomes_backend` — Outcome analytics backend audit started
+- Context: Expand the aggregate-only Agent Effectiveness report with honest cost, time, true-positive-yield, alert-volume, tuning-outcome, and trend evidence supported by current persisted data.
+- Did: Read the canonical handoff and agent contract, preserved the shared dirty tree, and began tracing the existing report, case/usage/noise/tuning stores, route permission, and focused tests before proposing an additive contract. Scoped implementation to bounded read-only aggregation with no case IDs, raw evidence, model calls, writes, or deterministic-decision changes.
+- Tests: Pending contract review, implementation, and focused backend verification. No Codex Security review is being run.
+- Status: in progress.
+- Next: Report the exact additive contract and sufficiency semantics to the orchestrator before editing backend implementation files.
+
+### 2026-07-30 17:52Z — `/root/outcomes_evidence` — Outcome-metrics truthfulness audit completed
+- Context: Determine which requested cost, time-saved, true-positive-yield, tuning-impact, trend, and telemetry-gap claims can be supported from current persisted evidence without inventing a counterfactual or causal attribution.
+- Did: Traced case lifecycle timestamps and actor provenance, analyst feedback, the usage ledger and processing tiers, hourly noise counters, threshold-tuning records, source manifests and health, and Demo Mode provenance. Returned exact safe definitions and sufficiency gates to the backend and frontend lanes: analyst-estimated time saved must remain separate from an unavailable human-only benchmark; case outcomes cannot be divided by raw alert counts and called precision; usage supports AI processing cost rather than overtime; tuning can have a labelled observational downstream-volume association but not a causal claim; semantic source-gap guidance remains a long-term deterministic-coverage feature.
+- Tests: Static source and contract audit only; no executable product changes and no Codex Security review.
+- Status: complete; evidence definitions, unavailable states, complete-period windows, materiality thresholds, sample gates, and required future provenance were handed to the orchestrator.
+- Next: The implementation lanes should preserve explicit collecting, insufficient, unavailable, and confounded states; add authenticated/manual-cohort and telemetry-coverage provenance before promoting those future claims.
+
+### 2026-07-30 17:54Z — `/root/outcomes_docs` — Outcome-layer documentation update started
+- Context: Align the authoritative operator, API, automation, release, and handoff documentation with the additive Agent Effectiveness evidence contract now being implemented.
+- Did: Read the canonical handoff and agent contract, preserved the shared dirty product tree, and scoped this lane to documentation only. The update will distinguish recorded AI processing cost from overtime, observed case-closure elapsed differences from active labor, case outcome rates from raw-alert yields, and observational tuning context from causation.
+- Tests: Documentation grep and diff validation are pending. No Codex Security review is being run.
+- Status: in progress.
+- Next: Update the bounded documentation set with explicit sufficient/insufficient/unavailable semantics, complete-period trend windows, downstream tuning-volume scope, and long-term source-guidance status.
+
+### 2026-07-30 18:04Z — `/root/outcomes_docs` — Outcome-layer documentation aligned to the evidence contract
+- Context: Close the bounded documentation lane for the additive Agent Effectiveness outcomes while preserving the established quality/turnaround headline as the authoritative promotion signal.
+- Did: Updated the overview, handoff, operator guide, analytics guide, tuning guide, API reference, roadmap, and changelog. Defined recorded case-linked AI processing cost separately from overtime; observed closure elapsed difference separately from active labor or a human-only benchmark; confirmed-positive case rate separately from unsupported TP/raw-alert yield; durable ingested versus after-clustering volume; true week-over-week and rolling-28 comparisons; applied tuning context with `causal_claim=false`; and present-day source guidance as unavailable with a governed long-term objective.
+- Tests: Scoped documentation `git diff --check` passed. Contract greps confirmed all seven additive outcome keys, both period-comparison keys, explicit unavailable/insufficient states, rolling-28 semantics, non-causal tuning wording, and source-guidance limitations. No Codex Security review was run.
+- Status: complete. The supported documentation no longer implies active labor saved, overtime savings, raw-alert precision, causal tuning impact, calendar month-over-month evidence, or present-day semantic source recommendations.
+- Next: The orchestrator should include these docs in the integrated docs build/check after backend and Console fields are frozen.
+
+### 2026-07-30 18:04Z — `/root/outcomes_contract_review` — Agent-effectiveness contract review started
+- Context: Independently verify the additive backend and Console Agent Effectiveness contract before integration, including field compatibility, aligned complete-period windows, evidence states, and truthful limitations.
+- Did: Read the canonical handoff and agent contract, preserved the shared dirty tree, and scoped this lane to a read-only source/test audit apart from required Journal entries. The review explicitly rejects payroll/overtime claims, active-labor or human-only benchmark claims, case-to-raw-alert precision, and causal auto-tuning attribution without supporting lineage.
+- Tests: Static contract inspection is in progress; no product changes and no Codex Security review.
+- Status: in progress.
+- Next: Compare the exact backend response against TypeScript types, UI consumers, and focused fixtures; report line-anchored compatibility or blockers to the orchestrator.
+
+### 2026-07-30 18:19Z — `/root/outcomes_backend` — Outcome analytics backend expansion completed
+- Context: Implement the operator-requested cost, elapsed-time, positive-case mix, alert-volume, tuning-context, week/month trend, and future source-guidance evidence without inventing labor, precision, or causal claims.
+- Did: Added seven aggregate-only outcome blocks and distinct 7-over-7 plus rolling-28-over-prior-28 outcome comparisons; aligned cases, case-associated UsageDoc cost, tuning history, and durable alert counters to one exclusive UTC-midnight boundary; added strict read projections so store failures cannot appear as empty success; preserved exact historical counter cutoffs and 90-day retention completeness; exposed signed elapsed differences without calling slower handling savings; kept true-positive-alert yield and semantic source guidance explicitly unavailable; and left deterministic case decisions untouched.
+- Tests: Agent Effectiveness plus noise-counter focused gate passed **55/55** tests. SQL/ES usage, export, models, tuning/batch, and noise-wiring compatibility gate passed **73/73** tests. Relevant Python compilation and scoped `git diff --check` passed; `backend/app/engine/case_manager.py` remained unchanged. No Codex Security review was run.
+- Status: complete; backend contract is ready for the integrated frontend/type/docs review and full backend suite.
+- Next: Regenerate/check OpenAPI and TypeScript contracts after the Console types settle, run the full backend gate, then perform local runtime/browser acceptance before claiming deployment readiness.
+
+### 2026-07-30 18:22Z — `/root/outcomes_frontend` — Outcome analytics Console integration completed
+- Context: Present the additive outcome contract in Analytics and Auto-tuning without turning descriptive cost, case-mix, alert-volume, or tuning associations into improvement or causation claims.
+- Did: Added a typed four-cell operational outcome brief with exact 7-over-7 and rolling-28-over-prior-28 selection; wired the selection through confirmed-positive case share, signed agent-vs-human-owned elapsed differences, downstream alert volume, AI processing cost, evidence detail, and trend rows. Added explicit TP/raw-alert unavailability, signed faster/slower aggregate wording, deterministic clustering reduction, neutral system-layer evidence attribution, degraded unavailable states, compact non-causal tuning context, and long-term-only source-coverage guidance. Extended the shared comparison primitive with collecting, unavailable, and not-applicable states and preserved older-backend omission compatibility.
+- Tests: Focused Console Vitest passed **22/22** tests across **3/3** files; TypeScript `tsc --noEmit`, scoped ESLint, tracked `git diff --check`, and no-index whitespace checks for the new Console files passed. Expected zero-size Recharts warnings were limited to jsdom tests. No local runtime was started and no Codex Security review was run.
+- Status: complete; the settled backend field names and equal-window semantics are represented directly in handwritten TypeScript types and tested UI fixtures, with no alias probing or fabricated fallback values.
+- Next: The orchestrator should run the integrated generated-contract/full Console gates and local browser acceptance on the exact candidate before deployment readiness is claimed.
+
+### 2026-07-30 18:24Z — `/root/outcomes_contract_review` — Agent-effectiveness contract review completed
+- Context: Independently verify the settled additive backend and Console outcome contract, exact period alignment, degraded evidence states, and claim boundaries before integration.
+- Did: Confirmed exact backend-to-TypeScript field parity for signed elapsed differences, cost-per-case and cost-per-day directions, clustering reduction, and per-period nested outcomes; verified that the selector changes the real 7-over-7 and rolling-28-over-prior-28 cost, timing, volume, detail, and trend data; checked strict read failure, empty/capped ledgers, historical UTC-midnight exclusion, negative elapsed differences, retained-counter completeness, no raw identifiers, and older-backend omission behavior. No product files were edited and no Codex Security review was run.
+- Tests: Backend Agent Effectiveness/noise gate passed **55/55**. Console focused gate passed **22/22** across **3/3** files; TypeScript, scoped ESLint, and scoped `git diff --check` passed. Expected Recharts zero-dimension notices were jsdom-only.
+- Status: complete; no P0/P1 contract blocker remains. One non-blocking evidence-language refinement remains: retained hourly counter history does not prove uninterrupted connector uptime, so eligibility copy should describe retained tally coverage and preserve the existing source-outage caveat rather than imply continuous telemetry coverage.
+- Next: Apply that copy-only refinement if it is not already integrated, then include the outcome files in the full backend/frontend/generated-contract/docs and browser acceptance gates.
+
+### 2026-07-30 18:38Z — `/root` — Agent outcome-metrics expansion integrated and verified
+- Context: Complete the operator-requested cost direction, observed time comparison, confirmed-positive mix, alert-volume, tuning context, week/month trend, and future telemetry-guidance work as an evidence-led Agent Effectiveness expansion.
+- Did: Integrated the additive aggregate-only backend contract, strict store projections, retained-counter completeness language, real 7-over-7 and rolling-28-over-prior-28 outcomes, typed four-metric Console brief, system-layer attribution, Auto-tuning context, explicit unsupported TP/raw-alert yield, and long-term source-guidance placeholder. Regenerated OpenAPI/TypeScript contracts, aligned all authoritative product and Help Center documentation, removed one stale React-effect lint warning, and made the posture test use a runtime-relative UTC timestamp instead of an expired fixed date. Preserved the deterministic decision authority and all unrelated shared-tree work.
+- Tests: Full backend suite passed **2,098/2,098** tests with the one documented intentional `verify_certs=False` fixture warning. Full Console Vitest passed **1,743/1,743 across 269/269 files**; TypeScript, quiet ESLint, generated-contract drift, all design/contrast/CVD gates, `git diff --check`, and the production app plus version-matched Help Center build passed. Local browser acceptance passed in Light and Dark at desktop and 390px width: the brief rendered, 7-day/28-day selection changed the actual reporting windows, metric definitions opened, there was no horizontal overflow, and browser warning/error logs were empty. No Codex Security review was run.
+- Status: complete; the requested outcome reporting is available without a composite score, fabricated human benchmark, overtime claim, raw-alert precision claim, or causal auto-tuning claim. Demo and sparse deployments intentionally show explicit insufficient/unavailable placeholders until enough retained real evidence exists.
+- Next: For the long-term source recommendation objective, add governed alert-to-missing-telemetry evidence and measured post-addition outcomes before emitting specific advice such as enabling outgoing DNS logs.
+
+### 2026-07-30 20:07Z — `/root` — Auto-tuning Console overhaul started
+- Context: Rebuild the Auto-tuning page as a clean, task-focused SOC workspace after operator feedback that the current surface is visually dense and difficult to use.
+- Did: Re-read the canonical handoff and Console UI standard, preserved the existing tuning/API/RBAC authority boundaries, and split the audit into live visual, source-contract, and regression-test lanes before editing the page.
+- Tests: Pending focused implementation, full Console verification, and Light/Dark responsive browser acceptance. No Codex Security review is being run.
+- Status: in progress.
+- Next: Capture the current live page and contracts, define the Operations/Outcomes/Policy hierarchy, then implement the flat divider-led redesign without changing deterministic tuning behavior.
+
+### 2026-07-30 20:07Z — `/root/tuning_contract_tests` — Auto-tuning contract and regression audit started
+- Context: Audit the Auto-tuning API, TypeScript contracts, RBAC-gated actions, and focused tests so the visual rebuild preserves every operator behavior and failure state.
+- Did: Began a read-only contract pass over the tuning page, client/types, focused Console tests, and the backend tuning routes; product files remain untouched.
+- Tests: Pending audit-only test mapping; no Codex Security review is being run.
+- Status: in progress.
+- Next: Enumerate preserved behaviors and return exact file/test anchors plus focused additions for navigation, mutations, loading, error, empty, and responsive states.
+
+### 2026-07-30 20:07Z — `/root/tuning_visual_audit` — Auto-tuning visual audit started
+- Context: Independently audit the current Auto-tuning Console hierarchy, density, overflow, accessibility, both themes, and responsive behavior before the full page redesign.
+- Did: Began a read-only review of the canonical handoff, UI standard, tuning implementation, shared primitives, and live route while preserving every real operator action and RBAC boundary.
+- Tests: Static and browser inspection pending; no product code changes and no Codex Security review.
+- Status: in progress.
+- Next: Return file-anchored issues and a task-focused layout contract to the orchestrator.
+
+### 2026-07-30 20:22Z — `/root/tuning_visual_audit` — Auto-tuning visual audit completed
+- Context: Finish the independent Auto-tuning hierarchy, density, overflow, accessibility, theme, and responsive audit before the Console rebuild.
+- Did: Traced the full React page, tuning API contract, backend rule-scoped apply semantics, shared table/settings primitives, focused regression expectations, and the canonical Console UI standard. Identified the false `Healthy` state for under-sampled rules, repeated evidence across five surfaces, guaranteed wide-table overflow and broken rule identifiers, out-of-context selected detail, ambiguous rule-scoped Apply affordances, overbuilt empty states, and inverted policy/history hierarchy. Returned a three-band Operations workspace contract, compact status framing, grouped review queue, five-column rule-performance view with contextual inspector, explicit Collecting/Within target/Needs attention states, and preserved RBAC/loading/decision-authority requirements to the orchestrator.
+- Tests: Static source/API/contract audit completed. The in-app Browser had no browser surface available to this subtask, so no live Light/Dark or responsive acceptance result is claimed; the integration lane must run that gate. No product code changes and no Codex Security review.
+- Status: complete; no product files were edited by this lane.
+- Next: Implement the task-focused hierarchy, add the collecting-state and rule-scoped action regressions, then verify both themes, keyboard/focus behavior, wide desktop, and narrow mobile in the live Console.
+
+### 2026-07-30 20:12Z — `/root/tuning_contract_tests` — Auto-tuning contract and regression audit completed
+- Context: Preserve the Auto-tuning API, RBAC, mutation, history, and degraded-state semantics through the Console redesign.
+- Did: Audited the tuning client/types, page consumers, feature and permission gates, focused Console tests, FastAPI routes, validated configuration, and tuning ledger. Found one material interaction mismatch: the backend Apply endpoint acts on every current recommendation for a rule, while the existing UI presents separate per-kind buttons and permits a sibling action for the same rule during an in-flight mutation. Returned a rule-grouped action contract and focused semantic test additions for tabs, proposals, apply/rollback, configuration, loading/error/empty, accessibility, and responsive behavior; no product files were edited.
+- Tests: Focused Auto-tuning Console gate passed **22/22 tests across 4/4 files**. No Codex Security review was run.
+- Status: complete; the redesign can proceed without changing the deterministic tuning authority, provided Apply is represented and locked at rule scope.
+- Next: Replace brittle class assertions with semantic/behavior assertions, group all recommendations by rule, lock all same-rule mutations together, preserve dirty policy drafts across background reloads, and browser-check Light/Dark desktop plus 390px layouts for overflow and keyboard access.
+
+### 2026-07-30 20:33Z — `/root/tuning_docs_audit` — Auto-tuning documentation alignment audit started
+- Context: Identify the authoritative documentation updates required by the task-focused Auto-tuning Console redesign without editing product or documentation files.
+- Did: Read the canonical handoff and agent contract, preserved the shared dirty tree, and scoped this lane to exact operator, UI-standard, release-note, and handoff wording for grouped rule-scoped review, truthful evidence states, the contextual rule inspector, and policy-first history navigation.
+- Tests: Documentation/source audit in progress. No Codex Security review is being run.
+- Status: in progress.
+- Next: Map the current prose to the implemented Operations/Outcomes/Policy & history hierarchy and return precise locations plus concise replacement text to the orchestrator.
+
+### 2026-07-30 20:35Z — `/root/tuning_docs_audit` — Auto-tuning documentation alignment audit completed
+- Context: Finish the read-only documentation audit for the task-focused Auto-tuning Console redesign.
+- Did: Mapped the implemented rule-grouped review queue, rule-scoped Apply behavior, truthful Collecting/Within target/Needs attention taxonomy, searchable rule-performance list, contextual inspector, and policy-before-history order to the Help Center, operator guide, handoff, UI standard, browser matrix, and changelog. Identified stale table-layout and singular per-change wording plus ambiguous source comments; returned exact locations and proposed replacement copy to the orchestrator. No product or documentation file was edited by this lane.
+- Tests: Static source/API/documentation comparison and Journal whitespace validation passed. No Codex Security review was run.
+- Status: complete; the bounded documentation patch can be applied without changing backend, API, RBAC, or deterministic decision contracts.
+- Next: Apply the proposed copy after the UI contract is frozen, then include it in the full Help Center build, strict docs check, and Light/Dark responsive browser acceptance receipt.
+
+### 2026-07-30 20:32Z — `/root/tuning_final_review` — Auto-tuning redesign final review started
+- Context: Independently review the rewritten Auto-tuning Console before integration, with product code frozen in this lane.
+- Did: Began a read-only pass over the rule-scoped tuning mutation contract, RBAC boundaries, evidence-state labels, responsive layout, accessibility semantics, UI-standard alignment, and focused regressions.
+- Tests: Focused checks pending; no Codex Security review is being run.
+- Status: in progress.
+- Next: Return prioritized, file-anchored findings and verification evidence to the orchestrator without editing product code.
+
+### 2026-07-30 20:38Z — `/root/tuning_final_review` — Auto-tuning redesign final review completed
+- Context: Complete the independent contract, state-semantics, RBAC, accessibility, responsive, and UI-standard review of the rewritten Auto-tuning Console.
+- Did: Confirmed the three-workspace hierarchy, rule-grouped Apply affordance, truthful Collecting/Within target/Needs attention states, permission-gated tuning controls, flat Console composition, initial/stale loading split, and newest-only rollback. Identified a same-rule Apply/rollback concurrency gap caused by different busy keys, stale selected-rule context after filtering, a narrow-layout/focus problem in the rule inspector, an actionability-label mismatch, mixed rule/change count units, and missing custom-role gating on Approvals links. No product code was edited by this lane.
+- Tests: Auto-tuning focused suite passed **23/23 tests across 4/4 files**; scoped ESLint, TypeScript `--noEmit`, and scoped `git diff --check` passed. No Codex Security review was run.
+- Status: complete; one same-rule mutation-lock fix is recommended before release, followed by the bounded interaction/accessibility fixes.
+- Next: Use a canonical rule-level busy lock for Apply and rollback, clear or relocate selected detail when filters/narrow layouts change context, add permission and focus regressions, then complete live Light/Dark desktop and 390px browser acceptance.
+
+### 2026-07-30 20:52Z — `/root` — Auto-tuning Console overhaul verified
+- Context: Complete the implementation and release-quality verification for the requested end-to-end Auto-tuning UI revamp.
+- Did: Rebuilt Auto-tuning as a flat three-workspace SOC workbench: a compact decision-authority band, continuous evidence strip, rule-grouped Review queue, truthful Collecting/Within target/Needs attention taxonomy, searchable and filterable responsive Rule performance list, contextual desktop inspector, focus-managed mobile Sheet, policy-first configuration, and append-only history. Matched the real rule-scoped Apply contract, routed restricted work to permission-gated Approvals, unified same-rule Apply/rollback locks, preserved stale data and dirty policy drafts, limited rollback to the newest active reversible change, restored trigger focus after Sheet close, and aligned the operator guide, Help Center, UI standard, handoff, browser matrix, release notes, and API comments. Deterministic tuning and `decide()` authority are unchanged.
+- Tests: Focused Auto-tuning and Outcomes gate passed **33/33** tests; the tuning backend route suite passed **10/10**. Full Console Vitest passed **1,748/1,748 across 269/269 files**; TypeScript, full ESLint, production app build, and version-matched Help Center bundle passed. Browser acceptance passed in Light and Dark at 1440×900 and 390×844 with no document overflow; the compact inspector opens as a labelled Sheet, its close control receives focus, and focus returns to the originating rule. Known Recharts zero-size and existing React/Radix `act(...)` notices remain non-failing test-harness output. No Codex Security review was run.
+- Status: implementation and verification complete; final scoped whitespace and browser-delivery checks remain before handoff.
+- Next: Run the final diff check, leave the verified Auto-tuning route open locally, and hand the completed redesign back without staging or committing unrelated shared-tree work.
+
+### 2026-07-30 20:53Z — `/root` — Auto-tuning Console overhaul completed
+- Context: Close the requested Auto-tuning UI revamp after implementation, documentation, automated verification, and live responsive acceptance.
+- Did: Completed the final whitespace check and delivered the verified local Auto-tuning route in Dark mode at desktop width. Preserved all unrelated shared-tree changes and made no commit, push, deployment mutation, or security-review run.
+- Tests: Final `git diff --check` passed. The completed evidence remains **1,748/1,748 Console tests**, **10/10 tuning route tests**, clean TypeScript and ESLint, successful production app/Help Center build, and Light/Dark desktop plus 390px browser acceptance with exact-width layout and focus return.
+- Status: complete; the redesigned Auto-tuning Console is ready for operator review on the existing local runtime.
+- Next: Gather operator feedback against Operations, Outcomes, and Policy & history; future tuning behavior changes should remain separate from this presentation-only overhaul and preserve deterministic case-decision authority.
+
+### 2026-07-30 20:55Z — `/root` — Auto-tuning explanatory UX refinement started
+- Context: Operator feedback identified that the redesigned rule-performance workspace still presents dense values without clearly explaining why a rule needs attention or what action is recommended.
+- Did: Re-read the current handoff and tuning-surface UI contract, inspected the supplied dark-theme screenshot, and scoped a focused explanatory hierarchy and visual-comfort pass that preserves the existing rule-scoped API, RBAC, and deterministic decision authority.
+- Tests: Pending focused regressions, full Console gates, and Light/Dark responsive browser acceptance. No Codex Security review is being run.
+- Status: in progress.
+- Next: Audit available recommendation evidence, define plain-language diagnosis/action copy, then rebuild the list and inspector so operators can understand and act without decoding tuning statistics.
+
+### 2026-07-30 20:56Z — `/root/tuning_explanation_contract` — Auto-tuning explanation contract audit started
+- Context: Trace the exact tuning evidence and recommendation contract so the Console can explain why a rule needs attention and what processing its recommendation will do without inventing causality.
+- Did: Began a read-only audit of the Auto-tuning page/client, FastAPI routes, deterministic tuner, persisted ledger, models, and regression tests; product files remain untouched.
+- Tests: Contract/source audit in progress. No Codex Security review is being run.
+- Status: in progress.
+- Next: Return exact fields, formulas, edge cases, and operator-safe copy for diagnosis and recommended action to the orchestrator.
+
+### 2026-07-30 21:00Z — `/root/tuning_explanation_contract` — Auto-tuning explanation contract audit completed
+- Context: Finish the read-only evidence audit needed to make each rule state and proposed tuning action self-explanatory without overstating deterministic evidence.
+- Did: Traced the Console types and presentation, FastAPI recommendation/apply routes, Wilson-bound statistics, bounded proposal derivation, retrospective safety replay, tuning ledger, validated policy, and regression fixtures. Returned exact attention/collecting/within-target formulas; operator-safe diagnosis and action copy for correlation thresholds, feed severity floors, suppression, blocked replay, and missing recommendations; and contract gaps around cadence wording, feed-target provenance, severity-floor history keys, and advisory EWMA interpretation. No product code was edited by this lane.
+- Tests: Static source/API/test contract comparison completed; scoped Journal whitespace validation pending. No Codex Security review was run.
+- Status: complete; the orchestrator has the truthful explanatory contract for the UI refinement.
+- Next: Implement the calmer `Why this state` and `Recommended action` hierarchy, replace absolute safety language with evidence-qualified wording, then cover the copy/state matrix in focused tests and live Light/Dark responsive acceptance.
+
+### 2026-07-30 20:57Z — `/root/tuning_visual_comfort` — Auto-tuning explanatory visual audit started
+- Context: Audit the redesigned Auto-tuning Operations workspace after operator feedback that the page remains visually uncomfortable and does not explain why a rule needs attention or what to do next.
+- Did: Read the canonical handoff, agent contract, Console UI standard, browser-control instructions, and supplied dark-theme screenshot; scoped this lane to a read-only visual and interaction audit with exact hierarchy, copy, density, responsive, and accessibility guidance.
+- Tests: Live browser and static component inspection pending. No product code changes and no Codex Security review.
+- Status: in progress.
+- Next: Inspect the current implementation and live Light/Dark layouts, then return a materially calmer self-explanatory Operations contract to the orchestrator.
+
+### 2026-07-30 21:01Z — `/root/tuning_visual_comfort` — Auto-tuning explanatory visual audit completed
+- Context: Finish the read-only Auto-tuning Operations audit after the operator reported that the new page still felt uncomfortable and unexplained.
+- Did: Inspected the full Tuning React hierarchy, response contract, deterministic threshold logic, correlation/severity-floor behavior, shared Console grammar, and the supplied dark-theme crop. Identified the core problem as a statistics-first, duplicated hierarchy: the same recommendation appears in the Review queue, a dense four-column inventory, and a narrow inspector, while diagnosis and expected operational effect remain hidden behind jargon. Returned an exact calmer hierarchy: visible state definitions, a flat Rules needing attention queue with plain-language Why and Recommended action lanes, a simplified all-rules inventory, and an inspector ordered Why → Action → Effect → Safety → Measurements → History. Specified truthful per-state and per-change copy, a single rule-scoped mutation affordance, semantic-color restraint, safer inspector breakpoints, mobile stacking, focus, and screen-reader behavior.
+- Tests: Static source/contract plus supplied-image visual inspection completed. No browser surface was available to this lane, so no live Light/Dark or responsive acceptance result is claimed; the integration lane must run that gate. No product code changes and no Codex Security review.
+- Status: complete; guidance delivered to the orchestrator.
+- Next: Implement diagnosis/action helpers and the simplified hierarchy, add semantic copy/action/safety regressions, then browser-check both themes, keyboard flow, >=1440px inspector placement, and 390px no-overflow behavior.
+
+### 2026-07-30 21:16Z — `/root` — Auto-tuning diagnosis-first UX milestone verified
+- Context: Replace the visually dense statistics-first rule workspace with an operator-readable explanation of why a rule needs attention and what action is recommended.
+- Did: Reordered Operations around plain-language diagnosis and bounded next steps; added exact evidence-minimum, conservative-estimate, observed-ratio, and percentage-point explanations; described the operational effect of correlation and severity-floor changes; qualified replay-blocked recommendations without inventing causality; renamed misleading Safe copy to Eligible after replay; and aligned the responsive inspector, operator guide, UI standard, handoff, and changelog. Deterministic tuning, RBAC, Apply scope, and case-decision authority are unchanged.
+- Tests: Focused Auto-tuning Console suite passed **28/28 across 4/4 files**; TypeScript and scoped ESLint passed. Live acceptance passed in Light and Dark at the default desktop viewport and in Dark at 390×844 with zero horizontal overflow; the rule Sheet presents Why → Action → Effect → Replay → Measurements, focuses Close, and remains fully readable. No Codex Security review was run.
+- Status: implementation milestone complete; full Console, design, documentation, and production-build gates remain before final handoff.
+- Next: Run the full supported WebUI release gate, perform final browser/log checks, and deliver the existing Auto-tuning route without staging or committing unrelated shared-tree work.
+
+### 2026-07-30 21:27Z — `/root` — Auto-tuning explanatory UX refinement completed
+- Context: Complete the operator-requested visual-comfort pass so each monitored rule explains why it needs attention and what bounded action is recommended.
+- Did: Delivered a flatter diagnosis-first Operations workspace with explicit evidence thresholds, conservative false-positive estimates, percentage-point gaps, plain-language actions, expected operational effects, replay-qualified eligibility, and supporting measurements moved below the decision context. Simplified the all-rules inventory, restrained selected/semantic styling, raised the inline-inspector breakpoint to 1536px, kept the narrow inspector in a focus-managed Sheet, added an accessible Sheet close label, and aligned the operator guide, Help Center, UI standard, handoff, and changelog. Backend tuning behavior, RBAC, rule-scoped Apply, and deterministic case-decision authority remain unchanged.
+- Tests: Direct Auto-tuning plus shared Sheet regressions passed **29/29 across 5/5 files**; TypeScript, full quiet ESLint, all **5/5** design-system gates, generated API/type drift check (**199 paths**), strict docs/version check, production Console build, and version-matched Help Center bundle passed. Browser acceptance passed in Light and Dark desktop plus Dark 390×844 with no horizontal overflow, correct Sheet focus, and no post-final-render console errors. A broad Vitest run under heavy concurrent workstation load was inconclusive because unrelated suites hit generic timeouts; a two-worker retry cleared sampled timeouts but was externally terminated before completion, so no new full-suite pass is claimed. No Codex Security review was run.
+- Status: complete; the verified Auto-tuning route is ready for operator review on the existing local runtime. No files were staged, committed, or pushed.
+- Next: Review the diagnosis and recommended-action copy with operators; any future tuning-policy behavior change should be handled separately from this presentation-only refinement.
+
+### 2026-07-30 21:28Z — `/root` — Case Manager decision-input provenance started
+- Context: Operator requested that Case Manager disclose when an alert investigation actually used operator memory, indexed knowledge or runbooks, a selected playbook, or platform tuning.
+- Did: Began an end-to-end contract and UI audit to add truthful, case-specific decision-input provenance without implying that reference material or tuning overrode deterministic close/escalate authority. Scoped the presentation to show only applicable inputs and provide inspectable evidence/details in the established Console visual language.
+- Tests: Pending backend contract, focused Case Manager regressions, TypeScript/lint/build, and Light/Dark responsive browser acceptance. No Codex Security review is being run.
+- Status: in progress.
+- Next: Trace persisted case, trace, playbook, RAG, memory, and tuning evidence; define a minimal additive contract; then implement and verify the Case Manager provenance surface.
+
+### 2026-07-30 21:31Z — `/root/case_provenance_ui` — Case Manager provenance UI audit started
+- Context: Define the exact conditional Case Manager and Case Detail presentation for case-specific use of memory, indexed knowledge or runbooks, playbooks, and platform tuning.
+- Did: Began a read-only audit of the canonical detail workspace, existing provenance hierarchy, responsive shell, shared Console components and tokens, focused regressions, and available trace fields. Product files remain untouched in this lane.
+- Tests: Static UI/API/test inspection pending. No Codex Security review is being run.
+- Status: in progress.
+- Next: Return a file-anchored placement, hierarchy, copy, responsive, accessibility, and regression contract that never implies these inputs overrode deterministic close or escalation authority.
+
+### 2026-07-30 21:35Z — `/root/case_provenance_ui` — Case Manager provenance UI audit completed
+- Context: Define a truthful, conditional Case Manager surface for the memory, knowledge, runbook, playbook, and platform-tuning inputs actually used by one case.
+- Did: Traced the existing rationale contract and embedded Overview/Investigation hierarchy; specified a flat `Investigation inputs` summary between the decision summary and Provenance, an inspectable detail treatment in Investigation, exact operator copy, pane-responsive wrapping, keyboard/focus behavior, load/error/empty semantics, and shared Console primitives/tokens. Confirmed that memory, knowledge/runbooks, and playbook selection are already case-specific, while tuning needs an immutable case-linked snapshot before the Console may claim it influenced a particular alert.
+- Tests: Read-only static inspection covered rationale/API assembly, canonical Case Manager wiring, Overview/Investigation/Why panels, tuning storage, and focused frontend/backend regressions. No product files were edited and no Codex Security review was run.
+- Status: audit complete; implementation contract returned to the orchestrator.
+- Next: Implement a shared summary/detail component, add explicit tuning-lineage persistence rather than inferring from current global state, extend focused conditional-rendering/accessibility tests, and browser-check both themes plus narrow/resized Case Manager panes.
+
+### 2026-07-30 21:29Z — `/root/case_input_contract` — Case Manager input-provenance contract audit started
+- Context: Determine exactly which persisted or derivable evidence can truthfully show whether a case investigation used operator memory, indexed knowledge or runbooks, a selected playbook, or platform tuning.
+- Did: Began a read-only trace across Case models and stores, investigation pipeline and traces, API serialization, Case Manager presentation, and regression fixtures. Product files remain untouched by this lane.
+- Tests: Static contract audit in progress. No Codex Security review is being run.
+- Status: in progress.
+- Next: Return additive field recommendations with exact source functions, persistence boundaries, UI-safe semantics, and focused test anchors to the orchestrator.
+
+### 2026-07-30 21:35Z — `/root/case_input_contract` — Case Manager input-provenance contract audit completed
+- Context: Finish the read-only evidence audit for disclosing whether a case investigation consulted operator memory, indexed knowledge or runbooks, a playbook, or an adaptively tuned detection threshold.
+- Did: Traced playbook selection and strong-investigation injection, memory loading, RAG retrieval and source metadata, CONTEXT audit persistence, the rationale and six-stage projections, Case Manager presentation, and the threshold-tuning ledger. Confirmed that selected playbooks are not always consulted because the cheap-benign route bypasses strong context; memory and knowledge are consulted inputs rather than proven causal factors; runbook descriptor retrieval is distinct from full playbook injection; and platform tuning is deterministic threshold tuning, not model fine-tuning. Identified a temporal correctness gap: rationale and timeline projections currently choose the first historical investigation context while the Case reflects the latest reinvestigation. Returned an additive, explicit-status processing-input contract, applicability-only UI semantics, and exact regression anchors to the orchestrator. No product file was edited by this lane.
+- Tests: Static source/API/model/UI/test contract audit completed; Journal-only whitespace validation pending. No Codex Security review was run.
+- Status: complete; the orchestrator has the truthful evidence boundaries and implementation cautions.
+- Next: Project one latest investigation run (preferably with an investigation id), expose selected-versus-consulted playbook state, preserve bounded knowledge and memory metadata, snapshot exact active tuning provenance at case formation, and add two-run freshness plus unavailable-evidence regressions before surfacing the Case Manager summary.
+
+### 2026-07-30 21:39Z — `/root/case_input_docs` — Case Manager input-provenance documentation started
+- Context: Align the operator guide, analyst guides, Console UI standard, handoff, and release notes with the new case-specific Investigation inputs disclosure.
+- Did: Scoped a documentation-only pass to distinguish memory consulted, RAG knowledge retrieved, runbook references retrieved, playbooks actually consulted, and immutable platform threshold-tuning snapshots while preserving deterministic case-policy authority.
+- Tests: Scoped documentation diff and whitespace checks pending. No Codex Security review is being run.
+- Status: in progress.
+- Next: Patch the six requested documentation surfaces, verify terminology and links, then return the bounded documentation diff to the orchestrator.
+
+### 2026-07-30 21:51Z — `/root/case_input_review` — Case Manager input-provenance implementation review started
+- Context: Independently validate the new case-specific disclosure of operator memory, indexed knowledge, runbook references, consulted playbooks, and platform threshold tuning before release handoff.
+- Did: Began a read-only end-to-end review of pipeline persistence, latest-run rationale projection, exact tuning attribution, conditional Case Manager presentation, accessibility, and focused regression coverage. Product and documentation files remain untouched unless a definite bounded defect is found.
+- Tests: Focused source, API, UI, test, and lint checks pending. No Codex Security review is being run.
+- Status: in progress.
+- Next: Trace every displayed claim back to immutable case-run evidence, exercise latest-run and empty/error states, then return concrete findings or a clean verdict to the orchestrator.
+
+### 2026-07-30 22:00Z — `/root/case_input_review` — Case Manager input-provenance implementation review completed
+- Context: Complete the independent correctness, attribution, accessibility, and regression review of the new case-specific Investigation inputs disclosure.
+- Did: Confirmed the latest-run projection correctly separates selected from actually consulted playbooks and preserves deterministic decision authority. Fixed three bounded over-attribution edges: only a threshold-mode correlation `n` may be credited, only the newest active ledger row for a knob may explain its current value, and severity-floor attribution now preserves exact member source/feed pairs instead of constructing a false cross-product. Also stopped an unavailable-tuning placeholder from receiving the “informed this case” footer or Review action. Added focused regressions for every edge.
+- Tests: Backend explainability passed **9/9** after the final fix; the broader tuning/explainability/wiring selection passed **52/52**. Case Manager provenance plus related detail panels passed **74/74 across 5/5 files**; the final focused input suite passed **5/5**. Scoped ESLint, Python compilation, and diff whitespace checks passed. Ruff was not installed in the backend virtual environment, so no Ruff result is claimed. No Codex Security review was run.
+- Status: complete; the provenance implementation is truthful for persisted latest-run evidence and ready for the orchestrator's broad release gates/browser acceptance.
+- Next: Run the full supported backend/WebUI gates and browser matrix. Separately harden long-lived-case provenance with an explicit investigation-run id and a latest-tail audit query; the current best-effort selector boundary can become incomplete after the audit reader's oldest-first 500-row cap or a failed boundary write.
+
+### 2026-07-30 21:53Z — `/root/case_input_docs` — Case Manager input-provenance documentation completed
+- Context: Finish the bounded documentation pass for Case Manager's latest-run Investigation inputs disclosure.
+- Did: Updated the operator guide, Investigation and Case Manager analyst guides, Console UI standard, Unreleased changelog, and current handoff. The docs now distinguish memory consulted, RAG knowledge retrieved, runbook references retrieved, playbooks actually injected/consulted, and immutable deterministic threshold-tuning snapshots; selected-only playbooks and stale prior-run inputs are explicitly excluded, threshold tuning is not called model fine-tuning, and deterministic case policy remains final route authority.
+- Tests: Scoped terminology review and `git diff --check` passed for all six requested documentation files plus Journal. No Codex Security review was run.
+- Status: complete; documentation matches the implemented provenance contract.
+- Next: Orchestrator should include these docs in the final Case Manager build, focused regressions, and live Light/Dark responsive acceptance.
+
+### 2026-07-30 21:56Z — `/root` — Case Manager investigation-input provenance milestone verified
+- Context: Make Case Manager show which supplemental inputs were actually recorded for the latest investigation without overstating causality or decision authority.
+- Did: Added latest-run audit projection for approved operator memory, RAG knowledge, runbook references, actually consulted playbooks, and immutable platform threshold-tuning snapshots; added a conditional flat Overview summary and detailed Investigation evidence; kept selected-only playbooks and prior-run inputs out of the current view; and aligned the operator, analyst, development, handoff, and release documentation. Platform auto-tuning is described as deterministic threshold tuning, never model fine-tuning, and deterministic case policy remains the final route authority.
+- Tests: Focused backend provenance/tuning gate passed **50/50**; focused Case Manager UI gate passed **75/75 across 6/6 files**; TypeScript and scoped ESLint passed; the full WebUI suite passed **1,756/1,756 across 270/270 files** with only the repository's known non-fatal jsdom/Recharts and React/Radix harness notices. A full backend invocation omitted the documented Python import path and therefore did not collect; it is being rerun with the supported module invocation after the independent truthfulness review lands. No Codex Security review was run.
+- Status: implementation and documentation milestone complete; independent truthfulness fixes, broad backend/build gates, and live browser acceptance remain in progress.
+- Next: Land the bounded reviewer fixes for unavailable/ambiguous tuning provenance, rerun the supported backend and WebUI gates, then verify Case Manager in Light/Dark and narrow panes.
+
+### 2026-07-30 22:09Z — `/root` — Case Manager investigation-input provenance completed
+- Context: Finish the truthful Case Manager disclosure of the supplemental inputs recorded for the latest investigation run.
+- Did: Completed the immutable latest-run projection and conditional Case Manager presentation for consulted operator memory, retrieved RAG knowledge, retrieved runbook references, actually consulted playbooks, and exact deterministic platform threshold-tuning snapshots. Kept selected-only playbooks, stale earlier-run inputs, unavailable provenance, and generic model-fine-tuning claims out of the applicable-input view; deterministic case policy remains the only final close/escalate authority. Updated the operator, analyst, development, handoff, and release documentation.
+- Tests: Full backend suite passed with the supported invocation. Full WebUI passed **1,756/1,756 across 270/270 files**; full ESLint, TypeScript, **5/5** design gates, **199-path** API/type drift check, docs/version check, and production Console plus version-matched Help Center build passed. Browser acceptance passed in Dark and Light at the default desktop viewport and at 1024×720 with no horizontal overflow, working Overview → Investigation review, applicable-only input disclosure, and zero console errors. `git diff --check` passed. No Codex Security review was run.
+- Status: complete; the verified Case Manager workspace is ready for operator review. No files were staged, committed, or pushed.
+- Next: As a later hardening follow-up, add an explicit investigation-run id and latest-tail audit query so extremely long-lived cases remain fully attributable beyond the current bounded audit-read window.
+
+### 2026-07-30 22:10Z — `/root` — Intelligence Runbooks management started
+- Context: Operator requested an in-Console feature to add and manage trusted runbooks, grouped under Intelligence, while preserving the existing distinction between RAG runbook knowledge and executable playbooks.
+- Did: Began an end-to-end audit of the current file-backed runbook loader, RAG seeding and reload semantics, RBAC/API conventions, Intelligence navigation, Knowledge and Playbooks interaction patterns, and supported Markdown metadata format. Scoped the work to a truthful browse/create/edit workflow with explicit applicability and restart/reindex behavior rather than silently treating runbooks as playbooks.
+- Tests: Pending focused backend API/loader/RBAC coverage, WebUI interaction/accessibility coverage, build gates, and live Light/Dark browser acceptance. No Codex Security review is being run.
+- Status: in progress.
+- Next: Define the durable write and reload boundary, implement the Intelligence Runbooks surface and API, update documentation, then run focused and broad verification.
+
+### 2026-07-30 22:11Z — `/root/runbook_contract_audit` — Operator-managed Runbooks backend contract audit started
+- Context: Define the backend-only contract for adding a real Intelligence Runbooks manager without conflating trusted runbooks with deterministic playbooks or ordinary imported RAG documents.
+- Did: Began a read-only audit of the current file loader/cache, RAG seed lifecycle, API/RBAC and atomic-write conventions, durable storage choices, filename/front-matter validation, create/update/delete/reindex semantics, Demo Mode isolation, and packaged-deployment constraints.
+- Tests: Source, route, store, packaging, and regression-test evidence review pending. No Codex Security review is being run.
+- Status: in progress; no product code is being edited by this audit.
+- Next: Return a concrete backend contract with exact implementation and test files, then close this bounded audit.
+
+### 2026-07-30 22:16Z — `/root/runbook_contract_audit` — Operator-managed Runbooks backend contract audit completed
+- Context: Finish the backend-only design for a durable Intelligence Runbooks manager that keeps runbook knowledge distinct from deterministic playbook procedure execution.
+- Did: Traced the packaged file loader, process-global cache, descriptor-only RAG seed, persistent SQL/Elasticsearch vector stores, Demo Mode store swapping, playbook management and strict-KV conventions, RBAC matrix, audit seam, wheel/Docker packaging, and deployment volumes. Recommended immutable bundled Markdown plus CAS-safe operator runbooks in the existing backend-agnostic KV state, a strict bounded manifest, separate `runbooks:read/manage` grants, control-audited CRUD, demo-isolated mutations, and observable targeted RAG synchronization with stable per-runbook document ids. Identified that a reload must reconcile only the runbook corpus rather than clear imported knowledge, and that managed body text must actually be chunked/indexed rather than retaining the current descriptor-only behavior.
+- Tests: Completed read-only source, route, store, packaging, and existing-regression inspection. No product code was edited in this lane and no Codex Security review was run.
+- Status: complete; concrete API, persistence, validation, reindex, demo, packaging, file, and regression contracts were returned to the orchestrator.
+- Next: Implement the hybrid bundled-plus-KV RunbookService, targeted runbook projection, feature router/RBAC/audit contract, and focused tests before broad backend/WebUI gates and browser acceptance.
+
+### 2026-07-30 22:12Z — `/root/runbooks_ui_audit` — Intelligence Runbooks UI contract audit started
+- Context: Define a clean Console-native Intelligence > Runbooks management experience for browsing, searching, creating, editing, deleting, and reindexing runbook knowledge without conflating it with executable playbooks.
+- Did: Began a read-only frontend audit of feature-registry grouping, Intelligence navigation, Knowledge and playbook surfaces, shared interaction primitives, API/type boundaries, responsive behavior, accessibility, and browser-test conventions. Product files remain untouched by this lane.
+- Tests: Static source and test-contract review pending. No Codex Security review is being run.
+- Status: in progress.
+- Next: Return an exact file-anchored UI/interaction contract and focused verification matrix to the orchestrator.
+
+### 2026-07-30 22:23Z — `/root/runbooks_ui_audit` — Intelligence Runbooks UI contract audit completed
+- Context: Finish the frontend design and integration contract for an operator-managed Runbooks surface under Intelligence.
+- Did: Traced the registry-derived navigation and host-tab routing, Intelligence page ownership, Knowledge corpus management, Playbooks Markdown editor, shared Sheet/ConfirmDialog/loading/table primitives, API/type boundaries, RBAC vocabulary, and route/accessibility test conventions. Defined a flat, searchable Runbooks workspace with operator-versus-bundled ownership, truthful retrieval/index state, Markdown create/edit, protected deletion, explicit reindexing, partial-success handling, and responsive/focus behavior. Kept runbooks as RAG-retrievable reference knowledge and playbooks as separately selected procedures; deterministic case policy remains final authority. No product file was edited by this lane.
+- Tests: Read-only source and test-contract inspection completed; no runtime tests were needed for this audit. No Codex Security review was run.
+- Status: complete; exact file anchors, UI behavior, API state requirements, and focused/browser verification matrix returned to the orchestrator.
+- Next: Implement against the backend audit's final persistence/RBAC contract, then run focused Vitest/axe, registry/type/API gates, the full Console suite/build, and Light/Dark desktop plus narrow browser acceptance.
+
+### 2026-07-30 22:19Z — `/root/runbooks_ui_impl` — Intelligence Runbooks frontend implementation started
+- Context: Implement the first-class Intelligence > Runbooks operator workspace against the audited bundled-plus-managed backend contract.
+- Did: Scoped the frontend work to typed list/detail/CRUD/reindex API bindings, registry-derived Intelligence navigation, a flat searchable browse/editor workspace, dedicated `runbooks:manage` authorization, protected bundled content, and truthful partial indexing states.
+- Tests: Focused interaction/accessibility coverage, TypeScript, scoped lint, and integration gates pending. No Codex Security review is being run.
+- Status: in progress.
+- Next: Reuse the established Intelligence/Playbooks patterns without conflating runbook knowledge with executable procedures, then verify all permission and indexing-state paths.
+### 2026-07-30 22:19Z — `/root/runbooks_docs_tests` — Intelligence Runbooks documentation and API regression coverage started
+- Context: Document and lock down the operator-managed Runbooks contract under Intelligence while backend and frontend implementation proceed in parallel.
+- Did: Scoped this lane to version-matched operator/analyst documentation and public API behavior tests for bundled-versus-managed ownership, dedicated read/manage permissions, CRUD/reindex lifecycle, body-backed RAG projection, and unchanged deterministic case-policy authority. Backend implementation files remain outside this lane.
+- Tests: Focused API/RBAC coverage and documentation checks pending. No Codex Security review is being run.
+- Status: in progress.
+- Next: Inspect the finalizing API/store contracts, write behavior-level regressions, align the Help Center and API reference, then run the focused suite once the backend route lands.
+### 2026-07-30 22:27Z — `/root/runbooks_docs_tests` — Runbooks Help Center and core contract coverage milestone
+- Context: Make operator-managed Runbooks discoverable and lock the durable/catalog boundaries while the feature router is still landing.
+- Did: Added the version-matched **Intelligence → Runbooks** Help Center page and navigation; aligned Knowledge, Playbooks, Investigation, Help Center discovery, API, permissions, release notes, and changelog. Added regression coverage for full-body chunk projection with stable provenance, merged bundled/operator ownership, protected bundled content, optimistic revisions, and the dedicated built-in RBAC grants.
+- Tests: Core parser/service/RBAC gate passed **61/61**. The focused HTTP CRUD/reindex/audit tests are written and awaiting the feature router before execution. No Codex Security review was run.
+- Status: documentation and non-route contracts complete; public API verification in progress.
+- Next: Execute and adapt the HTTP behavior suite against the final route, run strict docs/version checks, then return the bounded docs/tests lane to the orchestrator.
+### 2026-07-30 22:31Z — `/root/runbooks_docs_tests` — Intelligence Runbooks documentation and API regression coverage completed
+- Context: Finish the operator-facing and public-contract lane for the new Intelligence Runbooks manager.
+- Did: Published a version-matched Runbooks guide with the supported Markdown manifest, bundled/operator ownership, full-body retrieval lifecycle, optimistic revisions, explicit index states, scoped reindex recovery, audit expectations, trust boundary, and runbook-versus-playbook-versus-memory distinction. Linked it from the Help Center, Intelligence, Investigation, Playbooks, permissions, API, release notes, and changelog. Added API regressions for protected bundled content, operator CRUD, stale update/delete rejection, full-body targeted projection and replacement, projection cleanup, unrelated-knowledge preservation during catalog reindex, append-only audit, and built-in role grants.
+- Tests: Focused Runbooks/RBAC/route-auth gate passed **83/83**; documentation bundle regression passed **4/4**; strict version-matched MkDocs bundle and `docs:check` passed; scoped line-length and `git diff --check` passed. No Codex Security review was run.
+- Status: complete; documentation and public behavior coverage are ready for the orchestrator's broad backend/WebUI gates.
+- Next: Regenerate the tracked OpenAPI/TypeScript contracts for the new 202-path/243-operation runtime surface, run the full release gates, and browser-accept the Intelligence Runbooks workflow in both themes and narrow layouts.
+
+### 2026-07-30 22:39Z — `/root/runbooks_ui_impl` — Intelligence Runbooks frontend implementation completed
+- Context: Finish the first-class Intelligence > Runbooks operator workspace against the live 202-path bundled-plus-managed backend contract.
+- Did: Added typed list/detail/create/update/delete/reindex bindings; registry-derived Intelligence navigation and routing; and a flat, searchable Runbooks workspace with ownership/index filters, protected bundled references, permission-gated operator Markdown CRUD, optimistic revision handling, scoped/global reindexing, destructive confirmation, and explicit durable-save versus retrieval-index outcomes. Kept runbook knowledge separate from executable playbooks and deterministic case authority.
+- Tests: Focused Runbooks interaction, Intelligence host, navigation, and route tests passed **26/26 across 4/4 files**; TypeScript, scoped ESLint, and `git diff --check` passed. No Codex Security review was run.
+- Status: complete; frontend contracts and focused regressions are ready for the orchestrator's OpenAPI/type regeneration, broad gates, and live Light/Dark responsive acceptance. No files were staged, committed, or pushed.
+- Next: Regenerate tracked API types from the finalized 202-path runtime contract, run the full release gates, and browser-accept browse/create/edit/delete/reindex behavior in both themes and narrow layouts.
+
+### 2026-07-30 22:56Z — `/root` — Intelligence Runbooks management completed
+- Context: Deliver a first-class Runbooks manager under Intelligence while preserving the product boundary between retrievable guidance, executable playbooks, and deterministic case authority.
+- Did: Added a durable CAS-backed operator runbook catalog alongside protected bundled guidance; strict bounded Markdown/frontmatter validation; full-body, stable-id RAG projection; targeted and catalog reindexing; dedicated `runbooks:read/manage` RBAC; audited CRUD and reindex routes; generated API contracts; and a flat searchable Console workspace for viewing, creating, editing, deleting, and reindexing runbooks. Added an API-boundary compatibility normalizer so a rolling frontend upgrade cannot crash on the legacy runbook response shape. Updated the version-matched Help Center, API, permissions, investigation, playbook, release, handoff, README, and agent architecture documentation.
+- Tests: Focused backend Runbooks/RBAC/API/auth passed **83/83**; full backend passed **2,106/2,106**. Focused Runbooks/API compatibility passed **15/15 across 2/2 files**; full WebUI passed **1,765/1,765 across 271/271 files**; full ESLint, TypeScript, **5/5** design gates, **202-path** API/type drift check, strict docs bundle/check, and production app build passed. Live browser acceptance covered dark and light themes, exact-width desktop rendering with no horizontal overflow, search, operator create/edit/reindex/delete cleanup, and protected bundled-runbook behavior. `git diff --check` passed. No Codex Security review was run.
+- Status: complete and ready for operator review. Runbooks remain trusted retrieval references; they do not execute actions, replace playbooks, or alter deterministic close/escalate policy. No files were staged, committed, or pushed.
+- Next: Exercise the Runbooks workflow against the intended shared deployment and have an authorized content owner review the initial operator-authored corpus before release.
+
+### 2026-07-31 04:09Z — `/root` — Auto-tuning source-gap guidance status review started
+- Context: Confirm whether Auto-tuning currently recommends additional telemetry sources for rare or under-evidenced investigations, such as outgoing DNS logs.
+- Did: Began a read-only trace across the tuning engine/API, Agent Effectiveness reporting contract, Console presentation, tests, and version-matched documentation.
+- Tests: Runtime behavior and contract inspection in progress. No Codex Security review is being run.
+- Status: in progress.
+- Next: Distinguish implemented rule-threshold recommendations from explicitly unavailable semantic source-gap guidance and report the exact boundary.
+
+### 2026-07-31 04:09Z — `/root` — Auto-tuning source-gap guidance status review completed
+- Context: Answer whether Auto-tuning already provides evidence-backed recommendations to add telemetry sources for rare cases.
+- Did: Verified that Auto-tuning currently recommends only bounded correlation-threshold, feed severity-floor, and human-reviewed suppression changes. Its Outcomes view intentionally renders **Evidence coverage opportunities** as a long-term objective; the backend always returns `status=not_available`, an empty item list, and an explanation that source-specific advice would be speculative without governed case-to-missing-telemetry evidence. Documentation and regression tests lock that truthful unavailable state.
+- Tests: Read-only engine, API, Console, test, README, changelog, and Help Center contract inspection completed; `git diff --check` passed. No Codex Security review was run.
+- Status: complete; no product code was changed.
+- Next: A future implementation should add governed telemetry-requirement mapping, connected-source coverage, case-level uncertainty attribution, minimum-sample/confidence gates, advisory-only recommendations, and measured post-addition outcomes before returning a concrete suggestion such as outgoing DNS logs.
+
+### 2026-07-31 05:09Z — `/root` — Runbook authoring guidance review started
+- Context: Define a practical house style for operator-authored Runbooks that preserves retrieval quality and smaller-model comprehension without stripping useful Markdown structure.
+- Did: Began a read-only review of the strict front-matter contract, paragraph-aware RAG chunking, corpus projection metadata, bundled examples, authoring documentation, and trust/decision boundaries.
+- Tests: Source and documentation inspection in progress. No Codex Security review is being run.
+- Status: in progress; no product code is being changed.
+- Next: Publish exact preferred, acceptable, and discouraged formatting/content rules plus a compact reusable template grounded in the current implementation.
+
+### 2026-07-31 05:13Z — `/root` — Runbook authoring guidance review completed
+- Context: Finish the house style for operator-authored Runbooks with particular attention to context efficiency and smaller-model comprehension.
+- Did: Verified that sparse semantic Markdown is beneficial: headings, blank-line-separated paragraphs, numbered steps, short bullets, and occasional bold pivotal questions improve retrieval and readability. Identified large tables, long paragraphs, repeated boilerplate, raw log dumps, and decorative formatting as the main context/chunking hazards. Documented the strict manifest and catalog limits, the roughly 2,200-character paragraph-aware chunks with 160-character overlap, four-snippet default retrieval, trusted-reference boundary, decision-authority boundary, authoring template, and review/reindex/retrieval-check workflow.
+- Tests: Completed read-only parser, chunker, store, retrieval, prompt-rendering, bundled-example, regression-test, and Help Center inspection; `git diff --check` passed. No Codex Security review was run.
+- Status: complete; no product code was changed.
+- Next: Adopt the guidance as the authoring convention; if desired, promote it into a lintable Runbook style guide in a separate implementation task.
+
+### 2026-07-31 05:35Z — `/root` — Strict plain-text Runbook submission controls started
+- Context: Turn the Runbook authoring guidance into an enforced, token-efficient operator submission contract with immediate actionable feedback in Intelligence > Runbooks.
+- Did: Rejected a 425-character ceiling as too small for reliable evidence-based guidance and selected a provider-neutral 1,800-character body maximum, approximately 400–500 tokens and within one retrieval chunk. Scoped backend rejection of Markdown headings, tables, emphasis/underline syntax, HTML, and fenced code; structured problem/reason/fix diagnostics; a complete in-product Add/Edit standard; live character accounting; compatibility for protected bundled runbooks; focused regressions; and version-matched documentation.
+- Tests: Baseline source, parser, retrieval, prompt, UI, and dirty-worktree inspection completed. Implementation and verification are in progress. No Codex Security review is being run.
+- Status: in progress.
+- Next: Finalize the validation contract, implement backend and Console controls in isolated lanes, then run focused and broad gates plus browser acceptance.
+
+### 2026-07-31 05:36Z — `/root/runbook_strict_backend` — Strict Runbook backend contract implementation started
+- Context: Enforce the token-efficient operator Runbook authoring standard at the API boundary without breaking legacy catalog reads or reindexing.
+- Did: Scoped this lane to body-only length accounting, required high-signal metadata, a fixed plain-text guidance structure, structured actionable validation issues, bundled-catalog migration, and focused backend regressions. Existing stored operator content will remain readable/reindexable; any subsequent edit must pass the new contract.
+- Tests: Focused parser/service/API tests and existing Vigil compatibility coverage pending. No Codex Security review is being run.
+- Status: in progress.
+- Next: Implement submission-mode validation separately from compatibility parsing, migrate bundled guidance, and verify exact 422 diagnostics plus CRUD/reindex behavior.
+
+### 2026-07-31 05:37Z — `/root/runbook_strict_frontend` — Strict Runbook authoring UI implementation started
+- Context: Enforce the token-efficient operator Runbook standard directly in Intelligence > Runbooks before an invalid submission reaches the API.
+- Did: Scoped this lane to a visible Add/Edit authoring standard, a live 1,800-character body budget with an approximate 400–500-token explanation, immediate actionable validation, submission gating, structured backend 422 rendering, a fixed plain-text template, and focused management regressions.
+- Tests: Focused Runbooks interaction tests, TypeScript, scoped lint, and diff checks pending. No Codex Security review is being run.
+- Status: in progress.
+- Next: Inspect the existing editor lifecycle and API error contract, implement a reusable validator and accessible guidance surface, then verify create/edit/save/index behavior remains intact.
+
+### 2026-07-31 05:37Z — `/root/runbook_strict_docs` — Strict Runbook authoring documentation started
+- Context: Replace the permissive Markdown authoring guidance with the enforced, token-bounded plain-text Runbook contract operators will see in Intelligence > Runbooks.
+- Did: Scoped this lane to the version-matched Help Center article and directly related references: the 1,800-character body ceiling, required ordered section labels, manifest minimums, prohibited formatting, actionable rejection guidance, trusted/advisory boundary, retrieval reconciliation, and legacy read/edit compatibility. Backend and frontend implementation remain outside this lane.
+- Tests: Strict documentation bundle/check and scoped documentation validation pending. No Codex Security review is being run.
+- Status: in progress.
+- Next: Rewrite the Runbooks guide against the final backend validation contract, remove obsolete Markdown-heading and table-based authoring examples, then run focused documentation checks.
+
+### 2026-07-31 05:48Z — `/root/runbook_strict_docs` — Strict Runbook authoring documentation completed
+- Context: Publish the enforced, token-optimized plain-text Runbook contract in the version-matched in-app Help Center and developer/API references.
+- Did: Replaced the permissive Markdown template with a 1,130-character compliant example using the seven exact ordered labels and optional `LIMITATIONS`; documented why 425 characters is insufficient and why the enforced 1,800-character body ceiling is approximately 400–500 tokens; recorded Unicode body-count semantics, manifest minimums and defensive ceilings, minimum section content, sequential one-line investigation steps, the complete prohibited-format set, quality/privacy guidance, trusted/advisory authority, optimistic save/reindex behavior, legacy read/reindex plus edit-to-comply compatibility, and the structured 422 problem/reason/fix envelope. Aligned the API reference, extension guidance, and 0.1 release scope without touching backend or frontend implementation.
+- Tests: The documented 1,130-character template passed the finalized strict backend parser; version-matched Help Center bundle and strict `docs:check` passed for app 0.1.1 / docs 0.1; the built Runbooks and API pages contain the new contract; scoped `git diff --check` passed. No Codex Security review was run.
+- Status: complete; documentation is ready for the orchestrator's integrated parser/UI parity gate.
+- Next: Browser-verify that Add/Edit expose the same complete standard and actionable multi-issue feedback.
+
+### 2026-07-31 06:08Z — `/root/runbook_strict_backend` — Strict Runbook backend contract completed
+- Context: Enforce a compact, predictable Runbook format at every operator write boundary while retaining read/reindex compatibility for existing durable records.
+- Did: Added a strict opt-in parser with a 1,800-Unicode-character body ceiling; required retrieval metadata; seven exact ordered plain-text sections plus optional `LIMITATIONS`; sequential one-line investigation steps; and aggregate field-specific problem/reason/fix diagnostics. Rejected headings, tables and pipe layouts, emphasis, underline, strikethrough, code, links, HTML, bullets, blockquotes, separators, placeholders, duplicate metadata, malformed applicability, and incomplete sections in both body and retrieval metadata. Migrated all seven protected bundled runbooks, kept legacy operator records readable/reindexable until edited, and stored one complete guidance chunk with a compact high-signal embedding descriptor.
+- Tests: Focused Runbook, Vigil, and RAG regression gate passed **63/63**; full backend passed **2,134/2,134** with only the existing intentional Elasticsearch `verify_certs=False` test warning. Relevant `compileall`, Pyflakes, strict bundled-corpus validation, and scoped `git diff --check` passed. No Codex Security review was run.
+- Status: complete; the backend contract and actionable 422 envelope are ready for integrated Console parity and browser acceptance. No files were staged, committed, or pushed.
+- Next: Run the orchestrator's generated-contract/UI gates and confirm Add/Edit presents the backend-owned standard and every returned issue without weakening server enforcement.
+
+### 2026-07-31 06:09Z — `/root/runbook_strict_review` — Strict Runbook implementation audit started
+- Context: Independently review the finalized strict Runbook implementation across parser, service, API, RAG projection, bundled content, Console validation/editor behavior, regressions, and version-matched documentation.
+- Did: Scoped the review to backend/Console parity, low-false-positive plain-text enforcement, exact Unicode body accounting, aggregate actionable 422 diagnostics, legacy read/reindex compatibility, one-chunk retrieval cost behavior, and accessible Add/Edit guidance.
+- Tests: Read-only source inspection and focused verification are in progress. No Codex Security review is being run.
+- Status: in progress; no product code is being changed.
+- Next: Trace the current contract end to end, run focused non-security checks where needed, and return only release blockers or a clean evidence-backed verdict.
+
+### 2026-07-31 06:14Z — `/root/runbook_strict_frontend` — Strict Runbook authoring UI implementation completed
+- Context: Enforce the finalized token-efficient Runbook contract directly in Intelligence > Runbooks before an invalid operator submission reaches the API.
+- Did: Added a reusable client validator mirroring the strict backend contract; live Unicode accounting for the 1,800-character guidance body and 1,200-character retrieval descriptor; tighter title, summary, persona, list-count, and list-item ceilings; exact ordered plain-text sections; sequential one-line investigation steps; and immediate rejection of presentation markup, placeholders, malformed metadata, and incomplete guidance. The Add/Edit sheet now exposes the complete standard, disables save until valid, lists every issue with Problem/Why/Fix guidance, and renders structured backend 422 issues without masking durable save/index outcomes.
+- Tests: Focused Runbooks management and validator parity passed **11/11**; TypeScript, scoped ESLint, and scoped `git diff --check` passed. No Codex Security review was run.
+- Status: complete; Console validation matches the finalized backend limits and preserves protected browse, optimistic edit, durable save, partial-index, reindex, and delete behavior. No files were staged, committed, or pushed.
+- Next: Run the orchestrator's integrated WebUI gates and browser-accept the Add/Edit sheet in Light and Dark themes at desktop and narrow widths.
+
+### 2026-07-31 06:24Z — `/root/runbook_strict_review` — Strict Runbook implementation audit completed
+- Context: Independently release-check the strict, token-bounded Runbook contract after the final backend-owned policy and Console parity wiring.
+- Did: Traced parser, durable catalog, API 422 envelope, RAG projection, protected bundled corpus, legacy read/reindex compatibility, Add/Edit validation and guidance, generated API contracts, and version-matched documentation. Cross-language edge probes confirmed identical backend/Console rejection for body and metadata pipes, isolated backticks, scalar/list type errors, malformed lists, optional metadata placeholders, and unknown labels containing `_`, `/`, `&`, or `-`. Confirmed the backend publishes the 1,800-character body cap, 1,200-character aggregate retrieval-descriptor cap, metadata ceilings, 12-character section minimum, 128 KiB safety ceiling, reserved IDs, exact labels, and prohibited forms; the Console consumes that policy, blocks mismatched releases, shows live budgets, and reports every issue with Problem / Why / Fix guidance.
+- Tests: Focused backend Runbook management passed **38/38**; focused Console Runbook management/parity passed **14/14**; TypeScript, scoped ESLint, generated OpenAPI/TypeScript drift check, Help Center bundle/check, custom backend-versus-Console parity probes, and scoped `git diff --check` passed. No Codex Security review was run.
+- Status: complete; no release blocker found in the strict Runbook implementation. This audit changed no product code, staged nothing, and performed no commit or push.
+- Next: Complete the orchestrator's browser acceptance for Add/Edit in Light and Dark themes at desktop and narrow widths, then include this contract in the v0.1.1 release gate.
+
+### 2026-07-31 06:37Z — `/root` — Strict token-bounded Runbook authoring completed
+- Context: Finish the v0.1.1 Runbook authoring controls with a provider-neutral context budget, deterministic validation, actionable operator feedback, retrieval-cost controls, and release-level verification.
+- Did: Enforced a 1,800-Unicode-character guidance-body ceiling instead of the proposed 425-character ceiling, plus a separate 1,200-character aggregate retrieval-descriptor ceiling; strict manifest/list limits; seven exact ordered evidence sections; sequential one-line investigation steps; and rejection of headings, tables or pipes, emphasis, underline, strikethrough, code, links, HTML, bullets, blockquotes, separators, placeholders, malformed metadata, and incomplete guidance. Every rejected issue now carries its field, problem, why, and concrete fix in both the API and the live Add/Edit sheet. The complete backend-owned standard is visible in-product, client/server policy drift fails closed, protected bundled Runbooks were migrated, existing operator records remain readable and reindexable until edited, and each compliant Runbook becomes one bounded retrieval unit with a concise embedding descriptor.
+- Tests: Full backend passed **2,134/2,134**; full Console passed **1,775/1,775** across **271/271** files; focused Runbook/RAG/Vigil and API-client suites passed; TypeScript, ESLint, design gates, production build, generated OpenAPI/TypeScript drift, documentation bundle/check, Python compilation, backend/Console parity probes, and `git diff --check` passed. Live Browser acceptance passed in Dark and Light desktop themes for the library, Add/Edit standard, invalid multi-issue Problem/Why/Fix rendering, live 1,800/1,200 budgets, disabled invalid save, enabled valid save, discard protection, and a clean browser console. Narrow-layout behavior remains covered by the responsive component and viewport gates because the in-app Browser surface does not expose viewport emulation. No Codex Security review was run.
+- Status: complete; no Runbook release blocker remains. No files were staged, committed, or pushed.
+- Next: Include the strict Runbook contract in the v0.1.1 Testing release candidate and perform the normal device-width release smoke pass in a resizable external browser before promotion to Stable.
+
+### 2026-07-31 07:41Z — `/root` — Downloadable Runbook examples started
+- Context: Add a small set of compliant example Runbooks directly inside the Add Runbook experience so operators can preview and download a valid starting point without weakening the strict authoring contract.
+- Did: Began a scoped review of the existing Runbook editor, backend-owned authoring standard, download patterns, tests, and documentation. The examples will remain static reference assets, will not create or execute Runbooks automatically, and must themselves pass the strict parser.
+- Tests: Source inspection and implementation are in progress. No Codex Security review is being run.
+- Status: in progress.
+- Next: Add compact representative examples, expose accessible preview/download actions in Add Runbook, verify every example against backend and Console validators, and browser-accept the final UI.
+### 2026-07-31 07:42Z — `/root/runbook_examples_ui` — Downloadable Runbook examples started
+- Context: Add a small, high-quality example library to the New Runbook authoring sheet without importing, saving, indexing, or executing sample content.
+- Did: Scoped three strictly compliant incident patterns, compact in-sheet previews, explicit local `.md` downloads, and focused accessibility/validation regressions. Existing backend-owned authoring policy and all mutation boundaries remain authoritative.
+- Tests: Focused Runbook management tests, TypeScript, scoped ESLint, strict example validation, and diff checks pending. No Codex Security review is being run.
+- Status: in progress.
+- Next: Implement the typed example catalog and preview/download controls, then verify examples remain valid against the Console policy contract.
+
+### 2026-07-31 07:43Z — `/root/runbook_examples_coverage` — Runbook coverage boundary review started
+- Context: Determine whether strict reference Runbooks alone can handle most Agentic SOC case tasks, and provide evidence-backed operator guidance for the downloadable examples.
+- Did: Began tracing Runbooks against RAG retrieval, playbook selection, investigation tools, enrichment, source coverage, deterministic case policy, and human-review boundaries.
+- Tests: Read-only architecture inspection is in progress. No Codex Security review is being run.
+- Status: in progress; no product code is being changed.
+- Next: Produce a concise coverage matrix, identify claims the examples must avoid, and hand exact source evidence to the orchestrator.
+
+### 2026-07-31 08:02Z — `/root/runbook_examples_coverage` — Runbook coverage boundary review completed
+- Context: Determine whether the strict reference Runbook layer by itself can handle most Agentic SOC case work and calibrate the claims around downloadable examples.
+- Did: Traced the current Runbook catalog and RAG projection through retrieval, router paths, investigator tools, enrichment, Playbook selection, deterministic case policy, source support, and fail-to-human behavior. Confirmed Runbooks are compact trusted reference guidance for recurring alert families, not detection, evidence collection, response execution, or decision authority; they are retrieved only on the strong-investigation path when RAG is enabled and relevant content clears retrieval thresholds. Identified one example-metadata precision issue for the implementation owner: `process` and `session` are not canonical correlated entity types and should remain evidence/keyword concepts while applicability uses supported entities such as host, user, or IP.
+- Tests: Read-only source and documentation inspection only; no product code was changed and no Codex Security review was run.
+- Status: complete; the honest operator answer is that Runbooks alone are insufficient for most cases, while a curated Runbook catalog materially improves repeated investigations when combined with connected telemetry, correlation/risk, read-only tools, enrichment, the investigator, deterministic case policy, and human review.
+- Next: Label downloads as reviewed reference templates rather than ready automation, expose required telemetry and human-review boundaries, keep applicability metadata canonical, and measure tenant-specific retrieval/coverage before claiming broad case coverage.
+### 2026-07-31 07:49Z — `/root/runbook_examples_ui` — Downloadable Runbook examples completed
+- Context: Give operators concrete, token-bounded starting points directly inside New Runbook while keeping all authoring, trust, indexing, and decision boundaries explicit.
+- Did: Added three deterministic same-origin `.md` assets for encoded PowerShell, impossible-travel sign-ins, and repetitive DNS beaconing; a typed example catalog; compact responsive cards; inline preview with failure fallback; and direct download links. Examples appear only during creation, never populate the draft, and state that they are starting points rather than coverage guarantees or automation. Canonical entity selectors are used while richer process/session context stays in evidence and keywords.
+- Tests: Backend strict parser **39/39**; focused Runbook UI and asset validation **17/17**; TypeScript, scoped ESLint, backend and Console strict-policy validation, canonical asset checks, and repository `git diff --check` passed. No Codex Security review was run.
+- Status: complete; no files were staged, committed, or pushed.
+- Next: Orchestrator should browser-accept preview/download behavior in the integrated Light, Dark, desktop, and narrow Runbook authoring sheet.
+
+### 2026-07-31 07:51Z — `/root/runbook_examples_final_review` — Downloadable Runbook examples final review started
+- Context: Perform a read-only release-quality review of the new example assets, catalog, preview/download UI, focused tests, backend strict-parser regression, and operator documentation.
+- Did: Began checking correctness, accessibility, same-origin deployment behavior, design-system alignment, mutation boundaries, and truthful coverage claims.
+- Tests: Read-only source inspection is in progress. No Codex Security review is being run.
+- Status: in progress; no product code is being changed.
+- Next: Trace each example through the strict parser contract, inspect UI and tests line by line, then report any blockers or residual risks with precise references.
+
+### 2026-07-31 07:53Z — `/root/runbook_examples_final_review` — Downloadable Runbook examples final review completed
+- Context: Independently review the three downloadable Runbook references, New Runbook UI, parser and Console regressions, documentation, accessibility, deployment behavior, and product claims before integrated Browser acceptance.
+- Did: Confirmed all three assets use canonical applicability selectors and strict plain-text structure; the typed catalog maps to real same-origin files; examples remain create-only and never populate a draft or invoke create, update, reindex, or execution paths; previews render as text; actions have explicit accessible names; and the documentation accurately calls them synthetic starting points rather than coverage or automation. Reported two residual product-truth/cache issues to the orchestrator: stable unhashed example URLs should not use `force-cache` across releases, and preview failure copy must not guarantee that a direct download will succeed; production routing should also return a real 404 for missing `/examples/` assets instead of the SPA document.
+- Tests: Independently reran focused Console tests **17/17** across **2/2** files and backend Runbook management tests **39/39**. No Codex Security review was run.
+- Status: review complete; the feature boundary and core behavior are sound, with the two reported cache/failure-path refinements recommended before release acceptance. No files were staged, committed, or pushed.
+- Next: Remove or version the forced cache behavior, make fallback copy conditional/non-guaranteeing, protect the static examples route from SPA fallback, then browser-accept preview and native download behavior in both themes.
+
+### 2026-07-31 08:07Z — `/root` — Downloadable Runbook examples completed
+- Context: Add practical example Runbooks inside the create flow without implying that examples are active automation or broad tenant coverage.
+- Did: Added three strict plain-text `.md` examples for encoded PowerShell, impossible-travel sign-ins, and DNS beaconing; a typed create-only example catalog; compact preview/download rows; direct native downloads; version-safe no-cache fetches; and a dedicated nginx `/examples/` static route that returns real 404s instead of the SPA document. The examples never populate, save, index, execute, or mutate a Runbook. Updated the operator Runbook guide and release consistency check with the same trust and coverage boundary.
+- Tests: Focused Console tests **17/17**, backend Runbook parser/management tests **39/39**, TypeScript, scoped ESLint, Console design gates, docs check, app build, version consistency, and `git diff --check` passed. Browser acceptance passed in Light and Dark themes; preview and native download behavior worked and the browser console had no warnings or errors. The full Console suite had one unrelated animated-number timing flake; its isolated retry passed **2/2**.
+- Status: complete; the examples are downloadable references, not evidence collection, response execution, or deterministic decision authority. No files were staged, committed, or pushed. No Codex Security review was run.
+- Next: Build a tenant-reviewed Runbook catalog around recurring alert families and measure retrieval matches and case outcomes before making any broad coverage claim.
+
+### 2026-07-31 08:27Z — `/root/update_architecture` — Fail-safe Console update architecture review started
+- Context: Inspect the existing release badge, immutable version stamps, backend build-info contract, Vite/nginx cache behavior, and supported deployment shapes before proposing an operator-visible update activation flow.
+- Did: Began a read-only architecture and deployment review; no product code or documentation was changed.
+- Tests: Not applicable at start; inspection only. No Codex Security review was run.
+- Status: in-progress.
+- Next: Trace exact source files and produce cache, comparison, activation, rollback, and failure semantics for a fail-safe design.
+### 2026-07-31 08:27Z — `/root` — Fail-safe deployed-version activation started
+- Context: Add a top-right update affordance when an already-deployed Console release differs from the build currently running in the browser, without turning the browser into a deployment authority or risking silent work loss.
+- Did: Began tracing release identity, static caching, deployment metadata, shared chrome, dirty-work contracts, and authoritative release/operator documentation. Defined the initial safety boundary: detection and activation only; a failed check or reload must leave the current Console usable.
+- Tests: Not run at session start. No Codex Security review is being run.
+- Status: in progress.
+- Next: Specify the version manifest and cache contract, implement the accessible update flow with unsaved-work protection, update Markdown guidance, and browser-accept both success and failure paths.
+
+### 2026-07-31 08:28Z — `/root/update_ux_tests` — Fail-safe update interaction review started
+- Context: Inspect the shared Console chrome, release badge, update dialogs and feedback, dirty-form protections, hooks, and test conventions to design an accessible deployed-version activation flow.
+- Did: Began a read-only UI and test-contract review. No product code or documentation is being changed by this agent.
+- Tests: Not applicable at start; inspection only. No Codex Security review is being run.
+- Status: in progress.
+- Next: Trace the existing version and unsaved-work paths, identify the minimal interaction contract, and return exact regression and accessibility tests to the orchestrator.
+
+### 2026-07-31 08:44Z — `/root/update_ux_tests` — Fail-safe update interaction review completed
+- Context: Define the smallest accessible top-right update affordance for activating a different Console build that has already been deployed, without making the browser a deployment authority or silently discarding operator work.
+- Did: Traced immutable Console and backend release presentation, header constraints, the shared AlertDialog confirmation path, Sonner feedback, browser unload guards, route-leave blockers, dirty-draft adoption, nginx caching, and existing Vitest focus, timer, visibility, and failure-state conventions. Recommended a compact `Update available` control beside the release badge, an explicit reload consequence dialog, a global multi-editor unsaved-state registry plus the existing native `beforeunload` fallback, and a no-store preflight that must still match the offered deployed identity before reload. Background discovery failures remain silent and leave the current Console fully usable; rollout, migrations, health gates, backups, and rollback remain deployment responsibilities.
+- Tests: Read-only source and test-convention inspection only; no product tests were run and no Codex Security review was run. Supplied exact unit, component, dirty-registry, cache/build, and browser acceptance cases to the orchestrator.
+- Status: complete; no product code or documentation was changed, staged, committed, or pushed by this agent.
+- Next: Implement the static release-manifest and activation flow, add dirty-state coverage to the editors that can lose drafts, then run focused Vitest, type, design, build/version/cache gates, and Light/Dark desktop/narrow browser acceptance across clean, dirty, offline, changed-target, and successful activation paths.
+
+### 2026-07-31 08:33Z — `/root/update_architecture` — Fail-safe Console update architecture review completed
+- Context: Define how the version badge can offer activation of a newer build that has already been deployed, while preserving release provenance, deployment authority, operator work, and rollback safety.
+- Did: Traced the immutable Vite release stamp, backend build-info and readiness contracts, nginx cache policy, Docker/Compose build metadata, dirty-draft guards, and current upgrade guidance. Recommended a same-origin no-store build manifest plus exact Console/backend identity and readiness gating; the button performs an explicit full-page activation only and never pulls images, applies migrations, restarts services, or becomes deployment authority. Identified old lazy-chunk retention or blue-green static serving as necessary for a genuinely graceful rollout and specified downgrade, same-version rebuild, invalid-manifest, deployment-in-progress, offline, and failed-activation behavior.
+- Tests: Read-only architecture and source inspection only; no product code was changed and no Codex Security review was run.
+- Status: complete; exact source, cache, comparison, UX, test, and documentation touchpoints were returned to the orchestrator. No files were staged, committed, or pushed by this agent.
+- Next: Implement deployed-build discovery and browser activation as the first phase; keep privileged deploy/update orchestration separate until an external controller can provide signed artifacts, locking, backups, migration planning, health-gated traffic switching, and rollback.
+
+### 2026-07-31 08:43Z — `/root/update_release_docs` — Deployed-version activation documentation started
+- Context: Document the fail-safe operator contract for activating a coherently deployed Console release from the top-right version area.
+- Did: Began a targeted review of the existing release, deployment, upgrade, testing, UI-standard, handoff, and changelog guidance; no product code is being changed.
+- Tests: Not applicable at start; documentation inspection only. No Codex Security review was run.
+- Status: in progress.
+- Next: Add the exact identity/readiness/preflight/dirty-draft contract, deployment cache and old-asset requirements, and release acceptance guidance without disturbing unrelated documentation work.
+
+### 2026-07-31 08:43Z — `/root/update_contract_review` — Deployed-version activation release review started
+- Context: Independently review the new Console release-manifest, coherence checks, update affordance, dirty-draft registry, cache headers, and regression tests before release.
+- Did: Began a read-only contract review covering correctness, accessibility, reload loops, stale caches, rollback behavior, and deployment boundaries. Product code and documentation remain untouched.
+- Tests: Not applicable at start; source and test inspection only. No Codex Security review was run.
+- Status: in progress.
+- Next: Trace the implementation with line-level evidence, run only useful read-only checks, and return prioritized actionable findings to the orchestrator.
+
+### 2026-07-31 08:47Z — `/root/update_release_docs` — Deployed-version activation contract documented
+- Context: Make the new top-bar release activation understandable to operators, deployers, UI contributors, and release reviewers without presenting the browser as an updater.
+- Did: Updated upgrade/promotion, release-channel provenance, both deployment guides, the Console UI and browser-acceptance standards, handoff, changelog, agent context, and webui production notes. The contract now requires a no-store static manifest that matches healthy backend identity, explicit confirmation, known-draft blocking, final manifest/backend/health/entry checks, same-hash navigation, and no mutation on failure. It also makes old hashed-asset retention or blue-green serving a rollout requirement and states that Runbook Markdown rules are unaffected.
+- Tests: Documentation validation is next. No Codex Security review was run.
+- Status: milestone complete; validation in progress.
+- Next: Run scoped whitespace checks plus strict docs/version checks, review rendered-navigation compatibility, and return the exact changed-file list.
+
+### 2026-07-31 08:48Z — `/root/update_release_docs` — Deployed-version activation documentation completed
+- Context: Finish and validate the operator, release, deployment, UI, testing, and contributor guidance for fail-safe activation of an already-deployed Console release.
+- Did: Completed the targeted Markdown updates without altering product code or unrelated dirty work. Documentation clearly separates external deployment/rollback from browser activation, records the no-store identity/readiness/entry preflight, explicit confirmation and known-draft block, same-hash navigation, failure-preserves-current-document behavior, and old-asset/blue-green rollout requirement. Runbook Markdown authoring remains unchanged.
+- Tests: Scoped `git diff --check` passed; `scripts/check_docs.py` passed (**66 public pages**); `npm run docs:check` passed (**app 0.1.1 / docs 0.1**); strict MkDocs build passed. `scripts/check_version.py` reached the concurrent integration gate and reported the obsolete literal `api.buildInfo` marker in `AppShell.tsx`; the orchestrator was notified to align that code gate with `useDeploymentUpdate`. No Codex Security review was run.
+- Status: complete; no files were staged, committed, or pushed by this agent.
+- Next: Orchestrator should update the version-consistency marker, run the integrated code/browser gates, and preserve the previous hashed assets or use blue-green serving in the production rollout.
+
+### 2026-07-31 08:51Z — `/root/update_dirty_guard` — Update activation draft-coverage pass started
+- Context: Extend the shared unsaved-draft registry used by deployed-version activation across independent editors that do not participate in the main Settings dirty map.
+- Did: Began tracing the shared typed config editor plus Branding, Account, Tuning, Baseline, Campaigns, and Batch Jobs save lifecycles; no deployment-update behavior or documentation is being changed.
+- Tests: Not run at session start. No Codex Security review is being run.
+- Status: in progress.
+- Next: Register each real loss-capable draft at its owning editor boundary, avoid double registration, and add focused lifecycle tests.
+
+### 2026-07-31 08:54Z — `/root/update_dirty_guard` — Update activation draft coverage completed
+- Context: Ensure the shell cannot activate a deployed Console release while any independent configuration editor still owns unsaved operator work.
+- Did: Registered Baseline, Campaigns, and Batch Jobs once at their shared typed-config editor; registered Branding and Auto-tuning at their independent save boundaries; and registered Profile text edits plus staged-but-unsaved avatar crops. Added behavioral coverage that the shell aggregate becomes dirty and clears on save/discard/unmount.
+- Tests: Focused Console tests passed **66/66** across **8/8** files; TypeScript passed; scoped ESLint passed with zero errors/warnings; scoped `git diff --check` passed. No Codex Security review was run.
+- Status: complete; no files were staged, committed, or pushed.
+- Next: Orchestrator should include these registrations in the integrated update-flow gates and Browser acceptance, especially the dirty-state blocked-activation dialog.
+
+### 2026-07-31 08:51Z — `/root/update_contract_review` — Deployed-version activation release review completed
+- Context: Independently verify the newly implemented release-manifest discovery, coherent activation, top-bar update affordance, cache boundary, dirty-draft protection, and focused regressions before release.
+- Did: Confirmed fail-closed manifest parsing, exact version/channel/SHA backend matching, backend provenance preservation when manifest discovery fails, validated entry-document identity, same-route reload, accessible confirmation and focus return, no-store static boundaries, and explicit deployment-versus-browser-activation documentation. Identified two remaining implementation contracts for the orchestrator: the five-second deadline does not yet cover hanging build-info/health promises, and the shared dirty registry must be adopted by every editor that can lose work. Also recorded that promoted deployments must stamp both images with one non-unknown SHA/date and retain old hashed assets or use blue-green static serving.
+- Tests: Focused Vitest passed **36/36** across deployed-release logic, deployment hook, release badge/update dialog, dirty registry, and confirmation dialog. No Codex Security review was run.
+- Status: complete; read-only review apart from required Journal receipts. No product code, tests, or documentation were changed, staged, committed, or pushed by this agent.
+- Next: Complete the deadline/no-store API fix and dirty-editor adoption, add never-settling dependency and AppShell dirty-owner regressions, then run integrated WebUI/version gates plus Light/Dark browser acceptance against clean, dirty, offline, rolling, and successful activation states.
+
+### 2026-07-31 09:11Z — `/root` — Fail-safe deployed-version activation completed
+- Context: Surface an operator update affordance beside the version badge when a newer, coherent Console build has already been deployed, while keeping privileged deployment, migrations, traffic switching, and rollback outside the browser.
+- Did: Added a bounded no-store release manifest, exact Console/backend version-channel-SHA-build-time coherence and readiness checks, compact update control, explicit confirmation, route-preserving activation, final entry-document marker validation, global known-draft blocking, deadline coverage for non-cooperative requests, and quiet fail-closed discovery. Updated nginx/Vite cache and release-marker behavior plus release, deployment, upgrade, UI, testing, handoff, and contributor documentation. A failure never mutates the deployment and leaves the current Console usable; release automation must stamp both artifacts identically and retain old hashed assets or use blue-green static serving during rollout.
+- Tests: Focused activation/draft Vitest passed **73/73**; the complete Console suite passed **1,810/1,810** across **274/274** files; TypeScript, full ESLint, design gates, API contract/type drift, production app build, version consistency, **66-page** docs consistency, docs bundle validation, and `git diff --check` passed. Browser acceptance passed in Dark and Light themes for coherent offer, confirmation copy, focus return, discarded-draft recovery, dirty-draft action removal, non-destructive mismatched-entry rejection, preserved route/current UI, and zero console errors. No Codex Security review was run.
+- Status: complete; Runbook Markdown authoring rules are unchanged. No files were staged, committed, pushed, tagged, promoted, or released.
+- Next: Wire the production release controller to publish one non-unknown immutable identity for both images, health-gate traffic, retain the previous static assets or blue-green origin through the observation window, and exercise the same browser matrix on the promoted candidate before Stable.
+
+### 2026-07-31 09:15Z — `/root` — OpenAI Luna defaults and repository release discovery started
+- Context: Make OpenAI the out-of-box provider, move active model-role defaults to the newly general-available `gpt-5.6-luna`, and let operators configure the public upstream repository plus Stable/Testing branches used for read-only release discovery.
+- Did: Verified the public Luna model ID, availability, capability surface, and current token pricing against official OpenAI documentation. Defined the safety boundary: repository checks may discover candidate metadata only; they never pull images, execute code, mutate Git, deploy, migrate, restart, or bypass the existing same-origin manifest/backend/readiness/entry activation gate. Began inventorying every active model role, pricing registry, provider fallback, setup surface, update contract, and documentation path.
+- Tests: Not run at session start. No Codex Security review is being run.
+- Status: in progress.
+- Next: Classify model roles and endpoint/reasoning compatibility, implement conservative default/config changes plus branch-aware release discovery, add regression tests and Settings UI, update documentation, then run backend, Console, contract, build, and browser acceptance gates.
+
+### 2026-07-31 09:18Z — `/root/luna_defaults` — OpenAI and GPT-5.6 Luna default migration started
+- Context: Make OpenAI the out-of-box inference provider and GPT-5.6 Luna the default for every active model role without removing alternate providers/models or weakening deterministic case authority.
+- Did: Began tracing the model-role configuration, provider request path, price ledger, settings schema, setup defaults, environment examples, tests, and operator documentation. Official Luna identity and current pricing were already verified by the orchestrator against OpenAI documentation.
+- Tests: Not run at session start. No Codex Security review is being run.
+- Status: in progress.
+- Next: Classify the active call paths and reasoning/tool compatibility, implement the smallest coherent default/catalog/pricing changes, and run focused backend and configuration gates.
+
+### 2026-07-31 09:20Z — `/root/release_discovery` — Public upstream release discovery started
+- Context: Add a configurable public GitHub repository plus Stable/main and Testing branch discovery without turning the Console or backend into a deployment controller.
+- Did: Confirmed the default upstream as `https://github.com/ARYDESTROYER/Agentic-Kibana` and the documented channel contract (`main` for Stable, `Testing` for integration). Began tracing preference persistence, settings-schema exposure, RBAC conventions, feature-router discovery, and offline API-test patterns.
+- Tests: Not run at session start. No Codex Security review is being run.
+- Status: in progress.
+- Next: Implement strict GitHub-only validation, bounded branch refs, timeout/cache/graceful-failure discovery, authenticated read/check endpoints, focused unit/API tests, and operator contract documentation.
+
+### 2026-07-31 09:31Z — `/root/release_discovery` — Public upstream release discovery completed
+- Context: Finish a configurable Stable/Testing source-discovery contract that can inform operators about upstream code without making the application a deployment authority.
+- Did: Added the `release_updates` preference block with the actual public upstream, `main`, and `Testing` defaults; strict canonical GitHub-only URL and conservative branch validation; a fixed-origin, redirect-rejecting, size/deadline-bounded GitHub API reader; per-configuration TTL caching, concurrent-call coalescing, five-minute manual anti-hammering, bounded cache size, independent channel failures, and labelled last-known-good stale fallback. Added authenticated `settings:read` GET/manual-check endpoints and settings-schema exposure. The API returns only VERSION, immutable branch-head SHA, and safe GitHub links; it has no clone, pull, artifact, execution, Git mutation, deploy, migration, restart, promotion, rollback, or activation operation. A live read-only smoke confirmed Testing discovery and the currently absent `main` branch degrades to typed `not_found`, matching the documented topology gap.
+- Tests: Focused backend tests passed **65/65** across release discovery, settings round-trip/schema, authentication, RBAC route coverage, and non-GET authorization coverage. Python compile-all, scoped line-length inspection, and scoped `git diff --check` passed. No Codex Security review was run.
+- Status: complete; no files were staged, committed, pushed, tagged, promoted, or released.
+- Next: Regenerate the OpenAPI/TypeScript contract, render the Release Updates Settings section, compare upstream versions without offering downgrades, and keep the existing coherent same-origin manifest/backend/readiness gate as the sole browser activation path.
+
+### 2026-07-31 09:37Z — `/root/luna_defaults` — OpenAI and GPT-5.6 Luna default migration completed
+- Context: Make the lower-cost OpenAI Luna model the coherent fresh-install completion default while keeping embeddings, stored operator choices, alternate providers, metering provenance, and deterministic case authority correct.
+- Did: Centralized fresh completion defaults on OpenAI `gpt-5.6-luna` for router, investigator, formatter, standup, Workspace chat, and overview; retained OpenAI `text-embedding-3-small` as the dedicated embedding model. Added Luna to the model catalog and ledger at the verified Standard rates of **$1.00/M input, $0.10/M cached input, and $6.00/M output** without inventing a Flex rate. Preserved the prior non-reasoning role baseline with `reasoning_effort=none`, corrected GPT-5 token parameters, and translated provider-neutral async Batch payloads into valid OpenAI Chat shape. Updated setup/settings copy, environment guidance, active operator/deployment/model documentation, compatibility notes, changelog, and generated API contracts. Existing persisted assignments remain authoritative; alternate providers/models remain selectable; no decision-policy code changed.
+- Tests: Focused backend tests passed **181/181** across defaults, catalog/pricing/cache accounting, provider payloads, async Batch, event detection, model/settings routes, and discounted-tier export. Focused Console tests passed **46/46**; TypeScript, generated OpenAPI/type drift, production app build, Python compile, runtime role assertions, JSON validation, and scoped `git diff --check` passed. No Codex Security review was run.
+- Status: complete; no files were staged, committed, pushed, tagged, promoted, or released by this agent.
+- Next: Orchestrator should include the migration in the integrated backend/Console/browser release matrix and provision an OpenAI key for fresh non-demo deployments; repository release-discovery work remains separate.
+
+### 2026-07-31 09:48Z — `/root/luna_contract_review` — GPT-5.6 Luna contract audit started
+- Context: Independently verify the new OpenAI/GPT-5.6 Luna default migration across fresh generative-role defaults, dedicated embeddings, persisted overrides, provider/Batch/EVENT compatibility, and truthful official pricing.
+- Did: Read the current handoff and canonical agent rules, then began a source-and-test audit of configuration, provider request construction, batch/event paths, pricing, migration semantics, and regression coverage. This is a focused contract review only; no Codex Security review is being run.
+- Tests: Not run at session start.
+- Status: in progress.
+- Next: Trace every active generative and embedding call path, compare pricing constants to the official Luna contract already verified by the orchestrator, run focused tests, and patch only a concrete defect.
+### 2026-07-31 10:02Z — `/root/release_ui_contract_review` — Upstream-release Console contract audit started
+- Context: Independently verify the new repository release-discovery Settings and top-bar affordance against the existing fail-safe deployed-release activation contract.
+- Did: Began a focused review of the new source-comparison helper, polling hook, Settings section, AppShell integration, API types, and their regression tests. The review is limited to correctness, operator truthfulness, accessibility, cache/error behavior, and non-interference with deployment activation.
+- Tests: Not run at session start. No Codex Security review is being run.
+- Status: in progress.
+- Next: Trace data and comparison semantics end to end, patch only concrete defects, then run focused UI tests and TypeScript validation.
+
+### 2026-07-31 10:20Z — `/root/release_ui_contract_review` — Upstream-release Console contract audit completed
+- Context: Close the independent review of read-only GitHub branch observations and their relationship to the existing same-origin deployed-release activation gate.
+- Did: Confirmed source discovery cannot create or activate a deployed update and that a coherent deployed target remains visually authoritative. Suppressed shell notices from stale or backend-unreachable observations; made pre-release versions conservative; required a normal bounded Git SHA before claiming same-version divergence; changed divergence copy from an unprovable “new revision” claim to an exact “revision differs” statement; exposed the observed branch link; ignored out-of-order Settings loads after repository changes; and changed the browser cache heartbeat to 15 minutes so every supported saved interval can take effect while the backend cache remains the sole GitHub-call authority.
+- Tests: Focused Console regression suite passed **22/22** across comparison, polling, Settings, source notice, and deployment-update affordances. Scoped ESLint passed with zero warnings, TypeScript passed, and scoped `git diff --check` passed. No Codex Security review was run.
+- Status: complete; no files were staged, committed, pushed, tagged, promoted, or released by this agent.
+- Next: Orchestrator can run integrated browser QA for the Settings source links, current unavailable `main` observation, Testing observation, and the mutual exclusivity of source notice versus coherent deployed Update action.
+
+### 2026-07-31 10:05Z — `/root/luna_contract_review` — GPT-5.6 Luna contract audit completed
+- Context: Independently verify the OpenAI/Luna fresh-install migration and correct any concrete contract drift before the integrated release gate.
+- Did: Confirmed all six fresh completion roles use official OpenAI `gpt-5.6-luna`, embeddings remain on `text-embedding-3-small`, explicit persisted role/provider/endpoint choices survive deserialization, alternate providers remain selectable, Luna requests use the compatible GPT-5 token parameter plus `reasoning_effort=none`, OpenAI Batch translates provider-neutral requests correctly, EVENT detection follows the configured router model, and live Flex discounts only provider-confirmed Flex results. Corrected the earlier 09:37Z launch-rate record: OpenAI's current canonical short-context Luna rates are **$0.20/M input, $0.02/M cached input, $0.25/M cache write, and $1.20/M output**; Batch and Flex are half-rate. Updated the price table/catalog, focused regressions, and model/operator documentation accordingly.
+- Tests: Focused backend validation passed **166/166** across configuration persistence, catalog/pricing/cache accounting, provider request construction, async Batch, EVENT detection, live Flex/fallback metering, data export, and settings round-trip. Python compile-all and scoped `git diff --check` passed; an active-file stale-rate scan returned no old Luna launch-rate copy. Official sources: `https://developers.openai.com/api/docs/pricing` and `https://developers.openai.com/api/docs/guides/flex-processing`. No Codex Security review was run.
+- Status: complete; no files were staged, committed, pushed, tagged, promoted, or released by this agent.
+- Next: Orchestrator should run the integrated backend/Console gates and Browser acceptance; deployments still require an OpenAI key for fresh non-demo use, while saved non-OpenAI assignments remain authoritative.
+
+### 2026-07-31 09:51Z — `/root/final_backend_gate_luna` — Luna and upstream-discovery backend release gate started
+- Context: Independently run the final integrated backend validation after the OpenAI GPT-5.6 Luna default/pricing migration and read-only upstream release-discovery work.
+- Did: Read the current handoff and canonical agent rules; scoped the gate to affected pricing/default/provider/release-discovery contracts followed by the complete offline backend suite, compile-all, and active-source scans. No Codex Security review is being run.
+- Tests: Not run at session start.
+- Status: in progress.
+- Next: Run focused tests first, then the full backend suite, compile-all, decision-diff, and stale/default/source scans; make no product edit unless a reproducible failure requires a minimal safe correction.
+
+### 2026-07-31 09:54Z — `/root/final_backend_gate_luna` — Affected backend contracts passed
+- Context: Validate the integrated Luna defaults/pricing, OpenAI request and Batch behavior, EVENT routing, Settings persistence, export metering, and public upstream release-discovery endpoints before the full suite.
+- Did: Ran the nine focused affected backend modules without changing product code.
+- Tests: **204/204 passed** across release discovery, completion/embedding defaults, Luna pricing/catalog/provider behavior, EVENT detection, OpenAI Batch, discounted-inference export, Settings round-trip, and batch routes.
+- Status: in progress; focused contracts are green.
+- Next: Run compile-all, active-source/default/pricing scans, deterministic decision diff, and the full backend pytest suite.
+
+### 2026-07-31 09:52Z — `/root/final_frontend_gate_release` — Luna and upstream-release Console gate started
+- Context: Independently validate the fresh OpenAI GPT-5.6 Luna defaults and read-only upstream-release Settings/topbar Console contracts in the shared worktree.
+- Did: Read the current handoff and canonical agent rules; scoped the gate to the affected Vitest suites followed by the complete web test, type, lint, design, docs, and production-build matrix. The existing local demo runtime is out of scope and will not be changed. No Codex Security review is being run.
+- Tests: Not run at session start.
+- Status: in progress.
+- Next: Run focused regressions first, then every required full frontend gate; edit product code only if a reproducible failure requires a minimal safe correction.
+
+### 2026-07-31 09:54Z — `/root/final_frontend_gate_release` — Luna and release-discovery Console regressions passed
+- Context: Validate the affected Console contracts before the remaining static and artifact gates.
+- Did: Ran the release-specific comparison/polling, Settings, topbar, Wizard, Batch Jobs, and integrated Settings regressions, then the complete web test suite without changing product code.
+- Tests: Targeted suite **61/61 passed across 8 files**. Full Vitest suite **1,828/1,828 passed across 277 files**. Existing jsdom-only Recharts zero-layout and React/Radix `act(...)` diagnostics remained non-fatal; no test failed.
+- Status: in progress; all behavioral frontend tests are green.
+- Next: Run TypeScript, ESLint, all design gates, strict documentation check, and the supported production build.
+
+### 2026-07-31 09:55Z — `/root/final_frontend_gate_release` — Luna and upstream-release Console gate completed
+- Context: Close the independent frontend release gate for the OpenAI GPT-5.6 Luna defaults and read-only public-repository release discovery.
+- Did: Verified the complete behavioral/static/artifact matrix in the shared worktree. API schema generation was reproducible and reported no drift; no product-code correction was required. Did not alter the existing local demo runtime. No Codex Security review was run.
+- Tests: Targeted Vitest **61/61 across 8 files**; full Vitest **1,828/1,828 across 277 files**; `check:types` passed with **204 OpenAPI paths** and no generated drift; ESLint `--quiet` passed; all **5 design gates** passed (**37 tokens, 96 contrast axes**, arbitrary-size/hex and CVD checks); `docs:check` passed for app **0.1.1** / docs **0.1**; production build passed with **3,186 modules transformed**; repository-wide `git diff --check` passed.
+- Status: complete; no files were staged, committed, pushed, tagged, promoted, or released by this agent.
+- Next: Orchestrator can combine this green Console gate with the independent backend result and browser acceptance before final handoff.
+
+### 2026-07-31 10:00Z — `/root` — Luna defaults and upstream-release Browser acceptance completed
+- Context: Verify the fresh OpenAI/Luna defaults and read-only public-repository discovery in the supported Console rather than relying on static gates alone.
+- Did: Exercised the complete local application in the in-app browser, authenticated through the real UI, and inspected the standardized Settings surfaces in Dark and Light themes. Confirmed all six completion roles render as OpenAI `gpt-5.6-luna`, the dedicated embedding role remains `text-embedding-3-small`, and the release section renders the configurable public repository, `main` Stable ref, `Testing` ref, 360-minute cache interval, manual check, immutable branch/commit links, and explicit source-versus-deployment boundary. The currently absent literal `main` ref degrades to a typed unavailable state while `Testing` is observed normally; the top bar makes no downgrade claim against the running v0.1.1 build.
+- Tests: Browser acceptance passed in Dark and Light with zero captured Console errors. The full Console gate independently passed **1,828/1,828** tests, TypeScript/API drift, ESLint, all five design gates, docs consistency, production build, and `git diff --check`. No Codex Security review was run.
+- Status: browser and Console acceptance complete; backend release gate is resolving one deterministic micro-dollar cumulative-rounding regression exposed by Luna's lower prices.
+- Next: Reconcile case cumulative cost exactly to the usage ledger, rerun the isolated and full backend suites, then close documentation and handoff.
+
+### 2026-07-31 10:02Z — `/root/cost_rounding_review` — Luna cumulative-cost reconciliation review started
+- Context: Independently diagnose the single repeated-timeout cost equality regression exposed by Luna's lower per-call prices without changing product code or deterministic decision authority.
+- Did: Began tracing the failing test through pipeline case accumulation, gateway UsageDoc creation, pricing precision, idempotency, and all supported usage stores. No Codex Security review is being run.
+- Tests: Not run at session start.
+- Status: in progress.
+- Next: Reproduce the isolated failure, identify the first precision boundary, and recommend the smallest ledger-authoritative reconciliation plus regression cases.
+
+### 2026-07-31 10:10Z — `/root/cost_rounding_review` — Luna cumulative-cost reconciliation review completed
+- Context: Explain the repeated-timeout cost mismatch and independently assess the proposed all-time ledger reconciliation across repeated investigations, bundled stores, retry idempotency, and deterministic routing.
+- Did: Reproduced the precise double-rounding boundary: each run records $0.0004576, the historical rounded-case-plus-raw-run path yields $0.000916, while summing authoritative eight-decimal ledger rows once yields $0.000915. Confirmed the all-time per-case ledger sum is the right source of truth and leaves `case_manager.py` untouched. Flagged two acceptance boundaries for the orchestrator: Elasticsearch writes are near-real-time (`refresh=False`), so an immediate post-write search needs a one-per-reconciliation visibility barrier or equivalent proof; and a case-wide sum also includes case-scoped Chat rows, which must match the intended meaning of `Case.token_cost` and its operator copy.
+- Tests: Isolated repeated-timeout regression passed; focused timeout plus SQL sum/retry/concurrency idempotency checks passed **4/4**. A read-only diagnostic confirmed row costs `[0.000314, 0.0001436]` per run and the exact one-micro-dollar historical drift. No product code was changed and no Codex Security review was run.
+- Status: complete; analysis and recommendations handed to the orchestrator.
+- Next: Keep eight-decimal per-call ledger values, round the authoritative lifetime total once for presentation, add real-ES visibility/stale-read regression coverage, and explicitly settle whether case-scoped chat belongs in the case cost rollup.
+
+### 2026-07-31 10:16Z — `/root/final_backend_gate_luna` — Luna and upstream-discovery backend release gate completed
+- Context: Close the integrated backend gate after Luna's lower prices exposed a one-micro-dollar cumulative-rounding boundary and independent review identified Elasticsearch near-real-time visibility and case-scoped Chat semantics that the first reconciliation needed to preserve.
+- Did: Added an exact all-time router/investigator/formatter ledger aggregation for Elasticsearch/in-memory and SQL stores, exposed through the single LLM gateway, then reconciled the six-decimal `Case.token_cost` presentation from that pipeline-only total. Kept current-run fail-soft accounting whenever a near-real-time ledger read cannot prove it includes the new run; a stale prior total can no longer erase realised spend. Case-scoped Chat and overview rows remain in the global cost ledger but cannot inflate historical case investigation cost. The deterministic case-manager decision implementation remained byte-identical. Added explicit repeated-low-cost, stale-read, Chat-exclusion, and SQL parity regressions.
+- Tests: Initial affected matrix passed **204/204**. Post-hardening timeout/NRT plus SQL matrix passed **34/34**. Final complete backend suite passed **2,174/2,174** with only the existing test fixture's `verify_certs=False` warning. Python compile-all, repository-wide `git diff --check`, runtime OpenAI/Luna default + embedding + persisted-override + pricing + repository-source assertions, release-process primitive scan, and unchanged `backend/app/engine/case_manager.py` check all passed. No Codex Security review was run.
+- Status: complete; no files were staged, committed, pushed, tagged, promoted, deployed, or released by this agent.
+- Next: Orchestrator can combine the green backend, Console, and browser matrices for the final v0.1.1 handoff; operational deployment remains a separate explicit action.
+
+### 2026-07-31 10:18Z — `/root` — OpenAI Luna defaults and repository release discovery completed
+- Context: Complete the requested OpenAI-first inference defaults and configurable, periodic upstream source observation for Agentic SOC v0.1.1 without overwriting stored operator choices or turning source discovery into an unsafe self-update mechanism.
+- Did: Made official OpenAI `gpt-5.6-luna` the centralized fresh-install completion default for router, investigator, formatter, standup, Workspace chat, and overview while retaining the dedicated `text-embedding-3-small` embedding model, alternate providers, persisted assignments, and deterministic case authority. Corrected the official short-context Standard/Batch/Flex price contract and Luna request/Batch payload behavior. Added default-on, cached, GitHub-only read-only release discovery for `ARYDESTROYER/Agentic-Kibana` with editable Stable `main` and Testing `Testing` refs, a six-hour default interval, manual check, immutable source links, typed unavailable/stale states, and a clear boundary from the existing same-origin deployed-release activation gate. Hardened cumulative case investigation cost against low-price rounding, Elasticsearch near-real-time reads, and unrelated case Chat/overview spend. Updated operator, release, deployment, API, configuration, Help Center, environment, changelog, handoff, roadmap, and canonical agent guidance.
+- Tests: Backend **2,174/2,174** and focused accounting/NRT/SQL **34/34** passed; Console **1,828/1,828** plus targeted **61/61** and final copy-focused **66/66** passed; TypeScript/OpenAPI drift (**204 paths**), ESLint, five design gates, documentation consistency, production build (**3,186 modules**), Python compile-all, runtime invariant scans, and repository-wide `git diff --check` passed. Browser acceptance passed in Dark and Light with zero captured Console errors and verified the six Luna completion roles, dedicated embedding role, configurable source refs, manual refresh, immutable links, unavailable Stable state, Testing observation, and no false top-bar update claim. No Codex Security review was run.
+- Status: complete; the current complete local application is healthy on the supported v0.1.1 Testing runtime. No files were staged, committed, pushed, tagged, promoted, or released.
+- Next: Provision an OpenAI API key for non-demo fresh deployments. Create/protect literal `main` before the first Stable publication, or deliberately change the saved Stable ref and release documentation together; source observation alone never deploys code.
+
+### 2026-07-31 10:20Z — `/root` — Agentic SOC README and naming cleanup started
+- Context: Replace the oversized README with a short, high-quality project entry point and remove retired TLSOC product naming from active human-facing surfaces.
+- Did: Read the current handoff and repository state, began a repository-wide naming inventory, and established the non-breaking boundary: operator prose and display copy use Agentic SOC, while literal `TLSOC_*`, `tlsoc-*`, index/header/cookie/package/service identifiers remain compatibility contracts until a separately versioned migration exists.
+- Tests: Not run at session start. No Codex Security review is being run.
+- Status: in progress.
+- Next: Rewrite README, clean active UI/API/docs prose in parallel, verify no retired product-name copy remains outside literal compatibility identifiers and historical Journal/archive material, then run documentation, frontend, backend-copy, and browser gates.
+
+### 2026-07-31 10:21Z — `/root/readme_agentic_soc` — Release-quality README rewrite started
+- Context: Replace the oversized root README with a concise, high-quality entry point that calls the product Agentic SOC and preserves compatibility identifiers only when an exact operator command requires them.
+- Did: Read the current handoff, canonical agent rules, repository status, and existing README; scoped this agent strictly to `README.md` plus required Journal entries so concurrent naming cleanup remains isolated.
+- Tests: Not run at session start. No Codex Security review is being run.
+- Status: in progress.
+- Next: Verify current scripts, deployment/configuration paths, docs links, and license/security references; rewrite README and run documentation/link-oriented checks.
+
+### 2026-07-31 10:21Z — `/root/ui_static_audit` — Active product-name compatibility sweep started
+- Context: Replace remaining human-facing standalone TLSOC product labels in active WebUI, backend, scripts, deploy, and package metadata with Agentic SOC while preserving every technical compatibility identifier and wire contract.
+- Did: Re-established the active-versus-compatibility boundary, excluded archive/generated assets/general documentation, and began a case-insensitive inventory with tests updated only where they assert changed operator copy.
+- Tests: Not run at session start. No Codex Security review is being run.
+- Status: in progress on the shared dirty Testing tree; no staging, commit, or push is authorized.
+- Next: Classify every active hit before editing, apply only operator-copy replacements, run focused frontend/backend checks, and report residual technical identifiers explicitly.
+
+### 2026-07-31 10:21Z — `/root/final_frontend_gate` — Active documentation product-name cleanup started
+- Context: Audit active documentation prose for standalone retired TLSOC product naming and replace only human-facing references with Agentic SOC while preserving every operational compatibility identifier and historical release receipt.
+- Did: Read the current handoff and naming contract; scoped edits to `docs/**` plus root `DEPLOY.md`, `COMPATIBILITY.md`, `SECURITY.md`, `CHANGELOG.md`, `ROADMAP.md`, and `DEMO.md` when present. `README.md`, `AGENTS.md`, `docs/HANDOFF.md`, archive/generated docs, and product code remain outside this lane.
+- Tests: Case-insensitive inventory, documentation checks, residual classification, and whole-tree whitespace validation are pending. No Codex Security review is being run.
+- Status: in progress.
+- Next: Classify every standalone TLSOC occurrence as human-facing prose, required literal compatibility identifier, or protected historical evidence; edit only the first class and verify the final residual set exactly.
+
+### 2026-07-31 10:25Z — `/root/readme_agentic_soc` — Release-quality Agentic SOC README completed
+- Context: Deliver a concise project entry point that explains the product, its guardrails, architecture, evaluation and development paths without retaining retired product-name prose.
+- Did: Replaced the 642-line feature chronicle with a 242-line release-quality README organized around value, safety contracts, architecture, local demo, standalone Compose evaluation, real-source configuration, repository map, verification, documentation, contribution, disclosure, and licensing status. Removed every case-insensitive retired product-name occurrence from `README.md`; no compatibility identifier was needed for the documented commands. Verified every relative Markdown link resolves. Kept the current lack of a published license explicit rather than implying open-source reuse rights.
+- Tests: `npm run docs:check` passed for application **0.1.1** / docs **0.1**; all README relative links resolved; Compose configuration validated using disposable required secret values; `bash -n scripts/run-demo.sh`, scoped `git diff --check`, the 280-line ceiling, and the zero-retired-name scan passed. No Codex Security review was run.
+- Status: complete; only `README.md` and required Journal entries were changed by this agent. No files were staged, committed, pushed, tagged, promoted, or released.
+- Next: Orchestrator should combine this README with the parallel active UI/API/docs naming sweep, preserve wire-compatibility identifiers, and run the final integrated documentation/product-copy gate.
+
+### 2026-07-31 10:28Z — `/root/final_frontend_gate` — Active documentation product-name cleanup completed
+- Context: Close the bounded naming audit across active documentation while preserving stable wire identifiers and historical evidence.
+- Did: Replaced four retired human-facing references in `DEPLOY.md`, `docs/VIGIL_STUDY.md`, and `docs/AGNOSTIC_ARCHITECTURE.md` with natural Agentic SOC or current-prototype wording. Left every `TLSOC_*` environment variable, `tlsoc-*` service/image/database/route/index/entry-point literal, compatibility-definition entry, and dated historical changelog/research label unchanged. Did not edit `README.md`, `AGENTS.md`, `docs/HANDOFF.md`, archive/generated content, or product code, and did not run Codex Security.
+- Tests: Strict disposable Help Center bundle passed for Agentic SOC 0.1.1 (`Testing`, docs 0.1) in 0.85 s; bundle tests 4/4 and theme tests 3/3 passed; documentation consistency passed for 66 public pages; version consistency passed for app 0.1.1/docs 0.1; scoped diff check passed. The final naming scan leaves 21 required active-document literal matches across 14 lines (18 operational literals, two compatibility definitions, one dated historical UI label) plus 91 protected historical-research matches across 19 files.
+- Status: complete; no retired standalone TLSOC product-name prose remains in the active owned documentation outside explicit compatibility definitions and protected historical evidence. No files were staged, committed, pushed, tagged, promoted, or released.
+- Next: Orchestrator can combine this documentation receipt with the README and UI/API naming lanes, then regenerate the installed Help Center in the final production build.
+
+### 2026-07-31 10:30Z — `/root/ui_static_audit` — Active product-name compatibility sweep completed
+- Context: Close the release-quality naming sweep across active Console, backend, deployment dashboard, and generated API surfaces without changing stable compatibility identifiers or wire contracts.
+- Did: Replaced remaining human-facing TLSOC product labels with Agentic SOC in active UI placeholders/comments, demo descriptions, PagerDuty fallback metadata, and deployment dashboard names; corrected the operator-facing JWT-secret guidance to the real direct-runtime and Compose variables; updated the bundled-documentation error contract; regenerated the 204-path OpenAPI schema and TypeScript client types. Verified every residual uppercase occurrence is either an `X-TLSOC-*` machine header or a historical case-number test fixture, while lowercase residuals remain deliberate services, images, packages, indices, cookies, storage keys, logger/extension namespaces, and other compatibility identities.
+- Tests: Focused WebUI Vitest passed **16/16**; TypeScript passed; generated API type drift passed for **204 paths**; scoped ESLint had zero errors (one expected ignore warning for the root-level docs config); focused backend auth, notifications, demo, and integration matrix passed **135/135**; scoped `git diff --check` passed. No Codex Security review was run.
+- Status: complete on the shared dirty Testing tree; no files were staged, committed, pushed, tagged, promoted, or released.
+- Next: Orchestrator can combine this receipt with the README and documentation lanes, run the final integrated release gate, and retain the compatibility identifiers until a separately versioned migration exists.
+
+### 2026-07-31 10:35Z — `/root` — Agentic SOC README and active naming cleanup completed
+- Context: Finish the concise release README and make Agentic SOC the sole operator-facing product name across active documentation, Console copy, API descriptions, notification metadata, demo copy, and deployment dashboards without breaking compatibility contracts.
+- Did: Replaced the 642-line README with a verified 242-line product entry point; completed the parallel active-doc and UI/API naming audits; updated the canonical naming rule and current test totals in `AGENTS.md` / `docs/HANDOFF.md`; renamed the playbook guide and final backend-unreachable help copy; regenerated the 204-path OpenAPI and TypeScript artifacts and the version-matched Help Center. Preserved existing `TLSOC_*`, `tlsoc-*`, index/header/cookie/storage/logger/entry-point/package identifiers and protected historical records as deliberate compatibility evidence, not product branding.
+- Tests: README links, demo-launcher syntax, and disposable Compose configuration passed; documentation consistency passed for **66 pages**; Help Center bundle/version checks passed for app **0.1.1** / docs **0.1**; focused WebUI naming tests **16/16**, focused backend naming tests **135/135**, final AppShell regression **5/5**, TypeScript/OpenAPI drift, scoped ESLint, all five design gates, and production build (**3,186 modules**) passed. Final active scan found no retired product-style prose, `README.md` has zero case-insensitive legacy-name hits, repository-wide `git diff --check` passed, and browser acceptance confirmed the rendered Agentic SOC notification workflow with zero Console errors. No Codex Security review was run.
+- Status: complete on the existing dirty Testing worktree; no files were staged, committed, pushed, tagged, promoted, or released.
+- Next: Keep using Agentic SOC in every new operator-facing surface. Any future removal of the compatibility namespace must be a separately versioned migration covering environment variables, services/images, indices, headers, cookies/storage, logger/entry-point/package names, deployment assets, and upgrade tooling.
+### 2026-07-31 16:41Z — `/root` — GitHub Actions quality-gate expansion started
+- Context: Replace the current two coarse CI lanes with at least ten independently visible, meaningful GitHub checks so pull requests and release branches cannot pass the minimum gate with an untested backend, Console, API contract, documentation artifact, package, or deployment definition.
+- Did: Read the current handoff and canonical agent rules, inventoried the existing CI and documentation workflows, and began mapping repository-native commands to distinct failure domains. The work preserves the current dirty tree and will not stage, commit, push, tag, deploy, or run Codex Security.
+- Tests: Not run at session start.
+- Status: in progress.
+- Next: Design the bounded job graph, add reusable setup/contract helpers only where they reduce drift, validate the workflow syntax and every underlying command locally, then document the required aggregate branch-protection check.
+
+### 2026-07-31 18:03Z — `/root` — Twelve-check GitHub Actions quality gate assembled
+- Context: Replace the coarse merge workflow with independently diagnosable minimum-quality checks before the Stable v0.1.1 release.
+- Did: Expanded `.github/workflows/ci.yml` into eleven substantive repository-native checks plus a fail-closed `CI passed` aggregate. Added separate version, backend test, package, startup, Console test, generated-contract/type, lint, design-system, Help Center, production-build, and deployment-contract lanes. Each job has a bounded timeout; dependency caches, read-only workflow permissions, superseded-run cancellation, isolated SQLite startup state, and seven-day backend/Console artifacts are explicit. Parallel read-only backend and Console audits confirmed the commands and release-boundary assumptions. Updated `CONTRIBUTING.md`, `docs/HANDOFF.md`, and `docs/development/testing.md` with the exact status map and branch-protection contract.
+- Tests: Actionlint and independent YAML parsers passed; exactly twelve jobs, eleven aggregate dependencies, `always()` fail-closed behavior, bounded timeouts, and read-only permissions were asserted. Version/channel checks, backend package installation with required runtime data and 24 feature routers, real SQLite-backed liveness/readiness startup, Compose topology, shell syntax, invalid demo-mode rejection, and whitespace checks passed. The first full build exposed one incorrect new documentation link, which was corrected before the final matrix.
+- Status: implementation complete; final release-command matrix in progress. Nothing staged, committed, pushed, tagged, deployed, or published; no Codex Security review run.
+- Next: Re-run documentation, generated API, Console, and production-build commands after the link correction, then record the final clean receipt.
+
+### 2026-07-31 18:11Z — `/root` — Twelve-check GitHub Actions quality gate completed
+- Context: Close the requested GitHub CI/CD expansion with clean local evidence for every underlying repository-native failure domain.
+- Did: Finalized twelve visible statuses: eleven independently diagnosable quality lanes and one stable `CI passed` branch-protection target that runs after failures and rejects every result other than success. Kept pull-request, `main`, `Testing`, and `v*` coverage; preserved literal `main` as the only Stable branch; and documented why the legacy ELK Compose fragment is not falsely validated as a standalone project.
+- Tests: Backend passed **2,174/2,174**, dependency integrity, wheel/sdist content and installed-wheel import, 24 feature-router discovery, compile/startup, and real SQLite liveness/readiness. Console passed generated OpenAPI drift (**204 paths**), TypeScript, zero-warning ESLint, all five design gates, **1,828/1,828** Vitest tests across **277 files**, and the release-complete production build (**3,186 modules**). Documentation passed consistency for **66 pages**, bundle tests **4/4**, theme tests **3/3**, strict build, and bundle revalidation. All tracked shell files, invalid demo-mode exit, exact four-service standalone Compose topology, Actionlint, two YAML parsers, aggregate invariants, and scoped `git diff --check` passed. Existing documented jsdom chart/`act(...)` harness notices remain non-failing cleanup debt; no new test failure or workflow warning was accepted.
+- Status: complete in the existing dirty v0.1.1 Testing worktree. No file was staged, committed, pushed, tagged, promoted, deployed, or published; no Codex Security review was run.
+- Next: Push through the normal Testing pull-request flow and require only the exact **CI passed** status on protected `Testing` and `main`; GitHub will remain the authoritative clean-checkout execution.

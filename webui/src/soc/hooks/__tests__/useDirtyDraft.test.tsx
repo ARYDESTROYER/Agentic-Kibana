@@ -9,7 +9,7 @@ import { StrictMode } from 'react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 
-import { useDirtyDraft, useUnsavedChanges } from '../useDirtyDraft';
+import { useDirtyDraft, useHasUnsavedChanges, useUnsavedChanges } from '../useDirtyDraft';
 
 describe('useDirtyDraft', () => {
   it('tracks dirty across update/reset/commit', () => {
@@ -91,5 +91,29 @@ describe('useUnsavedChanges', () => {
 
     unmount();
     expect(remove).toHaveBeenCalledWith('beforeunload', expect.any(Function));
+  });
+
+  it('aggregates multiple dirty owners until every editor is clean', () => {
+    const { result, rerender, unmount } = renderHook(
+      ({ first, second }) => {
+        useUnsavedChanges(first);
+        useUnsavedChanges(second);
+        return useHasUnsavedChanges();
+      },
+      { initialProps: { first: false, second: false }, wrapper: StrictMode },
+    );
+    expect(result.current).toBe(false);
+
+    rerender({ first: true, second: false });
+    expect(result.current).toBe(true);
+    rerender({ first: true, second: true });
+    expect(result.current).toBe(true);
+    rerender({ first: false, second: true });
+    expect(result.current).toBe(true);
+    rerender({ first: false, second: false });
+    expect(result.current).toBe(false);
+
+    unmount();
+    expect(result.current).toBe(false);
   });
 });

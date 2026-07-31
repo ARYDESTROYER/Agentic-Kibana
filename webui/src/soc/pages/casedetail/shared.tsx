@@ -37,6 +37,14 @@ import { isAutoClosedByAI } from '@/soc/components/badges';
 
 /* --------------------------------------------------------------- contracts -- */
 
+/**
+ * One content rail for every panel embedded in Case Manager. Keeping this in the
+ * shared case-detail vocabulary prevents tabs from drifting back to independent
+ * 32px gutters and gives the resizable workspace a stable alignment axis.
+ */
+export const CASE_MANAGER_PANEL_PADDING =
+  'px-4 py-4 sm:px-5 sm:py-5 lg:px-6';
+
 /** One selectable notification channel in the Notify dialog. */
 export interface NotifyChannelOption {
   id: string;

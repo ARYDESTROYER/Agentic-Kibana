@@ -1,4 +1,4 @@
-"""Syslog push receiver — RFC 3164 / RFC 5424 over UDP, TCP (and TLS, TODO).
+"""Syslog push receiver — RFC 3164 / RFC 5424 over UDP, TCP, or TLS.
 
 Syslog is the oldest and most universal log-forward transport: routers,
 firewalls, *nix hosts and appliances all speak it. :class:`SyslogReceiver` binds
@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
+import ssl
 from typing import Any
 
 from ...config import Preferences
@@ -26,7 +28,7 @@ logger = logging.getLogger("tlsoc.connectors.receivers.syslog")
 
 
 class SyslogReceiver(PayloadReceiver):
-    """RFC 3164 / RFC 5424 syslog over UDP/TCP (TLS is a documented TODO).
+    """RFC 3164 / RFC 5424 syslog over UDP/TCP/TLS.
 
     Config:
       * ``bind_host`` (default ``0.0.0.0``)
@@ -34,6 +36,10 @@ class SyslogReceiver(PayloadReceiver):
       * ``protocol`` (``udp`` | ``tcp`` | ``tls``)
       * ``framing`` (``auto`` | ``octet-counting`` | ``newline``) — TCP only
       * ``format_hint`` (``auto`` | ``syslog5424`` | ``syslog3164``)
+      * ``tls_cert_file`` / ``tls_key_file`` — mounted server certificate/key
+      * ``tls_client_ca_file`` — optional mounted CA for client certificates
+      * ``tls_require_client_cert`` — require mTLS when true
+      * ``tls_key_password`` — optional write-only private-key password
 
     Each datagram / framed message is parsed with the syslog format parsers and
     emitted as a batch. ``auto`` format detection distinguishes 5424 (version
@@ -56,7 +62,7 @@ class SyslogReceiver(PayloadReceiver):
             display_name="Syslog (RFC 3164 / 5424)",
             category="transport",
             description=(
-                "Syslog listener over UDP/TCP (TLS planned). Parses RFC 5424 "
+                "Syslog listener over UDP/TCP/TLS. Parses RFC 5424 "
                 "(structured-data aware) and RFC 3164 (BSD) and emits per message. "
                 "TCP framing auto-detects octet-counting (RFC 6587) and newline."
             ),
@@ -69,12 +75,22 @@ class SyslogReceiver(PayloadReceiver):
                 "(default `0.0.0.0:514`). Privileged ports (<1024) need "
                 "`CAP_NET_BIND_SERVICE`; a high port like `5514` avoids that.\n"
                 "2. **Protocol** — `udp` (lossy, simplest), `tcp` (reliable, framed), or "
-                "`tls` (TLS termination is a documented follow-up).\n"
-                "3. **Point your devices/hosts/appliances** at `host:port` for syslog; "
+                "`tls` (encrypted TCP using a mounted certificate and private key).\n"
+                "3. **TLS files** — for `tls`, mount the certificate/key read-only into the "
+                "backend and enter their container paths. Add a client CA and enable mTLS "
+                "when senders must authenticate with certificates.\n"
+                "4. **Point your devices/hosts/appliances** at `host:port` for syslog; "
                 "RFC 5424 (structured-data aware) and RFC 3164 (BSD) are both parsed.\n"
-                "Syslog has no inbound auth — restrict reachability at the network layer."
+                "UDP/TCP have no inbound auth; restrict reachability at the network layer."
             ),
-            auth_fields=[],
+            auth_fields=[
+                AuthField(
+                    key="tls_key_password", label="TLS private-key password",
+                    type="password", secret=True, required=False,
+                    help="Optional password for an encrypted TLS private key. Write-only.",
+                    group="TLS",
+                ),
+            ],
             config_fields=[
                 AuthField(key="bind_host", label="Bind address", type="string",
                           default="0.0.0.0", help="Interface to listen on."),
@@ -88,6 +104,27 @@ class SyslogReceiver(PayloadReceiver):
                           help="How TCP streams are split into messages (TCP only)."),
                 AuthField(key="format_hint", label="Syslog format", type="select",
                           options=["auto", "syslog5424", "syslog3164"], default="auto"),
+                AuthField(
+                    key="tls_cert_file", label="TLS certificate path", type="string",
+                    help="Mounted PEM certificate chain path inside the backend container (TLS only).",
+                    placeholder="/run/secrets/syslog-server.crt", group="TLS",
+                ),
+                AuthField(
+                    key="tls_key_file", label="TLS private-key path", type="string",
+                    help="Mounted PEM private-key path inside the backend container (TLS only).",
+                    placeholder="/run/secrets/syslog-server.key", group="TLS",
+                ),
+                AuthField(
+                    key="tls_client_ca_file", label="Client CA path", type="string",
+                    help="Optional mounted CA bundle used to verify sender certificates.",
+                    placeholder="/run/secrets/syslog-client-ca.crt", group="TLS",
+                ),
+                AuthField(
+                    key="tls_require_client_cert", label="Require client certificate",
+                    type="bool", default=False,
+                    help="Require a valid sender certificate signed by the configured client CA.",
+                    group="TLS",
+                ),
             ],
             requires_pip=[],  # stdlib asyncio only
         )
@@ -108,12 +145,9 @@ class SyslogReceiver(PayloadReceiver):
                 local_addr=(host, port),
             )
         elif protocol in ("tcp", "tls"):
-            ssl_ctx = None
-            if protocol == "tls":
-                # TODO: wire up an ssl.SSLContext from cert/key config. We still
-                # bind plain TCP so the transport works; TLS termination is a
-                # follow-up. Declared in the manifest so the wizard exposes it.
-                ssl_ctx = self._build_tls_context()
+            # TLS must fail closed: selecting it can never silently bind a plaintext
+            # socket. _build_tls_context validates the mounted material before bind.
+            ssl_ctx = self._build_tls_context() if protocol == "tls" else None
             self._server = await asyncio.start_server(
                 lambda r, w: self._handle_tcp(r, w, emit, prefs),
                 host, port, ssl=ssl_ctx,
@@ -121,10 +155,31 @@ class SyslogReceiver(PayloadReceiver):
         else:
             raise ValueError(f"unsupported syslog protocol: {protocol!r}")
 
-    def _build_tls_context(self) -> Any:
-        """Best-effort TLS context (TODO: cert/key wiring). Returns None today so
-        the listener still binds; documented as a follow-up in the manifest."""
-        return None
+    def _build_tls_context(self) -> ssl.SSLContext:
+        """Build a fail-closed TLS 1.2+ server context from mounted PEM files.
+
+        Private key material stays outside persisted source configuration. The optional
+        password is supplied through the connector's write-only secret bucket. A client
+        CA enables sender-certificate verification; mTLS cannot be requested without it.
+        """
+        cert_file = _required_file(self.config.get("tls_cert_file"), "TLS certificate")
+        key_file = _required_file(self.config.get("tls_key_file"), "TLS private key")
+        client_ca_raw = str(self.config.get("tls_client_ca_file") or "").strip()
+        require_client = _as_bool(self.config.get("tls_require_client_cert", False))
+        if require_client and not client_ca_raw:
+            raise ValueError("Syslog mTLS requires tls_client_ca_file")
+
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+        password = str(self.config.get("tls_key_password") or "") or None
+        context.load_cert_chain(certfile=cert_file, keyfile=key_file, password=password)
+        if client_ca_raw:
+            client_ca = _required_file(client_ca_raw, "TLS client CA")
+            context.load_verify_locations(cafile=client_ca)
+            context.verify_mode = ssl.CERT_REQUIRED if require_client else ssl.CERT_OPTIONAL
+        else:
+            context.verify_mode = ssl.CERT_NONE
+        return context
 
     async def _handle_tcp(
         self,
@@ -158,6 +213,21 @@ class SyslogReceiver(PayloadReceiver):
             except Exception:  # noqa: BLE001
                 pass
             self._server = None
+
+
+def _required_file(value: Any, label: str) -> str:
+    path = Path(str(value or "").strip()).expanduser()
+    if not str(value or "").strip():
+        raise ValueError(f"Syslog TLS requires {label.lower()} path")
+    if not path.is_file():
+        raise ValueError(f"{label} file does not exist or is not readable: {path}")
+    return str(path)
+
+
+def _as_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 class _SyslogUDPProtocol(asyncio.DatagramProtocol):

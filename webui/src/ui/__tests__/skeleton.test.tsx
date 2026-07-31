@@ -5,7 +5,19 @@
 import { describe, it, expect } from 'vitest';
 import { render } from '@testing-library/react';
 import * as SkeletonModule from '../skeleton';
-import { SkeletonCard } from '../skeleton';
+import { Skeleton, SkeletonCard } from '../skeleton';
+
+describe('Skeleton — static loading geometry', () => {
+  it('reserves layout without adding a second loading animation', () => {
+    const { container } = render(<Skeleton className="h-8 w-24" />);
+    const block = container.firstElementChild;
+
+    expect(block).toHaveAttribute('aria-hidden', 'true');
+    expect(block).toHaveClass('bg-muted/75');
+    expect(block).not.toHaveClass('shimmer');
+    expect(block).not.toHaveClass('animate-pulse');
+  });
+});
 
 describe('SkeletonCard — body-line widths are floored', () => {
   it('never renders a sub-visible / negative width for large `lines`', () => {

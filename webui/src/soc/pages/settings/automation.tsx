@@ -76,7 +76,7 @@ export function AutomationSection({
       {/* De-dup link card: the per-rule editor now lives in the Detection & rules home so
           the same `threshold_automation.rules` list has ONE editor. This card only points
           there — it never edits a rule (#3-safe: no decide(), no status write). */}
-      <div className="flex flex-col gap-3 rounded-md border border-border bg-surface px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 border-y border-border/70 py-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-start gap-3">
           <ListChecks className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />
           <div className="min-w-0 space-y-0.5">

@@ -1,11 +1,10 @@
 /**
  * BrandingEditor — Round-4 login white-label section test.
  *
- * Covers the new "Login screen" controls: the bounded plain-text hero copy
- * (headline / body / feature chips), the curated layout + illustration selects, and
- * that a Save round-trips the `login_*` fields through PUT /api/branding. The copy is
- * operator-set → the editor stores it verbatim (plain data) and the login renders it
- * as plain text (#6/#9) — this test asserts the wire round-trip, not markup.
+ * Covers the minimal "Login screen" controls: bounded plain-text welcome copy,
+ * description, and footer notes. Legacy layout/illustration values remain part of the
+ * wire contract but are intentionally no longer editable; Save must preserve them.
+ * Operator copy is stored verbatim (plain data) and rendered as plain text (#6/#9).
  */
 import * as React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -33,6 +32,7 @@ vi.mock('sonner', () => ({
 
 import { ThemeProvider } from '../../theme';
 import { BrandingEditor } from '../BrandingEditor';
+import { useHasUnsavedChanges } from '@/soc/hooks/useDirtyDraft';
 
 const SAVED_BRANDING = {
   org_name: 'Acme SOC',
@@ -61,8 +61,13 @@ function renderEditor() {
   return render(
     <ThemeProvider>
       <BrandingEditor />
+      <DirtyProbe />
     </ThemeProvider>,
   );
+}
+
+function DirtyProbe() {
+  return <output data-testid="branding-dirty-probe">{useHasUnsavedChanges() ? 'dirty' : 'clean'}</output>;
 }
 
 describe('BrandingEditor — login white-label section', () => {
@@ -75,27 +80,31 @@ describe('BrandingEditor — login white-label section', () => {
     putMock.mockImplementation((_path: string, body: unknown) => Promise.resolve(body));
   });
 
-  it('renders the Login screen controls (headline, body, layout, illustration)', async () => {
+  it('renders the minimal Login screen controls without legacy layout or illustration selects', async () => {
     renderEditor();
     expect(await screen.findByText('Login screen')).toBeInTheDocument();
-    expect(screen.getByLabelText('Headline')).toBeInTheDocument();
-    expect(screen.getByLabelText('Body copy')).toBeInTheDocument();
-    expect(screen.getByLabelText('Login layout')).toBeInTheDocument();
-    expect(screen.getByLabelText('Login illustration')).toBeInTheDocument();
+    expect(screen.getByLabelText('Short welcome line')).toBeInTheDocument();
+    expect(screen.getByLabelText('Sign-in description')).toBeInTheDocument();
+    expect(screen.getByText('Footer notes')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Login layout')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Login illustration')).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/Saved legacy layout and illustration values remain preserved/i),
+    ).toBeInTheDocument();
   });
 
   it('bounds the headline + body inputs to the server caps (120 / 600)', async () => {
     renderEditor();
-    const headline = (await screen.findByLabelText('Headline')) as HTMLInputElement;
-    const body = screen.getByLabelText('Body copy') as HTMLTextAreaElement;
+    const headline = (await screen.findByLabelText('Short welcome line')) as HTMLInputElement;
+    const body = screen.getByLabelText('Sign-in description') as HTMLTextAreaElement;
     expect(headline.maxLength).toBe(120);
     expect(body.maxLength).toBe(600);
   });
 
-  it('adds and removes feature chips (bounded to 6)', async () => {
+  it('adds and removes footer notes (bounded to 6)', async () => {
     renderEditor();
     await screen.findByText('Login screen');
-    const addChip = screen.getByRole('button', { name: 'Add chip' });
+    const addChip = screen.getByRole('button', { name: 'Add note' });
     fireEvent.click(addChip);
     const chip1 = (await screen.findByLabelText('Login chip 1')) as HTMLInputElement;
     fireEvent.change(chip1, { target: { value: 'Audited' } });
@@ -107,9 +116,9 @@ describe('BrandingEditor — login white-label section', () => {
 
   it('round-trips the login_* fields through PUT /api/branding on Save', async () => {
     renderEditor();
-    const headline = (await screen.findByLabelText('Headline')) as HTMLInputElement;
+    const headline = (await screen.findByLabelText('Short welcome line')) as HTMLInputElement;
     fireEvent.change(headline, { target: { value: 'Welcome to Contoso' } });
-    fireEvent.change(screen.getByLabelText('Body copy'), {
+    fireEvent.change(screen.getByLabelText('Sign-in description'), {
       target: { value: 'Investigate faster.' },
     });
 
@@ -124,29 +133,55 @@ describe('BrandingEditor — login white-label section', () => {
       login_headline: 'Welcome to Contoso',
       login_body: 'Investigate faster.',
       login_layout: 'split',
+      login_illustration: '',
     });
   });
 
-  it('lets the operator pick a curated illustration and persists the enum KEY', async () => {
+  it('blocks shell activation while branding has an unsaved draft', async () => {
     renderEditor();
-    await screen.findByText('Login screen');
-    const trigger = screen.getByLabelText('Login illustration');
-    fireEvent.click(trigger);
-    // Radix Select renders its options in a portal; find the "Radar sweep" item.
-    const option = await screen.findByText('Radar sweep');
-    fireEvent.click(option);
+    const headline = await screen.findByLabelText('Short welcome line');
+    expect(screen.getByTestId('branding-dirty-probe')).toHaveTextContent('clean');
+
+    fireEvent.change(headline, { target: { value: 'Unsaved identity' } });
+    await waitFor(() =>
+      expect(screen.getByTestId('branding-dirty-probe')).toHaveTextContent('dirty'),
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Discard/i }));
+    await waitFor(() =>
+      expect(screen.getByTestId('branding-dirty-probe')).toHaveTextContent('clean'),
+    );
+  });
+
+  it('preserves hidden legacy layout and illustration values on Save', async () => {
+    const legacyBranding = {
+      ...SAVED_BRANDING,
+      login_layout: 'full',
+      login_illustration: 'radar',
+    };
+    getMock.mockResolvedValue(legacyBranding);
+    getBrandingMock.mockResolvedValue(legacyBranding);
+
+    renderEditor();
+    const headline = await screen.findByLabelText('Short welcome line');
+    expect(screen.queryByLabelText('Login layout')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Login illustration')).not.toBeInTheDocument();
+    fireEvent.change(headline, { target: { value: 'Welcome back' } });
 
     const saveBtn = screen.getByRole('button', { name: /Save branding/i });
     await waitFor(() => expect(saveBtn).not.toBeDisabled());
     fireEvent.click(saveBtn);
     await waitFor(() => expect(putMock).toHaveBeenCalled());
     const [, body] = putMock.mock.calls[0];
-    expect(body).toMatchObject({ login_illustration: 'radar' });
+    expect(body).toMatchObject({
+      login_headline: 'Welcome back',
+      login_layout: 'full',
+      login_illustration: 'radar',
+    });
   });
 
   it('re-fetches GET /api/branding (shared-context resync) after a successful Save', async () => {
     renderEditor();
-    const headline = await screen.findByLabelText('Headline');
+    const headline = await screen.findByLabelText('Short welcome line');
     fireEvent.change(headline, { target: { value: 'X' } });
     const saveBtn = screen.getByRole('button', { name: /Save branding/i });
     await waitFor(() => expect(saveBtn).not.toBeDisabled());

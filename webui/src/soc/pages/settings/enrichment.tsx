@@ -17,7 +17,7 @@
 import * as React from 'react';
 import { toast } from 'sonner';
 
-import { SectionTitle, type SecProps } from './primitives';
+import { SectionTitle, SubHeader, type SecProps } from './primitives';
 import { EnrichmentProvidersEditor } from '@/soc/components/EnrichmentProvidersEditor';
 import { enrichmentApi } from '@/soc/components/EnrichmentProviders.api';
 import { NumberField } from '@/soc/components/NumberField';
@@ -43,25 +43,34 @@ export function EnrichmentSection({ prefs }: SecProps) {
 
   return (
     <div className="space-y-6">
-      <SectionTitle title="Enrichment" sub="Threat-intel lookups (cached in Redis)." />
-      <NumberField
-        label="Cache TTL (seconds)"
-        description="How long an enriched indicator is cached in Redis before it is re-queried."
-        value={cacheTtl}
-        min={0}
-        step={60}
-        unit="s"
-        disabled={!canManage}
-        onChange={(v) => void saveTtl(v)}
-        className="max-w-xs"
+      <SectionTitle
+        title="Enrichment"
+        sub="Choose the threat-intelligence providers used for indicators and control how long successful lookups stay cached."
       />
+      <section className="space-y-4 border-t border-border/70 pt-4">
+        <SubHeader title="Caching" />
+        <NumberField
+          label="Cache TTL (seconds)"
+          description="How long an enriched indicator is cached in Redis before it is re-queried."
+          value={cacheTtl}
+          min={0}
+          step={60}
+          unit="s"
+          disabled={!canManage}
+          onChange={(v) => void saveTtl(v)}
+          className="max-w-xs"
+        />
+      </section>
       {/* The full provider catalog (manifests + write-only secrets + try-a-lookup).
           Self-contained: it fetches its own provider manifests and persists the master
           enable/fusion + per-provider use_* toggles + secrets via its own co-located api
           (immediate settings PUTs / the dedicated secrets route), so it manages its own
           save lifecycle independent of the section dirty-map. `embedded` suppresses its
           own heading since the section provides one. */}
-      <EnrichmentProvidersEditor embedded />
+      <section className="space-y-4 border-t border-border/70 pt-4">
+        <SubHeader title="Providers" />
+        <EnrichmentProvidersEditor embedded />
+      </section>
     </div>
   );
 }

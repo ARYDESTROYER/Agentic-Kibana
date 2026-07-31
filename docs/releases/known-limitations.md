@@ -1,11 +1,11 @@
 ---
 title: Known limitations
-description: Promotion blockers and explicit operating constraints for Agentic SOC 0.1.0.
+description: Promotion blockers and explicit operating constraints for Agentic SOC 0.1.1.
 ---
 
 # Known limitations
 
-This list is part of the product contract for Agentic SOC `0.1.0`. It distinguishes
+This list is part of the product contract for Agentic SOC `0.1.1`. It distinguishes
 blockers to Stable promotion from documented version 0.1 constraints so a green
 unit-test suite is never mistaken for production evidence.
 
@@ -179,6 +179,17 @@ would be prohibitively expensive. Validate that enabled deterministic detectors,
 baselines, and risk settings produce the expected candidates and latency for each
 source.
 
+### Noise Reduction case drill-down is bounded by the loaded Cases window
+
+Noise Reduction aggregate counts can cover more records than the Cases page loads in
+one request. Outcome activation applies the exact Auto-cleared, Escalated, or
+Closed-by-human definition and selected time window to that loaded set, but the visible
+rows are a lower bound when the case store reports more records than were fetched.
+
+Use the aggregate stage count, counter-coverage state, and truncation notices for volume
+reporting. A complete drill-down requires server-side time/outcome filtering with
+cursor pagination rather than a larger hard client limit.
+
 ### Baseline learning and anomaly promotion are separate
 
 The normal pull/push path now observes and persists aggregate-only source and cluster
@@ -210,6 +221,18 @@ actually returned; it remains an estimate and must be reconciled with provider
 billing. The separate asynchronous Batch queue is opt-in and can add material
 latency or return results out of order.
 
+Batch submission uses a durable five-minute lease so the immediate submit path and
+the scheduler do not POST the same local outbox concurrently. Provider acceptance and
+local provider-ID persistence still cannot be one transaction; a process failure in
+that narrow boundary can be retried after lease expiry because neither bundled API
+offers a universal recovery/idempotency key. SQL-backed state uses an atomic revision
+predicate across workers. The bundled Elasticsearch state path uses native
+sequence-number/primary-term optimistic concurrency (and create-only insertion) for
+the shared Batch registry, so submission and re-entry claims are CAS-safe across
+backend workers. This narrow Batch guarantee does not remove the application-wide
+single-replica constraint above: receivers, schedulers, case signatures, recent-event
+buffers, and realtime delivery still lack distributed ownership.
+
 ### Portable export is not backup or tenant isolation
 
 The Data export workflow is bounded to 5,000 items per selected scope and 25 MiB,
@@ -217,6 +240,25 @@ excludes secrets/users/sessions/raw logs/raw knowledge chunks, and has no import
 endpoint. It is suitable for support and offline analysis, not disaster recovery.
 `data_export:export` is also broad scope access rather than per-analyst row isolation;
 grant it to custom roles only after reviewing the disclosure boundary.
+
+### Storage lifecycle does not yet provide end-to-end archival
+
+The desired default is 180 days Hot, 90 days Warm, and archive from day 270 to AWS
+S3 Glacier Flexible Retrieval, with deletion permanently off. Native enforcement is
+currently narrower than that desired policy:
+
+- Elasticsearch ILM is applied only to append-only audit and usage/cost ledgers,
+  and only after an explicit capability preview and freshly authenticated Apply;
+- mutable cases and live metadata stay Hot;
+- PostgreSQL is advisory until partitioning/tablespace/scheduler work exists;
+- SQLite is export-only; and
+- connected SIEM/log retention remains external and read-only.
+
+There is no independent Glacier writer, immutable manifest, checksum verifier,
+catalog, or tested restore workflow yet. Consequently Archive is reported as not
+configured and Warm data is not deleted. Do not work around this by transitioning an
+Elasticsearch snapshot-repository prefix to Glacier: Elasticsearch requires direct
+access to every repository object and the transition can make snapshots unusable.
 
 ### Mapping is not yet a versioned lifecycle
 
@@ -240,7 +282,9 @@ late cases, closed cases, split/merge, restart, and concurrent scheduler ownersh
 
 ### Connector-specific boundaries
 
-- Syslog supports UDP and TCP; selecting `tls` currently does not enable encryption.
+- Syslog supports UDP, TCP, and TLS 1.2+; TLS requires mounted certificate/private-key
+  files, and optional client-CA verification enables mTLS. TLS configuration is
+  fail-closed rather than silently falling back to plaintext.
 - S3 supports text formats and gzip, but not Security Lake OCSF Parquet.
 - MQTT currently schedules processing from its client callback, so protocol
   acknowledgement can precede a successful ingest; exclude it from loss-intolerant

@@ -30,6 +30,7 @@ from app.constants import EntityType, SourceSurface, Verdict
 from app.engine.correlation import cluster_from_events
 from app.es.fake import InMemoryESClient
 from app.llm.providers import CompletionResult, MockProvider
+from app.models import UsageDoc
 from app.realtime import get_event_bus, reset_event_bus
 from app.state import AppState
 from tests.conftest import make_raw_event
@@ -221,7 +222,21 @@ async def test_repeated_timeout_keeps_token_cost_in_lockstep_with_ledger(secrets
     case1 = await state.pipeline.investigate_cluster(
         cluster, SourceSurface.AUTOMATED_SCAN, state.prefs)
     ledger1 = await state.usage_store.summary(window_hours=48, case_id=case1.case_id)
+    assert await state.gateway.recorded_case_pipeline_cost(case1.case_id) == round(
+        ledger1["total_cost"], 6
+    )
     assert case1.token_cost == pytest.approx(round(ledger1["total_cost"], 6))
+
+    # A Case Manager chat can share the case_id, but its usage is a separate surface
+    # and must never inflate Case.token_cost (historically pipeline spend only).
+    await state.usage_store.write(UsageDoc(
+        surface="chat",
+        case_id=case1.case_id,
+        role="chat",
+        model="gpt-5.6-luna",
+        cost=1.0,
+        total_tokens=10,
+    ))
 
     # Re-investigate the same (open, un-changed-but-forced) case; it times out again.
     provider._investigator_calls = 0  # reset so the 2nd run also reaches the stall
@@ -230,10 +245,67 @@ async def test_repeated_timeout_keeps_token_cost_in_lockstep_with_ledger(secrets
     case2 = await state.pipeline.investigate_cluster(
         cluster, SourceSurface.AUTOMATED_SCAN, state.prefs, force=True)
     ledger2 = await state.usage_store.summary(window_hours=48, case_id=case2.case_id)
-    # The case's token_cost still equals the FULL ledger total for the case, and it
-    # only grew (the first run's accounted spend was not lost on the second pass).
-    assert case2.token_cost == pytest.approx(round(ledger2["total_cost"], 6))
+    pipeline_total = await state.gateway.recorded_case_pipeline_cost(case2.case_id)
+    assert pipeline_total is not None
+    # The all-role ledger includes the synthetic $1 Chat row, while the case remains
+    # exactly aligned to investigation-pipeline spend and still grows monotonically.
+    assert ledger2["total_cost"] == pytest.approx(pipeline_total + 1.0)
+    assert case2.token_cost == pytest.approx(pipeline_total)
     assert case2.token_cost >= case1.token_cost
+
+    await state.shutdown()
+    reset_event_bus()
+
+
+@pytest.mark.asyncio
+async def test_stale_nrt_ledger_total_never_erases_current_run_cost(
+    secrets: Secrets, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An Elasticsearch search can briefly return only the prior run's rows.
+
+    Reconciliation must retain the newly assembled spend until the all-time ledger
+    read proves that it includes the current run; forcing a refresh per LLM call is
+    intentionally avoided.
+    """
+    provider = _SlowInvestigatorProvider(sleep_seconds=5.0)
+    overrides = {"anthropic": provider, "openai": provider, "mock": provider}
+    state = AppState.create(
+        secrets=secrets,
+        es=InMemoryESClient(),
+        provider_overrides=overrides,
+    )
+    await state.startup(start_poller=False)
+    prefs = state.prefs.model_copy(update={"setup_complete": True})
+    prefs.caps.timeout_seconds = 1
+    await state.update_prefs(prefs)
+
+    cluster = _cluster("7.7.7.7")
+    provider.push("router", json.dumps(
+        {"bucket": "needs_strong_model", "confidence": 0.9, "reason": "serious"}))
+    case1 = await state.pipeline.investigate_cluster(
+        cluster, SourceSurface.AUTOMATED_SCAN, state.prefs)
+    stale_total = case1.token_cost
+
+    async def _stale_total(_case_id: str) -> float:
+        return stale_total
+
+    monkeypatch.setattr(state.gateway, "recorded_case_pipeline_cost", _stale_total)
+    provider._investigator_calls = 0
+    provider.push("router", json.dumps(
+        {"bucket": "needs_strong_model", "confidence": 0.9, "reason": "serious"}))
+    case2 = await state.pipeline.investigate_cluster(
+        cluster, SourceSurface.AUTOMATED_SCAN, state.prefs, force=True)
+
+    # The stale prior total was not adopted: the current run's realised cost remains
+    # represented in the case even though the authoritative search has not refreshed.
+    assert case2.token_cost > stale_total
+    actual_ledger_total = await state.usage_store.total_pipeline_cost_for_case(
+        case2.case_id
+    )
+    assert actual_ledger_total is not None
+    # Until the NRT read catches up, fail-soft addition may be one display micro-dollar
+    # above the eventual raw-ledger sum; it must not be below it or lose the new run.
+    assert 0.0 <= case2.token_cost - actual_ledger_total <= 0.0000011
 
     await state.shutdown()
     reset_event_bus()

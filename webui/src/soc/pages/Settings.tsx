@@ -21,12 +21,15 @@
  */
 import * as React from 'react';
 import {
-  AlertTriangle,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   Lock,
-  RefreshCw,
+  Menu,
   Search,
   Settings as SettingsIcon,
   Wand2,
+  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -42,11 +45,20 @@ import { Button } from '@/ui/button';
 import { Input } from '@/ui/input';
 import { Badge } from '@/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
-import { Skeleton } from '@/ui/skeleton';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from '@/ui/sheet';
+import { LoadingState } from '@/design-system';
 
 import { PageHeader } from '@/soc/components/PageHeader';
 import { PageContainer } from '@/soc/components/PageContainer';
 import { EmptyState } from '@/soc/components/EmptyState';
+import { LoadError } from '@/soc/components/LoadError';
 import { Can } from '@/soc/components/Can';
 import { StickySaveBar } from '@/soc/components/SettingsGrid';
 import {
@@ -66,9 +78,10 @@ import {
   type SettingsSectionDef,
 } from '@/soc/pages/settings/settings-sections';
 import { errMsg } from '@/soc/pages/settings/primitives';
-import { useNavigate, settingsSectionHash } from '@/soc/router';
+import { useNavigate, useNavigationBlocker, settingsSectionHash } from '@/soc/router';
 import { useAuth } from '@/soc/auth';
 import { usePrefersReducedMotion } from '@/soc/hooks/usePrefersReducedMotion';
+import { useUnsavedChanges } from '@/soc/hooks/useDirtyDraft';
 
 /* -------------------------------------------------------------------- page -- */
 
@@ -76,6 +89,154 @@ export interface SettingsPageProps {
   /** Re-launch the first-run setup wizard. */
   onRerunWizard?: () => void;
   onNavigate?: (page: any, opts?: any) => void;
+}
+
+interface VisibleSettingsGroup {
+  id: string;
+  label: string;
+  sections: SettingsSectionDef[];
+}
+
+interface SettingsSectionListProps {
+  groups: VisibleSettingsGroup[];
+  activeSection: SectionId;
+  changed: ReadonlySet<string>;
+  query: string;
+  onSelect: (id: SectionId, anchor?: string) => void;
+  pendingSecretChanges?: boolean;
+  compact?: boolean;
+}
+
+/**
+ * The registry-derived Settings navigation shared by the desktop rail and the
+ * narrow-screen chooser. The compact copy receives distinct test ids and only mounts
+ * while its Sheet is open, so there is one settings landmark in the accessibility tree
+ * during routine page use.
+ */
+function SettingsSectionList({
+  groups,
+  activeSection,
+  changed,
+  query,
+  onSelect,
+  pendingSecretChanges = false,
+  compact = false,
+}: SettingsSectionListProps) {
+  return (
+    <div className="space-y-5">
+      {groups.map((group) => (
+        <section key={group.id} aria-labelledby={`settings-group-${compact ? 'compact-' : ''}${group.id}`}>
+          <div className="mb-1 flex items-center justify-between gap-3 px-2">
+            <div
+              id={`settings-group-${compact ? 'compact-' : ''}${group.id}`}
+              className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground"
+            >
+              {group.label}
+            </div>
+            <span className="font-mono text-2xs tabular-nums text-muted-foreground/70" aria-hidden>
+              {group.sections.length}
+            </span>
+          </div>
+
+          <div className="flex flex-col gap-0.5">
+            {group.sections.map((item) => {
+              const Icon = item.icon;
+              const active = activeSection === item.id;
+              const modified =
+                sectionIsDirty(item.id, changed) || (item.id === 'keys' && pendingSecretChanges);
+              const subMatches = matchedAnchorsForSection(item.id, query);
+              return (
+                <React.Fragment key={item.id}>
+                  <button
+                    type="button"
+                    onClick={() => onSelect(item.id as SectionId)}
+                    aria-current={active ? 'page' : undefined}
+                    data-testid={`${compact ? 'settings-mobile-section' : 'settings-section'}-${item.id}`}
+                    title={modified ? `${item.blurb} (unsaved changes)` : item.blurb}
+                    className={cn(
+                      'group inline-flex min-h-9 items-center gap-2.5 border-l-2 px-2.5 py-1.5 text-left text-sm transition-colors',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+                      active
+                        ? 'border-primary bg-accent/50 font-medium text-foreground'
+                        : 'border-transparent text-muted-foreground hover:bg-accent/30 hover:text-foreground',
+                    )}
+                  >
+                    <Icon
+                      className={cn(
+                        'h-4 w-4 shrink-0',
+                        active ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground',
+                      )}
+                      aria-hidden
+                    />
+                    <span className="min-w-0 flex-1 truncate">{item.title}</span>
+                    {modified ? (
+                      <span
+                        className="inline-flex h-2 w-2 shrink-0 rounded-full bg-warning"
+                        aria-label="Unsaved changes in this section"
+                        title="Unsaved changes"
+                      />
+                    ) : null}
+                  </button>
+
+                  {subMatches.length > 0 ? (
+                    <div className="ml-7 flex flex-col gap-0.5 border-l border-border pl-2">
+                      {subMatches.map((anchor) => (
+                        <button
+                          key={anchor.anchor}
+                          type="button"
+                          onClick={() => onSelect(item.id as SectionId, anchor.anchor)}
+                          data-testid={`${compact ? 'settings-mobile-anchor' : 'settings-anchor'}-${anchor.anchor}`}
+                          title={`Jump to “${anchor.label}” in ${item.title}`}
+                          className="truncate px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                        >
+                          {anchor.label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </React.Fragment>
+              );
+            })}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+interface SettingsSearchProps {
+  value: string;
+  onChange: (value: string) => void;
+  id: string;
+}
+
+function SettingsSearch({ value, onChange, id }: SettingsSearchProps) {
+  return (
+    <div className="relative">
+      <Search
+        className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+        aria-hidden
+      />
+      <Input
+        id={id}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder="Search settings…"
+        aria-label="Search settings sections"
+        className="h-9 pl-8 pr-8 shadow-none"
+      />
+      {value ? (
+        <button
+          type="button"
+          onClick={() => onChange('')}
+          aria-label="Clear settings search"
+          className="absolute right-1 top-1 inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <X className="h-3.5 w-3.5" aria-hidden />
+        </button>
+      ) : null}
+    </div>
+  );
 }
 
 /** Read the active section from the hash query (`#/settings?s=<id>`). */
@@ -118,6 +279,7 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
   const [models, setModels] = React.useState<ModelsResponse | null>(null);
   const [section, setSectionState] = React.useState<SectionId>(() => sectionFromHash() ?? 'general');
   const [query, setQuery] = React.useState('');
+  const [mobileNavOpen, setMobileNavOpen] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   // The pending card anchor to scroll+highlight (from `#/settings?s=<id>&a=<anchor>`).
   // Set on mount + on any hashchange carrying an `a=`; cleared once consumed by the
@@ -200,6 +362,21 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
   );
   const dirty = changed.size > 0;
   const changedCount = changed.size;
+  const pendingSecretCount = React.useMemo(
+    () => Object.values(secretDraft).filter((value) => value.trim().length > 0).length,
+    [secretDraft],
+  );
+  // Settings holds both ordinary preference drafts and write-only secret drafts.
+  // Neither may disappear silently on reload/tab close; keep this hook above every
+  // loading/error early return so the hook order remains stable through first load.
+  useUnsavedChanges(dirty || pendingSecretCount > 0);
+  useNavigationBlocker(dirty || pendingSecretCount > 0, {
+    title: 'Leave Settings with unsaved changes?',
+    description:
+      'Your preference and secret drafts have not been saved. Leave this page and discard them?',
+    confirmLabel: 'Leave Settings',
+    cancelLabel: 'Keep editing',
+  });
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -328,14 +505,12 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
     return (
       <PageContainer variant="wide" className="space-y-6">
         <PageHeader icon={SettingsIcon} eyebrow="Platform" title="Settings" />
-        <div className="grid gap-6 lg:grid-cols-[256px_minmax(0,1fr)]">
-          <div className="space-y-1.5">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <Skeleton key={i} className="h-9 w-full" />
-            ))}
-          </div>
-          <Skeleton className="h-96 w-full rounded-lg" />
-        </div>
+        <LoadingState
+          label="Loading settings"
+          description="Retrieving your preferences and access controls."
+          layout="page"
+          shape="panel"
+        />
       </PageContainer>
     );
   }
@@ -344,22 +519,11 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
     return (
       <PageContainer variant="wide" className="space-y-6">
         <PageHeader icon={SettingsIcon} eyebrow="Platform" title="Settings" />
-        <Alert variant="destructive">
-          <AlertTriangle className="h-4 w-4" aria-hidden />
-          <AlertTitle>Could not load settings</AlertTitle>
-          <AlertDescription>{errMsg(error, 'No settings loaded.')}</AlertDescription>
-        </Alert>
-        <EmptyState
-          variant="error"
-          icon={SettingsIcon}
-          title="Settings unavailable"
-          description="The backend did not return preferences. Check connectivity and try again."
-          action={
-            <Button variant="outline" size="sm" onClick={() => void load()}>
-              <RefreshCw className="h-4 w-4" aria-hidden />
-              Retry
-            </Button>
-          }
+        <LoadError
+          error={error}
+          fallback="The backend did not return preferences. Check connectivity and try again."
+          title="Could not load settings"
+          onRetry={() => void load()}
         />
       </PageContainer>
     );
@@ -369,6 +533,7 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
   // guaranteed non-null here (past the early returns above).
   const renderCtx: SectionRenderContext = {
     prefs,
+    persistedPrefs: savedPrefs ?? prefs,
     update,
     models,
     configured,
@@ -412,6 +577,17 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
   const activeDef = SECTION_BY_ID[section] ?? SECTION_BY_ID.general;
   const ActiveSectionIcon = activeDef.icon;
   const isGrid = GRID_SECTIONS.has(activeDef.id);
+  const activeGroup = SECTION_GROUPS.find((group) =>
+    group.sections.some((candidate) => candidate.id === activeDef.id),
+  );
+  const activeSectionDirty =
+    sectionIsDirty(activeDef.id, changed) || (activeDef.id === 'keys' && pendingSecretCount > 0);
+  const pendingChangeCount = changedCount + pendingSecretCount;
+
+  const selectFromCompactNav = (id: SectionId, anchor?: string) => {
+    setSection(id, anchor);
+    setMobileNavOpen(false);
+  };
 
   // When the settings lock is ON, Save is disabled — EXCEPT when the operator's pending
   // draft turns the lock itself back OFF. That is the one PUT the backend explicitly
@@ -422,27 +598,39 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
   const saveLocked = readOnly && !unlockingNow;
 
   return (
-    <PageContainer variant="wide" className="space-y-6">
+    <PageContainer variant="wide" className="space-y-5">
       <PageHeader
         icon={SettingsIcon}
-        eyebrow="Platform"
+        breadcrumb={[{ label: 'Platform' }]}
         title="Settings"
-        description="Tune every preference the agent uses. Secrets are write-only."
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            {dirty ? (
-              <Badge variant="warning" className="gap-1">
-                <span className="inline-block h-1.5 w-1.5 rounded-full bg-warning" aria-hidden />
-                {changedCount} unsaved
+        description="Configure how Agentic SOC ingests, investigates, automates, and governs your workspace."
+        meta={
+          <div aria-live="polite">
+            {readOnly ? (
+              <Badge variant="warning">
+                <Lock className="h-3 w-3" aria-hidden />
+                Read-only
               </Badge>
-            ) : null}
-            {onRerunWizard ? (
-              <Button variant="outline" size="sm" onClick={onRerunWizard}>
-                <Wand2 className="h-4 w-4" aria-hidden />
-                Re-run setup wizard
-              </Button>
-            ) : null}
+            ) : dirty || pendingSecretCount > 0 ? (
+              <Badge variant="warning">
+                <span className="h-1.5 w-1.5 rounded-full bg-warning" aria-hidden />
+                {pendingChangeCount} pending {pendingChangeCount === 1 ? 'change' : 'changes'}
+              </Badge>
+            ) : (
+              <Badge variant="outline">
+                <CheckCircle2 className="h-3 w-3 text-success-text" aria-hidden />
+                Preferences saved
+              </Badge>
+            )}
           </div>
+        }
+        actions={
+          onRerunWizard ? (
+            <Button variant="outline" size="sm" onClick={onRerunWizard}>
+              <Wand2 className="h-4 w-4" aria-hidden />
+              Re-run setup wizard
+            </Button>
+          ) : null
         }
       />
 
@@ -457,127 +645,119 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
         </Alert>
       ) : null}
 
-      <div className="grid gap-8 lg:grid-cols-[272px_minmax(0,1fr)]">
-        {/* Section nav: searchable, grouped, RBAC-aware. */}
-        <nav
-          aria-label="Settings sections"
-          className="border-b border-border pb-5 lg:sticky lg:top-[calc(var(--header-h)+1rem)] lg:max-h-[calc(100dvh-var(--header-h)-2rem)] lg:self-start lg:overflow-y-auto lg:border-b-0 lg:border-r lg:pb-0 lg:pr-5"
-        >
-          <div className="space-y-3">
-            <div className="relative">
-              <Search
-                className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
-                aria-hidden
-              />
-              <Input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search settings…"
-                aria-label="Search settings sections"
-                className="h-9 rounded-none border-x-0 border-t-0 pl-8 shadow-none"
-              />
+      {/* Narrow layouts use a single contextual chooser instead of stacking the entire
+          25-section rail above the active editor. The full grouped/searchable list mounts
+          inside the Sheet only while open. */}
+      <div className="lg:hidden">
+        <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+          <SheetTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-auto w-full justify-between px-3 py-2 text-left"
+              data-testid="settings-mobile-nav-trigger"
+            >
+              <span className="flex min-w-0 items-center gap-2.5">
+                <Menu className="h-4 w-4 text-muted-foreground" aria-hidden />
+                <span className="min-w-0">
+                  <span className="block text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    {activeGroup?.label ?? 'Settings'}
+                  </span>
+                  <span className="block truncate text-sm text-foreground">{activeDef.title}</span>
+                </span>
+              </span>
+              <ChevronDown className="h-4 w-4 text-muted-foreground" aria-hidden />
+            </Button>
+          </SheetTrigger>
+          <SheetContent side="left" size="sm" className="gap-0">
+            <SheetHeader>
+              <SheetTitle>Settings</SheetTitle>
+              <SheetDescription>Choose a configuration section.</SheetDescription>
+            </SheetHeader>
+            <div className="border-b border-border p-4">
+              <SettingsSearch id="settings-search-compact" value={query} onChange={setQuery} />
             </div>
+            <nav
+              aria-label="Settings categories"
+              data-testid="settings-compact-section-scroll"
+              className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-4"
+            >
+              {flatVisible.length === 0 ? (
+                <p className="px-2 py-4 text-sm text-muted-foreground">No sections match “{query}”.</p>
+              ) : (
+                <SettingsSectionList
+                  groups={visibleGroups}
+                  activeSection={section}
+                  changed={changed}
+                  query={query}
+                  onSelect={selectFromCompactNav}
+                  pendingSecretChanges={pendingSecretCount > 0}
+                  compact
+                />
+              )}
+            </nav>
+          </SheetContent>
+        </Sheet>
+      </div>
 
-            {flatVisible.length === 0 ? (
-              <p className="px-1 py-3 text-xs text-muted-foreground">No sections match “{query}”.</p>
-            ) : (
-              <div className="space-y-4">
-                {visibleGroups.map((g) => (
-                  <div key={g.id} className="space-y-1">
-                    <p className="px-2 text-2xs font-semibold uppercase tracking-wider text-muted-foreground/80">
-                      {g.label}
-                    </p>
-                    <div className="flex flex-col gap-0.5">
-                      {g.sections.map((s) => {
-                        const Icon = s.icon;
-                        const active = section === s.id;
-                        const modified = sectionIsDirty(s.id, changed);
-                        // Setting-level matches under this section (only while searching).
-                        const subMatches = matchedAnchorsForSection(s.id, query);
-                        return (
-                          <React.Fragment key={s.id}>
-                            <button
-                              type="button"
-                              onClick={() => setSection(s.id as SectionId)}
-                              aria-current={active ? 'page' : undefined}
-                              data-testid={`settings-section-${s.id}`}
-                              title={modified ? `${s.blurb} (unsaved changes)` : s.blurb}
-                              className={cn(
-                                'group inline-flex items-center gap-2.5 border-l-2 px-3 py-2 text-left text-sm font-medium transition-colors',
-                                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                                active
-                                  ? 'border-primary bg-accent/45 text-foreground'
-                                  : 'border-transparent text-muted-foreground hover:bg-accent/30 hover:text-foreground',
-                              )}
-                            >
-                              <Icon
-                                className={cn(
-                                  'h-4 w-4 shrink-0 transition-colors',
-                                  active
-                                    ? 'text-primary'
-                                    : 'text-muted-foreground group-hover:text-foreground',
-                                )}
-                                aria-hidden
-                              />
-                              <span className="truncate">{s.title}</span>
-                              {modified ? (
-                                <span
-                                  className="ml-auto inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-warning"
-                                  aria-label="Unsaved changes in this section"
-                                  title="Unsaved changes"
-                                />
-                              ) : null}
-                            </button>
-                            {/* Setting-level deep-link sub-list (search only): jump straight
-                                to the matched card via #/settings?s=<id>&a=<anchor>. */}
-                            {subMatches.length > 0 ? (
-                              <div className="ml-7 flex flex-col gap-0.5 border-l border-border pl-2">
-                                {subMatches.map((a) => (
-                                  <button
-                                    key={a.anchor}
-                                    type="button"
-                                    onClick={() => setSection(s.id as SectionId, a.anchor)}
-                                    data-testid={`settings-anchor-${a.anchor}`}
-                                    title={`Jump to “${a.label}” in ${s.title}`}
-                                    className="truncate rounded px-2 py-1 text-left text-xs text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                  >
-                                    {a.label}
-                                  </button>
-                                ))}
-                              </div>
-                            ) : null}
-                          </React.Fragment>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </nav>
+      <div className="grid border-t border-border lg:grid-cols-[248px_minmax(0,1fr)]">
+        {/* Desktop section rail: one quiet, sticky configuration index with the search
+            fixed above a separately scrolling registry-derived section list. */}
+        <aside className="hidden border-r border-border pr-5 pt-5 lg:block">
+          <nav
+            aria-label="Settings categories"
+            className="sticky top-[calc(var(--header-h)+1rem)] flex max-h-[calc(100dvh-var(--header-h)-2rem)] min-h-0 flex-col"
+          >
+            <div className="mb-3 flex items-center justify-between gap-3 px-1">
+              <span className="text-xs font-semibold uppercase tracking-wider text-foreground">
+                Configuration
+              </span>
+              <span className="font-mono text-2xs tabular-nums text-muted-foreground">
+                {flatVisible.length} sections
+              </span>
+            </div>
+            <SettingsSearch id="settings-search-desktop" value={query} onChange={setQuery} />
+            <div
+              data-testid="settings-desktop-section-scroll"
+              className="mt-4 min-h-0 overflow-y-auto overscroll-y-contain pr-1"
+            >
+              {flatVisible.length === 0 ? (
+                <p className="px-2 py-4 text-sm text-muted-foreground">No sections match “{query}”.</p>
+              ) : (
+                <SettingsSectionList
+                  groups={visibleGroups}
+                  activeSection={section}
+                  changed={changed}
+                  query={query}
+                  onSelect={setSection}
+                  pendingSecretChanges={pendingSecretCount > 0}
+                />
+              )}
+            </div>
+          </nav>
+        </aside>
 
-        {/* Section body. The active section uses the same flat, divider-led grammar as
-            the Security Command Center instead of a card nested inside the page. */}
-        <div className="min-w-0 space-y-5">
-          <header className="flex items-start gap-3 border-b border-border pb-4">
-            <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center border border-border bg-surface text-primary">
-              <ActiveSectionIcon className="h-4 w-4" aria-hidden />
+        {/* The renderer owns the one visible section heading. This compact context line
+            supplies location and draft status without repeating that title as another h2. */}
+        <div className="min-w-0 space-y-5 pt-5 lg:pl-8">
+          <div
+            data-testid="settings-active-context"
+            className="flex min-h-9 flex-wrap items-center justify-between gap-3 border-b border-border pb-3"
+          >
+            <div className="flex min-w-0 items-center gap-2 text-sm">
+              <ActiveSectionIcon className="h-4 w-4 shrink-0 text-primary" aria-hidden />
+              <span className="truncate text-muted-foreground">{activeGroup?.label ?? 'Settings'}</span>
+              <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" aria-hidden />
+              <span className="truncate font-medium text-foreground">{activeDef.title}</span>
+            </div>
+            <span className={cn('text-xs', activeSectionDirty ? 'text-warning-text' : 'text-muted-foreground')}>
+              {activeSectionDirty ? 'Modified in this section' : 'No unsaved changes in this section'}
             </span>
-            <div className="min-w-0">
-              <h2 className="text-xl font-semibold tracking-tight text-foreground">
-                {activeDef.title}
-              </h2>
-              <p className="mt-1 max-w-3xl text-sm leading-relaxed text-muted-foreground">
-                {activeDef.blurb}
-              </p>
-            </div>
-          </header>
-          {isGrid ? (
-            renderSection(activeDef)
-          ) : (
-            <section className="border-b border-border pb-6">{renderSection(activeDef)}</section>
-          )}
+          </div>
+
+          <section className={cn('min-w-0', !isGrid && 'border-b border-border pb-6')}>
+            {renderSection(activeDef)}
+          </section>
 
           {/* Sticky save/discard bar — only visible while there are unsaved changes.
               Save sends only the changed keys; Discard reverts to the saved snapshot. */}
@@ -596,13 +776,16 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
                   : `${changedCount} unsaved ${changedCount === 1 ? 'change' : 'changes'}.`
             }
           />
+
+          <p className="flex items-start gap-2 border-t border-border pt-4 text-xs leading-relaxed text-muted-foreground">
+            <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+            <span>
+              Preference changes take effect after Save. Secret values stay write-only; the
+              Console only reports whether a key is configured.
+            </span>
+          </p>
         </div>
       </div>
-
-      <p className="border-t border-border pt-4 text-xs leading-relaxed text-muted-foreground">
-        Changes to preferences take effect after Save. Secret keys are stored write-only — the
-        console only ever knows whether a key is configured.
-      </p>
     </PageContainer>
   );
 }

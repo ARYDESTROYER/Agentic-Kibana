@@ -47,7 +47,7 @@ export interface BrandingDoc extends LoginBranding {
 export interface BrandingPutResult extends BrandingDoc {
   /** Server-reported WCAG-AA contrast warnings (plain text), if any. */
   contrast_warnings?: string[];
-  /** Tokens/colours the backend auto-corrected to stay AA (css-var → value), if any. */
+  /** Exact derived black/white accent foregrounds (css-var → value), if any. */
   auto_corrected?: Record<string, string>;
 }
 
@@ -99,29 +99,31 @@ export function contrastRatio(fgHex: string, bgHex: string): number | null {
 }
 
 /**
- * A local WCAG-AA advisory for the PRIMARY accent. The accent fill carries white
- * (`--primary-foreground`) text across buttons/badges; AA "large/UI" text wants ≥ 3:1
- * and normal text ≥ 4.5:1. We surface a warning below 4.5:1 (and a stronger one below
- * 3:1). Returns null when the accent is blank (built-in accent is already AA-vetted)
- * or unpar-seable. Plain-text message; the caller renders it as text.
+ * A defensive local WCAG-AA advisory for the PRIMARY accent. Runtime derives the
+ * higher-contrast black/white `--primary-foreground`, so this checks that effective
+ * pair rather than assuming white. Returns null when the accent is blank/invalid or
+ * the derived pair clears 4.5:1. Plain-text message; the caller renders it as text.
  */
 export function accentContrastAdvisory(accentHex: string): { ratio: number; message: string; severe: boolean } | null {
   const hex = (accentHex || '').trim();
   if (!hex) return null;
-  const ratio = contrastRatio('#ffffff', hex);
-  if (ratio == null) return null;
+  const whiteRatio = contrastRatio('#ffffff', hex);
+  const blackRatio = contrastRatio('#000000', hex);
+  if (whiteRatio == null || blackRatio == null) return null;
+  const foreground = whiteRatio >= blackRatio ? 'White' : 'Black';
+  const ratio = Math.max(whiteRatio, blackRatio);
   if (ratio >= 4.5) return null;
   const rounded = Math.round(ratio * 100) / 100;
   if (ratio < 3) {
     return {
       ratio: rounded,
       severe: true,
-      message: `White text on this accent has a contrast ratio of ${rounded}:1 — below the WCAG-AA minimum of 3:1 for UI/large text. Choose a darker accent.`,
+      message: `${foreground} text, the strongest black/white pair for this accent, has a contrast ratio of ${rounded}:1 — below the WCAG-AA minimum of 3:1 for UI/large text. Choose a different accent.`,
     };
   }
   return {
     ratio: rounded,
     severe: false,
-    message: `White text on this accent has a contrast ratio of ${rounded}:1 — it meets AA for large/UI text (3:1) but is below the 4.5:1 needed for small text. A darker accent improves legibility.`,
+    message: `${foreground} text, the strongest black/white pair for this accent, has a contrast ratio of ${rounded}:1 — it meets AA for large/UI text (3:1) but is below the 4.5:1 needed for small text. Choose a higher-contrast accent.`,
   };
 }

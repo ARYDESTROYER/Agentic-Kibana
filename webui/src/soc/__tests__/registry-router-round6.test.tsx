@@ -60,6 +60,7 @@ describe('ROUTES — host-tab children route through their host with a forced ta
 
   it.each([
     ['cost', 'metrics', 'cost'],
+    ['effectiveness', 'metrics', 'effectiveness'],
     ['standup', 'overview', 'standup'],
     ['investigate', 'chat', 'investigate'],
     ['knowledge', 'intelligence', 'knowledge'],
@@ -104,6 +105,7 @@ describe('registry — Analytics children RBAC gates match their backend routes'
 
   it('gates the Metrics child on metrics:view (the grant GET /api/metrics requires)', () => {
     expect(child('metrics')?.perm).toEqual({ resource: 'metrics', action: 'view' });
+    expect(child('effectiveness')?.perm).toEqual({ resource: 'metrics', action: 'view' });
   });
 
   it('leaves Cost + Models ungated (their GET endpoints are auth-only)', () => {

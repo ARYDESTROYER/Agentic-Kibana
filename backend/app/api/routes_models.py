@@ -553,8 +553,9 @@ async def put_budget(
     state: AppState = Depends(get_state),
     _=Depends(require_permission("models", "manage")),
 ) -> dict[str, Any]:
-    prefs = state.prefs.model_copy(update={"budget": body})
-    await state.update_prefs(prefs)
+    await state.mutate_prefs(
+        lambda current: current.model_copy(update={"budget": body})
+    )
     await _audit(
         state, request, "budget_update",
         f"budget enabled={body.enabled} daily=${body.daily_usd} "

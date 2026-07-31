@@ -68,6 +68,7 @@ import {
 
 import { PageContainer } from '@/soc/components/PageContainer';
 import { PageHeader } from '@/soc/components/PageHeader';
+import { ControlBar } from '@/soc/components/ControlBar';
 import { ConfirmDialog } from '@/soc/components/ConfirmDialog';
 import {
   DataTable,
@@ -145,6 +146,31 @@ const NEEDS_HUMAN = '__needs_human__';
 /** Sentinel facet value for cases with no originating source recorded. */
 const UNASSIGNED = '__unassigned__';
 const TERMINAL_STATUSES = new Set(['closed', 'resolved']);
+type NoiseOutcomeFilter = 'auto_cleared' | 'escalated' | 'closed';
+const NOISE_OUTCOMES = new Set<NoiseOutcomeFilter>(['auto_cleared', 'escalated', 'closed']);
+
+/** Mirrors the advisory Noise Reduction tally exactly; never affects case decisions. */
+function isAutoClearedNoiseCase(c: Case): boolean {
+  return (
+    TERMINAL_STATUSES.has((c.status || '').toLowerCase()) &&
+    (c.decision_by || '').toLowerCase() === 'agent' &&
+    (c.verdict || '').toUpperCase() === 'FALSE_POSITIVE'
+  );
+}
+
+function isHumanClosedNoiseCase(c: Case): boolean {
+  return (
+    TERMINAL_STATUSES.has((c.status || '').toLowerCase()) &&
+    (c.decision_by || '').toLowerCase() === 'analyst'
+  );
+}
+
+export function matchesNoiseOutcome(c: Case, outcome: NoiseOutcomeFilter): boolean {
+  if (outcome === 'auto_cleared') return isAutoClearedNoiseCase(c);
+  if (outcome === 'closed') return isHumanClosedNoiseCase(c);
+  // The funnel's Escalated cohort is every case not auto-cleared by the agent.
+  return !isAutoClearedNoiseCase(c);
+}
 
 function isActiveCase(c: Case): boolean {
   return !TERMINAL_STATUSES.has((c.status || '').toLowerCase());
@@ -157,7 +183,7 @@ function needsHumanCase(c: Case): boolean {
   );
 }
 
-type TimeRange = 'all' | '24h' | '7d' | '30d';
+type TimeRange = 'all' | '1h' | '24h' | '7d' | '30d';
 
 /** All rule ids/names on a case (handles rule_ids[] and a scalar `rule`). */
 function caseRules(c: Case): string[] {
@@ -217,10 +243,20 @@ function caseSeverityBand(c: Case) {
 }
 
 const TIME_RANGE_MS: Record<Exclude<TimeRange, 'all'>, number> = {
+  '1h': 3600 * 1000,
   '24h': 24 * 3600 * 1000,
   '7d': 7 * 24 * 3600 * 1000,
   '30d': 30 * 24 * 3600 * 1000,
 };
+
+/** Convert a dashboard metrics window into the exact representable Cases horizon. */
+export function timeRangeFromWindowHours(hours: number | undefined): TimeRange | undefined {
+  if (hours === 1) return '1h';
+  if (hours === 24) return '24h';
+  if (hours === 7 * 24) return '7d';
+  if (hours === 30 * 24) return '30d';
+  return undefined;
+}
 
 /* ----------------------------------------------------------------- filters - */
 
@@ -229,6 +265,7 @@ interface CaseFilters {
   status: string; // ANY | a status value
   disposition: string; // ANY | a disposition value
   severity: string; // ANY | 'critical'|'high'|'medium'|'low'|'info'
+  noiseOutcome: string; // ANY | exact Noise Reduction outcome cohort
   assignee: string; // ANY | UNASSIGNED | a name
   timeRange: TimeRange;
   /** Show only cases linked across sources (F6 — related_case_ids / cross-source group). */
@@ -240,6 +277,7 @@ const EMPTY_FILTERS: CaseFilters = {
   status: ANY,
   disposition: ANY,
   severity: ANY,
+  noiseOutcome: ANY,
   assignee: ANY,
   timeRange: 'all',
   relatedOnly: false,
@@ -315,6 +353,13 @@ function applyFilters(cases: Case[], f: CaseFilters): Case[] {
       return false;
     }
     if (f.disposition !== ANY && (c.disposition || '') !== f.disposition) return false;
+    if (
+      f.noiseOutcome !== ANY &&
+      NOISE_OUTCOMES.has(f.noiseOutcome as NoiseOutcomeFilter) &&
+      !matchesNoiseOutcome(c, f.noiseOutcome as NoiseOutcomeFilter)
+    ) {
+      return false;
+    }
     if (f.relatedOnly && !isCrossSourceLinked(c)) return false;
 
     if (f.severity !== ANY) {
@@ -363,6 +408,7 @@ function countActiveFilters(f: CaseFilters): number {
     (f.status !== ANY ? 1 : 0) +
     (f.disposition !== ANY ? 1 : 0) +
     (f.severity !== ANY ? 1 : 0) +
+    (f.noiseOutcome !== ANY ? 1 : 0) +
     (f.assignee !== ANY ? 1 : 0) +
     (f.timeRange !== 'all' ? 1 : 0) +
     (f.relatedOnly ? 1 : 0)
@@ -378,6 +424,7 @@ function filtersToView(f: CaseFilters): Record<string, unknown> {
     status: f.status,
     disposition: f.disposition,
     severity: f.severity,
+    noiseOutcome: f.noiseOutcome,
     assignee: f.assignee,
     timeRange: f.timeRange,
     relatedOnly: f.relatedOnly,
@@ -390,13 +437,18 @@ function viewToFilters(raw: Record<string, unknown> | undefined): CaseFilters {
   const str = (v: unknown, fallback: string) =>
     typeof v === 'string' && v ? v : fallback;
   const tr = str(r.timeRange, 'all');
+  const noiseOutcome = str(r.noiseOutcome, ANY);
   return {
     search: typeof r.search === 'string' ? r.search : '',
     status: str(r.status, ANY),
     disposition: str(r.disposition, ANY),
     severity: str(r.severity, ANY),
+    noiseOutcome:
+      noiseOutcome === ANY || NOISE_OUTCOMES.has(noiseOutcome as NoiseOutcomeFilter)
+        ? noiseOutcome
+        : ANY,
     assignee: str(r.assignee, ANY),
-    timeRange: (['all', '24h', '7d', '30d'].includes(tr) ? tr : 'all') as TimeRange,
+    timeRange: (['all', '1h', '24h', '7d', '30d'].includes(tr) ? tr : 'all') as TimeRange,
     relatedOnly: r.relatedOnly === true,
   };
 }
@@ -458,40 +510,34 @@ export interface CasesProps {
    * `critical | high | medium | low | info`; any other value is ignored.
    */
   initialSeverity?: string;
+  /** Seed the exact Noise Reduction outcome cohort from the dashboard flow. */
+  initialNoiseOutcome?: NoiseOutcomeFilter;
+  /** Seed the selected dashboard metrics window (hours) into the Cases horizon. */
+  initialWindowHours?: number;
 }
 
 /** Severity-band values the Cases severity filter (and the #38 drill-through) accepts. */
 const SEVERITY_FILTER_VALUES = new Set(['critical', 'high', 'medium', 'low', 'info']);
 
 /**
- * Severity/status TONE → the soft icon-chip + left-accent-bar utility classes for the
- * summary strip. Mirrors KpiTile's ACCENT_CHIP/ACCENT_BAR grammar so the strip shares
- * the ONE palette; every value routes through a semantic token (no raw hex — design gate).
+ * Severity/status tone for the inline icon in the flat summary strip. Every value
+ * routes through a semantic token (no raw hex — design gate).
  */
 type SummaryTone = 'primary' | 'info' | 'critical' | 'high' | 'medium' | 'low';
 
-const SUMMARY_CHIP: Record<SummaryTone, string> = {
-  primary: 'bg-primary/10 text-primary',
-  info: 'bg-info/10 text-info',
-  critical: 'bg-critical/10 text-critical',
-  high: 'bg-high/10 text-high',
-  medium: 'bg-medium/10 text-medium',
-  low: 'bg-low/10 text-low',
-};
-
-const SUMMARY_BAR: Record<SummaryTone, string> = {
-  primary: 'bg-primary',
-  info: 'bg-info',
-  critical: 'bg-critical',
-  high: 'bg-high',
-  medium: 'bg-medium',
-  low: 'bg-low',
+const SUMMARY_TONE: Record<SummaryTone, string> = {
+  primary: 'text-primary',
+  info: 'text-info-text',
+  critical: 'text-critical-text',
+  high: 'text-high-text',
+  medium: 'text-medium-text',
+  low: 'text-low-text',
 };
 
 /**
  * A compact at-a-glance count tile for the summary strip — the Cortex-XSIAM / Prisma
- * "incident count band". A tinted icon chip + a left severity/status accent bar, a
- * small-caps label, and a big tabular count. Clickable tiles TOGGLE the matching facet
+ * "incident count band". A semantic inline icon, small-caps label, and big tabular
+ * count share one continuous surface. Clickable tiles TOGGLE the matching facet
  * filter (`aria-pressed` reflects the active state). The icon + bar are the beside-color
  * redundant channel (§6.1, WCAG 1.4.1) and are decorative (`aria-hidden`); the label +
  * count carry the meaning. Every value is plain text (UNTRUSTED-safe, #9).
@@ -514,19 +560,18 @@ const SummaryTile: React.FC<{
     title={title}
     data-testid={testId}
     className={cn(
-      'group relative flex items-center gap-2.5 overflow-hidden rounded-[4px] border bg-background px-3 py-2 text-left',
+      'group relative flex items-center gap-2.5 border-l border-border/70 bg-background px-3 py-3 text-left first:border-l-0',
       'transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
       'focus-visible:ring-offset-2 focus-visible:ring-offset-background',
       active
-        ? 'border-primary/70 bg-accent/35'
-        : 'border-border hover:border-primary/40 hover:bg-accent/25',
+        ? 'bg-accent/40'
+        : 'hover:bg-accent/25',
     )}
   >
-    <span className={cn('absolute inset-y-0 left-0 w-1', SUMMARY_BAR[tone])} aria-hidden />
     <span
       className={cn(
-        'ml-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-[3px]',
-        SUMMARY_CHIP[tone],
+        'inline-flex size-6 shrink-0 items-center justify-center',
+        SUMMARY_TONE[tone],
       )}
     >
       <Icon className="size-4" aria-hidden />
@@ -616,6 +661,8 @@ export default function Cases({
   onNavigate,
   initialStatus: initialStatusProp,
   initialSeverity: initialSeverityProp,
+  initialNoiseOutcome: initialNoiseOutcomeProp,
+  initialWindowHours: initialWindowHoursProp,
 }: CasesProps) {
   const route = useRoute();
   const navigate = onNavigate ?? route.navigate;
@@ -627,6 +674,13 @@ export default function Cases({
     initialSeverityRaw && SEVERITY_FILTER_VALUES.has(initialSeverityRaw)
       ? initialSeverityRaw
       : undefined;
+  const initialNoiseOutcomeRaw = initialNoiseOutcomeProp ?? route.opts?.noiseOutcome;
+  const initialNoiseOutcome =
+    initialNoiseOutcomeRaw && NOISE_OUTCOMES.has(initialNoiseOutcomeRaw)
+      ? initialNoiseOutcomeRaw
+      : undefined;
+  const initialWindowHours = initialWindowHoursProp ?? route.opts?.window;
+  const initialTimeRange = timeRangeFromWindowHours(initialWindowHours);
 
   // Pervasive customization (Wave 7): terminology labels + saved views + per-table
   // column state, all keyed to the caller (the 'default' bucket when auth is off).
@@ -654,6 +708,8 @@ export default function Cases({
     let f = EMPTY_FILTERS;
     if (initialStatus) f = { ...f, status: initialStatus };
     if (initialSeverity) f = { ...f, severity: initialSeverity };
+    if (initialNoiseOutcome) f = { ...f, noiseOutcome: initialNoiseOutcome };
+    if (initialTimeRange) f = { ...f, timeRange: initialTimeRange };
     return f;
   });
   const [sort, setSort] = React.useState<SortState>({ id: 'updated_at', dir: 'desc' });
@@ -706,6 +762,16 @@ export default function Cases({
   React.useEffect(() => {
     if (initialSeverity) setFilters((f) => ({ ...f, severity: initialSeverity }));
   }, [initialSeverity]);
+
+  React.useEffect(() => {
+    if (initialNoiseOutcome) {
+      setFilters((f) => ({ ...f, noiseOutcome: initialNoiseOutcome }));
+    }
+  }, [initialNoiseOutcome]);
+
+  React.useEffect(() => {
+    if (initialTimeRange) setFilters((f) => ({ ...f, timeRange: initialTimeRange }));
+  }, [initialTimeRange]);
 
   const openInCaseManager = React.useCallback(
     (caseId: string, label?: string) => {
@@ -1312,7 +1378,13 @@ export default function Cases({
               : `${total.toLocaleString()} total`}
           </span>
         }
-        actions={
+      />
+
+      <ControlBar
+        title="Case queue"
+        meta={oldestFirst ? 'Oldest activity first' : 'Newest activity first'}
+        label="Case queue controls"
+        controls={
           <>
             {/* A true two-way sort toggle on updated_at — the visible label reflects
                 the CURRENT order, and clicking always flips it, so there is always a
@@ -1356,7 +1428,9 @@ export default function Cases({
           tile narrows the list to. */}
       <div
         className={cn(
-          'grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-6',
+          'grid grid-cols-2 border-y border-border/70 sm:grid-cols-3 xl:grid-cols-6',
+          '[&>*:nth-child(odd)]:border-l-0 sm:[&>*:nth-child(odd)]:border-l sm:[&>*:nth-child(3n+1)]:border-l-0',
+          'xl:[&>*]:border-l xl:[&>*:first-child]:border-l-0',
           (loading || Boolean(error)) && cases.length === 0 && 'hidden',
         )}
       >
@@ -1428,18 +1502,19 @@ export default function Cases({
         />
       </div>
 
-      {/* Toolbar — one calm band in two tiers: (1) search + facet filters, then a
-          hairline divider, (2) saved views + the result count + column customization.
-          Border-first (no resting shadow) via the ONE card grammar. */}
-      <Card
-        elevation="none"
+      {/* One flat responsive filter band. Standard laptop widths resolve to a
+          three-column grid instead of squeezing every operator control into a
+          single row; ultrawide screens regain the compact one-line layout. */}
+      <section
+        aria-label="Case filters"
+        data-testid="cases-filter-band"
         className={cn(
-          'space-y-2.5 rounded-[4px] p-3 shadow-none',
+          'space-y-2.5 border-y border-border/70 py-3',
           (loading || Boolean(error)) && cases.length === 0 && 'hidden',
         )}
       >
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-0 basis-full sm:min-w-[15rem] sm:basis-auto sm:flex-1">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:flex 2xl:flex-wrap 2xl:items-center">
+          <div className="relative min-w-0 sm:col-span-2 lg:col-span-3 2xl:min-w-[18rem] 2xl:flex-1">
             <Search
               className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
               aria-hidden
@@ -1454,7 +1529,7 @@ export default function Cases({
           </div>
 
           <Select value={filters.status} onValueChange={(v) => setFilter('status', v)}>
-            <SelectTrigger className="h-8 w-[11rem] rounded-[4px] text-xs" aria-label="Filter by status">
+            <SelectTrigger className="h-8 w-full rounded-[4px] text-xs 2xl:w-[11rem]" aria-label="Filter by status">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
@@ -1469,12 +1544,30 @@ export default function Cases({
             </SelectContent>
           </Select>
 
+          <Select
+            value={filters.noiseOutcome}
+            onValueChange={(v) => setFilter('noiseOutcome', v)}
+          >
+            <SelectTrigger
+              className="h-8 w-full rounded-[4px] text-xs 2xl:w-[12rem]"
+              aria-label="Filter by noise-reduction outcome"
+            >
+              <SelectValue placeholder="Flow outcome" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ANY}>All flow outcomes</SelectItem>
+              <SelectItem value="auto_cleared">Auto-cleared by AI</SelectItem>
+              <SelectItem value="escalated">Escalated to analyst</SelectItem>
+              <SelectItem value="closed">Closed by human</SelectItem>
+            </SelectContent>
+          </Select>
+
           {facets.dispositions.length ? (
             <Select
               value={filters.disposition}
               onValueChange={(v) => setFilter('disposition', v)}
             >
-              <SelectTrigger className="h-8 w-[11rem] rounded-[4px] text-xs" aria-label="Filter by disposition">
+              <SelectTrigger className="h-8 w-full rounded-[4px] text-xs 2xl:w-[11rem]" aria-label="Filter by disposition">
                 <SelectValue placeholder="Disposition" />
               </SelectTrigger>
               <SelectContent>
@@ -1489,7 +1582,7 @@ export default function Cases({
           ) : null}
 
           <Select value={filters.severity} onValueChange={(v) => setFilter('severity', v)}>
-            <SelectTrigger className="h-8 w-[10rem] rounded-[4px] text-xs" aria-label="Filter by severity">
+            <SelectTrigger className="h-8 w-full rounded-[4px] text-xs 2xl:w-[10rem]" aria-label="Filter by severity">
               <SelectValue placeholder="Severity" />
             </SelectTrigger>
             <SelectContent>
@@ -1503,7 +1596,7 @@ export default function Cases({
           </Select>
 
           <Select value={filters.assignee} onValueChange={(v) => setFilter('assignee', v)}>
-            <SelectTrigger className="h-8 w-[11rem] rounded-[4px] text-xs" aria-label="Filter by assignee">
+            <SelectTrigger className="h-8 w-full rounded-[4px] text-xs 2xl:w-[11rem]" aria-label="Filter by assignee">
               <SelectValue placeholder="Assignee" />
             </SelectTrigger>
             <SelectContent>
@@ -1519,7 +1612,7 @@ export default function Cases({
 
           <Popover>
             <PopoverTrigger asChild>
-              <Button variant="outline" size="sm" className="h-8 rounded-[4px] text-xs">
+              <Button variant="outline" size="sm" className="h-8 w-full justify-start rounded-[4px] text-xs 2xl:w-auto">
                 <Clock className="mr-1.5 size-4" aria-hidden />
                 {filters.timeRange === 'all'
                   ? 'Any time'
@@ -1534,6 +1627,7 @@ export default function Cases({
                 {(
                   [
                     ['all', 'Any time'],
+                    ['1h', 'Last 1 hour'],
                     ['24h', 'Last 24 hours'],
                     ['7d', 'Last 7 days'],
                     ['30d', 'Last 30 days'],
@@ -1562,7 +1656,7 @@ export default function Cases({
           <Button
             variant={filters.relatedOnly ? 'default' : 'outline'}
             size="sm"
-            className="h-8 rounded-[4px] text-xs"
+            className="h-8 w-full justify-start rounded-[4px] text-xs 2xl:w-auto"
             onClick={() => setFilter('relatedOnly', !filters.relatedOnly)}
             aria-pressed={filters.relatedOnly}
             title="Show only cases linked across sources"
@@ -1572,7 +1666,7 @@ export default function Cases({
           </Button>
 
           {anyActive ? (
-            <Button variant="ghost" size="sm" className="h-8 rounded-[4px] text-xs" onClick={clearAll}>
+            <Button variant="ghost" size="sm" className="h-8 w-full justify-start rounded-[4px] text-xs 2xl:w-auto" onClick={clearAll}>
               <X className="mr-1.5 size-4" aria-hidden />
               Clear
             </Button>
@@ -1601,7 +1695,7 @@ export default function Cases({
             onChange={handleColumnState}
           />
         </div>
-      </Card>
+      </section>
 
       {/* Truncation note */}
       {truncated ? (
@@ -1657,6 +1751,10 @@ export default function Cases({
         selected={selected}
         onSelectedChange={setSelected}
         onRowClick={(c) => openInCaseManager(c.case_id, c.case_number || c.case_id)}
+        // The named Case ID button is already the keyboard equivalent of the
+        // pointer-clickable row; do not add a second trailing open affordance next
+        // to the lifecycle Actions column.
+        showRowAction={false}
         loading={loading}
         loadingRows={8}
         density="compact"

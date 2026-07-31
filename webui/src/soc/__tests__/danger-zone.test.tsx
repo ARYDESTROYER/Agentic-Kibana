@@ -77,6 +77,12 @@ describe('DangerZone', () => {
   it('renders all three reset tiers', async () => {
     renderDangerZone();
     await waitFor(() => expect(screen.getByTestId('danger-zone')).toBeInTheDocument());
+    expect(screen.getByRole('heading', { name: 'Danger zone', level: 2 })).toBeInTheDocument();
+    const tiers = screen.getByTestId('danger-zone').querySelectorAll('[data-settings-tier]');
+    expect(tiers).toHaveLength(3);
+    tiers.forEach((tier) => {
+      expect(tier.className).not.toMatch(/rounded|shadow|bg-card|bg-surface/);
+    });
     expect(screen.getByRole('button', { name: 'Reset cases & logs' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Reset sources + logs' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Factory reset' })).toBeInTheDocument();

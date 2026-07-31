@@ -41,7 +41,7 @@ const DialogContent = React.forwardRef<
         // max-h + internal scroll is a safety net so a dialog taller than the viewport
         // (small laptops, zoom, long forms) scrolls instead of clipping its title/footer
         // off-screen with no way to reach them. Consumers can still override max-h.
-        'fixed left-1/2 top-1/2 z-50 grid max-h-[85vh] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto',
+        'fixed left-1/2 top-1/2 z-50 grid max-h-[85dvh] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto',
         'rounded-lg border border-border bg-card p-6 text-foreground shadow-elev2',
         'data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95',
         'data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95',

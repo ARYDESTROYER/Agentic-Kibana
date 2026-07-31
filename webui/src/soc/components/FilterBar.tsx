@@ -42,8 +42,8 @@ export const FilterBar = React.forwardRef<HTMLDivElement, FilterBarProps>(
       role="toolbar"
       aria-label={rest['aria-label'] ?? 'Filters'}
       className={cn(
-        '@container flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-3 py-2',
-        sticky && 'sticky top-[var(--header-h)] z-20 border-x-0 border-t-0 rounded-none bg-card/95 backdrop-blur',
+        '@container flex flex-wrap items-center gap-2 border-y border-border/80 bg-transparent py-2',
+        sticky && 'sticky top-[var(--header-h)] z-20 border-t-0 bg-background/95 backdrop-blur',
         className,
       )}
       {...rest}

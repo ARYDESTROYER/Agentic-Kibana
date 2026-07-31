@@ -26,7 +26,7 @@ describe('bundled documentation identity', () => {
   });
 
   it('rejects invalid release versions instead of guessing a docs path', () => {
-    expect(() => resolveBundledDocumentationIdentity('testing')).toThrow(/Invalid TLSOC/);
+    expect(() => resolveBundledDocumentationIdentity('testing')).toThrow(/Invalid Agentic SOC/);
   });
 
   it('points a pretty MkDocs directory URL at its concrete static index', () => {

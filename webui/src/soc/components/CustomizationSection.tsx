@@ -25,6 +25,7 @@ import { Button } from '@/ui/button';
 import { Input } from '@/ui/input';
 import { Label } from '@/ui/label';
 import { SegmentedControl } from '@/soc/components/SegmentedControl';
+import { SectionTitle } from '@/soc/pages/settings/primitives';
 import {
   Select,
   SelectTrigger,
@@ -138,9 +139,14 @@ export const CustomizationSection: React.FC = () => {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-0" data-testid="customization-settings-surface">
+      <SectionTitle
+        title="Appearance & customization"
+        sub="Choose your personal theme, manage saved views, and—when permitted—set organization terminology and defaults."
+      />
+
       {/* ---- Personal theme -------------------------------------------------- */}
-      <section className="space-y-3">
+      <section className="space-y-3 py-5">
         <div>
           <h3 className="text-sm font-semibold text-foreground">Theme</h3>
           <p className="text-sm text-muted-foreground">
@@ -161,12 +167,12 @@ export const CustomizationSection: React.FC = () => {
             label: <span className="sr-only">{label}</span>,
             icon: <Icon aria-hidden />,
           }))}
-          className="max-w-full rounded-md bg-card/60"
+          className="max-w-full"
         />
       </section>
 
       {/* ---- Saved views (personal) ----------------------------------------- */}
-      <section className="space-y-3">
+      <section className="space-y-3 border-t border-border py-5">
         <div>
           <h3 className="text-sm font-semibold text-foreground">Saved views</h3>
           <p className="text-sm text-muted-foreground">
@@ -175,12 +181,12 @@ export const CustomizationSection: React.FC = () => {
           </p>
         </div>
         {savedViews.length === 0 ? (
-          <div className="flex items-center gap-2 rounded-lg border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
+          <div className="flex items-center gap-2 border-y border-dashed border-border px-1 py-4 text-sm text-muted-foreground">
             <Bookmark className="size-4" aria-hidden />
             No saved views yet. Save one from the Cases list.
           </div>
         ) : (
-          <ul className="divide-y divide-border rounded-lg border border-border">
+          <ul className="divide-y divide-border border-y border-border" data-testid="saved-views-list">
             {savedViews.map((v) => (
               <li key={v.id} className="flex items-center gap-2 px-3 py-2">
                 <Bookmark className="size-4 text-muted-foreground" aria-hidden />
@@ -236,7 +242,7 @@ export const CustomizationSection: React.FC = () => {
 
       {/* ---- Terminology + org defaults (admin only) ------------------------ */}
       <Can resource="settings" action="manage">
-        <section className="space-y-4 border-t border-border pt-6">
+        <section className="space-y-4 border-t border-border py-5">
           <div>
             <h3 className="text-sm font-semibold text-foreground">
               Terminology <span className="text-xs font-normal text-muted-foreground">(org default — admin)</span>
@@ -304,7 +310,7 @@ export const CustomizationSection: React.FC = () => {
       </Can>
 
       {!isAdmin ? (
-        <p className="text-xs text-muted-foreground">
+        <p className="border-t border-border pt-4 text-xs text-muted-foreground">
           Terminology &amp; organization defaults are managed by an administrator.
         </p>
       ) : null}

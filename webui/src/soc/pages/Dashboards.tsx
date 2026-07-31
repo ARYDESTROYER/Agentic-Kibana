@@ -25,11 +25,11 @@ import { LayoutDashboard, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { api } from '@/lib/api';
+import { LoadingState } from '@/design-system';
 import { errorMessage } from '@/lib/errorMessage';
 import type { DashboardLayout, DashboardWidget } from '@/lib/types';
 
 import { Button } from '@/ui/button';
-import { Skeleton } from '@/ui/skeleton';
 import {
   Select,
   SelectContent,
@@ -181,11 +181,12 @@ export function Dashboards() {
 
       <div className="mt-6">
         {loading && !data ? (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-40 w-full rounded-lg" />
-            ))}
-          </div>
+          <LoadingState
+            label="Loading dashboards"
+            description="Preparing saved layouts and the role-based operations view."
+            layout="page"
+            shape="page"
+          />
         ) : error && !data ? (
           <LoadError error={error} title="Couldn't load dashboards" onRetry={reload} />
         ) : (

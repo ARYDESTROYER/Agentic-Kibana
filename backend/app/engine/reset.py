@@ -180,6 +180,11 @@ async def reset_service(app_state: ResetHost, scope: ResetScope | str) -> dict[s
 
     # ---- Tier 3: identity/personalisation KV + branding + prefs→defaults + audit. -
     if scope == ResetScope.FACTORY:
+        # Chat history is partitioned by hashed principal. Its registry and every
+        # registered partition must be cleared; overwriting only the legacy root
+        # document would leave durable transcripts behind.
+        if await _clear_chat_history(app_state):
+            cleared.append("kv:chat_conversations")
         for ns, key in _FACTORY_KV:
             if await _clear_kv(app_state, ns, key):
                 cleared.append(f"kv:{ns}")
@@ -270,6 +275,21 @@ async def _clear_kv(app_state: Any, namespace: str, key: str) -> bool:
         return True
     except Exception as exc:  # noqa: BLE001
         logger.warning("kv clear %s/%s failed (%s); continuing", namespace, key, exc)
+        return False
+
+
+async def _clear_chat_history(app_state: Any) -> bool:
+    """Clear the chat partition registry and every registered user partition."""
+    kv = getattr(app_state, "kv", None)
+    if kv is None:
+        return False
+    try:
+        from ..stores.chat_conversations import ChatConversationStore
+
+        await ChatConversationStore(kv).clear_all()
+        return True
+    except Exception as exc:  # noqa: BLE001 -- reset remains best-effort
+        logger.warning("chat-history clear failed (%s); continuing", exc)
         return False
 
 

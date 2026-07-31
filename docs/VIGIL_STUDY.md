@@ -133,7 +133,7 @@ OTEL ─▶ collector ─▶ Jaeger + Prometheus ─▶ Grafana
 
 ## 2. Subsystem-by-subsystem: Vigil vs us, and the verdict
 
-| Subsystem | Vigil | Us (TLSOC) | Verdict |
+| Subsystem | Vigil | Agentic SOC | Verdict |
 |---|---|---|---|
 | **Agents** | 13 declarative personas over 1 engine | 1 investigator persona | **Adopt personas** |
 | **Runbooks** | Plain-text `WORKFLOW.md` (but mega-prompted) | 6 hardcoded RAG runbook strings | **Adopt real runbook files** |

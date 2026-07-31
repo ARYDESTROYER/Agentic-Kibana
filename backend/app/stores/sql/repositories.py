@@ -11,14 +11,22 @@ update/delete and never mutates a prior row.
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import logging
 from typing import Any
 
-from sqlalchemy import Float, cast, func, select
+from sqlalchemy import Float, Integer, cast, func, select, update
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from ...config import Preferences
-from ...constants import CaseStatus, OPEN_CASE_STATUSES, SourceSurface, ActionType
+from ...constants import (
+    ActionType,
+    CASE_PIPELINE_USAGE_ROLES,
+    CaseStatus,
+    OPEN_CASE_STATUSES,
+    SourceSurface,
+)
 from ...models import AuditDoc, Case, Cursor, UsageDoc
 from ...utils import now_utc, parse_es_timestamp, to_millis, truncate
 from ..base import (
@@ -28,9 +36,14 @@ from ..base import (
     CursorRepository,
     KVStore,
     UsageRepository,
-    _rev_of,
 )
-from ..usage import _empty_summary, _top  # reuse the ES summary aggregation helpers
+from ..usage import (
+    _empty_summary,
+    _new_processing_tier_bucket,
+    _processing_tier_key,
+    _processing_tier_summary,
+    _top,
+)  # reuse the ES summary aggregation helpers
 from .models import AuditRow, CaseRow, KVRow, UsageRow
 
 logger = logging.getLogger("tlsoc.stores.sql")
@@ -339,11 +352,63 @@ class SqlUsageRepository(UsageRepository):
     def __init__(self, engine: AsyncEngine) -> None:
         self._engine = engine
         self._sm = _sessionmaker(engine)
+        # SQLite's in-memory shape can multiplex async sessions over one physical
+        # connection. Serialise this tiny claim+insert transaction locally; the unique
+        # KV claim below remains the cross-process guarantee on SQLite/PostgreSQL.
+        self._strict_write_lock = asyncio.Lock()
 
     async def write(self, doc: UsageDoc) -> None:
         try:
-            payload = doc.model_dump(mode="json")
-            async with self._sm() as session:
+            await self.write_strict(doc)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("USAGE WRITE FAILED (role=%s model=%s): %s", doc.role, doc.model, exc)
+
+    async def write_strict(self, doc: UsageDoc) -> None:
+        """Persist a Batch ledger row retry-safely or raise on failure.
+
+        For an idempotent Batch row, reserve a hash in the existing KV table (whose
+        namespace/key pair is already a unique primary key) and insert the UsageRow in
+        the SAME transaction. ``ON CONFLICT DO NOTHING`` makes concurrent workers pick
+        one winner on both supported SQL dialects without a schema migration; rollback
+        removes the reservation if the UsageRow insert fails. Ordinary live calls (no
+        key) remain append-only.
+        """
+        if doc.idempotency_key:
+            async with self._strict_write_lock:
+                await self._write_strict_once(doc)
+            return
+        await self._write_strict_once(doc)
+
+    async def _write_strict_once(self, doc: UsageDoc) -> None:
+        payload = doc.model_dump(mode="json")
+        key = str(doc.idempotency_key or "").strip()
+        async with self._sm() as session:
+            async with session.begin():
+                if key:
+                    claim_key = hashlib.sha256(key.encode("utf-8")).hexdigest()
+                    values = {
+                        "namespace": "usage_idempotency",
+                        "key": claim_key,
+                        "value": {"idempotency_key": key},
+                    }
+                    dialect = self._engine.dialect.name
+                    if dialect == "sqlite":
+                        from sqlalchemy.dialects.sqlite import insert as dialect_insert
+                    elif dialect == "postgresql":
+                        from sqlalchemy.dialects.postgresql import insert as dialect_insert
+                    else:
+                        raise NotImplementedError(
+                            f"strict usage idempotency is unsupported on {dialect}"
+                        )
+                    claim = (
+                        dialect_insert(KVRow)
+                        .values(**values)
+                        .on_conflict_do_nothing(index_elements=["namespace", "key"])
+                        .returning(KVRow.key)
+                    )
+                    inserted = (await session.execute(claim)).scalar_one_or_none()
+                    if inserted is None:
+                        return
                 session.add(
                     UsageRow(
                         ts=payload.get("ts", "") or "",
@@ -356,21 +421,36 @@ class SqlUsageRepository(UsageRepository):
                         doc=payload,
                     )
                 )
-                await session.commit()
-        except Exception as exc:  # noqa: BLE001
-            logger.error("USAGE WRITE FAILED (role=%s model=%s): %s", doc.role, doc.model, exc)
 
     async def records(self, *, limit: int = 1000) -> list[dict[str, Any]]:
         """Newest-first bounded ledger rows for the privileged data export."""
-        cap = max(1, min(int(limit or 1000), 5000))
-        stmt = select(UsageRow).order_by(UsageRow.ts.desc(), UsageRow.id.desc()).limit(cap)
         try:
-            async with self._sm() as session:
-                rows = (await session.execute(stmt)).scalars().all()
-            return [dict(row.doc or {}) for row in rows]
+            return await self.records_strict(limit=limit)
         except Exception as exc:  # noqa: BLE001 — export degrades per scope
             logger.warning("usage records read failed: %s", exc)
             return []
+
+    async def records_strict(self, *, limit: int = 1000) -> list[dict[str, Any]]:
+        """Newest-first bounded rows, raising when the ledger cannot be read."""
+        cap = max(1, min(int(limit or 1000), 5000))
+        stmt = select(UsageRow).order_by(UsageRow.ts.desc(), UsageRow.id.desc()).limit(cap)
+        async with self._sm() as session:
+            rows = (await session.execute(stmt)).scalars().all()
+        return [dict(row.doc or {}) for row in rows]
+
+    async def total_pipeline_cost_for_case(self, case_id: str) -> float | None:
+        """Return all-time router/investigator/formatter spend for one case."""
+        statement = select(func.sum(UsageRow.cost)).where(
+            UsageRow.case_id == case_id,
+            UsageRow.role.in_(CASE_PIPELINE_USAGE_ROLES),
+        )
+        try:
+            async with self._sm() as session:
+                value = (await session.execute(statement)).scalar_one_or_none()
+        except Exception as exc:  # noqa: BLE001 — accounting remains fail-soft
+            logger.warning("case usage reconciliation query failed for %s: %s", case_id, exc)
+            return None
+        return round(float(value or 0.0), 6)
 
     async def summary(self, window_hours: int = 24, case_id: str | None = None) -> dict[str, Any]:
         from collections import defaultdict
@@ -405,6 +485,7 @@ class SqlUsageRepository(UsageRepository):
         by_surface: dict[str, dict[str, float]] = defaultdict(lambda: {"cost": 0.0, "tokens": 0, "calls": 0})
         by_model: dict[str, dict[str, float]] = defaultdict(lambda: {"cost": 0.0, "tokens": 0, "calls": 0})
         by_role: dict[str, dict[str, float]] = defaultdict(lambda: {"cost": 0.0, "tokens": 0, "calls": 0})
+        by_processing_tier = _new_processing_tier_bucket()
         over_time: dict[int, float] = defaultdict(float)
 
         for row in rows:
@@ -430,6 +511,10 @@ class SqlUsageRepository(UsageRepository):
                 bucket[key]["cost"] += cost
                 bucket[key]["tokens"] += tokens
                 bucket[key]["calls"] += 1
+            tier = _processing_tier_key(src.get("processing_tier"))
+            by_processing_tier[tier]["cost"] += cost
+            by_processing_tier[tier]["tokens"] += tokens
+            by_processing_tier[tier]["calls"] += 1
             hour = (ts_millis // 3_600_000) * 3_600_000
             over_time[hour] += cost
 
@@ -443,6 +528,7 @@ class SqlUsageRepository(UsageRepository):
             "by_surface": _top(by_surface),
             "by_model": _top(by_model),
             "by_role": _top(by_role),
+            **_processing_tier_summary(by_processing_tier),
             "cost_over_time": [
                 {"ts": k, "cost": round(v, 6)} for k, v in sorted(over_time.items())
             ],
@@ -474,32 +560,43 @@ class SqlKVStore(KVStore):
     async def put_if(
         self, namespace: str, key: str, value: dict[str, Any], expected_rev: int
     ) -> bool:
-        """Atomic compare-and-set (audit #27): write ``value`` ONLY if the stored row's
-        ``_rev`` still equals ``expected_rev``, under a row lock so concurrent processes
-        serialise (Postgres ``SELECT … FOR UPDATE``; SQLite serialises writes anyway).
-        Returns False on a rev mismatch or a lost INSERT race so ``kv_mutate`` retries."""
+        """Atomic compare-and-set (audit #27) across SQL sessions/processes.
+
+        The revision predicate is part of the UPDATE itself. This matters on SQLite,
+        where ``SELECT … FOR UPDATE`` is ignored: two independent Batch schedulers
+        could otherwise both read the same revision and both believe they acquired a
+        provider-submission lease. An absent-row expected-revision-zero write uses the
+        composite primary key as the atomic arbiter.
+        """
         from sqlalchemy.exc import IntegrityError
 
+        revision = func.coalesce(
+            cast(KVRow.value["_rev"].as_string(), Integer), 0
+        )
+        stmt = (
+            update(KVRow)
+            .where(
+                KVRow.namespace == namespace,
+                KVRow.key == key,
+                revision == int(expected_rev),
+            )
+            .values(value=value)
+        )
+        async with self._sm() as session:
+            async with session.begin():
+                result = await session.execute(stmt)
+            if int(result.rowcount or 0) == 1:
+                return True
+
+        if int(expected_rev) != 0:
+            return False
         try:
             async with self._sm() as session:
                 async with session.begin():
-                    stmt = (
-                        select(KVRow)
-                        .where(KVRow.namespace == namespace, KVRow.key == key)
-                        .with_for_update()
-                    )
-                    row = (await session.execute(stmt)).scalar_one_or_none()
-                    cur_rev = _rev_of(row.value) if (row is not None and row.value) else 0
-                    if cur_rev != int(expected_rev):
-                        return False
-                    if row is None:
-                        session.add(KVRow(namespace=namespace, key=key, value=value))
-                    else:
-                        row.value = value
-                # commit happens on exiting the begin() block
+                    session.add(KVRow(namespace=namespace, key=key, value=value))
             return True
         except IntegrityError:
-            # Lost the INSERT race (a concurrent writer created the row first) → conflict.
+            # Lost the absent-row INSERT race; the caller reloads the winning revision.
             return False
 
 

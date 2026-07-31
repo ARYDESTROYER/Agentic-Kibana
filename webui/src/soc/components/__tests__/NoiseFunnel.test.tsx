@@ -1,15 +1,16 @@
 /**
- * NoiseFunnel — the horizontal-flow ribbon rendering the linear noise-reduction flow
- * ingested → clustered → cases → auto_cleared → escalated → CLOSED (TASK N).
+ * NoiseFunnel — the precision-flow rendering of the noise-reduction path:
+ * ingested → clustered → cases → {auto-cleared | escalated → closed}.
  *
  * Binds to the §D `GET /api/metrics/noise-reduction` contract: renders the flow from a
- * §D-shaped fixture (severity strands in → terminal-outcome fan out), surfaces the new
+ * §D-shaped fixture (aggregate processing stream → terminal-outcome fan out), surfaces the new
  * `closed` ("Closed by human") terminal stage, fires `onStageClick` with the stage key,
  * and degrades to a case-only funnel when the durable counters are still warming up. The
  * SVG flow is decorative (`aria-hidden`); all meaning lives on the focusable stage rail.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 import { NoiseFunnel, deriveFunnel, ribbonPath } from '../NoiseFunnel';
 import type { NoiseLineage, NoiseReduction } from '@/lib/types';
@@ -147,18 +148,30 @@ function lineageFixture(): NoiseLineage {
 }
 
 describe('NoiseFunnel', () => {
-  it('uses the available flat-dashboard space for a taller flow and lower stage rail', () => {
+  it('uses a restrained instrument panel and keeps the complete rail responsive', () => {
     render(<NoiseFunnel data={fixture()} animate={false} variant="flat" />);
 
-    expect(screen.getByTestId('noise-flow-band')).toHaveClass('h-36', 'sm:h-44');
+    expect(screen.getByTestId('noise-instrument-panel')).toHaveClass(
+      'border-y',
+      'border-border/60',
+      'py-3',
+    );
+    expect(screen.getByTestId('noise-flow-band')).toHaveClass(
+      'hidden',
+      'h-36',
+      'lg:block',
+      'lg:h-44',
+    );
     expect(screen.getByTestId('noise-stage-rail')).toHaveClass(
       'grid-cols-2',
       'gap-y-3',
-      'pt-2',
+      'border-t',
+      'pt-3',
       'sm:grid-cols-3',
       'lg:grid-cols-6',
     );
     expect(screen.getByTestId('noise-stage-rail')).not.toHaveAttribute('style');
+    expect(screen.getByText('Alerts ingested')).toHaveClass('min-h-7');
   });
 
   it('opens a wide aggregate plus bounded alert-to-outcome lineage inspection', async () => {
@@ -177,7 +190,10 @@ describe('NoiseFunnel', () => {
 
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /Noise reduction flow · Last 24 hours/i })).toBeInTheDocument();
-    expect(screen.getByRole('group', { name: 'Expanded noise reduction funnel' })).toBeInTheDocument();
+    const expandedFlow = screen.getByRole('group', { name: 'Expanded noise reduction funnel' });
+    expect(expandedFlow).toBeInTheDocument();
+    expect(within(expandedFlow).getByTestId('noise-flow-band')).toHaveClass('h-44');
+    expect(within(expandedFlow).getByTestId('noise-flow-band')).not.toHaveClass('hidden');
     expect(screen.getByText(/Raw identifiers and payloads are intentionally excluded/i)).toBeInTheDocument();
 
     const lineage = await screen.findByRole('region', { name: 'Inspectable case lineages' });
@@ -215,7 +231,7 @@ describe('NoiseFunnel', () => {
     expect(loader).toHaveBeenCalledTimes(2);
   });
 
-  it('extends only the flat plot toward the left while keeping its final node fixed', () => {
+  it('restores the fixed ribbon canvas and extends only the flat plot toward the left', () => {
     const { container, rerender } = render(
       <NoiseFunnel data={fixture()} animate={false} variant="flat" />,
     );
@@ -231,13 +247,14 @@ describe('NoiseFunnel', () => {
       };
     };
 
+    expect(
+      container.querySelector('[data-testid="noise-flow-band"] svg'),
+    ).toHaveAttribute('viewBox', '0 0 640 220');
     const flatXs = nodeXs();
     rerender(<NoiseFunnel data={fixture()} animate={false} variant="card" />);
     const cardXs = nodeXs();
 
-    // Flat mode reclaims 14 viewBox units from the unused first half-column.
     expect(cardXs.first - flatXs.first).toBeCloseTo(14, 5);
-    // The offset tapers away, so the final outcome still lands at the canonical x.
     expect(flatXs.last).toBeCloseTo(cardXs.last, 5);
   });
 
@@ -271,13 +288,92 @@ describe('NoiseFunnel', () => {
     const svg = container.querySelector('svg[viewBox="0 0 640 220"]');
     expect(svg).not.toBeNull();
     expect(svg!.getAttribute('aria-hidden')).toBe('true');
-    // Severity strands + the 3-outcome fan → several ribbon <path>s render.
-    expect(svg!.querySelectorAll('path').length).toBeGreaterThan(4);
-    // Each ribbon is painted by a userSpace linear gradient (survival = end opacity).
-    expect(svg!.querySelectorAll('defs linearGradient').length).toBeGreaterThan(0);
+    // Two processing links + the restored three-view outcome fan.
+    const ribbons = svg!.querySelectorAll<SVGPathElement>('[data-noise-ribbon]');
+    expect(ribbons).toHaveLength(5);
+    expect(svg!.querySelectorAll('defs linearGradient')).toHaveLength(0);
+    expect(ribbons[0]).toHaveAttribute('data-source-stage', 'ingested');
+    expect(ribbons[0]).toHaveAttribute('data-target-stage', 'clustered');
+    expect(ribbons[0].style.fillOpacity).toBe('var(--noise-ribbon-opacity)');
+    expect(ribbons[0].style.strokeOpacity).toBe('var(--noise-ribbon-stroke-opacity)');
+    expect(ribbons[0]).toHaveAttribute('vector-effect', 'non-scaling-stroke');
+    expect(svg!.querySelectorAll('[data-source-stage="ingested"]')).toHaveLength(1);
+    expect(svg!.querySelector('[data-source-stage="cases"][data-target-stage="auto_cleared"]')).not.toBeNull();
+    expect(svg!.querySelector('[data-source-stage="cases"][data-target-stage="escalated"]')).not.toBeNull();
+    expect(svg!.querySelector('[data-source-stage="cases"][data-target-stage="closed"]')).not.toBeNull();
+    expect(svg!.querySelector('[data-source-stage="escalated"][data-target-stage="closed"]')).toBeNull();
+
+    // Square anchors and direct, unboxed loss annotations avoid decorative chart chrome.
+    for (const node of svg!.querySelectorAll<SVGRectElement>('[data-node-key]')) {
+      expect(node).toHaveAttribute('rx', '0');
+    }
+    expect(screen.getByText('−780 · 78% filtered')).toHaveAttribute('data-loss-annotation');
 
     // Operator-requested rail treatment: the stage controls carry text/count/share only.
-    expect(screen.getByRole('group', { name: /^Cases opened:/i }).querySelector('svg')).toBeNull();
+    expect(screen.getByRole('button', { name: /^Cases opened:/i }).querySelector('svg')).toBeNull();
+  });
+
+  it('keeps node geometry exactly proportional to the underlying counts', () => {
+    const { container } = render(<NoiseFunnel data={fixture()} animate={false} />);
+    const height = (key: string) =>
+      Number(container.querySelector<SVGRectElement>(`rect[data-node-key="${key}"]`)?.getAttribute('height'));
+
+    expect(height('clustered') / height('ingested')).toBeCloseTo(220 / 1000, 6);
+    expect(height('cases') / height('ingested')).toBeCloseTo(40 / 1000, 6);
+    expect(height('closed') / height('cases')).toBeCloseTo(7 / 40, 6);
+  });
+
+  it('does not label a truthful non-zero survivor as zero percent', () => {
+    const data = fixture();
+    data.stages = data.stages.map((stage) =>
+      stage.key === 'closed'
+        ? { ...stage, total: 1, by_severity: { high: 1 } }
+        : stage,
+    );
+    render(<NoiseFunnel data={data} animate={false} />);
+
+    expect(
+      screen.getByRole('button', {
+        name: /^Closed by human: 1 case, less than 1% of ingested$/i,
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('<1%')).toBeInTheDocument();
+  });
+
+  it('discloses partial aggregate coverage without requiring expansion', () => {
+    const data = fixture({
+      counters: {
+        available: true,
+        since: '2026-07-05T00:00:00Z',
+        incomplete: true,
+      },
+    });
+    render(<NoiseFunnel data={data} animate={false} />);
+
+    expect(screen.getByTestId('noise-coverage-warning')).toHaveTextContent(
+      /Partial coverage.*cover only part of the selected window/i,
+    );
+  });
+
+  it('focuses the inspected stage path and mutes unrelated links', () => {
+    const { container } = render(
+      <NoiseFunnel data={fixture()} animate={false} onStageClick={vi.fn()} />,
+    );
+    const cases = screen.getByRole('button', { name: /^Cases opened:/i });
+    const inbound = container.querySelector<SVGPathElement>(
+      '[data-source-stage="clustered"][data-target-stage="cases"]',
+    );
+    const unrelated = container.querySelector<SVGPathElement>(
+      '[data-source-stage="ingested"][data-target-stage="clustered"]',
+    );
+
+    fireEvent.focus(cases);
+    expect(inbound?.style.fillOpacity).toBe('1');
+    expect(unrelated?.style.fillOpacity).toBe('0.14');
+
+    fireEvent.blur(cases);
+    expect(inbound?.style.fillOpacity).toBe('var(--noise-ribbon-opacity)');
+    expect(unrelated?.style.fillOpacity).toBe('var(--noise-ribbon-opacity)');
   });
 
   it('surfaces the terminal `closed` outcome and drops the legacy tail keys', () => {
@@ -294,8 +390,7 @@ describe('NoiseFunnel', () => {
     expect(derived.rows.find((r) => r.key === 'closed')!.by_severity.high).toBe(4);
 
     // outcomeSum = auto(25) + escalated(15) + closed(7) — the outcomes OVERLAP (closed is
-    // a subset of the folded escalated), so this sum can exceed cases.total; the fan
-    // normalizes it (see DerivedFunnel.outcomeSum docs).
+    // a subset of the folded escalated), so this compatibility sum can exceed cases.total.
     expect(derived.outcomeSum).toBe(47);
 
     // The legacy `needs_human` / `true_positive` keys are no longer rendered spine rows.
@@ -362,9 +457,11 @@ describe('NoiseFunnel', () => {
     expect(derived.topTotal).toBe(40);
   });
 
-  it('renders the loading skeleton and nothing when data is absent', () => {
+  it('renders the shared loading state and nothing when data is absent', () => {
     const { rerender, container } = render(<NoiseFunnel data={null} loading />);
     expect(screen.getByTestId('noise-funnel-loading')).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'Loading noise reduction flow' })).toBeInTheDocument();
+    expect(screen.getByTestId('console-loading-glyph')).toBeInTheDocument();
 
     rerender(<NoiseFunnel data={null} loading={false} />);
     expect(container).toBeEmptyDOMElement();
@@ -384,24 +481,45 @@ describe('NoiseFunnel', () => {
     expect(onToggleHidden).toHaveBeenCalledTimes(1);
   });
 
-  it('gives non-clickable stages an accessible group label (no onStageClick)', () => {
+  it('keeps inspect-only stages keyboard focusable when no drill-down handler exists', () => {
     render(<NoiseFunnel data={fixture()} animate={false} ariaLabel="Alert noise funnel" />);
-    // No stage buttons when the handler is absent.
-    expect(screen.queryByRole('button', { name: /^Escalated:/i })).toBeNull();
+    const escalated = screen.getByRole('button', { name: /^Escalated:/i });
+    expect(escalated).toHaveAttribute('type', 'button');
+    expect(escalated).toHaveAttribute('aria-describedby');
+    expect(escalated).not.toHaveAttribute('title');
+    expect(document.getElementById(escalated.getAttribute('aria-describedby') || '')).toHaveTextContent(
+      /Every case not false-positive auto-cleared/i,
+    );
     // The region carries the caller's aria-label.
     const region = screen.getByRole('group', { name: 'Alert noise funnel' });
     expect(within(region).getByText('Escalated')).toBeInTheDocument();
   });
 
   it('wires every stage chip as a per-stage hover-detail trigger', () => {
-    render(<NoiseFunnel data={fixture()} animate={false} onStageClick={vi.fn()} />);
+    const rendered = render(
+      <NoiseFunnel data={fixture()} animate={false} onStageClick={vi.fn()} />,
+    );
     // Each stage chip is a Radix HoverCard trigger — proven by the trigger `data-state`.
     const clickable = screen.getByRole('button', { name: /^Cases opened:/i });
     expect(clickable).toHaveAttribute('data-state', 'closed');
     // …and the terminal `closed` stage is likewise a hover trigger.
+    rendered.unmount();
     render(<NoiseFunnel data={fixture()} animate={false} />);
-    const group = screen.getByRole('group', { name: /^Closed by human:/i });
-    expect(group).toHaveAttribute('data-state', 'closed');
+    const inspectOnly = screen.getByRole('button', { name: /^Closed by human:/i });
+    expect(inspectOnly).toHaveAttribute('data-state', 'closed');
+  });
+
+  it('explains outcome authority and retention without mislabelling human closure as AI work', async () => {
+    const user = userEvent.setup();
+    render(<NoiseFunnel data={fixture()} animate={false} onStageClick={vi.fn()} />);
+
+    await user.hover(screen.getByRole('button', { name: /^Closed by human: 7 cases/i }));
+    expect(await screen.findByText('Human-driven')).toBeInTheDocument();
+    expect(screen.getByText(/47% of escalated/i)).toBeInTheDocument();
+
+    await user.unhover(screen.getByRole('button', { name: /^Closed by human:/i }));
+    await user.hover(screen.getByRole('button', { name: /^Cases opened: 40 cases/i }));
+    expect(await screen.findByText('AI-assisted')).toBeInTheDocument();
   });
 
   it('surfaces the below-floor "Awaiting review" candidate stage ONLY when the backend emits it', () => {
@@ -417,8 +535,8 @@ describe('NoiseFunnel', () => {
       'closed',
     ]);
 
-    // When the backend adds a `candidate` stage it renders between clustered and cases —
-    // honest that below-floor candidates were seen + risk-scored but NOT yet LLM-reasoned.
+    // When the backend adds a `candidate` stage it gets its own evidence column and a
+    // side branch from clustered alerts; it is NOT inserted as the parent of opened cases.
     const withCandidate = fixture();
     withCandidate.stages = [
       ...withCandidate.stages.slice(0, 2),
@@ -444,8 +562,19 @@ describe('NoiseFunnel', () => {
     ]);
     const cand = derived.rows.find((r) => r.key === 'candidate')!;
     expect(cand.total).toBe(120);
-    // It is a spine node, not a terminal case outcome.
+    // It is a non-terminal side cohort, not a terminal case outcome.
     expect(cand.isOutcome).toBe(false);
+
+    const { container } = render(<NoiseFunnel data={withCandidate} animate={false} />);
+    expect(
+      container.querySelector('[data-source-stage="clustered"][data-target-stage="candidate"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-source-stage="clustered"][data-target-stage="cases"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-source-stage="candidate"][data-target-stage="cases"]'),
+    ).toBeNull();
   });
 
   it('renders the fallback "Awaiting review" label when the candidate stage carries no label', () => {

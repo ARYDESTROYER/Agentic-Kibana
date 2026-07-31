@@ -1,111 +1,546 @@
 /**
- * Chat — the conversational triage console (page surface, new command-center UI).
+ * Workspace Chat — durable per-user conversations around the one shared chat engine.
  *
- * A thin wrapper around the reusable <ChatPanel>: this file owns only the page
- * chrome (the PageHeader + a "New chat" reset action) and the full-height layout
- * shell. ALL chat behaviour — transcript, composer, send flow, history, markdown
- * rendering, AnswerMeta, provenance, the memory action/suggestion surfaces, the
- * model picker and the source-scope picker — lives in <ChatPanel> so the case
- * detail sheet can embed the very same engine via `<ChatPanel caseId={id} compact />`.
- *
- * Layout: a flex COLUMN that fills the page content area. The header is fixed-height
- * at the top; the panel host below (`flex-1 min-h-0`) absorbs all remaining vertical
- * space so the chat fills the viewport with no wasted band and no cut-off.
- *
- * Height anchoring: the AppShell content slot does NOT propagate a definite height
- * (the shell root is `min-h-screen` and `<main>`/its wrapper are auto-height), so a
- * bare `h-full` here would collapse to content height — the classic broken flex
- * chain (empty-state floats high, composer drifts mid-page, dead band below). To be
- * self-sufficient we anchor the frame to the viewport: the shell top bar is `h-14`
- * (56px) and the content wrapper adds `py-6` (24px top + 24px bottom). The frame is
- * therefore sized `calc(100vh - 104px)` so it fills exactly the available slot while
- * still respecting the wrapper's bottom padding, with `min-h-0` so the transcript
- * lane (not the page) is what scrolls.
- *
- * Demo Mode: the AppShell injects the amber DemoBanner + a 16px `mt-4` spacer ABOVE
- * the page INSIDE that same content wrapper, so when the demo tenant is active the
- * frame must subtract that band (~88px) as well or the composer is pushed below the
- * fold. We read `useDemo()` and pick the offset accordingly (literal class strings so
- * Tailwind's JIT emits them).
+ * The page owns only conversation discovery/selection and responsive history chrome.
+ * ChatPanel remains the single transcript, composer, source/model, provenance, and
+ * send implementation used here and by Case Manager. A draft is intentionally not
+ * persisted until its first successful turn, so “New chat” never creates empty rows.
  */
-import { useRef } from 'react';
-import { MessageSquare, RefreshCw } from 'lucide-react';
+import * as React from "react";
+import { History, MessageSquare, Plus } from "lucide-react";
 
-import type { Navigate } from '@/soc/router';
-import { cn } from '@/lib/cn';
-import { useDemo } from '@/soc/demo';
-import { PageHeader } from '@/soc/components/PageHeader';
-import { Button } from '@/ui/button';
-import { ChatPanel, type ChatPanelHandle } from '@/soc/components/ChatPanel';
+import { api, ApiError } from "@/lib/api";
+import { cn } from "@/lib/cn";
+import { humanizeAge } from "@/lib/format";
+import type {
+  ChatConversation,
+  ChatConversationSummary,
+} from "@/lib/types";
+import { useDemo } from "@/soc/demo";
+import { PageHeader } from "@/soc/components/PageHeader";
+import { PageContainer } from "@/soc/components/PageContainer";
+import {
+  ChatPanel,
+  type ChatPanelHandle,
+} from "@/soc/components/ChatPanel";
+import { ChatHistoryRail } from "@/soc/components/ChatHistoryRail";
+import { useConfirm } from "@/soc/components/ConfirmDialog";
+import { Button } from "@/ui/button";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/ui/sheet";
 
-/** The default starter prompts for the full-page chat empty state. */
 const SUGGESTED_PROMPTS = [
-  'Show failed logins for 10.0.0.5 in the last 24h',
+  "Show failed logins for 10.0.0.5 in the last 24h",
   "Summarize today's true positives",
-  'Any brute-force activity in the last 24h?',
-  'Which hosts had the most alerts this week?',
+  "Any brute-force activity in the last 24h?",
+  "Which hosts had the most alerts this week?",
 ];
 
-export interface ChatPageProps {
-  onNavigate?: Navigate;
-  /**
-   * When hosted as a tab inside the Workspace scaffold (Round-2 W4 consolidation),
-   * suppress the page's own PageHeader and surface only the "New chat" reset action
-   * (the host owns the title) and shrink the full-height frame to fit below the tab
-   * bar so the transcript still fills the slot without overflowing.
-   */
-  embedded?: boolean;
+const NEW_DRAFT_KEY = "__new_workspace_chat__";
+const HISTORY_CHANNEL = "agentic-soc-workspace-chat-history";
+const DEFAULT_HISTORY_LIMIT = 50;
+
+function errorMessage(error: unknown, fallback: string): string {
+  if (error instanceof ApiError || error instanceof Error) return error.message;
+  return fallback;
 }
 
-export default function Chat({ embedded = false }: ChatPageProps = {}) {
-  const panelRef = useRef<ChatPanelHandle>(null);
-  // When the demo tenant is active the shell renders the DemoBanner + a 16px spacer
-  // above the page inside the same content wrapper (~88px), so subtract it too.
+function newestConversationFirst(
+  a: ChatConversationSummary,
+  b: ChatConversationSummary,
+): number {
+  return Date.parse(b.updated_at) - Date.parse(a.updated_at);
+}
+
+export interface ChatProps {
+  /** Additive deep-link context preserved by Workspace/registry. */
+  caseId?: string;
+}
+
+export default function Chat({ caseId }: ChatProps = {}) {
+  const panelRef = React.useRef<ChatPanelHandle>(null);
+  const detailRequestRef = React.useRef(0);
+  const listRequestRef = React.useRef(0);
+  const skipDetailIdRef = React.useRef<string | null>(null);
+  const conversationsRef = React.useRef<ChatConversationSummary[]>([]);
+  const activeIdRef = React.useRef<string | null | undefined>(undefined);
+  const chatBusyRef = React.useRef(false);
+  const refreshPendingRef = React.useRef(false);
+  const historyChannelRef = React.useRef<BroadcastChannel | null>(null);
+  const confirm = useConfirm();
   const { active: demoActive } = useDemo();
+  const historyEnabled = !caseId;
 
-  const frameHeight = embedded
-    ? demoActive
-      ? 'h-[calc(100vh-308px)]'
-      : 'h-[calc(100vh-220px)]'
-    : demoActive
-      ? 'h-[calc(100vh-192px)]'
-      : 'h-[calc(100vh-104px)]';
+  const [conversations, setConversations] = React.useState<
+    ChatConversationSummary[]
+  >([]);
+  // `undefined` means the initial history load has not chosen a thread yet;
+  // `null` is an intentional New-chat draft and must survive list refreshes.
+  const [activeId, setActiveId] = React.useState<string | null | undefined>(
+    undefined,
+  );
+  const [conversation, setConversation] = React.useState<
+    ChatConversation | null
+  >(null);
+  const [listLoading, setListLoading] = React.useState(true);
+  const [threadLoading, setThreadLoading] = React.useState(false);
+  const [listError, setListError] = React.useState<string | null>(null);
+  const [threadError, setThreadError] = React.useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = React.useState(false);
+  const [threadRetryEpoch, setThreadRetryEpoch] = React.useState(0);
+  const [chatBusy, setChatBusy] = React.useState(false);
+  const [drafts, setDrafts] = React.useState<Record<string, string>>({});
+  const [historyLimit, setHistoryLimit] = React.useState(DEFAULT_HISTORY_LIMIT);
+  const [historyTruncated, setHistoryTruncated] = React.useState(false);
+  const [historyTotal, setHistoryTotal] = React.useState(0);
 
-  const resetAction = (
-    <Button variant="outline" size="sm" onClick={() => panelRef.current?.reset()}>
-      <RefreshCw className="h-4 w-4" />
-      New chat
-    </Button>
+  const frameHeight = demoActive
+    ? "h-[calc(100dvh-10rem)]"
+    : "h-[calc(100dvh-5.5rem)]";
+
+  React.useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
+
+  React.useEffect(() => {
+    activeIdRef.current = activeId;
+  }, [activeId]);
+
+  const loadConversations = React.useCallback(
+    async () => {
+      const generation = ++listRequestRef.current;
+      setListLoading(true);
+      setListError(null);
+      try {
+        const response = await api.chatConversations(50);
+        const next = [...(response.conversations || [])].sort(
+          newestConversationFirst,
+        );
+        if (generation !== listRequestRef.current) return;
+        setConversations(next);
+        setHistoryLimit(
+          typeof response.limit === "number" && response.limit > 0
+            ? response.limit
+            : DEFAULT_HISTORY_LIMIT,
+        );
+        setHistoryTruncated(response.history_truncated === true);
+        setHistoryTotal(
+          typeof response.total_conversation_count === "number"
+            ? response.total_conversation_count
+            : typeof response.total === "number"
+              ? response.total
+              : next.length,
+        );
+        setActiveId((current) => {
+          if (current && next.some((item) => item.id === current)) return current;
+          if (current === null) return null;
+          return next[0]?.id ?? null;
+        });
+      } catch (error) {
+        if (generation !== listRequestRef.current) return;
+        setListError(
+          errorMessage(error, "Could not load previous conversations."),
+        );
+        // History is helpful, not a prerequisite for a fresh investigation.
+        setActiveId((current) => (current === undefined ? null : current));
+      } finally {
+        if (generation === listRequestRef.current) setListLoading(false);
+      }
+    },
+    [],
   );
 
-  return (
-    // Full-height frame anchored to the viewport (see header note): fills the shell
-    // content slot exactly so the chat never collapses to content height. `min-h-0`
-    // on the column lets the transcript lane scroll instead of the whole page.
-    // Embedded inside the Workspace scaffold, the header + tab bar already consume
-    // vertical space, so the frame is a touch shorter. In Demo Mode we also subtract
-    // the injected DemoBanner band (see header note).
-    <div className={cn('flex min-h-0 flex-col gap-5', frameHeight)}>
-      {/* Fixed page header — does not scroll. Embedded: just the reset action. */}
-      <div className="shrink-0">
-        {embedded ? (
-          <div className="flex flex-wrap items-center justify-end gap-2">{resetAction}</div>
-        ) : (
-          <PageHeader
-            eyebrow="Assistant"
-            icon={MessageSquare}
-            title="Chat"
-            description="Ask the SOC agent about your environment — it queries logs, summarizes, and explains."
-            actions={resetAction}
-          />
-        )}
-      </div>
+  React.useEffect(() => {
+    if (!historyEnabled) {
+      listRequestRef.current += 1;
+      detailRequestRef.current += 1;
+      setConversations([]);
+      setActiveId(null);
+      setConversation(null);
+      setListError(null);
+      setHistoryTruncated(false);
+      setHistoryTotal(0);
+      setThreadError(null);
+      setListLoading(false);
+      setThreadLoading(false);
+      return;
+    }
+    void loadConversations();
+  }, [historyEnabled, loadConversations]);
 
-      {/* Panel host — grows to fill everything below the header; min-h-0 lets the
-          inner transcript lane scroll instead of the page. */}
-      <div className="min-h-0 flex-1">
-        <ChatPanel ref={panelRef} starters={SUGGESTED_PROMPTS} />
-      </div>
+  const requestHistoryRefresh = React.useCallback(() => {
+    if (!historyEnabled) return;
+    if (chatBusyRef.current) {
+      refreshPendingRef.current = true;
+      return;
+    }
+    void loadConversations();
+  }, [historyEnabled, loadConversations]);
+
+  const announceHistoryChanged = React.useCallback(() => {
+    historyChannelRef.current?.postMessage({ type: "history-changed" });
+  }, []);
+
+  React.useEffect(() => {
+    if (!historyEnabled || typeof window === "undefined") return;
+
+    const onFocus = () => requestHistoryRefresh();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") requestHistoryRefresh();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    if (typeof window.BroadcastChannel === "function") {
+      const channel = new window.BroadcastChannel(HISTORY_CHANNEL);
+      historyChannelRef.current = channel;
+      channel.onmessage = () => requestHistoryRefresh();
+    }
+
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      historyChannelRef.current?.close();
+      historyChannelRef.current = null;
+    };
+  }, [historyEnabled, requestHistoryRefresh]);
+
+  const handleBusyChange = React.useCallback(
+    (busy: boolean) => {
+      chatBusyRef.current = busy;
+      setChatBusy(busy);
+      if (!busy && refreshPendingRef.current) {
+        refreshPendingRef.current = false;
+        void loadConversations();
+      }
+    },
+    [loadConversations],
+  );
+
+  React.useEffect(() => {
+    const generation = ++detailRequestRef.current;
+    setThreadError(null);
+    if (!activeId) {
+      setConversation(null);
+      setThreadLoading(false);
+      return;
+    }
+
+    if (skipDetailIdRef.current === activeId) {
+      // The mounted ChatPanel already owns the just-persisted transcript. Keep this
+      // marker for as long as that same thread stays active; clearing it here makes
+      // the page infer that a missing parent-level detail is still restoring even
+      // though the live answer is already visible. Switching/new-chat paths clear
+      // the marker before a future selection, which then hydrates normally.
+      setThreadLoading(false);
+      return;
+    }
+
+    setThreadLoading(true);
+    void api
+      .chatConversation(activeId)
+      .then((detail) => {
+        if (generation === detailRequestRef.current) setConversation(detail);
+      })
+      .catch((error) => {
+        if (generation !== detailRequestRef.current) return;
+        setConversation(null);
+        setThreadError(errorMessage(error, "Could not load this conversation."));
+      })
+      .finally(() => {
+        if (generation === detailRequestRef.current) setThreadLoading(false);
+      });
+  }, [activeId, threadRetryEpoch]);
+
+  const startNew = React.useCallback(() => {
+    if (chatBusy) return;
+    detailRequestRef.current += 1;
+    skipDetailIdRef.current = null;
+    activeIdRef.current = null;
+    setActiveId(null);
+    setConversation(null);
+    setThreadError(null);
+    setThreadLoading(false);
+    setHistoryOpen(false);
+    panelRef.current?.reset();
+  }, [chatBusy]);
+
+  const selectConversation = React.useCallback(
+    (item: ChatConversationSummary) => {
+      if (chatBusy) return;
+      if (activeIdRef.current === item.id) {
+        setHistoryOpen(false);
+        return;
+      }
+      // Enter the pending state before React paints the new selection. This avoids
+      // showing thread A's transcript and enabled composer under thread B's title
+      // while the detail-loading effect waits for its first turn.
+      detailRequestRef.current += 1;
+      skipDetailIdRef.current = null;
+      activeIdRef.current = item.id;
+      setConversation(null);
+      setThreadError(null);
+      setThreadLoading(true);
+      setActiveId(item.id);
+      setHistoryOpen(false);
+    },
+    [chatBusy],
+  );
+
+  const conversationPersisted = React.useCallback(
+    (id: string, title: string) => {
+      // Only a draft's first persisted response needs to suppress hydration. Later
+      // turns on the same thread must not leave a skip token that could be consumed
+      // after the analyst switches away and returns.
+      if (activeIdRef.current !== id) skipDetailIdRef.current = id;
+      activeIdRef.current = id;
+      setActiveId(id);
+      setConversations((current) => {
+        const existing = current.find((item) => item.id === id);
+        const now = new Date().toISOString();
+        const optimistic: ChatConversationSummary = existing ?? {
+          id,
+          title,
+          preview: title,
+          created_at: now,
+          updated_at: now,
+          message_count: 2,
+        };
+        return [
+          { ...optimistic, title: title || optimistic.title, updated_at: now },
+          ...current.filter((item) => item.id !== id),
+        ];
+      });
+      // The response is saved before this callback runs. Refresh metadata in the
+      // background without remounting/refetching the live panel that owns the answer.
+      requestHistoryRefresh();
+      announceHistoryChanged();
+    },
+    [announceHistoryChanged, requestHistoryRefresh],
+  );
+
+  const renameConversation = React.useCallback(
+    async (item: ChatConversationSummary, title: string) => {
+      try {
+        const updated = await api.renameChatConversation(item.id, title);
+        // A list request started before this mutation must not put the stale title
+        // back after the rename succeeds.
+        listRequestRef.current += 1;
+        setListLoading(false);
+        setConversations((current) =>
+          current
+            .map((entry) => (entry.id === item.id ? updated : entry))
+            .sort(newestConversationFirst),
+        );
+        announceHistoryChanged();
+      } catch (error) {
+        setListError(errorMessage(error, "Could not rename the conversation."));
+      }
+    },
+    [announceHistoryChanged],
+  );
+
+  const deleteConversation = React.useCallback(
+    async (item: ChatConversationSummary) => {
+      const approved = await confirm({
+        title: "Delete conversation?",
+        description: `“${item.title}” and its saved messages will be removed. This cannot be undone.`,
+        confirmLabel: "Delete",
+        destructive: true,
+      });
+      if (!approved) return;
+      try {
+        await api.deleteChatConversation(item.id);
+        // Invalidate list/detail responses that still include the deleted thread.
+        listRequestRef.current += 1;
+        setListLoading(false);
+        const deletingActive = activeIdRef.current === item.id;
+        if (deletingActive) detailRequestRef.current += 1;
+        const remaining = conversationsRef.current.filter(
+          (entry) => entry.id !== item.id,
+        );
+        setConversations(remaining);
+        setDrafts((current) => {
+          if (!(item.id in current)) return current;
+          const next = { ...current };
+          delete next[item.id];
+          return next;
+        });
+        setActiveId((current) =>
+          current === item.id ? (remaining[0]?.id ?? null) : current,
+        );
+        if (deletingActive) {
+          setConversation(null);
+          if (remaining.length === 0) panelRef.current?.reset();
+        }
+        announceHistoryChanged();
+      } catch (error) {
+        setListError(errorMessage(error, "Could not delete the conversation."));
+      }
+    },
+    [announceHistoryChanged, confirm],
+  );
+
+  const historyRail = (
+    autoFocusSearch = false,
+    showNewAction = false,
+  ) => (
+    <ChatHistoryRail
+      conversations={conversations}
+      activeId={activeId}
+      loading={listLoading}
+      error={listError}
+      autoFocusSearch={autoFocusSearch}
+      showNewAction={showNewAction}
+      disabled={chatBusy}
+      retentionLimit={historyLimit}
+      retentionTruncated={historyTruncated}
+      retentionTotal={historyTotal}
+      onRetry={() => void loadConversations()}
+      onNew={startNew}
+      onSelect={selectConversation}
+      onRename={(item, title) => void renameConversation(item, title)}
+      onDelete={(item) => void deleteConversation(item)}
+    />
+  );
+
+  const actions = (
+    <div className="flex items-center gap-2">
+      {historyEnabled ? (
+        <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
+          <SheetTrigger asChild>
+            <Button variant="outline" size="sm" className="lg:hidden">
+              <History className="h-4 w-4" />
+              History
+            </Button>
+          </SheetTrigger>
+          <SheetContent side="left" size="sm" className="gap-0 p-0">
+            <SheetHeader className="sr-only">
+              <SheetTitle>Conversation history</SheetTitle>
+              <SheetDescription>
+                Search and open your saved Workspace conversations.
+              </SheetDescription>
+            </SheetHeader>
+            {historyRail(true, true)}
+          </SheetContent>
+        </Sheet>
+      ) : null}
+      <Button variant="outline" size="sm" onClick={startNew} disabled={chatBusy}>
+        <Plus className="h-4 w-4" />
+        New chat
+      </Button>
     </div>
+  );
+
+  const activeSummary = conversations.find((item) => item.id === activeId);
+  const draftKey = activeId || NEW_DRAFT_KEY;
+  const activeDraft = drafts[draftKey] ?? "";
+  const updateActiveDraft = React.useCallback(
+    (value: string) => {
+      setDrafts((current) => {
+        if (!value) {
+          if (!(draftKey in current)) return current;
+          const next = { ...current };
+          delete next[draftKey];
+          return next;
+        }
+        if (current[draftKey] === value) return current;
+        return { ...current, [draftKey]: value };
+      });
+    },
+    [draftKey],
+  );
+  const threadTitle = activeSummary?.title || conversation?.title || "New investigation";
+  const threadSubtitle = activeSummary
+    ? `${activeSummary.message_count} ${activeSummary.message_count === 1 ? "message" : "messages"} · updated ${humanizeAge(activeSummary.updated_at)}`
+    : conversation
+      ? `${conversation.message_count} ${conversation.message_count === 1 ? "message" : "messages"} · updated ${humanizeAge(conversation.updated_at)}`
+    : caseId
+      ? `Scoped to case ${caseId}`
+      : "A new conversation is saved after the first response";
+  const retainedMessages = conversation?.message_count ?? activeSummary?.message_count;
+  const totalMessages =
+    conversation?.total_message_count ?? activeSummary?.total_message_count;
+  const threadHistoryTruncated =
+    conversation?.history_truncated === true || activeSummary?.history_truncated === true;
+  const workspaceRetentionNote = threadHistoryTruncated
+    ? typeof retainedMessages === "number" && typeof totalMessages === "number"
+      ? `Showing the latest ${retainedMessages} of ${totalMessages} messages. Older turns were removed by retention.`
+      : "This conversation shows its retained message window. Older turns were removed by retention."
+    : null;
+
+  const restoringThread =
+    historyEnabled &&
+    (activeId === undefined ||
+      threadLoading ||
+      (!!activeId &&
+        conversation?.id !== activeId &&
+        skipDetailIdRef.current !== activeId));
+
+  return (
+    <PageContainer
+      variant="fluid"
+      className={cn(
+        "flex min-h-[28rem] min-w-0 flex-col gap-3 sm:min-h-[34rem]",
+        frameHeight,
+      )}
+      data-testid="workspace-chat-page"
+    >
+      <PageHeader
+        icon={MessageSquare}
+        title="Chat"
+        description={
+          historyEnabled
+            ? "Investigate connected telemetry with durable, per-user conversation history."
+            : `Continue an analyst conversation scoped to ${caseId}.`
+        }
+        actions={actions}
+        className="shrink-0"
+      />
+
+      <div
+        className={cn(
+          "grid min-h-0 flex-1 overflow-hidden border border-border bg-background",
+          historyEnabled && "lg:grid-cols-[264px_minmax(0,1fr)]",
+        )}
+        data-testid="workspace-chat-frame"
+      >
+        {historyEnabled ? (
+          <div
+            className="hidden min-h-0 border-r border-border lg:block"
+          >
+            {historyRail()}
+          </div>
+        ) : null}
+
+        <div className="min-h-0 min-w-0" role="region" aria-label={threadTitle}>
+          <ChatPanel
+            ref={panelRef}
+            caseId={caseId}
+            starters={SUGGESTED_PROMPTS}
+            presentation="workspace"
+            conversation={conversation}
+            persistConversation={!caseId}
+            workspaceTitle={threadTitle}
+            workspaceSubtitle={threadSubtitle}
+            draft={historyEnabled ? activeDraft : undefined}
+            onDraftChange={historyEnabled ? updateActiveDraft : undefined}
+            workspaceRetentionNote={workspaceRetentionNote}
+            restoring={restoringThread}
+            restoreError={threadError}
+            onRetryRestore={() => setThreadRetryEpoch((epoch) => epoch + 1)}
+            onStartNew={startNew}
+            onBusyChange={handleBusyChange}
+            onConversationPersisted={conversationPersisted}
+          />
+        </div>
+      </div>
+    </PageContainer>
   );
 }

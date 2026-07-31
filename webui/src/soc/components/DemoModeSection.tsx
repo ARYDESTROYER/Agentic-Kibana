@@ -28,6 +28,7 @@ import { Badge } from '@/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
 import { NumberField } from '@/soc/components/NumberField';
 import { LabeledSlider } from '@/soc/components/LabeledSlider';
+import { SectionTitle } from '@/soc/pages/settings/primitives';
 
 const MODES: Array<{ value: Exclude<DemoMode, 'off'>; label: string; help: string }> = [
   {
@@ -157,27 +158,19 @@ export function DemoModeSection() {
   }, [refresh]);
 
   return (
-    <div className="space-y-6">
-      <div className="space-y-1 border-b border-border pb-4">
-        <div className="flex items-center gap-2">
-          <h2 className="text-lg font-semibold tracking-tight text-foreground">Demo mode</h2>
-          <Badge variant="outline" className="gap-1 border-warning/50 bg-warning/10 text-warning">
+    <div className="space-y-6" data-testid="demo-settings-surface">
+      <SectionTitle
+        title="Experimental & Demo"
+        sub="Explore the complete console with an isolated, zero-cost, reversible synthetic dataset before connecting a live source."
+        actions={active ? (
+          <Badge variant="warning" className="gap-1">
             <FlaskConical className="h-3 w-3" aria-hidden />
-            Experimental
+            {status.mode === 'live'
+              ? `Live · ${status.simulator_running ? 'streaming' : 'stopped'}`
+              : 'Seeded · ready'}
           </Badge>
-          {active ? (
-            <Badge variant="warning" className="gap-1">
-              {status.mode === 'live'
-                ? `Live · ${status.simulator_running ? 'streaming' : 'stopped'}`
-                : 'Seeded · ready'}
-            </Badge>
-          ) : null}
-        </div>
-        <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          Populate the console with a realistic, fully synthetic dataset so you can explore
-          every surface without connecting a live source.
-        </p>
-      </div>
+        ) : null}
+      />
 
       {/* The safety contract — isolation, $0, reversibility. */}
       <Alert>
@@ -309,7 +302,7 @@ export function DemoModeSection() {
       ) : (
         <>
           {/* Active summary */}
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2 sm:[&>*:nth-child(2n+1)]:border-l-0 lg:grid-cols-4 lg:[&>*:nth-child(2n+1)]:border-l lg:[&>*:nth-child(4n+1)]:border-l-0">
             <SummaryTile label="Mode" value={status.mode === 'live' ? 'Live' : 'Seeded'} />
             <SummaryTile label="Seed" value={String(status.seed ?? seed)} mono />
             <SummaryTile
@@ -331,7 +324,7 @@ export function DemoModeSection() {
             <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Capabilities live
             </Label>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="mt-3 grid gap-x-6 gap-y-4 sm:grid-cols-2 sm:[&>*:nth-child(2n+1)]:border-l-0 lg:grid-cols-4 lg:[&>*:nth-child(2n+1)]:border-l lg:[&>*:nth-child(4n+1)]:border-l-0">
               <SummaryTile
                 label="HITL approvals"
                 value={fmtCount(status.proposals_open)}
@@ -360,11 +353,11 @@ export function DemoModeSection() {
               <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Native source activity
               </Label>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="mt-3 divide-y divide-border border-y border-border sm:grid sm:grid-cols-2 sm:divide-y-0 sm:[&>*:nth-child(2n+1)]:border-l-0 xl:grid-cols-4 xl:[&>*:nth-child(2n+1)]:border-l xl:[&>*:nth-child(4n+1)]:border-l-0">
                 {status.source_activity.map((source) => (
                   <div
                     key={source.source_id}
-                    className="min-w-0 rounded-md border border-border bg-surface px-4 py-3"
+                    className="min-w-0 px-4 py-3 sm:border-l sm:border-border"
                   >
                     <div className="flex items-center justify-between gap-2">
                       <p className="truncate text-sm font-semibold text-foreground">
@@ -447,7 +440,7 @@ function fmtCount(n: number | undefined): string {
 
 function SummaryTile({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
-    <div className="rounded-md border border-border bg-surface px-4 py-3">
+    <div className="min-w-0 border-l border-border pl-3" data-settings-metric="demo">
       <p className="text-xs font-medium text-muted-foreground">{label}</p>
       <p className={cn('mt-1 text-sm font-semibold text-foreground', mono && 'font-mono')}>
         {value}

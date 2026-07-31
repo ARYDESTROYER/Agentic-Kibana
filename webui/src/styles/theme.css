@@ -75,13 +75,13 @@
      * verdict FP axis maps to --info (blue-grey), not green.                 */
     /* SEVERITY / RISK — red → orange → gold → blue → blue-grey. *-text measured on white card. */
     --critical: 358 75% 45%;  --critical-foreground: 0 0% 100%;  --critical-text: 358 75% 42%; /* 6.36:1 */
-    --high:     22 90% 44%;    --high-foreground: 0 0% 100%;      --high-text: 22 90% 40%;      /* 4.81:1 */
-    --medium:   40 96% 38%;    --medium-foreground: 222 47% 11%;  --medium-text: 40 96% 32%;    /* fill-on-card 3.26:1 (WCAG 1.4.11 ≥3; was 40% L → 2.97 ✗); -text 4.54:1; hue 40 ≠ warning 36 */
+    --high:     22 90% 44%;    --high-foreground: 0 0% 100%;      --high-text: 22 90% 37%;      /* 4.69:1 on its 10% wash */
+    --medium:   40 96% 38%;    --medium-foreground: 222 47% 11%;  --medium-text: 40 96% 29%;    /* fill-on-card 3.26:1; text 4.68:1 on its 10% wash */
     --low:      212 90% 45%;   --low-foreground: 0 0% 100%;       --low-text: 212 90% 42%;      /* 5.63:1 (BLUE, was green) */
     --info:     220 12% 46%;   --info-foreground: 0 0% 100%;      --info-text: 215 16% 42%;     /* 5.65:1 (blue-grey) */
     /* STATUS — the ONLY place green lives (always paired with a check icon). */
-    --success: 158 74% 34%;   --success-foreground: 0 0% 100%;   --success-text: 158 74% 30%;  /* ~4.6:1 */
-    --warning: 36 92% 42%;     --warning-foreground: 222 47% 11%; --warning-text: 36 96% 32%;   /* ~4.5:1 (hue 36) */
+    --success: 158 74% 34%;   --success-foreground: 0 0% 100%;   --success-text: 158 74% 27%;  /* 4.77:1 on its 10% wash */
+    --warning: 36 92% 42%;     --warning-foreground: 222 47% 11%; --warning-text: 36 96% 31%;   /* 4.62:1 on its 10% wash */
     --danger:  358 75% 45%;    --danger-foreground: 0 0% 100%;    --danger-text: 358 75% 42%;   /* aliases critical */
 
     --radius: 0.625rem;
@@ -116,6 +116,12 @@
     --glass-opacity: 0.82;         /* fill opacity of a glass panel (0..1)         */
     --glow-strength: 0;            /* 0 = no glow (quiet); command raises it       */
     --grid-opacity: 0;             /* 0 = no command-grid overlay (quiet)          */
+
+    /* Noise-reduction flow: restrained matte links; semantic colour is reserved
+       for outcome branches and focus raises only the inspected path. */
+    --noise-ribbon-opacity: 0.26;
+    --noise-outcome-opacity: 0.24;
+    --noise-ribbon-stroke-opacity: 0.38;
 
     /* ---- Chart ramp (Okabe-Ito colorblind-safe) — DESIGN_STANDARD §1.4.
        For IDENTITY-ARBITRARY series only (per-model bars, cost). Semantic charts
@@ -220,6 +226,10 @@
     --glow-strength: 0;
     --grid-opacity: 0;
 
+    --noise-ribbon-opacity: 0.30;
+    --noise-outcome-opacity: 0.26;
+    --noise-ribbon-stroke-opacity: 0.44;
+
     /* ---- Chart ramp (dark): lift L, drop chroma slightly; yellow bright. */
     --chart-1: 217 86% 70%;  --chart-2: 27 81% 62%;  --chart-3: 84 56% 53%;   --chart-4: 256 86% 86%;
     --chart-5: 185 56% 59%;  --chart-6: 2 68% 58%;   --chart-7: 46 74% 64%;   --chart-8: 0 0% 72%;
@@ -239,6 +249,11 @@
   body,
   #root {
     height: 100%;
+    /* Keep trackpad/wheel momentum inside the Console. Without an explicit root
+       policy, macOS browsers elastically translate the whole document at its
+       vertical boundaries, moving even sticky application chrome and exposing
+       blank canvas above/below the app. */
+    overscroll-behavior-y: none;
   }
   /* Root stays at the browser-default 16px (never shrink `html` — it scales every
      rem-based Radix primitive + breaks zoom). Express 14px on BODY instead. */
@@ -321,16 +336,63 @@
 }
 
 @layer utilities {
-  /* Defined in CSS (rather than only in Tailwind's theme registry) because the
-     shared `.shimmer::after` rule references it directly. Tailwind emits theme
-     keyframes only when their matching utility class is discovered; without this
-     explicit definition every skeleton rendered as a motionless muted block. */
-  @keyframes shimmer {
-    from {
-      transform: translateX(-100%);
-    }
+  /* Canonical blocking-load motion. The geometry follows the familiar Fluent /
+     Material indeterminate progress-ring pattern: one active arc rotates while its
+     length grows and contracts over a quiet track. Animation is opt-in below so a
+     reduced-motion preference receives the useful static partial-ring state. */
+  @keyframes console-progress-ring-rotate {
     to {
-      transform: translateX(100%);
+      transform: rotate(270deg);
+    }
+  }
+
+  @keyframes console-progress-ring-dash {
+    0% {
+      stroke-dasharray: 8 92;
+      stroke-dashoffset: 0;
+    }
+    50% {
+      stroke-dasharray: 60 40;
+      stroke-dashoffset: -18;
+    }
+    100% {
+      stroke-dasharray: 8 92;
+      stroke-dashoffset: -100;
+    }
+  }
+
+  .console-progress-ring {
+    transform: rotate(-90deg);
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+
+  .console-progress-ring__arc {
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .console-progress-ring {
+      animation: console-progress-ring-rotate 1.35s linear infinite;
+    }
+
+    .console-progress-ring__arc {
+      animation: console-progress-ring-dash 1.35s var(--motion-ease-standard, ease-in-out) infinite;
+    }
+  }
+
+  @media (forced-colors: active) {
+    .console-progress-ring {
+      forced-color-adjust: none;
+    }
+
+    .console-progress-ring [data-loading-track='true'] {
+      stroke: GrayText;
+    }
+
+    .console-progress-ring__arc {
+      stroke: Highlight;
     }
   }
 
@@ -352,25 +414,6 @@
   ::-webkit-scrollbar-thumb:hover {
     background: hsl(var(--muted-foreground) / 0.5);
     background-clip: padding-box;
-  }
-  /* Skeleton shimmer sweep used by the Skeleton primitive. A slow, restrained
-     highlight that reads as "loading" without turning dense tables into noise. */
-  .shimmer::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    transform: translateX(-100%);
-    background: linear-gradient(
-      90deg,
-      transparent 0%,
-      hsl(var(--muted-foreground) / 0.04) 35%,
-      hsl(var(--foreground) / 0.14) 50%,
-      hsl(var(--muted-foreground) / 0.04) 65%,
-      transparent 100%
-    );
-    animation: shimmer 1.65s var(--motion-ease-standard, ease-in-out) infinite;
-    pointer-events: none;
-    will-change: transform;
   }
 }
 
@@ -420,14 +463,242 @@
   }
 }
 
+/* ------------------------------------------------------------------------- *
+ * Identity canvas — an isolated, source-measured authentication theme.       *
+ *                                                                           *
+ * Login intentionally does not inherit the Console's blue/light or          *
+ * ultraviolet/near-black material surfaces. It uses the current Mistral      *
+ * identity palette and geometry exactly while retaining Agentic SOC's own    *
+ * mark, copy, routes, and authentication state machine. These variables are  *
+ * scoped to `.login-auth-canvas`, so no Console page can inherit them.        *
+ * ------------------------------------------------------------------------- */
+.login-auth-canvas {
+  --login-canvas: #fbfbf8;
+  --login-slab: #fff;
+  --login-tile-default: #fff;
+  --login-tile-muted: #f5f4ef;
+  --login-text: #201f1c;
+  --login-text-subtle: #615f57;
+  --login-text-muted: #928f86;
+  --login-guide: rgb(0 0 0 / 4.5%);
+  --login-input: #fff;
+  --login-input-border: rgb(0 0 0 / 15%);
+  --login-input-focus: rgb(0 0 0 / 40%);
+  --login-input-focus-halo: rgb(0 0 0 / 10%);
+  --login-soft: rgb(0 0 0 / 6%);
+  --login-soft-hover: rgb(0 0 0 / 8%);
+  --login-button: #1a1a1e;
+  --login-button-hover: #27272b;
+  --login-button-press: #101013;
+  --login-button-text: #fff;
+  --login-trail-gold: gold;
+  --login-trail-amber: #ffaf00;
+  --login-trail-orange: #ff8205;
+  --login-trail-vermilion: #fa500f;
+  --login-trail-red: #e10500;
+
+  /* Local semantic aliases keep the existing shadcn controls theme-aware. */
+  --canvas: 60 27% 98%;
+  --background: 0 0% 100%;
+  --foreground: 45 6% 12%;
+  --card: 0 0% 100%;
+  --card-foreground: 45 6% 12%;
+  --secondary: 0 0% 94%;
+  --secondary-foreground: 45 6% 12%;
+  --muted: 48 23% 95%;
+  --muted-foreground: 43 6% 36%;
+  --border: 0 0% 90%;
+  --border-strong: 0 0% 75%;
+  --input: 0 0% 85%;
+  --ring: 0 0% 75%;
+
+  background-color: var(--login-canvas);
+  color: var(--login-text);
+}
+
+.dark .login-auth-canvas {
+  --login-canvas: #1a1a1e;
+  --login-slab: #101013;
+  --login-tile-default: #101013;
+  --login-tile-muted: #27272b;
+  --login-text: #fff;
+  --login-text-subtle: #a1a1aa;
+  --login-text-muted: #6d6d78;
+  --login-guide: rgb(255 255 255 / 4.5%);
+  --login-input: rgb(255 255 255 / 6%);
+  --login-input-border: rgb(255 255 255 / 15%);
+  --login-input-focus: rgb(255 255 255 / 45%);
+  --login-input-focus-halo: rgb(255 255 255 / 10%);
+  --login-soft: rgb(255 255 255 / 8%);
+  --login-soft-hover: rgb(255 255 255 / 10%);
+  --login-button: #f9f9fa;
+  --login-button-hover: #f1f1f3;
+  --login-button-press: #e4e4e7;
+  --login-button-text: #101013;
+
+  --canvas: 240 7% 11%;
+  --background: 240 9% 7%;
+  --foreground: 0 0% 100%;
+  --card: 240 9% 7%;
+  --card-foreground: 0 0% 100%;
+  --secondary: 240 5% 14%;
+  --secondary-foreground: 0 0% 100%;
+  --muted: 240 5% 16%;
+  --muted-foreground: 240 5% 65%;
+  --border: 0 0% 17%;
+  --border-strong: 0 0% 31%;
+  --input: 0 0% 25%;
+  --ring: 0 0% 45%;
+}
+
+.login-auth-slab {
+  background-color: var(--login-slab);
+  color: var(--login-text);
+}
+
+.login-auth-canvas .text-muted-foreground {
+  color: var(--login-text-subtle);
+}
+
+.login-auth-canvas .login-auth-control {
+  border-color: var(--login-input-border);
+  background-color: var(--login-input);
+  color: var(--login-text);
+}
+
+.login-auth-canvas .login-auth-control:hover {
+  border-color: var(--login-input-focus);
+}
+
+.login-auth-canvas .login-auth-control:focus-visible {
+  border-color: var(--login-input-focus);
+  background-color: var(--login-input);
+  box-shadow:
+    0 0 0 3px var(--login-input-focus-halo),
+    inset 0 0 0 1px var(--login-input-focus);
+  --tw-ring-color: transparent;
+}
+
+.login-auth-canvas button.bg-foreground {
+  background-color: var(--login-button);
+  color: var(--login-button-text);
+}
+
+.login-auth-canvas button.bg-foreground:hover {
+  background-color: var(--login-button-hover);
+}
+
+.login-auth-canvas button.bg-foreground:active {
+  background-color: var(--login-button-press);
+}
+
+.login-auth-cell {
+  transition-property: background-color, opacity, top, left;
+  transition-duration: 1800ms;
+  transition-timing-function: ease-in-out;
+  will-change: background-color, opacity, top, left;
+}
+
+/* A Light/Dark switch changes the neutral palette, not the tile's motion state. */
+.login-auth-canvas[data-login-theme-palette-settling='true'] .login-auth-cell {
+  transition-property: opacity, top, left;
+}
+
+.login-auth-trail {
+  transition-property: transform;
+  transition-duration: 1800ms;
+  transition-timing-function: ease-in-out;
+  will-change: transform;
+}
+
+.login-auth-side-mask {
+  position: absolute;
+  top: 0;
+  z-index: 0;
+  height: 100%;
+  width: 480px;
+  background-color: var(--login-canvas);
+}
+
+.login-auth-side-mask::before {
+  position: absolute;
+  top: 50%;
+  height: 100dvh;
+  border-left: 0.5px solid var(--login-guide);
+  content: '';
+  transform: translateY(-50%);
+}
+
+.login-auth-side-mask--left {
+  right: 100%;
+}
+
+.login-auth-side-mask--left::before {
+  left: 0;
+}
+
+.login-auth-side-mask--right {
+  left: 100%;
+}
+
+.login-auth-side-mask--right::before {
+  right: 0;
+}
+
+.login-auth-guide {
+  position: absolute;
+  z-index: 20;
+}
+
+.login-auth-guide--top,
+.login-auth-guide--bottom {
+  left: 50%;
+  width: 100vw;
+  border-top: 0.5px solid var(--login-guide);
+  transform: translateX(-50%);
+}
+
+.login-auth-guide--top {
+  top: 0;
+}
+
+.login-auth-guide--bottom {
+  bottom: 0;
+}
+
+.login-auth-guide--left,
+.login-auth-guide--right {
+  top: 50%;
+  height: 100dvh;
+  border-left: 0.5px solid var(--login-guide);
+  transform: translateY(-50%);
+}
+
+.login-auth-guide--left {
+  left: 0;
+}
+
+.login-auth-guide--right {
+  right: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-auth-cell,
+  .login-auth-trail {
+    display: none !important;
+  }
+}
+
 /* Respect reduced-motion globally. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     animation-duration: 0.001ms !important;
+    animation-delay: 0ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
+    transition-delay: 0ms !important;
     scroll-behavior: auto !important;
   }
 }

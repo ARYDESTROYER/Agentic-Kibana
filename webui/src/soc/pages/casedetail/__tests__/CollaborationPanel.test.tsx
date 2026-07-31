@@ -146,7 +146,23 @@ describe('CollaborationThreadTab — Case Manager presentation', () => {
       '[data-case-panel="collaboration"][data-presentation="case-manager"]',
     );
     expect(panel).not.toBeNull();
-    expect(panel).toHaveClass('grid', 'lg:grid-cols-[minmax(0,1fr)_16rem]');
+    expect(panel).toHaveClass('grid', 'lg:grid-cols-[minmax(0,1fr)_18rem]');
+
+    const discussion = container.querySelector('[data-collaboration-surface="discussion-canvas"]');
+    expect(discussion).toHaveClass(
+      'rounded-none',
+      'border-0',
+      'bg-transparent',
+      'p-0',
+      'shadow-none',
+    );
+    const rail = container.querySelector('[data-collaboration-surface="context-rail"]');
+    expect(rail).toHaveClass('space-y-0', 'bg-muted/20');
+    const railSections = container.querySelectorAll('[data-collaboration-rail-section]');
+    expect(railSections).toHaveLength(3);
+    railSections.forEach((section) => {
+      expect(section).toHaveClass('rounded-none', 'bg-transparent', 'shadow-none');
+    });
 
     expect(screen.getByRole('heading', { name: 'Discussion' })).toBeInTheDocument();
     expect(screen.getByText('I am validating the affected IAM role now.')).toBeInTheDocument();
@@ -168,6 +184,32 @@ describe('CollaborationThreadTab — Case Manager presentation', () => {
       [`cases:${CASE.case_id}`],
       expect.objectContaining({ enabled: true, onEvent: expect.any(Function) }),
     );
+  });
+
+  it('pins the empty-thread composer to a single quiet boundary instead of nesting another card', () => {
+    const { container } = render(
+      <CollaborationThreadTab
+        {...PANEL_PROPS}
+        thread={[]}
+        canComment
+        presentation="case-manager"
+      />,
+    );
+
+    expect(screen.getByText('No discussion yet')).toBeInTheDocument();
+    const composer = screen
+      .getByPlaceholderText(/Share findings or a hand-off/i)
+      .parentElement?.parentElement;
+    const threadSurface = composer?.parentElement;
+    expect(threadSurface).toHaveClass('flex', 'flex-1', 'flex-col');
+    expect(threadSurface?.className).toContain('[&>div:last-child]:mt-auto');
+    expect(threadSurface?.className).toContain('[&>div:last-child]:border-t');
+    expect(threadSurface?.className).toContain('[&>div:last-child]:border-x-0');
+    expect(threadSurface?.className).toContain('[&>div:last-child]:bg-transparent');
+    expect(threadSurface?.className).toContain('[&>div:last-child]:px-0');
+    expect(
+      container.querySelector('[data-collaboration-surface="discussion-canvas"]'),
+    ).toContainElement(threadSurface as HTMLElement);
   });
 
   it('has no axe violations with live collaboration content', async () => {

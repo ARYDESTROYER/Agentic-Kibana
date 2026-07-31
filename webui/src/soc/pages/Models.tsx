@@ -45,7 +45,6 @@ import { Input } from '@/ui/input';
 import { Label } from '@/ui/label';
 import { Switch } from '@/ui/switch';
 import { Textarea } from '@/ui/textarea';
-import { Skeleton } from '@/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/ui/tabs';
 import {
   Select,
@@ -64,7 +63,7 @@ import {
 } from '@/ui/dialog';
 import { PageHeader } from '@/soc/components/PageHeader';
 import { PageContainer } from '@/soc/components/PageContainer';
-import { StatCard } from '@/soc/components/StatCard';
+import { KpiTile } from '@/soc/components/KpiTile';
 import { CodeBlock } from '@/soc/components/CodeBlock';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
@@ -73,6 +72,7 @@ import { NumberField } from '@/soc/components/NumberField';
 import { SecretField } from '@/soc/components/SecretField';
 import { ModelsCatalog } from '@/soc/components/ModelsCatalog';
 import { BudgetCard } from '@/soc/components/BudgetCard';
+import { LoadingState } from '@/design-system';
 import {
   modelsApi,
   providerLabel,
@@ -192,15 +192,23 @@ export function ModelsInner() {
         }
       />
 
-      {error && !catalog ? (
+      {loading && !catalog ? (
+        <LoadingState
+          layout="page"
+          shape="rows"
+          shapeRows={4}
+          label="Loading model catalog"
+          description="Preparing model routing, pricing, and provider status."
+        />
+      ) : error && !catalog ? (
         <LoadError error={error} title="Couldn't load models" onRetry={() => void load()} />
       ) : (
       <>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Models" value={models.length} icon={Cpu} accent="primary" />
-        <StatCard label="Verified pricing" value={exactCount} accent="success" sub="exact rates" />
-        <StatCard label="Assigned" value={assignedCount} accent="info" sub="to a role" />
-        <StatCard label="Overrides" value={overrideCount} accent="medium" sub="operator prices" />
+      <div className="grid border-y border-border/70 sm:grid-cols-2 lg:grid-cols-4">
+        <KpiTile label="Models" value={models.length} icon={Cpu} accent="primary" variant="strip" className="border-b border-border/70 sm:border-r lg:border-b-0" />
+        <KpiTile label="Verified pricing" value={exactCount} accent="success" sub="exact rates" variant="strip" className="border-b border-border/70 lg:border-b-0 lg:border-r" />
+        <KpiTile label="Assigned" value={assignedCount} accent="info" sub="to a role" variant="strip" className="border-b border-border/70 sm:border-b-0 sm:border-r" />
+        <KpiTile label="Overrides" value={overrideCount} accent="medium" sub="operator prices" variant="strip" />
       </div>
 
       <Tabs defaultValue="catalog">
@@ -921,11 +929,12 @@ function ProvidersGrid({
 }) {
   if (loading && !providers) {
     return (
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {Array.from({ length: 3 }).map((_, i) => (
-          <Skeleton key={i} className="h-24 w-full rounded-lg" />
-        ))}
-      </div>
+      <LoadingState
+        layout="panel"
+        shape="panel"
+        label="Loading model providers"
+        description="Checking provider availability and model coverage."
+      />
     );
   }
   // A providers-only fetch failure surfaces its own error+retry instead of the

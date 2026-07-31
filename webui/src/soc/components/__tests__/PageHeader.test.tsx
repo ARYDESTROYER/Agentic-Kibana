@@ -59,6 +59,14 @@ describe('PageHeader — W0.9 compaction', () => {
     expect(h1.className).toMatch(/\bsm:text-3xl\b/);
   });
 
+  it('keeps long page titles readable instead of silently truncating them', () => {
+    render(<PageHeader title="A long operator-visible workspace title that must remain available" />);
+
+    const heading = screen.getByRole('heading', { level: 1 });
+    expect(heading).toHaveClass('break-words');
+    expect(heading).not.toHaveClass('truncate');
+  });
+
   it('renders exactly one <h1> per instance (dense and hero)', () => {
     const { unmount } = render(<PageHeader variant="dense" title="Only heading" />);
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
@@ -74,6 +82,15 @@ describe('PageHeader — W0.9 compaction', () => {
       />,
     );
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+  });
+
+  it('uses a section-scaled h2 when embedded beneath another workspace header', () => {
+    render(<PageHeader embedded title="Profile" description="Personal account settings." />);
+
+    expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument();
+    const heading = screen.getByRole('heading', { name: 'Profile', level: 2 });
+    expect(heading.className).toContain('text-xl');
+    expect(heading.className).not.toContain('sm:text-3xl');
   });
 
   it('has no axe violations (heading order / a11y) in either variant', async () => {

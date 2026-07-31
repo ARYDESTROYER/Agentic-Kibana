@@ -8,7 +8,7 @@ import {
   resolveDocumentationAlias,
   resolveDocumentationDirectory,
 } from './docs.config';
-import { resolveBuildReleaseIdentity } from './release.config';
+import { releaseEntryId, resolveBuildReleaseIdentity } from './release.config';
 
 /**
  * Vite config for Agentic SOC.
@@ -20,8 +20,61 @@ import { resolveBuildReleaseIdentity } from './release.config';
  */
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8088';
 const RELEASE_IDENTITY = resolveBuildReleaseIdentity();
+const RELEASE_ENTRY_ID = releaseEntryId(RELEASE_IDENTITY);
 const DEV_DOCS_ROOT = path.resolve(__dirname, 'public/docs');
 const PREVIEW_DOCS_ROOT = path.resolve(__dirname, 'dist/docs');
+const RELEASE_MANIFEST_PATH = '/release.json';
+
+function releaseManifestSource(): string {
+  return `${JSON.stringify({ schema: 1, product: 'agentic-soc', entryId: RELEASE_ENTRY_ID, ...RELEASE_IDENTITY }, null, 2)}\n`;
+}
+
+/**
+ * Emit the immutable identity of the deployed Web bundle as a tiny no-store file.
+ * A running older Console can observe it without downloading or executing new code.
+ */
+function releaseManifestPlugin(): Plugin {
+  const source = releaseManifestSource();
+  const devBoundary: Connect.NextHandleFunction = (request, response, next) => {
+    if (!request.url) return next();
+    const pathname = new URL(request.url, 'http://tlsoc.local').pathname;
+    if (pathname !== RELEASE_MANIFEST_PATH) return next();
+    response.statusCode = 200;
+    response.setHeader('Content-Type', 'application/json; charset=utf-8');
+    response.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    response.end(source);
+  };
+  const previewBoundary: Connect.NextHandleFunction = (request, response, next) => {
+    if (request.url) {
+      const pathname = new URL(request.url, 'http://tlsoc.local').pathname;
+      if (pathname === RELEASE_MANIFEST_PATH) {
+        response.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+      }
+    }
+    next();
+  };
+  return {
+    name: 'tlsoc-release-manifest',
+    configureServer(server) {
+      server.middlewares.use(devBoundary);
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(previewBoundary);
+    },
+    transformIndexHtml() {
+      return [
+        {
+          tag: 'meta',
+          attrs: { name: 'tlsoc-release', content: RELEASE_ENTRY_ID },
+          injectTo: 'head',
+        },
+      ];
+    },
+    generateBundle() {
+      this.emitFile({ type: 'asset', fileName: RELEASE_MANIFEST_PATH.slice(1), source });
+    },
+  };
+}
 
 function docsRequestBoundary(docsRoot: string): Connect.NextHandleFunction {
   return (request, response, next) => {
@@ -96,7 +149,7 @@ function bundledDocumentationPlugin(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [bundledDocumentationPlugin(), react()],
+  plugins: [releaseManifestPlugin(), bundledDocumentationPlugin(), react()],
   define: {
     __TLSOC_RELEASE_IDENTITY__: JSON.stringify(RELEASE_IDENTITY),
   },

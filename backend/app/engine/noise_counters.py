@@ -11,8 +11,10 @@ report contract (§D of the Round-7 plan). Two responsibilities, both PURE:
    ``priority.py`` — this module never re-declares them (one place to tune 74/48/22/8).
 
 2. **Rollup** — count raw events / clusters by band, and fuse the durable
-   :class:`app.stores.noise_counters.NoiseCounterStore` window tally with a case-outcome
-   MECE tally into the funnel stages the UI renders.
+   :class:`app.stores.noise_counters.NoiseCounterStore` window tally with a mutually
+   exclusive case disposition tally plus additive operational views. Auto-cleared and
+   Escalated partition opened cases; Closed by human overlaps Escalated as an
+   analyst-attributed subset.
 
 Everything here is DETERMINISTIC + advisory (#3): nothing is read by
 ``case_manager.decide()`` and no ``cluster_signature`` is recomputed (#4). Every helper is
@@ -173,7 +175,7 @@ def empty_noise_delta() -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------- #
-# Case-outcome MECE tally (the cases-derived stages of the funnel).
+# Case-disposition partition + overlapping operational views.
 # --------------------------------------------------------------------------- #
 def _status_val(case: Case) -> str:
     st = getattr(case, "status", None)
@@ -220,9 +222,16 @@ def _is_auto_cleared(case: Case) -> bool:
 
 def _is_human_closed(case: Case) -> bool:
     """The last stage of the funnel: a case that reached a TERMINAL state (resolved/
-    closed) by a HUMAN — i.e. NOT one the AI auto-cleared. This is the "handled by a
-    human" bucket the §D flow (…→escalated→closed) ends on. Advisory tally only (#3)."""
-    return _status_val(case) in TERMINAL_CASE_STATUSES and not _is_auto_cleared(case)
+    closed) with explicit ANALYST decision authority. This intentionally excludes
+    policy-driven AGENT closures (including opt-in TRUE_POSITIVE auto-close), SYSTEM
+    routing, and legacy records with missing provenance; none proves a human performed
+    the close. Filtering only the default FALSE_POSITIVE auto-close would overstate
+    human work. This is the "handled by a human" bucket the §D flow
+    (…→escalated→closed) ends on. Advisory tally only (#3)."""
+    return (
+        _status_val(case) in TERMINAL_CASE_STATUSES
+        and getattr(case, "decision_by", None) == DecisionBy.ANALYST
+    )
 
 
 def _band_of_case(case: Case, prefs: Any) -> str:
@@ -276,9 +285,10 @@ def build_noise_reduction(
 
     ``cases`` is the store page (BEFORE window filtering); ``counters`` is the
     :meth:`NoiseCounterStore.read_window` result. ``ingested``/``clustered`` come from the
-    durable counters (by band); ``cases`` + the MECE outcomes (needs_human > escalated >
-    auto_cleared(FP by agent) > true_positive residual) come from the case tally, so the
-    outcome bars always SUM to ``cases.total``. When the counters are still warming up
+    durable counters (by band); ``cases`` plus the mutually exclusive Auto-cleared /
+    Escalated partition come from the case tally. ``closed`` is an overlapping,
+    analyst-attributed subset of Escalated and is therefore not added to that partition.
+    When the counters are still warming up
     (``available: false``) the ingested/clustered totals are ``null`` and ``overall_pct``
     is DASH, so the UI degrades to a case-only funnel. Never raises."""
     counters = counters or {}
@@ -288,10 +298,10 @@ def build_noise_reduction(
     window_cases = _window_filter(list(cases), window_hours=max(0, int(window_hours or 0)), now=now)
     cases_total = len(window_cases)
 
-    # MECE case-outcome tally (each case in exactly one bucket, priority order).
-    # ``closed`` is a SEPARATE, OVERLAPPING view (not part of the MECE partition): the
-    # count of cases a HUMAN drove to a terminal state — the last stage of the linear
-    # ingested→clustered→cases→auto_cleared→escalated→closed flow the funnel renders.
+    # Internal mutually exclusive disposition tally (each case in exactly one bucket,
+    # priority order). ``closed`` is a SEPARATE, OVERLAPPING view: terminal cases
+    # explicitly decided by an ANALYST. It is a subset of the analyst path, not a third
+    # outcome to add beside Auto-cleared and Escalated.
     cases_bands = zero_bands()
     nh_bands = zero_bands()
     esc_bands = zero_bands()
@@ -366,10 +376,10 @@ def build_noise_reduction(
                total=esc_stage_total, by_severity=esc_stage_bands),
         _stage("needs_human", "Needs a human", source="cases", deterministic=True,
                total=nh, by_severity=nh_bands),
-        # The linear §D flow ends on "closed" (handled by a human) — a case that reached
-        # a terminal state that the AI did NOT auto-clear. Appended (additive) so the
-        # existing MECE stages/contract are byte-identical; ``deterministic=False`` marks
-        # it as a HUMAN decision, not deterministic auto-close.
+        # Additive analyst-owned subset: a case that reached a terminal state with
+        # explicit ANALYST decision authority. It overlaps Escalated; consumers must not
+        # add it to Auto-cleared + Escalated. ``deterministic=False`` marks HUMAN
+        # decision authority, not deterministic auto-close.
         _stage("closed", "Closed by human", source="cases", deterministic=False,
                total=closed, by_severity=closed_bands),
     ]

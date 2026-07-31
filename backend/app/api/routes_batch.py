@@ -74,6 +74,7 @@ def _job_json(job: BatchJob) -> dict[str, Any]:
         "retrieved": retrieved,
         "submitted_at": _safe(job.submitted_at) if job.submitted_at else None,
         "polled_at": _safe(job.polled_at) if job.polled_at else None,
+        "last_error": _safe(job.last_error) if job.last_error else None,
     }
 
 
@@ -87,10 +88,12 @@ async def list_batch_jobs(
 ) -> dict[str, Any]:
     """List every tracked batch job (secret-free, bounded). Newest-submitted first."""
     try:
-        jobs = await state.batch_job_store.list()
-    except Exception as exc:  # noqa: BLE001 — the registry read is best-effort
-        logger.warning("batch job list failed (%s); returning empty", exc)
-        jobs = []
+        jobs = await state.batch_job_store.list_strict()
+    except Exception as exc:  # noqa: BLE001 — distinguish outage from an empty registry
+        logger.warning("batch job list failed (%s)", exc)
+        raise HTTPException(
+            status_code=503, detail="batch job registry unavailable"
+        ) from exc
     rows = [_job_json(j) for j in jobs]
     # Newest first (submitted_at is ISO; None sorts last).
     rows.sort(key=lambda r: (r["submitted_at"] or ""), reverse=True)
@@ -109,10 +112,12 @@ async def get_batch_job(
     """One batch job by id (secret-free, bounded). 404 when unknown."""
     jid = (job_id or "").strip()
     try:
-        job = await state.batch_job_store.get(jid)
+        job = await state.batch_job_store.get_strict(jid)
     except Exception as exc:  # noqa: BLE001
         logger.warning("batch job get failed (%s)", exc)
-        job = None
+        raise HTTPException(
+            status_code=503, detail="batch job registry unavailable"
+        ) from exc
     if job is None:
         raise HTTPException(status_code=404, detail="batch job not found")
     return {"job": _job_json(job)}

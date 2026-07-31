@@ -90,7 +90,12 @@ export default function Users(_props: UsersPageProps) {
  * already gates this behind `users:manage`, so embedding does NOT add a second
  * ProtectedRoute (back-compat: auth-off shows everything).
  */
-export function UsersInner() {
+export interface UsersInnerProps {
+  /** True when this body is hosted beneath the Settings page header. */
+  embedded?: boolean;
+}
+
+export function UsersInner({ embedded = false }: UsersInnerProps) {
   const { username: me } = useAuth();
   const [users, setUsers] = React.useState<User[]>([]);
   const [roles, setRoles] = React.useState<string[]>([]);
@@ -292,9 +297,10 @@ export function UsersInner() {
   return (
     <div className="space-y-6">
       <PageHeader
+        embedded={embedded}
         icon={UsersIcon}
         eyebrow="Administration"
-        title="Users & roles"
+        title={embedded ? 'Users' : 'Users & roles'}
         description="Manage SOC operator accounts and their role-based access."
         actions={
           <div className="flex items-center gap-2">
@@ -459,7 +465,7 @@ function AssignRolesDialog({
         <div className="space-y-4 py-1">
           <div className="space-y-1.5">
             <Label htmlFor="assign-base-role">Base role</Label>
-            <Select value={baseRole || undefined} onValueChange={setBaseRole} disabled={busy}>
+            <Select value={baseRole} onValueChange={setBaseRole} disabled={busy}>
               <SelectTrigger id="assign-base-role">
                 <SelectValue />
               </SelectTrigger>

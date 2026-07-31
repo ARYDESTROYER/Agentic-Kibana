@@ -1527,6 +1527,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/chat/conversations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Chat Conversations
+         * @description Newest-first Workspace conversation summaries owned by this principal.
+         *
+         *     Auth-disabled deployments use the same isolated ``default`` profile as user
+         *     preferences. Case-scoped collaboration chat is intentionally not listed here.
+         */
+        get: operations["list_chat_conversations_api_chat_conversations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/conversations/{conversation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Chat Conversation
+         * @description One owned Workspace conversation, including its bounded transcript.
+         */
+        get: operations["get_chat_conversation_api_chat_conversations__conversation_id__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete Chat Conversation
+         * @description Delete one owned Workspace transcript; the append-only audit remains.
+         */
+        delete: operations["delete_chat_conversation_api_chat_conversations__conversation_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Rename Chat Conversation
+         * @description Rename one owned conversation with bounded, single-line plain text.
+         */
+        patch: operations["rename_chat_conversation_api_chat_conversations__conversation_id__patch"];
+        trace?: never;
+    };
     "/api/connectors": {
         parameters: {
             query?: never;
@@ -1756,7 +1807,7 @@ export interface paths {
          * @description Trigger one coherent, cooldown-aware attack in the isolated demo stack.
          *
          *     Splunk/QRadar/Wazuh contribute source-native alerts and syslog contributes raw
-         *     RFC 5424 telemetry that TLSOC detects. The action requires ``demo:manage`` and is
+         *     RFC 5424 telemetry that Agentic SOC detects. The action requires ``demo:manage`` and is
          *     recorded in the REAL append-only audit trail; generated data/cases/cost stay demo-only.
          */
         post: operations["demo_incident_api_demo_incident_post"];
@@ -2275,6 +2326,36 @@ export interface paths {
         };
         /** Metrics */
         get: operations["metrics_api_metrics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/metrics/agent-improvement": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Metrics Agent Improvement
+         * @description Aggregate-only evidence of agent-assisted triage effectiveness.
+         *
+         *     The response reports analyst-reported verdict agreement, material correction
+         *     rate, human review turnaround, recorded case-associated cost, observed elapsed-
+         *     closure differences, confirmed-positive case mix, alert volume, and non-causal
+         *     threshold-tuning context. Unsupported true-positive-alert yield and source-gap
+         *     guidance remain explicitly unavailable. It never emits a synthetic score, row or
+         *     case identifiers, raw evidence, model calls, or writes; a truncated, mix-shifted,
+         *     guardrail-unevaluable, or undersized cohort is explicitly classified as
+         *     insufficient evidence. Reporting remains advisory and is never read by the
+         *     deterministic case decision (#3).
+         */
+        get: operations["metrics_agent_improvement_api_metrics_agent_improvement_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3060,6 +3141,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/releases/upstream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Upstream Releases
+         * @description Return cached metadata and refresh only when the configured TTL expires.
+         */
+        get: operations["upstream_releases_api_releases_upstream_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/releases/upstream/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check Upstream Releases
+         * @description Request a refresh, still respecting the anti-hammering manual cooldown.
+         */
+        post: operations["check_upstream_releases_api_releases_upstream_check_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/roles": {
         parameters: {
             query?: never;
@@ -3420,10 +3541,64 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Runbooks */
-        get: operations["runbooks_api_runbooks_get"];
+        /** List Runbooks */
+        get: operations["list_runbooks_api_runbooks_get"];
         put?: never;
+        /** Create Runbook */
+        post: operations["create_runbook_api_runbooks_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runbooks/reindex": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reindex Runbooks */
+        post: operations["reindex_runbooks_api_runbooks_reindex_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runbooks/{runbook_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Runbook */
+        get: operations["get_runbook_api_runbooks__runbook_id__get"];
+        /** Update Runbook */
+        put: operations["update_runbook_api_runbooks__runbook_id__put"];
         post?: never;
+        /** Delete Runbook */
+        delete: operations["delete_runbook_api_runbooks__runbook_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runbooks/{runbook_id}/reindex": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reindex Runbook */
+        post: operations["reindex_runbook_api_runbooks__runbook_id__reindex_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4062,6 +4237,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/storage/lifecycle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Storage Lifecycle Get
+         * @description Return desired policy, effective capability, blockers, and safe scope.
+         */
+        get: operations["storage_lifecycle_get_api_storage_lifecycle_get"];
+        /**
+         * Storage Lifecycle Put
+         * @description Save desired policy only; never change infrastructure implicitly.
+         */
+        put: operations["storage_lifecycle_put_api_storage_lifecycle_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/storage/lifecycle/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Storage Lifecycle Apply
+         * @description Explicitly apply the persisted policy to supported owned-state targets.
+         */
+        post: operations["storage_lifecycle_apply_api_storage_lifecycle_apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/storage/lifecycle/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Storage Lifecycle Preview
+         * @description Preview a candidate plan. This endpoint performs reads only.
+         */
+        post: operations["storage_lifecycle_preview_api_storage_lifecycle_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/terminology": {
         parameters: {
             query?: never;
@@ -4208,13 +4447,13 @@ export interface paths {
         put?: never;
         /**
          * Apply Tuning
-         * @description Apply the tuner's proposed bounded change for ONE rule (shadow-evaluated).
+         * @description Recompute and process every current proposed change for ONE rule.
          *
          *     Reuses the engine's SAFE per-proposal router (``_handle_proposal``): a bounded
          *     ``correlation_n`` / ``severity_floor`` raise is auto-applied (after shadow-eval) +
          *     recorded in the ledger; a suppression DROP or a shadow-blocked raise is routed to
          *     the existing HITL Proposal queue and is NEVER auto-applied here. The router never
-         *     calls ``decide()`` (#3). Returns whether it applied or queued.
+         *     calls ``decide()`` (#3). Returns the applied, queued, and shadow-blocked outcomes.
          *
          *     404 when no proposal exists for ``rule_id`` (the rule isn't noisy / cleared the
          *     bar) so the caller gets an honest signal rather than a silent no-op.
@@ -5105,17 +5344,31 @@ export interface components {
             /** Url */
             url?: string | null;
         };
+        /** ChatConversationRenameRequest */
+        ChatConversationRenameRequest: {
+            /** Title */
+            title: string;
+        };
         /** ChatRequest */
         ChatRequest: {
             /** Case Id */
             case_id?: string | null;
             context?: components["schemas"]["ChatContext"] | null;
+            /** Conversation Id */
+            conversation_id?: string | null;
             /** History */
             history?: components["schemas"]["ChatTurn"][];
+            /** Idempotency Key */
+            idempotency_key?: string | null;
             /** Message */
             message: string;
             /** Model */
             model?: string | null;
+            /**
+             * Persist Conversation
+             * @default false
+             */
+            persist_conversation: boolean;
             /** Source Id */
             source_id?: string | null;
         };
@@ -5738,12 +5991,12 @@ export interface components {
             max_tokens: number;
             /**
              * Model
-             * @default claude-sonnet-4-6
+             * @default gpt-5.6-luna
              */
             model: string;
             /**
              * Provider
-             * @default anthropic
+             * @default openai
              * @enum {string}
              */
             provider: "anthropic" | "openai" | "mock" | "azure" | "bedrock" | "vertex" | "openai_compatible";
@@ -5962,6 +6215,63 @@ export interface components {
             /** Model */
             model?: string | null;
         };
+        /** ReleaseCacheStatus */
+        ReleaseCacheStatus: {
+            /** Hit */
+            hit: boolean;
+            /** Max Age Seconds */
+            max_age_seconds: number;
+            /** Stale */
+            stale: boolean;
+        };
+        /** ReleaseChannelStatus */
+        ReleaseChannelStatus: {
+            /** Branch */
+            branch: string;
+            /**
+             * Channel
+             * @enum {string}
+             */
+            channel: "stable" | "testing";
+            /** Checked At */
+            checked_at?: string | null;
+            /** Commit Sha */
+            commit_sha?: string | null;
+            /** Commit Url */
+            commit_url?: string | null;
+            /** Error Code */
+            error_code?: string | null;
+            /** Error Message */
+            error_message?: string | null;
+            /** Source Url */
+            source_url?: string | null;
+            /**
+             * Stale
+             * @default false
+             */
+            stale: boolean;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "available" | "unavailable" | "disabled";
+            /** Version */
+            version?: string | null;
+        };
+        /** ReleaseDiscoveryResponse */
+        ReleaseDiscoveryResponse: {
+            cache: components["schemas"]["ReleaseCacheStatus"];
+            /** Channels */
+            channels: {
+                [key: string]: components["schemas"]["ReleaseChannelStatus"];
+            };
+            /** Checked At */
+            checked_at: string | null;
+            /** Enabled */
+            enabled: boolean;
+            /** Repository Url */
+            repository_url: string;
+        };
         /** ResetBody */
         ResetBody: {
             /**
@@ -6167,6 +6477,29 @@ export interface components {
             analyst: string;
             /** Playbook Id */
             playbook_id: string;
+        };
+        /** RunbookCreateRequest */
+        RunbookCreateRequest: {
+            /**
+             * Content
+             * @default
+             */
+            content: string;
+            /**
+             * Id
+             * @default
+             */
+            id: string;
+        };
+        /** RunbookUpdateRequest */
+        RunbookUpdateRequest: {
+            /**
+             * Content
+             * @default
+             */
+            content: string;
+            /** Expected Revision */
+            expected_revision: number;
         };
         /** SSOProviderSecretBody */
         SSOProviderSecretBody: {
@@ -6392,6 +6725,61 @@ export interface components {
              * @default
              */
             to_status: string;
+        };
+        /**
+         * StorageLifecycleConfig
+         * @description Desired lifecycle for Agentic SOC's OWN application state.
+         *
+         *     Connected log-source retention is intentionally excluded: those indices are
+         *     read-only and stay operator/vendor managed.  The backend only enforces phases
+         *     that are safe for the selected state store.  Today that means Elasticsearch ILM
+         *     for the append-only audit and usage ledgers; mutable cases plus live KV/config
+         *     state stay hot until an index-aware archive/restore path exists.
+         *
+         *     The archive boundary is derived as ``hot_days + warm_days`` so independently
+         *     entered dates cannot drift.  Glacier is a desired archive target, not a claim
+         *     that the active state backend can restore directly from it.  This policy never
+         *     deletes active data.
+         */
+        StorageLifecycleConfig: {
+            /**
+             * Archive Target
+             * @description Desired immutable archive target; advisory until an export/restore pipeline is configured.
+             * @default aws_glacier
+             * @constant
+             */
+            archive_target: "aws_glacier";
+            /**
+             * Delete After Archive
+             * @description Reserved safety policy. Deletion stays disabled until verified archive and restore exist.
+             * @default false
+             * @constant
+             */
+            delete_after_archive: false;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /**
+             * Glacier Storage Class
+             * @description S3 Glacier class for independent archive objects, never an Elasticsearch snapshot repository.
+             * @default GLACIER
+             * @enum {string}
+             */
+            glacier_storage_class: "GLACIER" | "DEEP_ARCHIVE";
+            /**
+             * Hot Days
+             * @description Days kept in the active hot tier before eligible state moves warm.
+             * @default 180
+             */
+            hot_days: number;
+            /**
+             * Warm Days
+             * @description Days kept warm before the desired archive hand-off begins.
+             * @default 90
+             */
+            warm_days: number;
         };
         /**
          * TableStateBody
@@ -9079,6 +9467,135 @@ export interface operations {
             };
         };
     };
+    list_chat_conversations_api_chat_conversations_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_chat_conversation_api_chat_conversations__conversation_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_chat_conversation_api_chat_conversations__conversation_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_chat_conversation_api_chat_conversations__conversation_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatConversationRenameRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_connectors_api_connectors_get: {
         parameters: {
             query?: never;
@@ -10224,6 +10741,40 @@ export interface operations {
         parameters: {
             query?: {
                 window_hours?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    metrics_agent_improvement_api_metrics_agent_improvement_get: {
+        parameters: {
+            query?: {
+                /** @description Exclusive UTC date boundary. Omit to compare the last seven complete UTC days with the preceding 28 complete days. */
+                as_of?: string | null;
+                current_days?: number;
+                baseline_days?: number;
             };
             header?: never;
             path?: never;
@@ -11405,6 +11956,46 @@ export interface operations {
             };
         };
     };
+    upstream_releases_api_releases_upstream_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReleaseDiscoveryResponse"];
+                };
+            };
+        };
+    };
+    check_upstream_releases_api_releases_upstream_check_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReleaseDiscoveryResponse"];
+                };
+            };
+        };
+    };
     list_roles_api_roles_get: {
         parameters: {
             query?: never;
@@ -11974,7 +12565,7 @@ export interface operations {
             };
         };
     };
-    runbooks_api_runbooks_get: {
+    list_runbooks_api_runbooks_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -11990,6 +12581,189 @@ export interface operations {
                 };
                 content: {
                     "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    create_runbook_api_runbooks_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunbookCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reindex_runbooks_api_runbooks_reindex_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    get_runbook_api_runbooks__runbook_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runbook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_runbook_api_runbooks__runbook_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runbook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunbookUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_runbook_api_runbooks__runbook_id__delete: {
+        parameters: {
+            query: {
+                expected_revision: number;
+            };
+            header?: never;
+            path: {
+                runbook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reindex_runbook_api_runbooks__runbook_id__reindex_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runbook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -12915,6 +13689,112 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    storage_lifecycle_get_api_storage_lifecycle_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    storage_lifecycle_put_api_storage_lifecycle_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StorageLifecycleConfig"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    storage_lifecycle_apply_api_storage_lifecycle_apply_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    storage_lifecycle_preview_api_storage_lifecycle_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["StorageLifecycleConfig"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

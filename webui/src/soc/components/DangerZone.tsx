@@ -38,14 +38,6 @@ import { Input } from '@/ui/input';
 import { Label } from '@/ui/label';
 import { Alert, AlertDescription } from '@/ui/alert';
 import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-  CardContent,
-  CardFooter,
-} from '@/ui/card';
-import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -62,6 +54,7 @@ import {
   type ResetResult,
 } from '@/soc/DangerZone.api';
 import { ApiError } from '@/lib/api';
+import { SectionTitle } from '@/soc/pages/settings/primitives';
 
 /* --------------------------------------------------------------- copy ------- */
 
@@ -359,7 +352,7 @@ export interface DangerZoneProps {
 }
 
 /**
- * The danger-zone surface: three escalating reset cards. Self-gated behind the
+ * The danger-zone surface: three escalating reset tiers. Self-gated behind the
  * `users:manage` (admin / super_admin) grant — renders nothing without it.
  */
 export function DangerZone({ className }: DangerZoneProps) {
@@ -368,31 +361,27 @@ export function DangerZone({ className }: DangerZoneProps) {
 
   return (
     <Can resource="users" action="manage">
-      <div className={cn('space-y-4', className)} data-testid="danger-zone">
-        <div className="flex items-start gap-2">
-          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-critical" aria-hidden />
-          <div>
-            <h3 className="text-sm font-semibold text-foreground">Danger zone</h3>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Destructive resets of this suite&apos;s own data. Each requires typing an exact
-              confirmation phrase and a fresh sign-in. Environment-provided secrets are never
-              cleared, and your upstream logs are never touched.
-            </p>
-          </div>
-        </div>
+      <div className={cn('space-y-6', className)} data-testid="danger-zone">
+        <SectionTitle
+          title="Danger zone"
+          sub="Reset Agentic SOC data in explicit tiers. Every action requires an exact confirmation phrase and a fresh sign-in; environment secrets and upstream logs are never touched."
+        />
 
-        <div className="grid gap-3">
+        <div className="divide-y divide-border border-y border-border">
           {TIERS.map((tier) => (
-            <Card key={tier.scope} className="border-critical/30">
-              <CardHeader className="gap-1.5">
-                <CardTitle className="text-sm">{tier.title}</CardTitle>
-                <CardDescription>{tier.summary}</CardDescription>
-              </CardHeader>
-              <CardContent className="grid gap-3 pt-0 sm:grid-cols-2">
-                <ConsequenceList heading="This clears" tone="danger" items={tier.clears} />
-                <ConsequenceList heading="This keeps" tone="ok" items={tier.keeps} />
-              </CardContent>
-              <CardFooter className="justify-end">
+            <section
+              key={tier.scope}
+              className="space-y-4 py-5"
+              aria-labelledby={`reset-${tier.scope}-title`}
+              data-settings-tier={tier.scope}
+            >
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0 space-y-1">
+                  <h3 id={`reset-${tier.scope}-title`} className="text-base font-semibold text-foreground">
+                    {tier.title}
+                  </h3>
+                  <p className="max-w-3xl text-sm text-muted-foreground">{tier.summary}</p>
+                </div>
                 <Button
                   variant="destructive"
                   size="sm"
@@ -401,8 +390,12 @@ export function DangerZone({ className }: DangerZoneProps) {
                 >
                   {tier.title}
                 </Button>
-              </CardFooter>
-            </Card>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <ConsequenceList heading="This clears" tone="danger" items={tier.clears} />
+                <ConsequenceList heading="This keeps" tone="ok" items={tier.keeps} />
+              </div>
+            </section>
           ))}
         </div>
       </div>

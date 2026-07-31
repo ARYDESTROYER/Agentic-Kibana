@@ -6,42 +6,140 @@
 > source of truth for *where we are*, *how to run it*, *what's done*, and *what's next*.
 > Everything in here is verified against the repo as of the date below — not from memory.
 
-- **Repo:** `ARYDESTROYER/Agentic-Kibana`  ·  **Working branch:** `Testing`  ·  **Date:** 2026-07-22
+- **Repo:** `ARYDESTROYER/Agentic-Kibana`  ·  **Working branch:** `Testing`  ·  **Date:** 2026-07-31
 - **Status:** Round 10 and the additive Security Command Center / Case Manager work are
   integrated on `Testing`. A **backend deep-audit hardening pass
   (2026-07-14/15)** fixed **47 verified findings** (0 crit / 10 high / 24 med / 13 low)
   from a 24-auditor + adversarial-verify Workflow — **one atomic commit per finding, no
   co-author**, on `Testing` (`c5516e5`→`abd0385`).
-  The current product version is **`0.1.0`**. `Testing` is the permanent integration and
+  The current product version is **`0.1.1`**. `Testing` is the permanent integration and
   acceptance branch; the accepted source tree is promoted through a protected pull request
   to the Stable `main` branch, the resulting commit is re-verified, and that commit is tagged
-  `v0.1.0`; see `docs/releases/channels.md`.
+  `v0.1.1`; see `docs/releases/channels.md`.
 - **Branch-topology gap:** the remote currently exposes `Testing` and legacy/default
   `claude/main`, but no literal `main`. `claude/main` is not implicitly Stable. Before the
   first Stable publication, the owner must create/rename and protect `main`, make it default,
   and require the documented gates—or deliberately update every workflow and release
   reference to one different canonical Stable branch.
 - **Release identity UI:** the top-right badge always reads
-  `v0.1.0 · Testing|Stable`; its popover reconciles build-time Console and public backend
+  `v0.1.1 · Testing|Stable`; its popover reconciles build-time Console and public backend
   build-info. Any known version/channel/SHA mismatch downgrades to Testing. Local demo auto-
   derives Stable only on literal `main`; Docker release builds must stamp channel/SHA/date.
+  When a different static Console release has already been deployed, a separate
+  **Update available** action appears beside the badge only if no-store `/release.json`
+  exactly matches healthy backend build-info/readiness with non-`unknown` SHA and build
+  time. Activation is confirmed,
+  blocked by known unsaved drafts, and rechecks the manifest, backend, health, and
+  `/index.html` before reloading the same hash route. Failure leaves the running Console
+  untouched. The browser never deploys, restarts, migrates, promotes, stores deployment
+  credentials, or performs rollback; operators must retain old hashed assets or use
+  blue-green serving through the observation window.
+  A separate amber source notice may come from the cached, authenticated
+  `/api/releases/upstream` observation. Fresh preferences watch the public Agentic SOC
+  repository at Stable `main` and Testing `Testing`; forks can change that repository
+  and either branch in Settings. This is review metadata only, suppresses downgrades,
+  and cannot create the deployment activation action. The currently absent literal
+  `main` therefore reports an honest unavailable Stable observation.
 - **Current Console contract:** the shared rail and route-loading states follow
-  `docs/development/ui-standard.md`; Automated Scans is a hidden compatibility route,
+  `docs/development/ui-standard.md`; `webui/src/design-system/` now exposes the one
+  centered loading grammar, original source marks, and a serializable catalog for
+  future tooling (not a shipped MCP server). Automated Scans is a hidden compatibility route,
   the targeted Workspace job is **Entity investigation**, Settings uses the flat
   searchable command-center frame, and the bottom Documentation utility opens the
   same-origin, version-matched Help Center at `/docs/<major.minor>/`. Installed docs
   are authoritative for that build; Latest Stable/GitHub are secondary upgrade or
-  source views, and Development remains preview-only.
+  source views, and Development remains preview-only. First run uses the same flat
+  Console grammar in a responsive four-stage setup workspace: **Workspace → Data
+  sources → AI runtime → Review & launch**. It guards source/key drafts, reports
+  limited readiness honestly, and fails closed with Retry when setup status is
+  unavailable; Settings re-runs end with **Apply changes** rather than resetting the
+  deployment. Workspace Chat now follows the same flat Console grammar with a
+  searchable desktop history rail, mobile History Sheet, top-aligned transcript, one
+  live thread status, one bottom composer, consolidated **Evidence & execution**, and
+  restore/error states that preserve the workspace instead of replacing it. It keeps
+  an unsent draft per visited thread, refreshes history on focus, treats history access
+  failures as failures rather than an empty account, and marks bounded history as
+  incomplete when older material has been removed.
+- **Intelligence → Runbooks** is now a first-class operator workspace: analysts can
+  search and open protected bundled references, while authorized managers can create,
+  edit, delete, and reindex durable operator Markdown. Full guidance is chunked into
+  stable per-runbook RAG documents, optimistic revisions reject stale writes, and
+  targeted reconciliation preserves imported knowledge, MITRE guidance, suppression
+  guidance, and resolved-case memory. Runbooks remain reference knowledge only;
+  Playbooks are the separate selected procedure layer and deterministic case policy is
+  still the sole close/escalate authority.
 - **Current feature integration:** Cases is still the table-oriented list, but an
   opened row hands the exact case to the canonical Case Manager detail workspace;
-  its desktop split is accessible and persisted. Overview defaults to
+  its desktop split is accessible and persisted. Case Manager Overview now
+  conditionally summarizes the latest investigation run's actual inputs—operator
+  memory consulted, RAG knowledge and runbook references retrieved, a playbook only
+  when injected/consulted, and an immutable deterministic platform threshold-tuning
+  snapshot—with details in Investigation. It never infers provenance from current
+  feature settings, never calls threshold tuning model fine-tuning, and leaves final
+  close/escalate routing to deterministic case policy. Overview defaults to
   visibility-aware LIVE refresh and has an expanded Noise Reduction view with a lazy,
   bounded redacted alert→cluster→case→outcome drill-down beneath the aggregate flow.
   Threat Context exposes a redacted persisted cluster-formation explanation. Demo
   Mode has five sources including Entra ID. The API also provides audited,
   permission-gated portable analysis export and guarded default-preference OpenAI
-  Flex for supported live case/alert work, with truthful standard fallback.
-- **Verification:** green at **1982 backend tests** and **1468 web tests across 248 files**,
+  Flex for supported live case/alert work, with truthful standard fallback. Fresh
+  workspaces now assign official OpenAI `gpt-5.6-luna` to router, investigator,
+  formatter, standup, Workspace chat, and overview; embeddings remain on
+  `text-embedding-3-small`, while persisted assignments and alternate providers stay
+  authoritative. The current official short-context Luna Standard rate is catalogued
+  at $0.20/M input, $0.02/M cached input, and $1.20/M output; Batch/Flex is recorded
+  only from provider-confirmed execution and priced at the official half-rate. Cost now
+  reports the execution tier actually recorded by the gateway in fixed Standard,
+  Flex, Batch, and Unconfirmed buckets; it never infers that a standard row was a
+  Flex fallback when the ledger cannot prove that history. Storage
+  & retention now records a deletion-free 180-day Hot + 90-day Warm desired policy;
+  explicit preview/apply can enforce only append-only Elasticsearch audit/usage ILM,
+  while Glacier stays unconfigured pending an independent verified archive path. Workspace
+  Chat conversations are now bounded, per-user partitions in the selected StateStore:
+  newest-first list/detail/rename/delete are additive to the existing chat route, and a
+  draft becomes saved only after its first response is durably committed. Stable
+  `idempotency_key` retries return the one committed turn without a duplicate model bill;
+  explicit source selection fails closed, and every saved assistant turn records its
+  effective source/model. Legacy shared history is lazily migrated through a
+  backward-compatible read path, with no operator reset. Saved server history is
+  authoritative on resume. Case Manager chat remains case-scoped and never enters
+  personal Workspace history; browser-only chats from before this feature cannot be
+  recovered. **Analytics → Agent effectiveness** (also reachable at the stable
+  `#/effectiveness` deep link) renders the additive
+  `GET /api/metrics/agent-improvement` report. It compares the last seven complete UTC days with the
+  preceding 28 using weighted analyst-reported agreement, material correction rate,
+  and human review turnaround, while exposing two-sided cohort coverage, truncation,
+  and evaluable fixed-horizon safety guardrails. It returns no synthetic composite,
+  source/case identifiers, raw evidence, or model calls, makes no causal "learning"
+  claim, and explicitly shows collecting/insufficient/unavailable states rather than
+  turning missing evidence into zero. Agreement and correction form one
+  graded-case quality domain rather than two independent headline votes; improvement
+  also requires the separate review-turnaround domain to improve. Auto-tuning reuses
+  this contract in a dedicated **Outcomes** tab beside its default **Operations** and
+  **Policy & history** workspaces; its separate `metrics:view` load cannot block
+  tuning controls, and **View full evidence** opens the canonical Analytics
+  effectiveness tab. The Outcomes view plots one selected metric at a time and keeps
+  tuning changes in a non-causal disclosure. The report now also carries a separate
+  outcome layer: recorded case-linked AI processing cost; observed case-open-to-close
+  elapsed-time difference between agent-terminal and human-terminal cohorts (not active
+  labor or a human-only benchmark); confirmed-positive rate among outcome-graded cases;
+  durable ingested-versus-after-clustering volume; and applied-tuning context with
+  `causal_claim=false`. It exposes true 7-day versus prior-7-day and rolling-28-day
+  versus prior-28-day trends without calling the latter a calendar month. A
+  true-positive/raw-alert yield is explicitly unavailable because cases and alerts are
+  different units, and semantic source-gap guidance remains a long-term objective.
+  Every missing or undersized cohort remains insufficient/unavailable rather than zero.
+  Operations groups recommendations by rule, separates **Collecting**, **Within
+  target**, and **Needs attention**, and replaces the wide rules table with a
+  searchable diagnosis-first list plus contextual inspector. Every attention row now
+  states the evidence minimum, conservative estimate, policy gap in percentage points,
+  recommended action, expected effect, and replay status before supporting statistics.
+  Processing is represented at its real rule scope: eligible bounded changes are
+  rechecked before applying and restricted changes route to Approvals, while Policy &
+  history shows policy before the append-only ledger. These are Console
+  changes only; deterministic tuning and `decide()` authority remain unchanged.
+- **Verification:** the latest fully recorded suites are green at **2,174 backend tests**
+  and **1,828 web tests across 277 files**,
   with production build, lint/design gates, packaging, version, Compose, and strict docs
   checks passing. Read the latest `Journal.md` entry, the active `CHANGELOG.md`
   `[Unreleased]` section, and the dated Development snapshots for command-level
@@ -75,18 +173,20 @@ can never override.
 cd backend
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt        # greenlet is pinned, so a fresh install is green
-python -m pytest -q                         # -> 1982 passed (rises each round; see Journal.md)
+python -m pytest -q                         # latest recorded full run: 2,174 passed; see Journal.md
 ```
 
 ### WebUI build + tests + lint
 ```bash
 cd webui
-npm install
+npm ci
+npm run check:types # hard-fail API drift in CI with TLSOC_REQUIRE_TYPEGEN=1
+npm run gates       # tokens, contrast, CVD, and raw-style regression guards
+npm test            # latest recorded full run: 1,828 passed / 277 files
+npm run lint -- --max-warnings=0
 npm run build      # version-matched MkDocs Help Center + tsc --noEmit + Vite
 npm run docs:check # verify the generated docs artifact matches VERSION
 npm run build:app  # app-only typecheck + Vite when docs are intentionally unchanged
-npx vitest run     # -> 1468 passed / 248 files
-npm run lint       # eslint -> 0 errors, 0 warnings; 20 jsx-a11y rules are enforced at error
 ```
 The docs wrapper first honors `TLSOC_DOCS_PYTHON`, then reuses a compatible existing
 Python environment when available, and otherwise bootstraps the ignored
@@ -121,8 +221,10 @@ backend/app/
   constants.py     enums (CaseStatus/Disposition, Verdict, UserRole, IndexRole incl. ignore, ...)
   models.py        Pydantic contracts (Case, User(+profile/MFA/SSO), Session, SavedView, ...)
   api/routes.py    THE base FastAPI router (incl. /sources, /auth+/users, /sessions,
-                   /account/me, /demo/*, /proposals, /settings/schema).  api/deps.py =
-                   auth/RBAC gates (+ custom-role union). **21 `routes_*.py` feature
+                   /account/me, /demo/*, /proposals, /settings/schema, `/chat`, and
+                   per-user `/chat/conversations` list/detail/rename/delete).
+                   api/deps.py =
+                   auth/RBAC gates (+ custom-role union). **22 `routes_*.py` feature
                    routers total**, ALL auto-discovered at boot
                    (`main.py::discover_feature_routers()` walks `app.api.routes_*`, needs
                    only a top-level `router: APIRouter` — no manual registration):
@@ -143,11 +245,14 @@ backend/app/
                    routes_search (`/search`, `/audit`). None of those paths remain in
                    `routes.py`, and there is no `/branding/presets` endpoint. Current
                    integration adds routes_export (`POST /api/admin/export`,
-                   `data_export:export`).
+                   `data_export:export`) + routes_storage (desired own-state lifecycle,
+                   pure capability preview, and explicit fresh-auth Elasticsearch apply).
   auth/            passwords (PBKDF2) · tokens (stdlib HS256 JWT, sid/tv claims) · service ·
                    mfa (RFC-6238 TOTP) · oidc (SSO code-exchange)
   rbac/policy.py   the role->resource->action permission matrix + can()
   stores/          backend-agnostic KV-doc stores: users · sessions · user_prefs · memory ·
+                   chat_conversations (bounded, idempotent, per-user-partitioned Workspace
+                   transcripts + lazy migration from the legacy shared document) ·
                    cases/usage/config/cursor · proposals · sql/ (SQLite/Postgres) +
                    Round-3: case_thread/case_activity/case_tasks · inbox · notif_prefs ·
                    custom_roles · price_overlay · shift_handoff +
@@ -169,7 +274,10 @@ backend/app/
                    Round-4: threshold_tuner (nightly deterministic auto-tuner, default ON) ·
                    campaigns (daily shared-entity graph) · baseline (online EWMA/EWMV entity baseline) ·
                    event_detection (EVENT-feed batched agent-driven detection funnel) ·
-                   forwarding (explain_forwarding) · reset (tiered danger-zone reset)
+                   forwarding (explain_forwarding) · reset (tiered danger-zone reset) ·
+                   storage_lifecycle (capability-aware append-only ledger ILM; no deletion) ·
+                   agent_improvement (pure aggregate complete-day quality headline +
+                   additive cost/closure/outcome/volume trends; reporting only)
   agents/          router · investigator · formatter · chat · standup · overview · personas · pipeline
   threat/          bundled compact MITRE ATT&CK technique map (+ refresh script)
 webui/src/
@@ -195,12 +303,15 @@ webui/src/
                    Dashboards (Round-5 custom dashboards), Settings (Round-5 data-driven registry;
                    the 2673-line hub -> a section-registry + pages/settings/* files, 5 groups,
                    Security promoted to top-level), Account, Sessions, Users, Security, Audit,
-                   Workspace(Chat+Entity investigation), Analytics(Metrics tabs+Cost),
+                   Workspace(Chat with searchable desktop history rail/mobile Sheet,
+                   durable per-user transcripts, and one docked composer + Entity
+                   investigation), Analytics(Operational+Performance+Posture+
+                   Effectiveness+Cost),
                    Home(Overview+Standup), Intelligence(Knowledge+Memory+Playbooks),
                    Docs + a hidden legacy Scans compatibility route + Round-3 Models,
                    Roles, Inbox, ...
   soc/pages/settings/  Round-5 — one file per Settings section (general/security/models/detection/
-                   cases/automation/enrichment/knowledge/keys/standup/advanced/...) driven by
+                   cases/automation/enrichment/knowledge/keys/standup/storage/advanced/...) driven by
                    settings-sections.ts (the registry) — replaces the old god-file
   soc/rules/       Round-5 — Detection & Rules editor: DetectionRulesHome · RuleEditor (polymorphic
                    over the 3 tiers) · ConditionBuilder (flat) · lifecycle/ (Test/Preview + version
@@ -218,7 +329,8 @@ webui/src/
                    MitreHeatmap/BurnDownChart, CaseThread, EnrichmentProvidersEditor, BrandingEditor +
                    Round-5 ~15 shared primitives (Field, SegmentedControl, ConfirmDialog, NumberField,
                    LabeledSlider, SecretField, TagInput, IconButton, PageContainer, TimeRangePicker,
-                   DashboardGroup, collapsible, typography), ...
+                   DashboardGroup, collapsible, typography) + shared ComparisonMetric/
+                   MetricDefinition evidence presentation, ...
   ui/              shadcn/radix primitives (button, dialog, command, table, ...)
   lib/             api.ts (client) · types.ts (keep in sync with backend models) · format · cn
 ```
@@ -333,7 +445,8 @@ what-shipped: `docs/research/2026-07-round4/`.
   168 hour-of-week buckets + a bounded t-digest + modified-z |M|>3.5 (warm-up 3× period,
   H=14d); a pure producer.
 - **Batch/flex + broadened model catalog** — `llm/batch.py` (`BatchProvider` SPI: Anthropic
-  Message Batches + OpenAI Batch + flex; custom_id-keyed idempotent) + `stores/batch_jobs.py`;
+  Message Batches + OpenAI Batch; custom_id-keyed idempotent) + separate live OpenAI
+  Flex routing + `stores/batch_jobs.py`;
   corrected pricing + cache/batch columns in the Models catalog.
 - **Unified logs** — `GET /api/logs` scatter-gather across browse-capable sources + a
   webui `UnifiedLogsSheet`.

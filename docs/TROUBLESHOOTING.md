@@ -14,7 +14,7 @@ Quick triage:
 ```bash
 # Backend health (the agnostic stack publishes :8088; or exec into the container)
 curl -s localhost:8088/api/health ; echo
-#   -> {"status":"ok","version":"0.1.0","es_connected":...,"store_type":"...","setup_complete":...}
+#   -> {"status":"ok","version":"0.1.1","es_connected":...,"store_type":"...","setup_complete":...}
 
 # Same health THROUGH the web UI's nginx proxy (proves the SPA → backend path)
 curl -fsS http://localhost:8080/api/health ; echo
@@ -131,6 +131,59 @@ callout at the top of this file); the data you expect is listed by
 **How to confirm.** `curl -fsS http://localhost:8080/api/health` returns
 `{"status":"ok",...}`; the SPA loads and the wizard/console renders.
 
+### B1. Setup shows "Can't verify setup state"
+
+**Symptom.** First run shows a recovery screen with **Retry** instead of either the
+setup workspace or the operational console.
+
+**Likely cause.** `GET /api/setup/status` could not be read through the SPA's
+`/api` proxy. This fail-closed screen is intentional: the console does not assume
+setup is complete when the authoritative state is unavailable.
+
+**Fix.** Confirm the backend is healthy, then test the setup endpoint through the
+same web-UI proxy. Repair the proxy/backend path, authentication session, or backend
+error shown in the response; then choose **Retry**.
+
+```bash
+curl -fsS http://localhost:8080/api/health ; echo
+curl -fsS http://localhost:8080/api/setup/status ; echo
+# -> {"setup_complete":false|true,"configured":{...}}
+```
+
+**How to confirm.** Retry opens **Workspace** when `setup_complete:false`, or the
+console when `setup_complete:true`; it never briefly exposes the wrong surface.
+
+### B2. Setup will not leave AI runtime
+
+**Symptom.** Back, Continue, a progress-stage link, Launch, or Close on a setup
+re-run leaves you on **AI runtime** with a key-save error.
+
+**Likely cause.** A newly typed Anthropic/OpenAI/embedding key could not be written
+to the runtime secret tier through `POST /api/setup/secrets`. Navigation is guarded
+so it does not silently discard or pretend to save that credential.
+
+**Fix.** Restore the backend connection and retry the same navigation action. Do
+not blank an existing configured field to clear it: blank means unchanged; explicit
+secret removal belongs in the security/settings workflow.
+
+**How to confirm.** The stage reports the provider as configured, clears the typed
+draft, and the requested navigation completes. No secret value is returned in the
+status response.
+
+### B3. "Discard this source draft?" appears during setup
+
+**Symptom.** Back, a progress-stage link, or Close on a setup re-run asks whether to
+discard a source draft.
+
+**Likely cause.** The manifest-driven source editor is still open. This is a data-
+loss guard, not a setup error.
+
+**Fix.** Choose **Cancel** to keep editing, save the source, or choose **Discard and
+continue** when abandoning the draft is intentional.
+
+**How to confirm.** Cancel keeps the editor and its current values; discard closes
+the editor and completes the requested navigation.
+
 ---
 
 ## C. Backend can't reach / own its Elasticsearch state (ES backend only)
@@ -145,7 +198,10 @@ callout at the top of this file); the data you expect is listed by
   log indices (`read`, `view_index_metadata`).
 - **Management key** `ES_MGMT_API_KEY` present + scoped to `tlsoc-agent-*`
   (`read`, `write`, `create_index`, `view_index_metadata`, `manage`) — an
-  under-scoped mgmt key means indices never get created.
+  under-scoped mgmt key means indices never get created. Storage-lifecycle
+  preview/apply additionally needs cluster `manage_ilm`, `manage_index_templates`,
+  and `monitor`; without
+  those, ordinary owned-state writes can still work while lifecycle reports Blocked.
 - **CA cert** mounted and `ES_CA_CERT`/`ES_VERIFY_CERTS` set; **ES URL** correct
   (container-name DNS on the shared network).
 

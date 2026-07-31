@@ -18,7 +18,7 @@ import { GitMerge } from 'lucide-react';
 import type { TimelineStagesResponse } from '@/soc/pages/CaseDetail.api';
 
 import { StageTimeline } from './StageTimeline';
-import type { CasePanelPresentation } from './shared';
+import { CASE_MANAGER_PANEL_PADDING, type CasePanelPresentation } from './shared';
 
 export interface TimelinePanelProps {
   /** FACTS — the six-stage pipeline narrative. */
@@ -42,7 +42,7 @@ export const TimelinePanel: React.FC<TimelinePanelProps> = ({
   if (presentation === 'case-manager') {
     return (
       <div
-        className="px-8 py-7"
+        className={CASE_MANAGER_PANEL_PADDING}
         data-case-panel="timeline"
         data-presentation="case-manager"
       >

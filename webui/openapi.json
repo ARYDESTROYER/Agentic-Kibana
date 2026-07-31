@@ -1411,6 +1411,21 @@
         "title": "ChatContext",
         "type": "object"
       },
+      "ChatConversationRenameRequest": {
+        "properties": {
+          "title": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "title": "ChatConversationRenameRequest",
+        "type": "object"
+      },
       "ChatRequest": {
         "properties": {
           "case_id": {
@@ -1434,12 +1449,37 @@
               }
             ]
           },
+          "conversation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversation Id"
+          },
           "history": {
             "items": {
               "$ref": "#/components/schemas/ChatTurn"
             },
             "title": "History",
             "type": "array"
+          },
+          "idempotency_key": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 8,
+                "pattern": "^[A-Za-z0-9._:-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idempotency Key"
           },
           "message": {
             "title": "Message",
@@ -1455,6 +1495,11 @@
               }
             ],
             "title": "Model"
+          },
+          "persist_conversation": {
+            "default": false,
+            "title": "Persist Conversation",
+            "type": "boolean"
           },
           "source_id": {
             "anyOf": [
@@ -2643,12 +2688,12 @@
             "type": "integer"
           },
           "model": {
-            "default": "claude-sonnet-4-6",
+            "default": "gpt-5.6-luna",
             "title": "Model",
             "type": "string"
           },
           "provider": {
-            "default": "anthropic",
+            "default": "openai",
             "enum": [
               "anthropic",
               "openai",
@@ -3167,6 +3212,185 @@
         "title": "ReinvestigateRequest",
         "type": "object"
       },
+      "ReleaseCacheStatus": {
+        "properties": {
+          "hit": {
+            "title": "Hit",
+            "type": "boolean"
+          },
+          "max_age_seconds": {
+            "title": "Max Age Seconds",
+            "type": "integer"
+          },
+          "stale": {
+            "title": "Stale",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "hit",
+          "stale",
+          "max_age_seconds"
+        ],
+        "title": "ReleaseCacheStatus",
+        "type": "object"
+      },
+      "ReleaseChannelStatus": {
+        "properties": {
+          "branch": {
+            "title": "Branch",
+            "type": "string"
+          },
+          "channel": {
+            "enum": [
+              "stable",
+              "testing"
+            ],
+            "title": "Channel",
+            "type": "string"
+          },
+          "checked_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked At"
+          },
+          "commit_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit Sha"
+          },
+          "commit_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit Url"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          },
+          "stale": {
+            "default": false,
+            "title": "Stale",
+            "type": "boolean"
+          },
+          "state": {
+            "enum": [
+              "available",
+              "unavailable",
+              "disabled"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "channel",
+          "branch",
+          "state"
+        ],
+        "title": "ReleaseChannelStatus",
+        "type": "object"
+      },
+      "ReleaseDiscoveryResponse": {
+        "properties": {
+          "cache": {
+            "$ref": "#/components/schemas/ReleaseCacheStatus"
+          },
+          "channels": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ReleaseChannelStatus"
+            },
+            "title": "Channels",
+            "type": "object"
+          },
+          "checked_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked At"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "repository_url": {
+            "title": "Repository Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "enabled",
+          "repository_url",
+          "checked_at",
+          "cache",
+          "channels"
+        ],
+        "title": "ReleaseDiscoveryResponse",
+        "type": "object"
+      },
       "ResetBody": {
         "properties": {
           "confirm": {
@@ -3481,6 +3705,41 @@
           "playbook_id"
         ],
         "title": "RunPlaybookRequest",
+        "type": "object"
+      },
+      "RunbookCreateRequest": {
+        "properties": {
+          "content": {
+            "default": "",
+            "title": "Content",
+            "type": "string"
+          },
+          "id": {
+            "default": "",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "title": "RunbookCreateRequest",
+        "type": "object"
+      },
+      "RunbookUpdateRequest": {
+        "properties": {
+          "content": {
+            "default": "",
+            "title": "Content",
+            "type": "string"
+          },
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_revision"
+        ],
+        "title": "RunbookUpdateRequest",
         "type": "object"
       },
       "SSOProviderSecretBody": {
@@ -3954,6 +4213,56 @@
           }
         },
         "title": "StatusHistoryEntry",
+        "type": "object"
+      },
+      "StorageLifecycleConfig": {
+        "description": "Desired lifecycle for Agentic SOC's OWN application state.\n\nConnected log-source retention is intentionally excluded: those indices are\nread-only and stay operator/vendor managed.  The backend only enforces phases\nthat are safe for the selected state store.  Today that means Elasticsearch ILM\nfor the append-only audit and usage ledgers; mutable cases plus live KV/config\nstate stay hot until an index-aware archive/restore path exists.\n\nThe archive boundary is derived as ``hot_days + warm_days`` so independently\nentered dates cannot drift.  Glacier is a desired archive target, not a claim\nthat the active state backend can restore directly from it.  This policy never\ndeletes active data.",
+        "properties": {
+          "archive_target": {
+            "const": "aws_glacier",
+            "default": "aws_glacier",
+            "description": "Desired immutable archive target; advisory until an export/restore pipeline is configured.",
+            "title": "Archive Target"
+          },
+          "delete_after_archive": {
+            "const": false,
+            "default": false,
+            "description": "Reserved safety policy. Deletion stays disabled until verified archive and restore exist.",
+            "title": "Delete After Archive"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "glacier_storage_class": {
+            "default": "GLACIER",
+            "description": "S3 Glacier class for independent archive objects, never an Elasticsearch snapshot repository.",
+            "enum": [
+              "GLACIER",
+              "DEEP_ARCHIVE"
+            ],
+            "title": "Glacier Storage Class",
+            "type": "string"
+          },
+          "hot_days": {
+            "default": 180,
+            "description": "Days kept in the active hot tier before eligible state moves warm.",
+            "maximum": 3650.0,
+            "minimum": 1.0,
+            "title": "Hot Days",
+            "type": "integer"
+          },
+          "warm_days": {
+            "default": 90,
+            "description": "Days kept warm before the desired archive hand-off begins.",
+            "maximum": 3650.0,
+            "minimum": 1.0,
+            "title": "Warm Days",
+            "type": "integer"
+          }
+        },
+        "title": "StorageLifecycleConfig",
         "type": "object"
       },
       "TableStateBody": {
@@ -4753,7 +5062,7 @@
   "info": {
     "description": "Vendor-neutral Agentic SOC API. It consumes source data read-only and owns only Agentic SOC application state.",
     "title": "Agentic SOC API",
-    "version": "0.1.0"
+    "version": "0.1.1"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -7897,6 +8206,190 @@
         "summary": "Chat"
       }
     },
+    "/api/chat/conversations": {
+      "get": {
+        "description": "Newest-first Workspace conversation summaries owned by this principal.\n\nAuth-disabled deployments use the same isolated ``default`` profile as user\npreferences. Case-scoped collaboration chat is intentionally not listed here.",
+        "operationId": "list_chat_conversations_api_chat_conversations_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response List Chat Conversations Api Chat Conversations Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Chat Conversations"
+      }
+    },
+    "/api/chat/conversations/{conversation_id}": {
+      "delete": {
+        "description": "Delete one owned Workspace transcript; the append-only audit remains.",
+        "operationId": "delete_chat_conversation_api_chat_conversations__conversation_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Delete Chat Conversation Api Chat Conversations  Conversation Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Chat Conversation"
+      },
+      "get": {
+        "description": "One owned Workspace conversation, including its bounded transcript.",
+        "operationId": "get_chat_conversation_api_chat_conversations__conversation_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Get Chat Conversation Api Chat Conversations  Conversation Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Chat Conversation"
+      },
+      "patch": {
+        "description": "Rename one owned conversation with bounded, single-line plain text.",
+        "operationId": "rename_chat_conversation_api_chat_conversations__conversation_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatConversationRenameRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Rename Chat Conversation Api Chat Conversations  Conversation Id  Patch",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rename Chat Conversation"
+      }
+    },
     "/api/connectors": {
       "get": {
         "description": "Every available connector + its wizard field schema (auth/config).",
@@ -8305,7 +8798,7 @@
     },
     "/api/demo/incident": {
       "post": {
-        "description": "Trigger one coherent, cooldown-aware attack in the isolated demo stack.\n\nSplunk/QRadar/Wazuh contribute source-native alerts and syslog contributes raw\nRFC 5424 telemetry that TLSOC detects. The action requires ``demo:manage`` and is\nrecorded in the REAL append-only audit trail; generated data/cases/cost stay demo-only.",
+        "description": "Trigger one coherent, cooldown-aware attack in the isolated demo stack.\n\nSplunk/QRadar/Wazuh contribute source-native alerts and syslog contributes raw\nRFC 5424 telemetry that Agentic SOC detects. The action requires ``demo:manage`` and is\nrecorded in the REAL append-only audit trail; generated data/cases/cost stay demo-only.",
         "operationId": "demo_incident_api_demo_incident_post",
         "requestBody": {
           "content": {
@@ -9392,6 +9885,81 @@
           }
         },
         "summary": "Metrics"
+      }
+    },
+    "/api/metrics/agent-improvement": {
+      "get": {
+        "description": "Aggregate-only evidence of agent-assisted triage effectiveness.\n\nThe response reports analyst-reported verdict agreement, material correction\nrate, human review turnaround, recorded case-associated cost, observed elapsed-\nclosure differences, confirmed-positive case mix, alert volume, and non-causal\nthreshold-tuning context. Unsupported true-positive-alert yield and source-gap\nguidance remain explicitly unavailable. It never emits a synthetic score, row or\ncase identifiers, raw evidence, model calls, or writes; a truncated, mix-shifted,\nguardrail-unevaluable, or undersized cohort is explicitly classified as\ninsufficient evidence. Reporting remains advisory and is never read by the\ndeterministic case decision (#3).",
+        "operationId": "metrics_agent_improvement_api_metrics_agent_improvement_get",
+        "parameters": [
+          {
+            "description": "Exclusive UTC date boundary. Omit to compare the last seven complete UTC days with the preceding 28 complete days.",
+            "in": "query",
+            "name": "as_of",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Exclusive UTC date boundary. Omit to compare the last seven complete UTC days with the preceding 28 complete days.",
+              "title": "As Of"
+            }
+          },
+          {
+            "in": "query",
+            "name": "current_days",
+            "required": false,
+            "schema": {
+              "default": 7,
+              "maximum": 31,
+              "minimum": 1,
+              "title": "Current Days",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "baseline_days",
+            "required": false,
+            "schema": {
+              "default": 28,
+              "maximum": 90,
+              "minimum": 7,
+              "title": "Baseline Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Metrics Agent Improvement Api Metrics Agent Improvement Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Metrics Agent Improvement"
       }
     },
     "/api/metrics/noise-reduction": {
@@ -10877,6 +11445,50 @@
         "summary": "Rag Stats"
       }
     },
+    "/api/releases/upstream": {
+      "get": {
+        "description": "Return cached metadata and refresh only when the configured TTL expires.",
+        "operationId": "upstream_releases_api_releases_upstream_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseDiscoveryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Upstream Releases",
+        "tags": [
+          "releases"
+        ]
+      }
+    },
+    "/api/releases/upstream/check": {
+      "post": {
+        "description": "Request a refresh, still respecting the anti-hammering manual cooldown.",
+        "operationId": "check_upstream_releases_api_releases_upstream_check_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseDiscoveryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Check Upstream Releases",
+        "tags": [
+          "releases"
+        ]
+      }
+    },
     "/api/roles": {
       "get": {
         "description": "The role -> resource -> [actions] matrix (default merged with any operator\noverride + the admin-managed custom roles) for the webui's permission checks + the\nRBAC settings view. Folds the out-of-band :class:`CustomRoleStore` roles into the\nsurfaced matrix so a stored custom role appears alongside the built-ins.",
@@ -11656,13 +12268,13 @@
     },
     "/api/runbooks": {
       "get": {
-        "operationId": "runbooks_api_runbooks_get",
+        "operationId": "list_runbooks_api_runbooks_get",
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "title": "Response Runbooks Api Runbooks Get",
+                  "title": "Response List Runbooks Api Runbooks Get",
                   "type": "object"
                 }
               }
@@ -11670,7 +12282,239 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Runbooks"
+        "summary": "List Runbooks"
+      },
+      "post": {
+        "operationId": "create_runbook_api_runbooks_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunbookCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Create Runbook Api Runbooks Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Runbook"
+      }
+    },
+    "/api/runbooks/reindex": {
+      "post": {
+        "operationId": "reindex_runbooks_api_runbooks_reindex_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Reindex Runbooks Api Runbooks Reindex Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Reindex Runbooks"
+      }
+    },
+    "/api/runbooks/{runbook_id}": {
+      "delete": {
+        "operationId": "delete_runbook_api_runbooks__runbook_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runbook_id",
+            "required": true,
+            "schema": {
+              "title": "Runbook Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "expected_revision",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "title": "Expected Revision",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Delete Runbook Api Runbooks  Runbook Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Runbook"
+      },
+      "get": {
+        "operationId": "get_runbook_api_runbooks__runbook_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runbook_id",
+            "required": true,
+            "schema": {
+              "title": "Runbook Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Get Runbook Api Runbooks  Runbook Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Runbook"
+      },
+      "put": {
+        "operationId": "update_runbook_api_runbooks__runbook_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runbook_id",
+            "required": true,
+            "schema": {
+              "title": "Runbook Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunbookUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Update Runbook Api Runbooks  Runbook Id  Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Runbook"
+      }
+    },
+    "/api/runbooks/{runbook_id}/reindex": {
+      "post": {
+        "operationId": "reindex_runbook_api_runbooks__runbook_id__reindex_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runbook_id",
+            "required": true,
+            "schema": {
+              "title": "Runbook Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Reindex Runbook Api Runbooks  Runbook Id  Reindex Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reindex Runbook"
       }
     },
     "/api/scans": {
@@ -12944,6 +13788,143 @@
         "summary": "Standup Report"
       }
     },
+    "/api/storage/lifecycle": {
+      "get": {
+        "description": "Return desired policy, effective capability, blockers, and safe scope.",
+        "operationId": "storage_lifecycle_get_api_storage_lifecycle_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Storage Lifecycle Get Api Storage Lifecycle Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Storage Lifecycle Get",
+        "tags": [
+          "storage"
+        ]
+      },
+      "put": {
+        "description": "Save desired policy only; never change infrastructure implicitly.",
+        "operationId": "storage_lifecycle_put_api_storage_lifecycle_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StorageLifecycleConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Storage Lifecycle Put Api Storage Lifecycle Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Storage Lifecycle Put",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/storage/lifecycle/apply": {
+      "post": {
+        "description": "Explicitly apply the persisted policy to supported owned-state targets.",
+        "operationId": "storage_lifecycle_apply_api_storage_lifecycle_apply_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Storage Lifecycle Apply Api Storage Lifecycle Apply Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Storage Lifecycle Apply",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/storage/lifecycle/preview": {
+      "post": {
+        "description": "Preview a candidate plan. This endpoint performs reads only.",
+        "operationId": "storage_lifecycle_preview_api_storage_lifecycle_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/StorageLifecycleConfig"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Storage Lifecycle Preview Api Storage Lifecycle Preview Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Storage Lifecycle Preview",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
     "/api/terminology": {
       "get": {
         "description": "The ORG terminology label-override map. Readable by any signed-in user (the\nUI ``t(key)`` helper needs it); writing is admin-only via PUT.",
@@ -13161,7 +14142,7 @@
     },
     "/api/tuning/{rule_id}/apply": {
       "post": {
-        "description": "Apply the tuner's proposed bounded change for ONE rule (shadow-evaluated).\n\nReuses the engine's SAFE per-proposal router (``_handle_proposal``): a bounded\n``correlation_n`` / ``severity_floor`` raise is auto-applied (after shadow-eval) +\nrecorded in the ledger; a suppression DROP or a shadow-blocked raise is routed to\nthe existing HITL Proposal queue and is NEVER auto-applied here. The router never\ncalls ``decide()`` (#3). Returns whether it applied or queued.\n\n404 when no proposal exists for ``rule_id`` (the rule isn't noisy / cleared the\nbar) so the caller gets an honest signal rather than a silent no-op.",
+        "description": "Recompute and process every current proposed change for ONE rule.\n\nReuses the engine's SAFE per-proposal router (``_handle_proposal``): a bounded\n``correlation_n`` / ``severity_floor`` raise is auto-applied (after shadow-eval) +\nrecorded in the ledger; a suppression DROP or a shadow-blocked raise is routed to\nthe existing HITL Proposal queue and is NEVER auto-applied here. The router never\ncalls ``decide()`` (#3). Returns the applied, queued, and shadow-blocked outcomes.\n\n404 when no proposal exists for ``rule_id`` (the rule isn't noisy / cleared the\nbar) so the caller gets an honest signal rather than a silent no-op.",
         "operationId": "apply_tuning_api_tuning__rule_id__apply_post",
         "parameters": [
           {

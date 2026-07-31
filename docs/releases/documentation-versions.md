@@ -26,7 +26,7 @@ for newer material; it is not the primary product-help destination.
 
 Every application build carries two related identifiers:
 
-- the full product SemVer, such as **0.1.0**; and
+- the full product SemVer, such as **0.1.1**; and
 - the compatible documentation line, such as **0.1**.
 
 The documentation build and the application build originate from the same source
@@ -47,9 +47,9 @@ newer Stable or Development material.
 
 | Documentation label | Application SemVer | Source identity | Channel |
 | --- | --- | --- | --- |
-| 0.1 installed Testing guide | 0.1.0 | candidate commit on `Testing` | Testing |
-| 0.1 installed Stable guide | 0.1.0 | verified `main` commit tagged `v0.1.0` | Stable |
-| 0.1 public Stable guide | 0.1.0 | the same verified tag used by the Stable artifacts | Stable |
+| 0.1 installed Testing guide | 0.1.1 | candidate commit on `Testing` | Testing |
+| 0.1 installed Stable guide | 0.1.1 | verified `main` commit tagged `v0.1.1` | Stable |
+| 0.1 public Stable guide | 0.1.1 | the same verified tag used by the Stable artifacts | Stable |
 
 The shorter documentation label keeps patch-compatible guidance together. When a
 patch changes behavior or an operational procedure, the 0.1 Help Center is rebuilt
@@ -58,7 +58,7 @@ incompatible or feature release receives a new documentation line rather than
 rewriting 0.1 silently.
 
 The channel is independent of SemVer. A Testing candidate and a Stable artifact may
-both report application version `0.1.0`; only the accepted `main`/tag provenance may
+both report application version `0.1.1`; only the accepted `main`/tag provenance may
 claim Stable.
 
 ## Confirm what is installed

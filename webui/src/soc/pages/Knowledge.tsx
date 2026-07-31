@@ -68,8 +68,10 @@ import {
   type SortState,
 } from '@/soc/components/DataTable';
 import { EmptyState } from '@/soc/components/EmptyState';
+import { IconButton } from '@/soc/components/IconButton';
 import { CodeBlock } from '@/soc/components/CodeBlock';
 import { Stagger } from '@/soc/components/Stagger';
+import { LoadingState } from '@/design-system';
 
 import { Button } from '@/ui/button';
 import { Badge, type BadgeProps } from '@/ui/badge';
@@ -428,7 +430,7 @@ interface QueuedFile {
   tooBig: boolean;
 }
 
-const ImportCard: React.FC<{ onImported: () => void }> = ({ onImported }) => {
+export const ImportCard: React.FC<{ onImported: () => void }> = ({ onImported }) => {
   const [title, setTitle] = React.useState('');
   const [text, setText] = React.useState('');
   const [source, setSource] = React.useState('');
@@ -686,14 +688,15 @@ const ImportCard: React.FC<{ onImported: () => void }> = ({ onImported }) => {
               {tags.map((t) => (
                 <Badge key={t} variant="secondary" className="gap-1">
                   {t}
-                  <button
-                    type="button"
+                  <IconButton
+                    label={`Remove tag ${t}`}
+                    tooltip={false}
+                    size="sm"
                     onClick={() => setTags((prev) => prev.filter((x) => x !== t))}
-                    className="rounded-sm hover:text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                    aria-label={`Remove tag ${t}`}
+                    className="-my-1 -mr-1 rounded-sm [&_svg]:size-3"
                   >
                     <X className="size-3" aria-hidden />
-                  </button>
+                  </IconButton>
                 </Badge>
               ))}
             </div>
@@ -741,7 +744,7 @@ const ImportCard: React.FC<{ onImported: () => void }> = ({ onImported }) => {
  * retrieved + injected into investigations as a clearly-labelled TRUSTED fenced
  * block (the content itself is UNTRUSTED corpus material). Gated by rag:manage.
  */
-const ThreatIntelImportCard: React.FC<{ onImported: () => void }> = ({ onImported }) => {
+export const ThreatIntelImportCard: React.FC<{ onImported: () => void }> = ({ onImported }) => {
   const [title, setTitle] = React.useState('');
   const [content, setContent] = React.useState('');
   const [tagInput, setTagInput] = React.useState('');
@@ -841,14 +844,15 @@ const ThreatIntelImportCard: React.FC<{ onImported: () => void }> = ({ onImporte
               {tags.map((t) => (
                 <Badge key={t} variant="secondary" className="gap-1">
                   {t}
-                  <button
-                    type="button"
+                  <IconButton
+                    label={`Remove tag ${t}`}
+                    tooltip={false}
+                    size="sm"
                     onClick={() => setTags((prev) => prev.filter((x) => x !== t))}
-                    className="rounded-sm hover:text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                    aria-label={`Remove tag ${t}`}
+                    className="-my-1 -mr-1 rounded-sm [&_svg]:size-3"
                   >
                     <X className="size-3" aria-hidden />
-                  </button>
+                  </IconButton>
                 </Badge>
               ))}
             </div>
@@ -1392,6 +1396,9 @@ const DocumentsSection: React.FC<{
           sort={sort}
           onSortChange={setSort}
           onRowClick={(d) => onOpen(d.document_id)}
+          // The visible "View document chunks" button already provides the named
+          // keyboard action; avoid duplicating it with the shared trailing chevron.
+          showRowAction={false}
           loading={loading && documents.length === 0}
           density={density}
           ariaLabel="Indexed RAG documents"
@@ -1600,19 +1607,19 @@ export default function Knowledge({ embedded = false }: KnowledgeProps = {}) {
         />
       ) : null}
 
-      {hardLoadFail ? null : (
+      {showHealthSkeleton ? (
+        <LoadingState
+          layout="panel"
+          shape="panel"
+          label="Loading knowledge corpus"
+          description="Preparing corpus health, sources, and indexed documents."
+        />
+      ) : hardLoadFail ? null : (
         <>
       {/* ---- corpus health KPIs ---- */}
-      {showHealthSkeleton ? (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {[0, 1, 2, 3].map((i) => (
-            <Skeleton key={i} className="h-28 w-full rounded-lg" />
-          ))}
-        </div>
-      ) : (
         <Stagger
-          className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4"
-          itemClassName="h-full"
+          className="grid grid-cols-1 border-y border-border/70 sm:grid-cols-2 xl:grid-cols-4"
+          itemClassName="h-full min-w-0 border-b border-border/70 sm:border-r xl:border-b-0 xl:last:border-r-0"
         >
           <KpiTile
             label="Total chunks"
@@ -1620,6 +1627,7 @@ export default function Knowledge({ embedded = false }: KnowledgeProps = {}) {
             sub={avgChunks > 0 ? `≈ ${fmtNumber(avgChunks)} per document` : undefined}
             icon={Layers}
             accent={KPI_ACCENTS.chunks}
+            variant="strip"
           />
           <KpiTile
             label="Documents"
@@ -1631,6 +1639,7 @@ export default function Knowledge({ embedded = false }: KnowledgeProps = {}) {
             }
             icon={FileText}
             accent={KPI_ACCENTS.docs}
+            variant="strip"
           />
           <KpiTile
             label="Embedding model"
@@ -1639,42 +1648,41 @@ export default function Knowledge({ embedded = false }: KnowledgeProps = {}) {
             }
             icon={Cpu}
             accent={KPI_ACCENTS.model}
+            variant="strip"
           />
           <KpiTile
             label="Vector dimensions"
             value={typeof stats?.dim === 'number' ? fmtNumber(stats.dim) : DASH}
             icon={Gauge}
             accent={KPI_ACCENTS.dim}
+            variant="strip"
           />
         </Stagger>
-      )}
 
       {/* ---- corpus by source ---- */}
       {bySourceItems.length ? (
-        <Card>
-          <CardHeader className="flex-row items-center justify-between space-y-0">
+        <section className="space-y-4 border-b border-border pb-6">
+          <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="flex items-center gap-3">
               <CardIcon icon={BarChart3} />
               <div>
-                <CardTitle>Corpus by source</CardTitle>
-                <CardDescription className="mt-0.5">
+                <h2 className="text-sm font-semibold text-foreground">Corpus by source</h2>
+                <p className="mt-0.5 text-sm text-muted-foreground">
                   How retrievable knowledge is distributed across corpus sources.
-                </CardDescription>
+                </p>
               </div>
             </div>
             <Badge variant="outline">
               {fmtNumber(corpusTotalChunks)} total chunk
               {corpusTotalChunks === 1 ? '' : 's'}
             </Badge>
-          </CardHeader>
-          <CardContent>
-            <BarList
-              items={bySourceItems}
-              showPercent
-              format={(n) => fmtNumber(n)}
-            />
-          </CardContent>
-        </Card>
+          </div>
+          <BarList
+            items={bySourceItems}
+            showPercent
+            format={(n) => fmtNumber(n)}
+          />
+        </section>
       ) : null}
 
       {/* ---- threat intel + resolved cases (F11) ---- */}

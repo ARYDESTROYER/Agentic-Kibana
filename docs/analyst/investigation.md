@@ -45,7 +45,10 @@ In a case:
 
 1. **Overview** separates the decision brief, signal profile, source assertion,
    agent findings, deterministic code result, entities, and attack story. Recorded
-   risk factors are visualized without inventing factors that are not stored.
+   risk factors are visualized without inventing factors that are not stored. When
+   applicable, **Investigation inputs** summarizes the memory consulted, RAG
+   knowledge retrieved, runbook references retrieved, playbook actually consulted,
+   and platform threshold-tuning snapshot for the latest run.
 2. **Timeline** shows when the six pipeline stages occurred. The visible labels are
    Input, Correlate, Risk Assigned, Triage, Investigate, and Decision. Expanding
    **Risk Assigned** reconstructs the arithmetic from persisted factor values and
@@ -53,9 +56,12 @@ In a case:
    recorded score and explicitly says exact historical attribution is unavailable.
    The terminal marker alone pulses to identify the current end of the story.
 3. **Investigation** shows the agent assessment, evidence, recommended action,
-   reproduction query, deterministic decision, and optional full trace. When the
-   narrative sentence already states the verdict and confidence, duplicate verdict
-   and confidence chips are suppressed rather than shown twice.
+   reproduction query, detailed Investigation inputs, deterministic decision, and
+   optional full trace. Runbooks retrieved through RAG remain distinct from a
+   playbook injected into the investigator. Platform tuning records correlation or
+   severity-threshold changes, not model fine-tuning. When the narrative sentence
+   already states the verdict and confidence, duplicate verdict and confidence chips
+   are suppressed rather than shown twice.
 4. **Threat** adds enrichment, ATT&CK, related-case context, and **How this case was
    clustered**. That read-only diagram uses persisted facts to show Input alerts →
    Correlation cluster → Opened case. Focus or hover a node to inspect contributing
@@ -64,9 +70,17 @@ In a case:
    are not returned. Older cases may show limited or no cluster metadata rather than
    a reconstructed story.
 
+Investigation inputs are projected from the **latest investigation run** only. A
+playbook appears only when it was actually injected and consulted; selection alone is
+not sufficient. If no applicable input was recorded, the summary stays absent. If
+provenance could not be read, the Console reports that limitation instead of treating
+it as a successful empty result.
+
 The trace is diagnostic evidence, not a second decision system. Tool calls available
 to the investigator are read-only log search, cached enrichment, and knowledge
-retrieval.
+retrieval. Memory, knowledge, runbooks, playbooks, and threshold tuning may inform
+preprocessing or the agent assessment; deterministic case policy remains the final
+close/escalate route authority.
 
 ## Chat in context
 
@@ -74,6 +88,19 @@ Open **Workspace → Chat** for general questions or the case's **Chat** tab for
 case-scoped conversation. The chat engine may query logs and retrieve knowledge, but
 it cannot close a case or approve a proposal. On-screen fields and log-derived values
 are treated as untrusted data.
+
+Workspace Chat is the analyst's personal, saved conversation workspace. Its history is
+newest-first and searchable; select an earlier conversation to restore the server-saved
+transcript, source, and model, or use its menu to rename or delete it. On narrow screens,
+the same history opens from the **History** Sheet. A new draft is saved only after the
+first successful assistant response. Chats created before saved Workspace history was
+introduced were browser-only and cannot be recovered.
+
+The Case Manager **Chat** tab is deliberately separate: it stays scoped to that case
+and does not appear in personal Workspace history. Use Workspace Chat for a reusable
+analyst line of inquiry and the case tab for evidence and follow-up tied to one case.
+See [Workspace Chat](chat.md) for conversation history, strict source selection,
+evidence disclosure, retention, and retry behavior.
 
 ## Failure and cost boundaries
 
@@ -85,5 +112,6 @@ are treated as untrusted data.
   aggregated first.
 
 Use [Logs and search](logs-search.md) to validate source facts and
+[Runbooks](../intelligence/runbooks.md) and
 [Knowledge and memory](../intelligence/knowledge-memory.md) to understand retrieved
-context.
+context and its trust boundary.

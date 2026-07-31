@@ -116,6 +116,13 @@ async def _seed_everything(state: AppState) -> None:
     await state.custom_roles._kv.put("custom_roles", "roles", {"x": 1})
     await state.proposals._kv.put("proposals", "entries", {"x": 1})
     await state.memory._kv.put("memory", "entries", {"x": 1})
+    await state.chat_conversations.append_exchange(
+        "reset-user",
+        conversation_id=None,
+        user_content="saved before factory reset",
+        assistant_content="durable reply",
+        response={"answer": "durable reply"},
+    )
     # An audit row (factory tier resets the audit index).
     await state._real_audit.record(
         action_type=ActionType.DECISION, surface="test", actor="seed",
@@ -252,6 +259,8 @@ async def test_factory_tier_clears_everything_and_flips_setup_complete():
             ("custom_roles", "roles"), ("proposals", "entries"), ("memory", "entries"),
         ):
             assert not await _kv_nonempty(state._kv, ns, key), f"{ns} should be cleared"
+        chat_page = await state.chat_conversations.list_page("reset-user")
+        assert chat_page.total == 0, "Workspace chat history should be cleared"
 
         # Audit index reset at the factory tier — the seed row is gone.
         audit = await state._real_audit.records(limit=50)
@@ -450,6 +459,8 @@ async def test_sql_backend_factory_reset_truncates_tables_and_preserves_env_secr
         assert cursor.timestamp_millis == 0
         for ns, key in (("users", "entries"), ("memory", "entries"), ("proposals", "entries")):
             assert not await _kv_nonempty(state._kv, ns, key), f"{ns} should be cleared"
+        chat_page = await state.chat_conversations.list_page("reset-user")
+        assert chat_page.total == 0, "Workspace chat history should be cleared"
         assert state.prefs.setup_complete is False
         audit = await state._real_audit.records(limit=50)
         assert not any(r.get("surface") == "test" for r in audit), "SQL audit must reset at factory"

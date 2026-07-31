@@ -26,7 +26,7 @@
  * app-authored, never operator/log-derived).
  */
 import * as React from 'react';
-import { Clock, RefreshCw } from 'lucide-react';
+import { Clock } from 'lucide-react';
 
 import { cn } from '@/lib/cn';
 import { Button } from '@/ui/button';
@@ -40,7 +40,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from '@/ui/select';
 
 /* -------------------------------------------------------------- types + data -- */
@@ -78,12 +77,22 @@ export const DEFAULT_RANGE: TimeRange = PRESETS[2]; // Last 24 hours
 /** Auto-refresh options; default is Off (cost-metered). */
 export const REFRESH_OPTIONS: readonly { value: RefreshValue; label: string }[] = [
   { value: 'off', label: 'Off' },
+  { value: 'live', label: 'LIVE' },
   { value: '5s', label: '5 seconds' },
   { value: '30s', label: '30 seconds' },
   { value: '1m', label: '1 minute' },
   { value: '5m', label: '5 minutes' },
-  { value: 'live', label: 'LIVE' },
 ];
+
+/** Compact trigger copy; the menu and aria-label retain the full option wording. */
+const REFRESH_TRIGGER_LABEL: Record<RefreshValue, string> = {
+  off: 'Off',
+  live: 'LIVE',
+  '5s': '5 sec',
+  '30s': '30 sec',
+  '1m': '1 min',
+  '5m': '5 min',
+};
 
 /** Refresh cadence → poll interval in ms (`off` → 0 = never). */
 export const REFRESH_MS: Record<RefreshValue, number> = {
@@ -338,6 +347,7 @@ export function TimeRangePicker({
 
   const triggerH = size === 'sm' ? 'h-8' : 'h-9';
   const refreshLabel = REFRESH_OPTIONS.find((option) => option.value === refresh)?.label ?? refresh;
+  const refreshTriggerLabel = REFRESH_TRIGGER_LABEL[refresh] ?? refreshLabel;
   const command = chrome === 'command';
   const rangeLabel = command
     ? value.label
@@ -399,32 +409,23 @@ export function TimeRangePicker({
         <Select value={refresh} onValueChange={(v) => onRefreshChange(v as RefreshValue)}>
           <SelectTrigger
             aria-label={`Auto-refresh interval: ${refreshLabel}`}
-            // On narrow screens the accessible trigger becomes an icon pair (refresh +
-            // chevron); its aria-label still announces the purpose/current value. At
-            // `sm` the cadence text returns in the full 144px control. This keeps the
-            // Overview header inside a 320–390px viewport without a document scrollbar.
+            // Keep the selected cadence visible at every width now that the separate
+            // manual-refresh button owns the sole refresh glyph.
             className={cn(
-              'w-14 gap-1 px-2 [&>span]:hidden sm:w-36 sm:gap-1.5 sm:px-3 sm:[&>span]:block',
+              'w-24 gap-1.5 px-2',
               triggerH,
               commandChrome,
             )}
           >
-            <RefreshCw
-              className={cn(
-                'h-3.5 w-3.5 shrink-0 opacity-70',
-                refresh !== 'off' && refresh !== 'live' && 'text-primary',
-                refresh === 'live' && 'text-success-text',
-              )}
-              aria-hidden="true"
-            />
-            {refresh === 'live' ? (
-              <i
-                className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-success ring-2 ring-success/20 motion-reduce:animate-none"
-                aria-hidden="true"
-                title="Live dashboard refresh"
-              />
-            ) : null}
-            <SelectValue />
+            <span className="!inline-flex min-w-0 items-center gap-1.5 whitespace-nowrap">
+              {refresh === 'live' ? (
+                <span
+                  className="block size-2 shrink-0 animate-pulse rounded-full bg-success ring-2 ring-success/20 motion-reduce:animate-none"
+                  aria-hidden="true"
+                />
+              ) : null}
+              {refreshTriggerLabel}
+            </span>
           </SelectTrigger>
           <SelectContent>
             {REFRESH_OPTIONS.map((o) => (

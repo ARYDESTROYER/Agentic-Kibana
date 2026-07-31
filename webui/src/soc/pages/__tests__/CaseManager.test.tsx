@@ -184,6 +184,17 @@ describe('CaseManager', () => {
     mocks.toastError.mockClear();
   });
 
+  it('centers the shared loading state while the initial case queue is unavailable', () => {
+    mocks.listCases.mockReturnValue(new Promise(() => {}));
+    render(<CaseManager />);
+
+    const loading = screen.getByRole('status', { name: 'Loading cases' });
+    expect(loading).toHaveAttribute('data-loading-layout', 'panel');
+    expect(loading).toHaveClass('items-center', 'justify-center');
+    expect(within(loading).getByText('Preparing the active case queue.')).toBeInTheDocument();
+    expect(within(loading).getByTestId('console-loading-glyph')).toBeInTheDocument();
+  });
+
   it('opens on the newest active case and embeds the complete shared workspace', async () => {
     render(<CaseManager />);
 
@@ -195,9 +206,14 @@ describe('CaseManager', () => {
     expect(manager).toHaveClass(
       'h-[calc(100dvh-7rem)]',
       'min-h-0',
+      'w-auto',
+      'sm:-mx-2',
+      'lg:-mx-4',
       'xl:min-h-[600px]',
+      '2xl:-mx-8',
     );
     expect(manager.className.split(/\s+/)).not.toContain('min-h-[600px]');
+    expect(manager.className.split(/\s+/)).not.toContain('w-full');
 
     const splitFrame = manager.firstElementChild as HTMLElement;
     expect(splitFrame).toHaveClass(
@@ -270,7 +286,7 @@ describe('CaseManager', () => {
     render(<CaseManager />);
     await screen.findByText('Suspicious S3 bucket exfiltration');
 
-    fireEvent.click(screen.getByRole('button', { name: 'All' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'All' }));
     expect(screen.getByRole('heading', { name: 'All Cases' })).toBeInTheDocument();
     expect(screen.getByText('3 shown · 3 loaded')).toBeInTheDocument();
 

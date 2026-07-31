@@ -8,21 +8,29 @@ keywords: [nessus, openvas, nikto, vuln, scanner, cve probe]
 persona: network_recon
 summary: Bursts of varied requests probing known CVEs and default paths from one IP.
 ---
-## What this looks like
-A burst of varied requests probing known CVEs, default credentials and well-known
-paths from a single IP — an automated vulnerability scanner (Nessus, OpenVAS,
-nikto).
+SIGNAL
+One source sends varied requests that probe known vulnerabilities, default credentials, or well-known paths.
 
-## Steps
-1. **Authorised or hostile?** This is the whole decision. Match the source IP to the
-   security team's scanner fleet and scan schedule. Authorised scans are expected.
-2. **Breadth + targets.** Which hosts/services were probed? Scans of crown-jewel
-   assets warrant more attention even when authorised.
-3. **Any exploited finding?** Look for a probe that returned a success indicator
-   (a `200` on a CVE check, a default-cred login). That escalates beyond recon.
+EVIDENCE REQUIRED
+Source identity, scanner ownership, schedule, target scope, response outcomes, authentication results, and affected asset criticality.
 
-## Verdict guidance
-- Authorised internal scan on schedule → FALSE_POSITIVE.
-- Unrecognised external scanner → TRUE_POSITIVE (block; low priority unless a probe
-  succeeded).
-- A scan probe that appears to have succeeded → TRUE_POSITIVE, escalate.
+INVESTIGATION STEPS
+1. Compare the source with the approved vulnerability-scanner fleet and current schedule.
+2. Measure targeted hosts and services, noting any sensitive or out-of-scope assets.
+3. Check whether a vulnerability probe or default-credential attempt returned a success indicator.
+4. Inspect successful targets for follow-on authentication, execution, or configuration changes.
+
+TRUE POSITIVE SIGNALS
+An unapproved scanner or any probe followed by evidence of successful access supports a true positive.
+
+FALSE POSITIVE SIGNALS
+An approved internal scanner operating within its documented schedule and target scope supports a false positive.
+
+NEEDS HUMAN WHEN
+Scanner ownership, schedule, scope, or probe outcome cannot be verified.
+
+RECOMMENDED NEXT ACTION
+Escalate any likely successful probe; otherwise block or monitor an unapproved external scanner according to policy.
+
+LIMITATIONS
+A successful response code may confirm reachability without confirming exploitation.

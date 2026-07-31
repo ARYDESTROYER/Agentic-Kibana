@@ -70,6 +70,8 @@ import { AdvancedSection } from './advanced';
 import { AdvancedSchemaSection } from './advanced-schema';
 import { OrgSecuritySection } from './security';
 import { DataExportSection } from './data-export';
+import { StorageLifecycleSection } from './storage';
+import { ReleaseUpdatesSection } from './release-updates';
 
 // Embedded page bodies re-hosted as Settings sub-sections (unchanged wiring).
 import { AccountInner } from '@/soc/pages/Account';
@@ -121,6 +123,8 @@ export type {
  */
 export interface SectionRenderContext {
   prefs: Preferences;
+  /** Last server-saved snapshot; lifecycle apply must never use an unsaved draft. */
+  persistedPrefs: Preferences;
   update: (p: Partial<Preferences>) => void;
   models: ModelsResponse | null;
   configured: ConfiguredStatus;
@@ -168,9 +172,12 @@ const h = React.createElement;
  */
 const SECTION_COMPONENTS: Record<string, SectionRenderer> = {
   profile: (ctx) =>
-    h(AccountInner, { onNavigateToSecurity: () => ctx.setSection('account_security') }),
-  account_security: () => h(SecurityMfaInner),
-  sessions: () => h(SessionsInner),
+    h(AccountInner, {
+      embedded: true,
+      onNavigateToSecurity: () => ctx.setSection('account_security'),
+    }),
+  account_security: () => h(SecurityMfaInner, { embedded: true }),
+  sessions: () => h(SessionsInner, { embedded: true }),
   customization: () => h(CustomizationSection),
   general: (ctx) =>
     h(GeneralSection, { prefs: ctx.prefs, update: ctx.update, onNavigate: ctx.onNavigate }),
@@ -198,11 +205,11 @@ const SECTION_COMPONENTS: Record<string, SectionRenderer> = {
   enrichment: (ctx) => h(EnrichmentSection, { prefs: ctx.prefs, update: ctx.update }),
   knowledge: (ctx) =>
     h(KnowledgeSection, { prefs: ctx.prefs, update: ctx.update, onNavigate: ctx.onNavigate }),
-  admin_users: () => h(UsersInner),
-  roles: () => h(RolesInner),
+  admin_users: () => h(UsersInner, { embedded: true }),
+  roles: () => h(RolesInner, { embedded: true }),
   security: (ctx) =>
     h(OrgSecuritySection, { prefs: ctx.prefs, update: ctx.update, configured: ctx.configured }),
-  admin_sessions: () => h(AdminSessionsInner),
+  admin_sessions: () => h(AdminSessionsInner, { embedded: true }),
   keys: (ctx) =>
     h(KeysSection, {
       configured: ctx.configured,
@@ -213,10 +220,24 @@ const SECTION_COMPONENTS: Record<string, SectionRenderer> = {
       readOnly: ctx.readOnly,
     }),
   appearance: (ctx) => h(BrandingEditor, { readOnly: ctx.readOnly }),
+  release_updates: (ctx) =>
+    h(ReleaseUpdatesSection, {
+      prefs: ctx.prefs,
+      persistedPrefs: ctx.persistedPrefs,
+      update: ctx.update,
+      readOnly: ctx.readOnly,
+    }),
   advanced: (ctx) =>
     h(AdvancedSection, { prefs: ctx.prefs, update: ctx.update, onNavigate: ctx.onNavigate }),
   advanced_all: (ctx) => h(AdvancedSchemaSection, { prefs: ctx.prefs, update: ctx.update }),
   demo: () => h(DemoModeSection),
+  storage: (ctx) =>
+    h(StorageLifecycleSection, {
+      prefs: ctx.prefs,
+      persistedPrefs: ctx.persistedPrefs,
+      update: ctx.update,
+      readOnly: ctx.readOnly,
+    }),
   data_export: () => h(DataExportSection),
   danger: () => h(DangerZone),
 };

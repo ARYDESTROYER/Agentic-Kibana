@@ -20,6 +20,7 @@ import * as React from 'react';
 import { Layers, RefreshCw, Loader2, Percent, Info } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
+import { LoadingState } from '@/design-system';
 import { errorMessage } from '@/lib/errorMessage';
 import type { BatchConfig } from '@/lib/types';
 import { fmtNumber, humanizeAge, humanizeToken, DASH } from '@/lib/format';
@@ -32,7 +33,6 @@ import { Separator } from '@/ui/separator';
 import { PageHeader } from '@/soc/components/PageHeader';
 import { PageContainer } from '@/soc/components/PageContainer';
 import { StatCard } from '@/soc/components/StatCard';
-import { Skeleton } from '@/ui/skeleton';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
 import { InlineCode } from '@/soc/components/CodeBlock';
@@ -136,7 +136,6 @@ export function BatchJobsInner() {
       setRows(res?.jobs ?? []);
     } catch (e) {
       setError(e);
-      setRows([]);
     } finally {
       setLoading(false);
     }
@@ -145,6 +144,8 @@ export function BatchJobsInner() {
   React.useEffect(() => {
     void load();
   }, [load]);
+
+  const initialLoading = loading && rows.length === 0;
 
   // ---- Aggregate stats over the loaded jobs (all client-side, read-only). ---- //
   const totals = React.useMemo(() => {
@@ -229,6 +230,21 @@ export function BatchJobsInner() {
           </span>
         ),
       },
+      {
+        id: 'last_error',
+        header: 'Attention',
+        cell: (r) =>
+          r.last_error ? (
+            <span
+              className="block max-w-64 truncate text-xs text-destructive"
+              title={r.last_error}
+            >
+              {r.last_error}
+            </span>
+          ) : (
+            <span className="text-muted-foreground">{DASH}</span>
+          ),
+      },
     ],
     [],
   );
@@ -260,47 +276,63 @@ export function BatchJobsInner() {
         }
       />
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatCard label="Total jobs" value={fmtNumber(totals.total)} accent="primary" icon={Layers} />
-        <StatCard label="In flight" value={fmtNumber(totals.active)} accent="info" />
-        {/* `done` counts JOBS whose state is `retrieved`; `retrieved` sums individual
-            REQUESTS retrieved. Label each by its granularity so "retrieved" is not
-            overloaded across the two adjacent tiles. */}
-        <StatCard label="Jobs done" value={fmtNumber(totals.done)} accent="success" />
-        <StatCard
-          label="Requests retrieved"
-          value={fmtNumber(totals.retrieved)}
-          sub={`of ${fmtNumber(totals.requests)} total`}
-          accent="primary"
-        />
-      </div>
-
-      {error ? (
-        <LoadError
-          error={error}
-          title="Could not load batch jobs"
-          fallback="Could not load batch jobs."
-          onRetry={() => void load()}
+      {initialLoading ? (
+        <LoadingState
+          label="Loading batch jobs"
+          description="Preparing async inference status and retrieval progress."
+          layout="panel"
+          shape="rows"
+          shapeRows={6}
         />
       ) : (
-        <DataTable
-          ariaLabel="Batch jobs"
-          columns={columns}
-          rows={rows}
-          getRowId={(r) => r.id}
-          loading={loading}
-          loadingRows={6}
-          empty={
-            <EmptyState
-              compact
-              icon={Layers}
-              title="No batch jobs yet"
-              description="Low-urgency investigations routed through a provider's async batch API will appear here."
+        <>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <StatCard label="Total jobs" value={fmtNumber(totals.total)} accent="primary" icon={Layers} />
+            <StatCard label="In flight" value={fmtNumber(totals.active)} accent="info" />
+            {/* `done` counts JOBS whose state is `retrieved`; `retrieved` sums individual
+                REQUESTS retrieved. Label each by its granularity so "retrieved" is not
+                overloaded across the two adjacent tiles. */}
+            <StatCard label="Jobs done" value={fmtNumber(totals.done)} accent="success" />
+            <StatCard
+              label="Requests retrieved"
+              value={fmtNumber(totals.retrieved)}
+              sub={`of ${fmtNumber(totals.requests)} total`}
+              accent="primary"
             />
-          }
-        />
+          </div>
+
+          {error ? (
+            <LoadError
+              error={error}
+              title="Could not load batch jobs"
+              fallback="Could not load batch jobs."
+              onRetry={() => void load()}
+            />
+          ) : null}
+
+          {error && rows.length === 0 ? null : (
+            <DataTable
+              ariaLabel="Batch jobs"
+              columns={columns}
+              rows={rows}
+              getRowId={(r) => r.id}
+              loading={loading}
+              loadingRows={6}
+              empty={
+                <EmptyState
+                  compact
+                  icon={Layers}
+                  title="No batch jobs yet"
+                  description="Low-urgency investigations routed through a provider's async batch API will appear here."
+                />
+              }
+            />
+          )}
+        </>
       )}
 
+      {!initialLoading ? (
+        <>
       <Separator />
 
       {/* ── Config editor (R6) ───────────────────────────────────────────── */}
@@ -322,10 +354,12 @@ export function BatchJobsInner() {
           >
             {cfg.loading ? (
               // Don't flash the default-valued form while the persisted policy loads.
-              <div className="space-y-4" aria-busy="true">
-                <Skeleton className="h-14 w-full" />
-                <Skeleton className="h-40 w-full" />
-              </div>
+              <LoadingState
+                label="Loading batch policy"
+                description="Preparing the saved discounted-inference configuration."
+                layout="panel"
+                shape="panel"
+              />
             ) : (
             <fieldset disabled={!canManage} className="space-y-6">
               <Alert>
@@ -336,7 +370,8 @@ export function BatchJobsInner() {
                   default. Async Batch remains opt-in for low-urgency work. Unsupported
                   providers and models stay on standard service, and the usage ledger
                   records the tier actually returned. Neither path changes verdicts or
-                  deterministic case decisions.
+                  deterministic case decisions. Fresh installs assign official OpenAI
+                  GPT-5.6 Luna, so eligible alert/case calls can use Flex immediately.
                 </AlertDescription>
               </Alert>
 
@@ -348,7 +383,8 @@ export function BatchJobsInner() {
                     </Label>
                     <p className="text-xs text-muted-foreground">
                       Route compatible OpenAI GPT-5, o3 and o4-mini alert work through
-                      the live Flex tier. Chat, standup and model tests remain standard.
+                      the live Flex tier. Chat, standup, overview and model tests remain
+                      standard.
                     </p>
                   </div>
                   <Switch
@@ -403,7 +439,7 @@ export function BatchJobsInner() {
                 />
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="max-w-2xl">
                 <LabeledSlider
                   label="Severity floor"
                   description="A candidate at or below this OCSF severity is batch-eligible; above it stays synchronous."
@@ -417,23 +453,6 @@ export function BatchJobsInner() {
                   formatValue={(v) => SEVERITY_NAME[v] ?? String(v)}
                   onChange={(v) => cfg.update({ severity_floor: v })}
                 />
-                <div className="flex items-start justify-between gap-4 pt-1">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="batch-flex" className="text-sm">
-                      Flexible tier
-                    </Label>
-                    <p className="text-xs text-muted-foreground">
-                      Opt into a provider&apos;s best-effort / flexible tier for a
-                      further discount inside the async event funnel.
-                    </p>
-                  </div>
-                  <Switch
-                    id="batch-flex"
-                    checked={draft.flex}
-                    disabled={!canManage}
-                    onCheckedChange={(v) => cfg.update({ flex: v })}
-                  />
-                </div>
               </div>
 
               <TagInput
@@ -447,14 +466,13 @@ export function BatchJobsInner() {
 
               <EffectiveConfigPreview
                 summary={
-                  `${draft.prefer_discounted_alerts ? 'Compatible alert inference prefers live Flex' : 'Live discounted alert inference is off'}${draft.fallback_to_standard ? ' with standard fallback' : ' without standard fallback'}. ${draft.enabled ? `Async Batch also routes candidates at or below ${SEVERITY_NAME[draft.severity_floor] ?? draft.severity_floor} severity via ${(draft.providers ?? []).length ? (draft.providers ?? []).join(', ') : 'no providers'}${draft.flex ? ' (flexible tier)' : ''}.` : 'The separate async Batch queue is off.'}`
+                  `${draft.prefer_discounted_alerts ? 'Compatible alert inference prefers live Flex' : 'Live discounted alert inference is off'}${draft.fallback_to_standard ? ' with standard fallback' : ' without standard fallback'}. ${draft.enabled ? `Async Batch also routes candidates at or below ${SEVERITY_NAME[draft.severity_floor] ?? draft.severity_floor} severity via ${(draft.providers ?? []).length ? (draft.providers ?? []).join(', ') : 'no providers'}.` : 'The separate async Batch queue is off.'}`
                 }
                 lines={[
                   { label: 'Live alert tier', value: draft.prefer_discounted_alerts ? 'Flex preferred' : 'standard only' },
                   { label: 'Standard fallback', value: draft.fallback_to_standard ? 'on' : 'off' },
                   { label: 'Severity floor', value: SEVERITY_NAME[draft.severity_floor] ?? String(draft.severity_floor) },
                   { label: 'Providers', value: (draft.providers ?? []).join(', ') || DASH },
-                  { label: 'Flexible tier', value: draft.flex ? 'on' : 'off' },
                 ]}
                 belowFloorNote
                 noteText="One usage-ledger row is still written per resolved call (#6). Batch routing changes only where a call runs, never the decision."
@@ -481,6 +499,8 @@ export function BatchJobsInner() {
           onDiscard={cfg.discard}
         />
       </Can>
+        </>
+      ) : null}
     </PageContainer>
   );
 }

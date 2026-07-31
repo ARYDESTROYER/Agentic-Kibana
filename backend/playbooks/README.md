@@ -1,4 +1,4 @@
-# TLSOC Markdown Playbooks
+# Agentic SOC Markdown Playbooks
 
 A **playbook** is an operator-authored Markdown file that tells the agent *how to
 think about a particular kind of cluster*: which tools to suggest, which RAG

@@ -13,7 +13,6 @@ import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { api } from '@/lib/api';
 
 import { Button } from '@/ui/button';
-import { Label } from '@/ui/label';
 import { Badge } from '@/ui/badge';
 import { Alert, AlertDescription } from '@/ui/alert';
 import {
@@ -23,6 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/ui/select';
+import { Field } from '@/soc/components/Field';
 
 import { SectionTitle, NumPref, SwitchPref, TextPref, type SecProps } from './primitives';
 
@@ -121,27 +121,25 @@ export function CaseIdSection({ prefs, update }: SecProps) {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <div className="space-y-1.5">
-          <Label>Reset period</Label>
-          <Select
-            value={cfg.reset_period || 'none'}
-            onValueChange={(v) => set({ reset_period: v as typeof cfg.reset_period })}
-          >
-            <SelectTrigger aria-label="Reset period">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {RESET_PERIOD_OPTIONS.map((o) => (
-                <SelectItem key={o.value} value={o.value}>
-                  {o.text}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <p className="text-xs text-muted-foreground">
-            Rolls a fresh sequence at each boundary.
-          </p>
-        </div>
+        <Field label="Reset period" description="Rolls a fresh sequence at each boundary.">
+          {({ id, labelledBy, describedBy }) => (
+            <Select
+              value={cfg.reset_period || 'none'}
+              onValueChange={(v) => set({ reset_period: v as typeof cfg.reset_period })}
+            >
+              <SelectTrigger id={id} aria-labelledby={labelledBy} aria-describedby={describedBy}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {RESET_PERIOD_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.text}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </Field>
         <NumPref
           label="Sequence start"
           value={cfg.seq_start}
@@ -151,8 +149,11 @@ export function CaseIdSection({ prefs, update }: SecProps) {
       </div>
 
       {/* placeholder helper */}
-      <div className="space-y-2">
-        <Label>Placeholders</Label>
+      <fieldset className="space-y-2 border-t border-border/70 pt-4">
+        <legend className="text-sm font-medium text-foreground">Placeholders</legend>
+        <p className="text-xs text-muted-foreground">
+          Append a supported token to the template.
+        </p>
         <div className="flex flex-wrap gap-1.5">
           {CASE_ID_PLACEHOLDERS.map((p) => (
             <Button
@@ -168,14 +169,19 @@ export function CaseIdSection({ prefs, update }: SecProps) {
             </Button>
           ))}
         </div>
-      </div>
+      </fieldset>
 
       {/* live preview */}
-      <div className="rounded-md border border-border bg-surface px-4 py-3">
+      <section className="border-y border-border/70 py-4" aria-labelledby="case-id-preview-title">
         <div className="flex items-center justify-between">
-          <p className="text-sm font-medium text-foreground">Live preview</p>
+          <h3 id="case-id-preview-title" className="text-sm font-semibold text-foreground">
+            Live preview
+          </h3>
           {previewing ? (
-            <RefreshCw className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+            <span role="status" className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+              <RefreshCw className="h-3.5 w-3.5 animate-spin" aria-hidden />
+              Updating
+            </span>
           ) : null}
         </div>
         {preview && !preview.valid ? (
@@ -198,7 +204,7 @@ export function CaseIdSection({ prefs, update }: SecProps) {
             ) : null}
           </div>
         )}
-      </div>
+      </section>
     </div>
   );
 }

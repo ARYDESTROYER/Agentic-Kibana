@@ -203,6 +203,11 @@ describe('DataTable column customization', () => {
     await userEvent.click(screen.getByRole('button', { name: /customize columns/i }));
     // Toggle the (hideable) "Risk" column off.
     const toggle = await screen.findByLabelText('Toggle column Risk');
+    const moveUp = screen.getByRole('button', { name: 'Move Risk up' });
+    const moveDown = screen.getByRole('button', { name: 'Move Risk down' });
+    expect(moveUp).toHaveClass('min-h-6', 'min-w-6');
+    expect(moveDown).toHaveClass('min-h-6', 'min-w-6');
+    expect(moveUp.querySelector('svg')).toHaveClass('size-3.5');
     await userEvent.click(toggle);
     expect(onChange).toHaveBeenCalledTimes(1);
     state = onChange.mock.calls[0][0] as ColumnState;

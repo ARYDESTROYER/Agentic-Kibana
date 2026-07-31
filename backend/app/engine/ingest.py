@@ -10,6 +10,7 @@ pull ingestion behave the same and never drop an event.
 
 from __future__ import annotations
 
+import asyncio
 import collections
 import logging
 from typing import TYPE_CHECKING, Any, Callable
@@ -41,6 +42,36 @@ class IngestBatchError(RuntimeError):
     still required before the service can acknowledge independently of downstream
     processing; until then, callers must retry the complete batch.
     """
+
+
+class InvestigationBudget:
+    """One concurrency-safe automated-investigation allowance for a manager tick.
+
+    A multi-source poll fans out concurrently, so a plain per-child integer cap lets N
+    sources each spend the full allowance. This small in-process coordinator makes the
+    configured ceiling global to the whole fan-out tick. It is routing-only and never
+    changes risk scoring or deterministic case decisions.
+    """
+
+    def __init__(self, limit: int) -> None:
+        self.limit = max(0, int(limit))
+        self._claimed = 0
+        self._lock = asyncio.Lock()
+
+    @property
+    def claimed(self) -> int:
+        return self._claimed
+
+    @property
+    def remaining(self) -> int:
+        return max(0, self.limit - self._claimed)
+
+    async def try_claim(self) -> bool:
+        async with self._lock:
+            if self._claimed >= self.limit:
+                return False
+            self._claimed += 1
+            return True
 
 
 def _push_source_role(src) -> str:
@@ -250,6 +281,7 @@ async def handle_clusters(
     pipeline: "InvestigationPipeline",
     source_surface: SourceSurface,
     query_source: "PullConnector | None" = None,
+    investigation_budget: InvestigationBudget | None = None,
 ) -> dict[str, int]:
     """Attach / investigate / register each cluster. Returns count stats.
 
@@ -361,10 +393,17 @@ async def handle_clusters(
                     or routing_score >= floor
                 )
             )
-            # Per-tick cap: an eligible cluster over the ceiling is DEFERRED to a candidate
-            # (never dropped, #4) and drains next tick. Investigations remain sequential.
-            capped = eligible and investigated_this_tick >= cap
-            forwarded = eligible and not capped
+            # Per-tick cap: a direct/single-source caller keeps the historical local
+            # allowance. PollerManager supplies ONE shared budget to every concurrent child,
+            # making the configured cap global across the fan-out instead of N × cap.
+            # An over-cap eligible cluster remains a durable candidate and drains later.
+            if not eligible:
+                forwarded = False
+            elif investigation_budget is not None:
+                forwarded = await investigation_budget.try_claim()
+            else:
+                forwarded = investigated_this_tick < cap
+            capped = eligible and not forwarded
             # The non-reentrant per-signature lock is already held → call the ``_locked``
             # pipeline internals (they perform the find→save WITHOUT re-acquiring, so no
             # self-deadlock). Falls back to the public method for a pipeline that predates

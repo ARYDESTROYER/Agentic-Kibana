@@ -344,9 +344,9 @@ async def test_pull_enumeration_skips_receivers_and_disabled(app_state: AppState
 
 
 @asyncio
-async def test_drain_headroom_sums_unused_source_allowances(app_state: AppState, monkeypatch):
-    # audit #30: a source at cap must NOT zero the drain headroom for OTHER idle sources
-    # (the old `cap - busiest` did). Headroom is now the SUM of per-source unused allowances.
+async def test_drain_headroom_uses_one_global_fanout_allowance(app_state: AppState, monkeypatch):
+    # The configured cap belongs to the WHOLE manager tick. A busy source that reports the
+    # full allowance leaves no second cap for an idle sibling's deferred drain.
     mgr = app_state.poller
     captured: dict = {}
 
@@ -372,8 +372,7 @@ async def test_drain_headroom_sums_unused_source_allowances(app_state: AppState,
     p.caps.max_auto_investigations_per_tick = cap
     monkeypatch.setattr(mgr, "_all_pollers", lambda: [_FakePoller(cap), _FakePoller(0)])
     await mgr._poll_once_locked(p)
-    # busy(0 unused) + idle(cap unused) = cap > 0; the old max-based code would give 0.
-    assert captured["limit"] == cap
+    assert captured["limit"] == 0
 
 
 @asyncio

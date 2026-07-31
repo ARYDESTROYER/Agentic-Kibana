@@ -28,12 +28,12 @@ function Toaster({ theme = 'system', ...props }: ToasterProps) {
           cancelButton:
             'group-[.toast]:bg-muted group-[.toast]:text-muted-foreground',
           error:
-            'group-[.toaster]:!border-critical/40 group-[.toaster]:!text-critical',
+            'group-[.toaster]:!border-critical/40 group-[.toaster]:!text-critical-text',
           success:
-            'group-[.toaster]:!border-success/40 group-[.toaster]:!text-success',
+            'group-[.toaster]:!border-success/40 group-[.toaster]:!text-success-text',
           warning:
-            'group-[.toaster]:!border-warning/40 group-[.toaster]:!text-warning',
-          info: 'group-[.toaster]:!border-info/40 group-[.toaster]:!text-info',
+            'group-[.toaster]:!border-warning/40 group-[.toaster]:!text-warning-text',
+          info: 'group-[.toaster]:!border-info/40 group-[.toaster]:!text-info-text',
         },
       }}
       {...props}

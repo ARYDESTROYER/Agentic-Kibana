@@ -164,7 +164,8 @@ genuinely different pipelines:
   feeds.
 - **`events` feeds** — high-volume raw telemetry (auth logs, proxy logs, DNS, …),
   too voluminous to triage per-record. When **both** `Preferences.batch.enabled`
-  and `Preferences.baseline.enabled` are on (both **default OFF**), an `events`
+  and `Preferences.baseline.enabled` are on (Batch is **default OFF**; baseline
+  learning is default ON and advisory), an `events`
   feed's newly-polled batch is routed **instead of** the realtime correlate
   window into a cheap-first, four-stage detection funnel
   (`engine/event_detection.py`):
@@ -177,7 +178,7 @@ genuinely different pipelines:
      whose deviation exceeds the configured threshold (default 3.5, gated behind
      a 3×-period warm-up so a fresh baseline can't false-positive on day one).
   4. **Batch** — survivors of (2)/(3) each become one discounted `BatchProvider`
-     request (Anthropic Message Batches / OpenAI Batch / `service_tier='flex'`,
+     request (Anthropic Message Batches / OpenAI Batch,
      0.5× price), fenced UNTRUSTED (#9). An LLM-**confirmed** detection is
      re-shaped into a candidate cluster that **re-enters the same**
      `correlate → cluster_from_events → pipeline` path a realtime alert would —
@@ -185,7 +186,7 @@ genuinely different pipelines:
      `event_detection.py` is a **pure producer**: it never imports
      `case_manager` and never closes a case itself; an unconfirmed or
      unparseable batch result is never re-entered (fail-closed).
-  When batch/baseline is off (the default), `events` feeds behave exactly as
+  When Batch is off (the default), `events` feeds behave exactly as
   before Round 4 — realtime correlate, no funnel, byte-identical to a
   single-tier deployment.
 

@@ -37,6 +37,7 @@ primary child (or, for ``poll_once``, aggregates across all children).
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 from typing import Any, Callable, Protocol, runtime_checkable
 
@@ -44,6 +45,7 @@ from ..config import Preferences
 from ..connectors.base import PullConnector
 from ..constants import IngestMode
 from ..engine.poller import Poller
+from ..engine.ingest import InvestigationBudget
 from ..utils import iso_now
 
 logger = logging.getLogger("tlsoc.engine.poller_manager")
@@ -382,6 +384,16 @@ class PollerManager:
     async def _poll_once_locked(self, prefs: Preferences) -> dict[str, Any]:
         tick_started_at = iso_now()
         pollers = self._all_pollers()
+        cap = max(1, int(getattr(prefs.caps, "max_auto_investigations_per_tick", 25)))
+        budget = InvestigationBudget(cap)
+
+        async def _poll_with_budget(p: Poller) -> dict[str, Any]:
+            # Preserve compatibility with a third-party/test Poller implementation that
+            # predates the additive shared-budget kwarg. Built-in Poller always accepts it.
+            params = inspect.signature(p.poll_once).parameters
+            if "investigation_budget" in params:
+                return await p.poll_once(prefs, investigation_budget=budget)
+            return await p.poll_once(prefs)
         # Single-poll fast path: 0/1 poller behaves BYTE-IDENTICALLY to the old single
         # Poller (no semaphore overhead, same return object). Coverage observability
         # (A5.1): on a raise, record the failed-tick snapshot (ok:False) BEFORE re-raising
@@ -389,12 +401,13 @@ class PollerManager:
         # path already records its snapshot inside ``poll_once``.
         if len(pollers) <= 1:
             try:
-                result = await self._primary.poll_once(prefs)
-                cap = max(
-                    1,
-                    int(getattr(prefs.caps, "max_auto_investigations_per_tick", 25)),
+                result = await _poll_with_budget(self._primary)
+                # Built-in Poller claims the shared allowance. Keep the result-count
+                # fallback for compatible third-party implementations that ignore it.
+                remaining = max(
+                    0,
+                    cap - max(budget.claimed, int(result.get("investigated", 0) or 0)),
                 )
-                remaining = max(0, cap - int(result.get("investigated", 0) or 0))
                 result["drained"] = await self._drain_deferred(
                     prefs, older_than=tick_started_at, limit=remaining
                 )
@@ -409,7 +422,7 @@ class PollerManager:
         async def _run_one(p: Poller) -> dict[str, Any] | None:
             async with sem:
                 try:
-                    return await p.poll_once(prefs)
+                    return await _poll_with_budget(p)
                 except Exception as exc:  # noqa: BLE001 — isolate one source's failure
                     logger.exception(
                         "poll_once failed for source %s (fan-out continues): %s",
@@ -430,15 +443,10 @@ class PollerManager:
             for k in _SUM_KEYS:
                 if k in res:
                     agg[k] = agg.get(k, 0) + res[k]
-        cap = max(1, int(getattr(prefs.caps, "max_auto_investigations_per_tick", 25)))
-        # Drain headroom is the SUM of every source's UNUSED per-tick allowance. The old
-        # ``cap - busiest`` zeroed the drain whenever ANY single source hit its cap, so a
-        # persistently-busy source indefinitely STARVED the quiet-tick drain of every
-        # OTHER source's cap-deferred candidates (audit #30). Summing the per-source unused
-        # allowances keeps the drain running as long as at least one source has headroom.
-        total_headroom = sum(
-            max(0, cap - int((res or {}).get("investigated", 0) or 0)) for res in results
-        )
+        # This is ONE global tick allowance, not one cap per source. Built-in pollers claim
+        # it atomically; result totals retain a conservative fallback for extension pollers.
+        reported = sum(int((res or {}).get("investigated", 0) or 0) for res in results)
+        total_headroom = max(0, cap - max(budget.claimed, reported))
         agg["drained"] = await self._drain_deferred(
             prefs,
             older_than=tick_started_at,

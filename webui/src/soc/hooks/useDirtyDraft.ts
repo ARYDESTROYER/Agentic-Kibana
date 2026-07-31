@@ -31,7 +31,7 @@
  * `useUnsavedChanges(dirty, enabled?)` wires the browser `beforeunload` guard so a page
  * with unsaved edits warns before a tab close / reload.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import { deepEqual } from '@/soc/pages/settings-dirty';
 
@@ -53,6 +53,27 @@ export interface DirtyDraft<T> {
   update: (patch: Partial<T>) => void;
   reset: () => void;
   commit: (next?: T) => void;
+}
+
+const unsavedOwners = new Set<symbol>();
+const unsavedSubscribers = new Set<() => void>();
+
+function emitUnsavedState(): void {
+  for (const subscriber of unsavedSubscribers) subscriber();
+}
+
+function subscribeToUnsavedState(subscriber: () => void): () => void {
+  unsavedSubscribers.add(subscriber);
+  return () => unsavedSubscribers.delete(subscriber);
+}
+
+function unsavedSnapshot(): boolean {
+  return unsavedOwners.size > 0;
+}
+
+/** Shell-safe aggregate: true while any mounted editor has registered a dirty draft. */
+export function useHasUnsavedChanges(): boolean {
+  return useSyncExternalStore(subscribeToUnsavedState, unsavedSnapshot, () => false);
 }
 
 export function useDirtyDraft<T>(initial: T): DirtyDraft<T> {
@@ -122,6 +143,9 @@ export function useUnsavedChanges(dirty: boolean, enabled = true): void {
   useEffect(() => {
     if (!dirty || !enabled) return;
     if (typeof window === 'undefined') return;
+    const owner = Symbol('unsaved-draft');
+    unsavedOwners.add(owner);
+    emitUnsavedState();
     const handler = (e: BeforeUnloadEvent) => {
       e.preventDefault();
       // Legacy Chrome requires a returnValue to trigger the native prompt.
@@ -129,6 +153,10 @@ export function useUnsavedChanges(dirty: boolean, enabled = true): void {
       return '';
     };
     window.addEventListener('beforeunload', handler);
-    return () => window.removeEventListener('beforeunload', handler);
+    return () => {
+      window.removeEventListener('beforeunload', handler);
+      unsavedOwners.delete(owner);
+      emitUnsavedState();
+    };
   }, [dirty, enabled]);
 }

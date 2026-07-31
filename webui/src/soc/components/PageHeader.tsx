@@ -41,6 +41,12 @@ export interface PageHeaderProps {
   actions?: React.ReactNode;
   /** Optional stick-to-top behavior (offset by `--header-h`). */
   sticky?: boolean;
+  /**
+   * Render as an active workspace section header instead of a page header. This keeps
+   * standalone routes on one `<h1>` while allowing their reusable bodies to sit beneath
+   * a host page's `<h1>` with a correctly-scaled `<h2>`.
+   */
+  embedded?: boolean;
   className?: string;
   /**
    * Extra content rendered below the header (hero variant). Kept for the
@@ -111,11 +117,13 @@ export function PageHeader({
   tabs,
   actions,
   sticky,
+  embedded = false,
   className,
   children,
   'data-testid': dataTestId,
 }: PageHeaderProps) {
   const hero = variant === 'hero';
+  const Title = embedded ? 'h2' : 'h1';
   const crumbs = breadcrumb && breadcrumb.length > 0 ? breadcrumb : null;
 
   const overline = crumbs ? (
@@ -136,6 +144,7 @@ export function PageHeader({
       className={cn(
         'relative',
         hero && 'overflow-hidden rounded-lg border border-border bg-card',
+        embedded && 'border-b border-border/80 pb-5',
         stickyCls,
         className,
       )}
@@ -165,9 +174,14 @@ export function PageHeader({
           <div className="min-w-0">
             {overline}
             <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-              <h1 className="truncate text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+              <Title
+                className={cn(
+                  'min-w-0 break-words font-semibold tracking-tight text-foreground',
+                  embedded ? 'text-xl' : 'text-2xl sm:text-3xl',
+                )}
+              >
                 {title}
-              </h1>
+              </Title>
               {meta ? <div className="flex flex-wrap items-center gap-2">{meta}</div> : null}
             </div>
             {description ? (

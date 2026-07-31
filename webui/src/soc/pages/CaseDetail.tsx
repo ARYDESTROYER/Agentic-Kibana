@@ -118,7 +118,8 @@ import {
   TooltipContent,
   TooltipProvider,
 } from '@/ui/tooltip';
-import { Skeleton, SkeletonCard } from '@/ui/skeleton';
+import { Skeleton } from '@/ui/skeleton';
+import { LoadingState } from '@/design-system';
 
 import {
   StatusBadge,
@@ -748,10 +749,11 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
   }, [id]);
 
   React.useEffect(() => {
-    if (open && tab === 'investigation' && rationale === null && !rationaleLoading && !rationaleError) {
+    const needsRationale = tab === 'investigation' || presentation === 'embedded';
+    if (open && needsRationale && rationale === null && !rationaleLoading && !rationaleError) {
       void loadRationale();
     }
-  }, [open, tab, rationale, rationaleLoading, rationaleError, loadRationale]);
+  }, [open, tab, presentation, rationale, rationaleLoading, rationaleError, loadRationale]);
 
   const loadThreat = React.useCallback(async () => {
     if (!id) return;
@@ -1121,14 +1123,14 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
                 presentation === 'sheet' &&
                   'border-b border-border bg-card px-6 py-4',
                 presentation === 'embedded' &&
-                  'flex-col bg-background px-8 pb-4 pt-6 sm:flex-row',
+                  'flex-col bg-background px-4 pb-3 pt-4 sm:flex-row sm:flex-wrap sm:px-5 lg:px-6',
               )}
             >
               <div
                 className={cn(
                   presentation === 'sheet' && 'contents',
                   presentation === 'embedded' &&
-                    'flex min-w-0 w-full flex-1 items-start gap-4 sm:w-auto',
+                    'flex min-w-0 w-full flex-1 items-start gap-3 sm:w-auto sm:min-w-[26rem]',
                 )}
               >
               <div
@@ -1137,7 +1139,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
                   presentation === 'sheet' &&
                     'h-9 w-9 rounded-md bg-primary/10 text-primary',
                   presentation === 'embedded' &&
-                    'h-10 w-10 rounded-[3px] border border-critical/30 bg-critical/10',
+                    'h-9 w-9 rounded-[3px] border border-critical/30 bg-critical/10',
                 )}
               >
                 {presentation === 'embedded' && headerSeverity === 'critical' ? (
@@ -1164,7 +1166,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
                           'font-mono font-semibold',
                           presentation === 'sheet' && 'shrink-0 text-xs text-primary',
                           presentation === 'embedded' &&
-                            'block min-w-0 flex-1 truncate text-2xl uppercase tracking-tight text-foreground',
+                            'block min-w-0 flex-1 truncate text-xl uppercase tracking-tight text-foreground',
                         )}
                       >
                         {c.case_number || c.case_id}
@@ -1183,7 +1185,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
                         'font-semibold tracking-tight text-foreground',
                         presentation === 'sheet' && 'mt-0.5 truncate text-lg',
                         presentation === 'embedded' &&
-                          'mt-2 line-clamp-2 text-xl text-muted-foreground',
+                          'mt-1.5 line-clamp-2 text-lg text-muted-foreground',
                       )}
                     >
                       {/* UNTRUSTED title — plain text node. */}
@@ -1233,7 +1235,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
                   'flex shrink-0 items-center',
                   presentation === 'sheet' && 'pr-8',
                   presentation === 'embedded' &&
-                    'ml-auto w-full justify-end gap-3 sm:w-auto',
+                    'ml-auto w-full justify-end gap-2 sm:w-auto',
                 )}
               >
                 {presentation === 'embedded' ? (
@@ -1241,7 +1243,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
                     <Button
                       variant="outline"
                       size="sm"
-                      className="h-9 rounded-[3px] px-4"
+                      className="h-8 rounded-[3px] px-3"
                       onClick={() => void shareCase()}
                     >
                       <Share2 className="h-4 w-4" />
@@ -1252,7 +1254,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
                       <DropdownMenuTrigger asChild>
                         <Button
                           size="sm"
-                          className="h-9 rounded-[3px] px-4 shadow-elev1"
+                          className="h-8 rounded-[3px] px-3 shadow-elev1"
                           disabled={loading || acting}
                         >
                           <Zap className="h-4 w-4" />
@@ -1441,9 +1443,9 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
                           Costs tokens and overwrites the verdict
                         </AlertTitle>
                         <AlertDescription className="text-xs">
-                          Last run cost {fmtMoney(c?.token_cost)}. Re-running spends more
-                          tokens and replaces this case&apos;s current verdict, confidence,
-                          and rationale.
+                          Investigation cost to date {fmtMoney(c?.token_cost)}. Re-running
+                          spends more tokens and replaces this case&apos;s current verdict,
+                          confidence, and rationale.
                         </AlertDescription>
                       </Alert>
                       <div className="space-y-1.5">
@@ -1739,21 +1741,13 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
               ) : null}
 
               {loading || !c ? (
-                <div className="space-y-6 p-6" aria-busy="true" aria-label="Loading case">
-                  {/* Headline panel row */}
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-                    {Array.from({ length: 5 }).map((_, i) => (
-                      <Skeleton key={i} className="h-[72px] rounded-lg" />
-                    ))}
-                  </div>
-                  {/* Digest + assets + evidence */}
-                  <SkeletonCard lines={3} />
-                  <div className="grid gap-4 lg:grid-cols-2">
-                    <SkeletonCard lines={4} />
-                    <SkeletonCard lines={4} />
-                  </div>
-                  <SkeletonCard lines={5} />
-                </div>
+                <LoadingState
+                  label="Loading case"
+                  description="Retrieving the case record and its evidence."
+                  layout="page"
+                  shape="page"
+                  className="px-6"
+                />
               ) : (
                 <Tabs
                   value={tab}
@@ -1763,7 +1757,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
                   <div
                     className={cn(
                       'shrink-0 overflow-x-auto border-b border-border',
-                      presentation === 'sheet' ? 'px-6' : 'px-8',
+                      presentation === 'sheet' ? 'px-6' : 'px-4 sm:px-5 lg:px-6',
                       presentation === 'sheet' && 'pt-3',
                     )}
                   >
@@ -1771,16 +1765,16 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
                       className={cn(
                         'w-max min-w-full justify-start',
                         presentation === 'embedded' &&
-                          'h-auto gap-6 rounded-none border-0 bg-transparent p-0',
+                          'h-auto gap-4 rounded-none border-0 bg-transparent p-0',
                       )}
                     >
                       <TabsTrigger
                         value="overview"
                         className={cn(
                           'gap-1.5',
-                          presentation === 'sheet' ? 'text-xs' : 'text-sm',
+                          'text-xs',
                           presentation === 'embedded' &&
-                            'rounded-none border-b-2 border-transparent px-0 py-3 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none',
+                            'rounded-none border-b-2 border-transparent px-0 py-2.5 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none',
                         )}
                       >
                         {presentation === 'sheet' ? <FileText className="h-3.5 w-3.5" /> : null}
@@ -1790,9 +1784,9 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
                         value="timeline"
                         className={cn(
                           'gap-1.5',
-                          presentation === 'sheet' ? 'text-xs' : 'text-sm',
+                          'text-xs',
                           presentation === 'embedded' &&
-                            'rounded-none border-b-2 border-transparent px-0 py-3 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none',
+                            'rounded-none border-b-2 border-transparent px-0 py-2.5 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none',
                         )}
                       >
                         <History className="h-3.5 w-3.5" /> Timeline
@@ -1801,9 +1795,9 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
                         value="investigation"
                         className={cn(
                           'gap-1.5',
-                          presentation === 'sheet' ? 'text-xs' : 'text-sm',
+                          'text-xs',
                           presentation === 'embedded' &&
-                            'rounded-none border-b-2 border-transparent px-0 py-3 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none',
+                            'rounded-none border-b-2 border-transparent px-0 py-2.5 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none',
                         )}
                       >
                         <Bot className="h-3.5 w-3.5" /> Investigation
@@ -1812,9 +1806,9 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
                         value="threat"
                         className={cn(
                           'gap-1.5',
-                          presentation === 'sheet' ? 'text-xs' : 'text-sm',
+                          'text-xs',
                           presentation === 'embedded' &&
-                            'rounded-none border-b-2 border-transparent px-0 py-3 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none',
+                            'rounded-none border-b-2 border-transparent px-0 py-2.5 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none',
                         )}
                       >
                         {presentation === 'sheet' ? <Globe className="h-3.5 w-3.5" /> : null}
@@ -1824,9 +1818,9 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
                         value="collab"
                         className={cn(
                           'gap-1.5',
-                          presentation === 'sheet' ? 'text-xs' : 'text-sm',
+                          'text-xs',
                           presentation === 'embedded' &&
-                            'rounded-none border-b-2 border-transparent px-0 py-3 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none',
+                            'rounded-none border-b-2 border-transparent px-0 py-2.5 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none',
                         )}
                       >
                         <Users className="h-3.5 w-3.5" /> Collaboration
@@ -1835,9 +1829,9 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
                         value="chat"
                         className={cn(
                           'gap-1.5',
-                          presentation === 'sheet' ? 'text-xs' : 'text-sm',
+                          'text-xs',
                           presentation === 'embedded' &&
-                            'rounded-none border-b-2 border-transparent px-0 py-3 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none',
+                            'rounded-none border-b-2 border-transparent px-0 py-2.5 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none',
                         )}
                       >
                         <MessageSquare className="h-3.5 w-3.5" /> Chat
@@ -1861,6 +1855,11 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
                         fpPolicy={fpPolicy}
                         triage={triage}
                         triageLoading={triageLoading}
+                        rationale={rationale}
+                        rationaleLoading={rationaleLoading}
+                        rationaleError={rationaleError}
+                        onRetryRationale={loadRationale}
+                        onOpenInvestigation={() => setTab('investigation')}
                         onNavigate={onNavigate}
                         presentation={presentation === 'embedded' ? 'case-manager' : 'default'}
                       />
@@ -2100,8 +2099,8 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
                 <AlertTriangle className="h-4 w-4" />
                 <AlertTitle>Costs tokens and overwrites the verdict</AlertTitle>
                 <AlertDescription>
-                  Last run cost {fmtMoney(c?.token_cost)}. Re-running spends more tokens
-                  and replaces the current verdict, confidence, and rationale.
+                  Investigation cost to date {fmtMoney(c?.token_cost)}. Re-running spends
+                  more tokens and replaces the current verdict, confidence, and rationale.
                 </AlertDescription>
               </Alert>
               <div className="space-y-1.5">

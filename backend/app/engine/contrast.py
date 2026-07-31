@@ -18,9 +18,9 @@ WCAG thresholds used:
   * normal (small) text  → ratio >= 4.5 : 1
   * large / UI text      → ratio >= 3.0 : 1
 
-The accent fill carries foreground text (``--primary-foreground`` in the webui, white
-by default). We choose whichever of black (#000000) / white (#ffffff) maximises contrast
-against the accent, and emit it as the derived ``*-foreground`` value.
+The accent fill carries foreground text (``--primary-foreground`` in the webui). We
+choose whichever of black (#000000) / white (#ffffff) maximises contrast against the
+accent, and emit that exact runtime choice as the derived ``*-foreground`` value.
 """
 
 from __future__ import annotations
@@ -160,17 +160,12 @@ def evaluate_branding_contrast(branding: dict[str, Any]) -> dict[str, Any]:
     Returns a dict with two ADDITIVE keys for the PUT /api/branding response:
 
       * ``auto_corrected`` — ``{css-var-foreground-token: "#000000"|"#ffffff"}`` for
-        every accent whose legible foreground is the LESS-common choice (i.e. an
-        accent light enough that the design-default white text fails — we correct the
-        foreground to black, or vice-versa). Only entries that DIFFER from the default
-        white foreground are included, so a normal dark accent yields an empty map.
-      * ``contrast_warnings`` — a list of plain-text strings. We warn whenever the
-        design-default WHITE foreground on an accent fails the AA-normal bar (4.5:1)
-        — that is the legibility issue the operator actually sees on buttons/badges —
-        annotated with the white ratio + which AA bar it clears, and noting when the
-        auto-correction to black resolves it (vs. when EVEN the best foreground still
-        can't reach AA, the stronger "choose a different accent" case). The webui
-        renders each string as a list item verbatim (#9: controlled UI copy, no markup).
+        every parseable accent. The value is the same higher-contrast black/white
+        foreground that the webui derives at runtime, including mid-tone accents where
+        white technically passes but black is still the stronger pair.
+      * ``contrast_warnings`` — a list of plain-text strings, present only when the
+        selected higher-contrast foreground still cannot clear the AA-normal bar
+        (4.5:1). The webui renders each string as text (#9: no markup).
 
     Pure + non-blocking: a branding doc with no parseable accents returns empty
     advisories, so the save is never rejected on contrast grounds."""
@@ -178,41 +173,29 @@ def evaluate_branding_contrast(branding: dict[str, Any]) -> dict[str, Any]:
     warnings: list[str] = []
 
     for label, accent_hex, fg_token in _accent_candidates(branding):
-        # The DESIGN-DEFAULT foreground on an accent fill is white; we only deviate when
-        # white can't carry the accent legibly. If white already clears AA-normal, keep
-        # the white default (no correction, no warning) — even if black would be a hair
-        # higher, white IS the design token and is legible.
-        white_ratio = contrast_ratio(_WHITE, accent_hex)
-        if white_ratio is None or white_ratio >= AA_NORMAL:
+        # Mirror the webui exactly: always select the higher-contrast black/white
+        # foreground, even when the other candidate already happens to clear 4.5:1.
+        fg = best_foreground(accent_hex)
+        if fg is None:
             continue
-
-        # White fails AA: flip to whichever foreground is most legible (black for a light
-        # accent). AUTO-CORRECT records it keyed by the derived *-foreground css-var.
-        fg = best_foreground(accent_hex) or _BLACK
-        if fg != _WHITE:
-            auto_corrected[fg_token] = fg
-
-        wr = _round2(white_ratio)
+        auto_corrected[fg_token] = fg
         best_ratio = contrast_ratio(fg, accent_hex) or 0.0
         if best_ratio >= AA_NORMAL:
-            # The auto-correction (to black) fully resolves it — informational note.
+            continue
+
+        rounded = _round2(best_ratio)
+        foreground_name = "white" if fg == _WHITE else "black"
+        if best_ratio < AA_LARGE:
             warnings.append(
-                f"Accent {accent_hex} ({label}): white text reaches only {wr}:1 "
-                f"(below AA 4.5:1) — auto-corrected the foreground to black "
-                f"({_round2(best_ratio)}:1) to stay legible."
-            )
-        elif white_ratio < AA_LARGE:
-            warnings.append(
-                f"Accent {accent_hex} ({label}): white text reaches only {wr}:1 — "
-                f"below the WCAG-AA minimum of 3:1 for UI/large text, and even the "
-                f"best foreground can't reach 4.5:1. Choose a different accent."
+                f"Accent {accent_hex} ({label}): the best {foreground_name} foreground "
+                f"reaches only {rounded}:1 — below the WCAG-AA minimum of 3:1 for "
+                f"UI/large text. Choose a different accent."
             )
         else:
             warnings.append(
-                f"Accent {accent_hex} ({label}): white text reaches {wr}:1 — meets AA "
-                f"for large/UI text (3:1) but is below the 4.5:1 needed for small text, "
-                f"and no foreground fully passes. A higher-contrast accent improves "
-                f"legibility."
+                f"Accent {accent_hex} ({label}): the best {foreground_name} foreground "
+                f"reaches {rounded}:1 — it meets AA for large/UI text (3:1) but is "
+                f"below the 4.5:1 needed for small text. Choose a higher-contrast accent."
             )
 
     return {"auto_corrected": auto_corrected, "contrast_warnings": warnings}

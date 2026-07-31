@@ -34,7 +34,10 @@ export function ModelsSection({
 }: SecProps & { models: ModelsResponse | null; onNavigate?: NavigateFn }) {
   return (
     <div className="space-y-6">
-      <SectionTitle title="Per-role models" sub="The model used for each task." />
+      <SectionTitle
+        title="Per-role models"
+        sub="Fresh workspaces use OpenAI GPT-5.6 Luna for completion roles; embeddings keep their dedicated embedding model. Every role remains editable."
+      />
       {!models ? (
         <Alert variant="warning">
           <AlertTriangle className="h-4 w-4" aria-hidden />
@@ -58,10 +61,13 @@ export function ModelsSection({
       {/* The richer Models admin page (catalog capabilities, pricing/provenance,
           cost estimator + budget ceiling, providers) is its own first-class surface;
           this subsection keeps only the per-role assignment. */}
-      <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-surface px-4 py-3">
-        <span className="text-sm text-muted-foreground">
-          Model catalog, pricing, cost &amp; budget, and providers
-        </span>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/70 pt-4">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-foreground">Model administration</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Review the model catalog, pricing, budgets, capabilities, and providers.
+          </p>
+        </div>
         {onNavigate ? (
           <Button variant="outline" size="sm" onClick={() => onNavigate('models')}>
             <Sparkles className="h-4 w-4" aria-hidden />

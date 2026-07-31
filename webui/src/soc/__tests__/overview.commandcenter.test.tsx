@@ -94,7 +94,8 @@ const NOISE: NoiseReduction = {
     { key: 'clustered', label: 'Clustered', source: 'counters', deterministic: true, total: 400, by_severity: { critical: 40, high: 100, medium: 120, low: 100, info: 40 } },
     { key: 'cases', label: 'Cases opened', source: 'cases', deterministic: false, total: 40, by_severity: { critical: 8, high: 12, medium: 12, low: 6, info: 2 } },
     { key: 'auto_cleared', label: 'Auto-cleared', source: 'cases', deterministic: true, total: 20, by_severity: {} },
-    { key: 'escalated', label: 'Escalated', source: 'cases', deterministic: true, total: 8, by_severity: {} },
+    // Every non-auto-cleared case is represented by the folded Escalated outcome.
+    { key: 'escalated', label: 'Escalated', source: 'cases', deterministic: true, total: 20, by_severity: {} },
     { key: 'needs_human', label: 'Needs human', source: 'cases', deterministic: true, total: 6, by_severity: {} },
     { key: 'closed', label: 'Closed by human', source: 'cases', deterministic: true, total: 12, by_severity: { high: 5, medium: 5, low: 2 } },
   ],
@@ -126,13 +127,25 @@ describe('Overview — Security Command Center', () => {
   });
 
   it('opens on Last 24 hours with LIVE refresh visibly active', async () => {
+    const user = userEvent.setup();
     render(<Overview onNavigate={vi.fn()} />);
     await screen.findByTestId('page-hero');
+    await waitFor(() => expect(listCasesMock).toHaveBeenCalled());
 
     expect(screen.getByRole('button', { name: 'Time range: Last 24 hours' })).toBeInTheDocument();
     const live = screen.getByRole('combobox', { name: 'Auto-refresh interval: LIVE' });
     expect(live).toBeInTheDocument();
-    expect(live.querySelector('.animate-pulse.bg-success')).not.toBeNull();
+    expect(live.querySelectorAll('.animate-pulse.bg-success')).toHaveLength(1);
+    expect(live.querySelector('.lucide-refresh-cw')).toBeNull();
+    const manualRefresh = screen.getByRole('button', { name: 'Refresh dashboard' });
+    expect(manualRefresh).toHaveClass('text-success-text');
+    expect(manualRefresh.querySelector('.lucide-refresh-cw')).toHaveClass('animate-spin');
+
+    const callsBeforeManualRefresh = listCasesMock.mock.calls.length;
+    await user.click(manualRefresh);
+    await waitFor(() =>
+      expect(listCasesMock.mock.calls.length).toBeGreaterThan(callsBeforeManualRefresh),
+    );
   });
 
   it('mounts the Active Risk Index (#1) as its own flat cell in the instrument band', async () => {
@@ -170,6 +183,30 @@ describe('Overview — Security Command Center', () => {
     );
   });
 
+  it('keeps the last noise flow and names a noise-only refresh failure with Retry', async () => {
+    const user = userEvent.setup();
+    render(<Overview onNavigate={vi.fn()} />);
+    const funnel = await screen.findByTestId('noise-funnel');
+
+    // Only the optional Noise Reduction slice fails on the next dashboard refresh.
+    noiseMock.mockRejectedValueOnce(new Error('noise counters are temporarily unavailable'));
+    await user.click(screen.getByRole('button', { name: 'Refresh dashboard' }));
+
+    const unavailable = await screen.findByTestId('noise-reduction-unavailable');
+    expect(within(unavailable).getByText('Noise reduction unavailable')).toBeInTheDocument();
+    expect(
+      within(unavailable).getByRole('button', { name: 'Retry noise reduction' }),
+    ).toBeInTheDocument();
+    // The previous usable aggregate remains visible and healthy siblings stay mounted.
+    expect(screen.getByTestId('noise-funnel')).toBe(funnel);
+    expect(screen.getByRole('region', { name: /Latest cases/i })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: /Cases burndown/i })).toBeInTheDocument();
+
+    await user.click(within(unavailable).getByRole('button', { name: 'Retry noise reduction' }));
+    await waitFor(() => expect(screen.queryByTestId('noise-reduction-unavailable')).toBeNull());
+    expect(screen.getByTestId('noise-funnel')).toBeInTheDocument();
+  });
+
   it('clicking a funnel stage drills into the filtered case list', async () => {
     const onNavigate = vi.fn();
     render(<Overview onNavigate={onNavigate} />);
@@ -178,13 +215,13 @@ describe('Overview — Security Command Center', () => {
     await userEvent.click(within(funnel).getByRole('button', { name: /^Escalated:/i }));
     expect(onNavigate).toHaveBeenLastCalledWith(
       'cases',
-      expect.objectContaining({ status: 'escalated', window: expect.any(Number) }),
+      expect.objectContaining({ noiseOutcome: 'escalated', window: expect.any(Number) }),
     );
     // The terminal `closed` stage drills to the closed-case list.
     await userEvent.click(within(funnel).getByRole('button', { name: /^Closed by human:/i }));
     expect(onNavigate).toHaveBeenLastCalledWith(
       'cases',
-      expect.objectContaining({ status: 'closed', window: expect.any(Number) }),
+      expect.objectContaining({ noiseOutcome: 'closed', window: expect.any(Number) }),
     );
   });
 
@@ -204,5 +241,36 @@ describe('Overview — Security Command Center', () => {
       expect(within(strip).getByTestId(id)).toHaveClass('bg-transparent');
     }
     expect(within(strip).queryByTestId('kpi-llm-spend')).toBeNull();
+  });
+
+  it('marks only LLM spend unavailable, preserves its last value, and retries in place', async () => {
+    const user = userEvent.setup();
+    render(<Overview onNavigate={vi.fn()} />);
+    await screen.findByTestId('page-hero');
+    await user.click(await screen.findByRole('button', { name: /Deeper analytics/i }));
+
+    let spend = await screen.findByTestId('kpi-llm-spend-detail');
+    expect(within(spend).getByText('$1.25')).toBeInTheDocument();
+
+    // Only usage telemetry fails on the next dashboard refresh.
+    usageMock.mockRejectedValueOnce(new Error('usage ledger is temporarily unavailable'));
+    await user.click(screen.getByRole('button', { name: 'Refresh dashboard' }));
+
+    await waitFor(() => {
+      spend = screen.getByTestId('kpi-llm-spend-detail');
+      expect(within(spend).getByText('Unavailable')).toBeInTheDocument();
+    });
+    expect(within(spend).getByText(/Last loaded \$1\.25/i)).toBeInTheDocument();
+    expect(within(spend).getByText(/Retry spend telemetry/i)).toBeInTheDocument();
+    expect(within(spend).queryByText('No spend recorded')).toBeNull();
+    // Other dashboard slices remain available; the page never collapses to an error.
+    expect(screen.getByTestId('noise-funnel')).toBeInTheDocument();
+    expect(screen.getByTestId('kpi-open-cases')).toBeInTheDocument();
+
+    await user.click(spend);
+    await waitFor(() =>
+      expect(within(screen.getByTestId('kpi-llm-spend-detail')).queryByText('Unavailable')).toBeNull(),
+    );
+    expect(within(screen.getByTestId('kpi-llm-spend-detail')).getByText('$1.25')).toBeInTheDocument();
   });
 });

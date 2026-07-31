@@ -40,6 +40,14 @@ Dark** control under **Account → Appearance & customization**. Personal theme 
 apply immediately and follow the signed-in user; System follows the organization
 default when one is configured, otherwise the device preference.
 
+On a narrow screen, the full section inventory moves into a searchable Sheet opened
+from one compact section trigger; it is not stacked above the active form. Settings
+URLs retain `#/settings?s=<id>&a=<anchor>`, so an authorized operator can bookmark a
+section or a specific setting group. Modified sections show a dirty indicator, and
+one sticky **Save changes / Discard** bar owns buffered preference writes across the
+workspace. Immediate self-contained operations still report their own result, but a
+section renderer must not create a second preference-save path.
+
 ## Safe administration sequence
 
 1. Back up the application state before a broad policy change.
@@ -65,6 +73,63 @@ point-in-time rollback in version 0.1.
   not discard or silently close the case.
 - **Reset:** reset actions are separate, freshly authenticated, type-to-confirm
   operations. See [Reset and recovery](reset.md).
+
+## Updates and release channels
+
+Open **Settings → Organization → Updates & releases** to manage the public source
+repository used for release observations. Fresh installations point to the Agentic
+SOC repository, Stable `main`, Testing `Testing`, and a six-hour cache. Forks can save
+a renamed repository or different branch refs; only canonical public GitHub URLs and
+bounded branch names are accepted.
+
+The observation cards show each channel's root `VERSION`, immutable commit, check
+time, and any typed unavailable/stale condition. **Check now** is available only for
+the server-saved configuration, so an unsaved repository edit can never be checked as
+though it were durable. If GitHub is unavailable, the rest of Settings remains usable
+and a previous verified result may be shown as **Last verified**.
+
+This feature does not deploy software. An amber source notice is only a review link.
+The separate top-bar update action appears only after release automation has already
+deployed a different coherent Web/backend pair and the same-origin manifest, build
+identity, readiness, and entry document all pass the activation contract.
+
+## Storage and retention
+
+Open **Settings → Organization → Storage & retention** to review the desired
+lifecycle for Agentic SOC's **own application state**. The default policy is:
+
+| Stage | Desired age | Current meaning |
+|---|---:|---|
+| Hot | First 180 days | Immediately available operational state |
+| Warm | Next 90 days, until day 270 | Lower-cost native tier where the selected state backend can enforce it |
+| Archive | From day 270 | Desired AWS S3 Glacier Flexible Retrieval target; not an active archive until an independent export/restore path is configured |
+
+Deletion is always disabled. Saving this preference records the desired policy; it
+does not prove that bytes moved. Use **Preview** to inspect capabilities and exact
+targets, then **Apply supported lifecycle** to make the native changes. Apply is an
+explicit, freshly authenticated, audited operation.
+
+Enforcement is intentionally capability-aware:
+
+- **Elasticsearch state:** Agentic SOC can install ILM only for the append-only
+  audit and usage/cost ledgers. The management key needs cluster `manage_ilm`,
+  `manage_index_templates`, and `monitor`, the owned-index privileges documented in the deployment guide, and
+  usable hot and warm data tiers. Mutable cases plus configuration, cursors, users,
+  sessions, collaboration, and other live metadata remain hot.
+- **PostgreSQL state:** the Console records and previews the desired policy, but it
+  is advisory until an operator provides timestamp partitioning plus a managed
+  scheduler/tablespace or archive workflow.
+- **SQLite state:** row-level tiering is unavailable because the state is one file;
+  use a controlled whole-database backup/export workflow.
+- **Connected SIEM and log sources:** retention is external and read-only. This
+  setting never changes a source index, bucket, stream, or vendor policy.
+
+Glacier is deliberately not wired to Elasticsearch snapshots. A supported archive
+requires an independent immutable export, manifest, checksum verification, and a
+tested restore path. **Never apply an S3 lifecycle transition to an Elasticsearch
+snapshot-repository prefix**: moving repository objects to Glacier can make the
+repository unreadable to Elasticsearch. Until that independent archive pipeline
+exists, warm data remains retained and the Console reports Archive as not configured.
 
 ## Export portable application state
 

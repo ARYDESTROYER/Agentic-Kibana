@@ -29,6 +29,8 @@ export type NavOpts = {
    * Critical/High KPI + the open-by-severity rows deep-link to a severity-filtered list.
    */
   severity?: string;
+  /** Exact Noise Reduction outcome cohort used by the dashboard drill-through. */
+  noiseOutcome?: 'auto_cleared' | 'escalated' | 'closed';
   window?: number;
   tab?: string;
   /** Settings section id — serialized to `#/settings?s=<section>`. */

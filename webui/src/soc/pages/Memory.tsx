@@ -47,7 +47,6 @@ import { Label } from '@/ui/label';
 import { Switch } from '@/ui/switch';
 import { Badge } from '@/ui/badge';
 import { Alert, AlertTitle, AlertDescription } from '@/ui/alert';
-import { Skeleton } from '@/ui/skeleton';
 import { Card, CardContent } from '@/ui/card';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/ui/tooltip';
 import {
@@ -70,6 +69,7 @@ import { PageHeader } from '@/soc/components/PageHeader';
 import { KpiTile } from '@/soc/components/KpiTile';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
+import { LoadingState } from '@/design-system';
 
 /** Uncategorised facts collect under this stable bucket label. */
 const UNCATEGORISED = 'Uncategorised';
@@ -733,6 +733,7 @@ export default function Memory({ embedded = false }: MemoryPageProps = {}) {
   // A hard load failure with no cached data: show one clean LoadError panel instead
   // of zeroed KPI tiles + an interactive add-card whose new rows would be invisible.
   const showLoadFail = !!error && entries.length === 0;
+  const initialLoading = loading && entries.length === 0;
 
   return (
     <div className="space-y-6">
@@ -765,41 +766,49 @@ export default function Memory({ embedded = false }: MemoryPageProps = {}) {
       </Alert>
 
       {/* summary tiles */}
-      {showLoadFail ? null : loading && entries.length === 0 ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {[0, 1, 2, 3].map((i) => (
-            <Skeleton key={i} className="h-24 w-full" />
-          ))}
-        </div>
+      {showLoadFail ? null : initialLoading ? (
+        <LoadingState
+          layout="panel"
+          shape="panel"
+          label="Loading memory"
+          description="Preparing durable facts and operator context."
+        />
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <KpiTile label="Total facts" value={fmtNumber(stats.total)} icon={Brain} accent="primary" />
+        <div className="grid border-y border-border/70 sm:grid-cols-2 lg:grid-cols-4">
+          <KpiTile label="Total facts" value={fmtNumber(stats.total)} icon={Brain} accent="primary" variant="strip" className="border-b border-border/70 sm:border-r lg:border-b-0" />
           <KpiTile
             label="Active"
             value={fmtNumber(stats.active)}
             icon={CircleCheck}
             accent="success"
             sub={stats.total > 0 ? `${fmtNumber(stats.total - stats.active)} inactive` : undefined}
+            variant="strip"
+            className="border-b border-border/70 lg:border-b-0 lg:border-r"
           />
           <KpiTile
             label="Operator-authored"
             value={fmtNumber(stats.operator)}
             icon={User}
             accent="info"
+            variant="strip"
+            className="border-b border-border/70 sm:border-b-0 sm:border-r"
           />
           <KpiTile
             label="Agent-authored"
             value={fmtNumber(stats.agent)}
             icon={Bot}
             accent="medium"
+            variant="strip"
           />
         </div>
       )}
 
-      {showLoadFail ? null : <AddMemoryCard categories={categoryFacet} onAdded={onAdded} />}
+      {showLoadFail || initialLoading ? null : (
+        <AddMemoryCard categories={categoryFacet} onAdded={onAdded} />
+      )}
 
       {/* saved memories header + controls */}
-      {showLoadFail ? null : (
+      {showLoadFail || initialLoading ? null : (
       <div className="flex flex-col gap-3 pt-1 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-baseline gap-2.5">
           <h2 className="text-base font-semibold text-foreground">Saved memories</h2>
@@ -837,7 +846,7 @@ export default function Memory({ embedded = false }: MemoryPageProps = {}) {
 
       {/* filter toolbar */}
       {!error && entries.length > 0 ? (
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 border-y border-border/70 bg-surface/40 p-2">
           <div className="relative w-full sm:w-72">
             <Search
               className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
@@ -908,11 +917,7 @@ export default function Memory({ embedded = false }: MemoryPageProps = {}) {
           onRetry={() => void load()}
         />
       ) : loading && entries.length === 0 ? (
-        <div className="space-y-2">
-          {[0, 1, 2, 3].map((i) => (
-            <Skeleton key={i} className="h-16 w-full" />
-          ))}
-        </div>
+        null
       ) : entries.length === 0 ? (
         <EmptyState
           icon={Brain}
@@ -953,12 +958,14 @@ export default function Memory({ embedded = false }: MemoryPageProps = {}) {
       )}
 
       {/* footer note */}
-      <p className="border-t border-border pt-4 text-xs text-muted-foreground">
-        Inactive memories are retained but not injected into prompts — toggle{' '}
-        <strong className="font-semibold text-foreground">Active</strong> off to retire a fact
-        without deleting it. Agent-authored facts are treated as untrusted text and rendered as
-        plain text.
-      </p>
+      {initialLoading ? null : (
+        <p className="border-t border-border pt-4 text-xs text-muted-foreground">
+          Inactive memories are retained but not injected into prompts — toggle{' '}
+          <strong className="font-semibold text-foreground">Active</strong> off to retire a fact
+          without deleting it. Agent-authored facts are treated as untrusted text and rendered as
+          plain text.
+        </p>
+      )}
 
       {/* delete confirm */}
       <Dialog open={!!pendingDelete} onOpenChange={(o) => (!o ? setPendingDelete(null) : undefined)}>

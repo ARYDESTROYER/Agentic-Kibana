@@ -54,6 +54,7 @@ import { toast } from 'sonner';
 
 import { PageHeader } from '@/soc/components/PageHeader';
 import { PageContainer } from '@/soc/components/PageContainer';
+import { FilterBar } from '@/soc/components/FilterBar';
 import { ConfirmDialog } from '@/soc/components/ConfirmDialog';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
@@ -62,6 +63,7 @@ import { SourceLogsSheet } from '@/soc/components/SourceLogsSheet';
 import { categoryMeta } from '@/soc/components/ConnectorPicker';
 import { Can, useCan } from '@/soc/components/Can';
 import { HelpTip } from '@/soc/components/HelpTip';
+import { IconButton } from '@/soc/components/IconButton';
 import {
   DataTable,
   type DataTableColumn,
@@ -902,14 +904,21 @@ export default function Sources(_props: SourcesProps) {
     <PageContainer variant="wide" className="space-y-6">
       <PageHeader
         icon={Database}
-        eyebrow="Platform"
+        breadcrumb={[{ label: 'Platform' }, { label: 'Log Sources' }]}
         title="Log Sources"
         description="Connect and manage the systems the agent reads security events from."
         actions={
-          <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
-            <RefreshCw className={cn('mr-1.5 size-4', loading && 'animate-spin')} aria-hidden />
-            Refresh
-          </Button>
+          !firstRun ? (
+            <Can resource="sources" action="manage">
+              <Button
+                onClick={() => setEditor({ mode: 'add' })}
+                disabled={demoManaged}
+                title={demoManaged ? DEMO_MANAGED_REASON : undefined}
+              >
+                <Plus className="mr-1.5 size-4" aria-hidden /> New Log Source
+              </Button>
+            </Can>
+          ) : null
         }
       />
 
@@ -962,8 +971,29 @@ export default function Sources(_props: SourcesProps) {
         />
       ) : (
         <>
-          {/* Toolbar — funnel filter · search · count · + New · Manage-Columns gear. */}
-          <div className="flex flex-wrap items-center gap-2">
+          <FilterBar
+            aria-label="Log source filters"
+            className="[&>div:first-child]:min-w-0 [&>div:first-child]:flex-1"
+            meta={(
+              <span data-testid="sources-count">
+                Log Sources ({filteredSorted.length})
+                {activeFilters > 0 ? ` of ${sources.length} total` : ''}
+              </span>
+            )}
+            end={
+              <>
+                <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
+                  <RefreshCw className={cn('mr-1.5 size-4', loading && 'animate-spin')} aria-hidden />
+                  Refresh
+                </Button>
+                <ColumnsMenu
+                  columns={columnMenuItems}
+                  state={effectiveColumnState}
+                  onChange={handleColumnState}
+                />
+              </>
+            }
+          >
             <Popover>
               <PopoverTrigger asChild>
                 <Button variant="outline" size="sm" aria-label="Filter log sources">
@@ -1023,7 +1053,7 @@ export default function Sources(_props: SourcesProps) {
               </PopoverContent>
             </Popover>
 
-            <div className="relative min-w-0 basis-full sm:min-w-[16rem] sm:basis-auto sm:flex-1">
+            <div className="relative min-w-[16rem] flex-1">
               <Search
                 className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
                 aria-hidden
@@ -1036,40 +1066,26 @@ export default function Sources(_props: SourcesProps) {
                 className="pl-9 pr-9"
               />
               {filters.search ? (
-                <button
-                  type="button"
+                <IconButton
+                  label="Clear search"
+                  tooltip={false}
+                  size="sm"
                   onClick={() => setFilter('search', '')}
-                  aria-label="Clear search"
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-sm p-0.5 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm [&_svg]:size-4"
                 >
                   <X className="size-4" aria-hidden />
-                </button>
+                </IconButton>
               ) : null}
             </div>
 
-            <Can resource="sources" action="manage">
-              <Button
-                onClick={() => setEditor({ mode: 'add' })}
-                disabled={demoManaged}
-                title={demoManaged ? DEMO_MANAGED_REASON : undefined}
-              >
-                <Plus className="mr-1.5 size-4" aria-hidden /> New Log Source
-              </Button>
-            </Can>
-
-            <ColumnsMenu
-              columns={columnMenuItems}
-              state={effectiveColumnState}
-              onChange={handleColumnState}
-            />
-          </div>
+          </FilterBar>
 
           {/* Count line / bulk-action strip. */}
           {selectedSources.length > 0 ? (
             <div
               role="region"
               aria-label="Bulk actions"
-              className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface/60 px-3 py-2"
+              className="flex flex-wrap items-center gap-2 border-y border-border/70 py-2"
             >
               <span
                 role="status"
@@ -1114,21 +1130,7 @@ export default function Sources(_props: SourcesProps) {
                 Clear
               </Button>
             </div>
-          ) : (
-            <div className="flex items-center">
-              <h2 data-testid="sources-count" className="text-sm font-semibold text-foreground">
-                Log Sources{' '}
-                <span className="tabular-nums text-muted-foreground">
-                  ({filteredSorted.length})
-                </span>
-              </h2>
-              {activeFilters > 0 ? (
-                <span className="ml-2 text-xs text-muted-foreground">
-                  of {sources.length} total
-                </span>
-              ) : null}
-            </div>
-          )}
+          ) : null}
 
           <DataTable<SourceInstance>
             ariaLabel="Log Sources"
@@ -1174,7 +1176,7 @@ export default function Sources(_props: SourcesProps) {
 
       {/* Add / Edit editor (Dialog hosting the dynamic SourceEditor) */}
       <Dialog open={!!editor} onOpenChange={(o) => !o && setEditor(null)}>
-        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+        <DialogContent className="max-h-[90dvh] max-w-2xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {editor?.mode === 'edit'
@@ -1299,7 +1301,7 @@ function CoverageBanner({
       role="group"
       aria-label="Ingest coverage"
       data-testid="coverage-banner"
-      className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-lg border border-border bg-surface/60 p-3 sm:grid-cols-4"
+      className="grid grid-cols-2 border-y border-border/70 [&>*:nth-child(odd)]:border-l-0 sm:grid-cols-4 sm:[&>*]:border-l sm:[&>*:first-child]:border-l-0"
     >
       <CoverageStat
         testId="coverage-sources"
@@ -1343,15 +1345,8 @@ const CoverageStat: React.FC<{
   sub: string;
   tone?: 'default' | 'warning';
 }> = ({ testId, icon: Icon, label, value, sub, tone = 'default' }) => (
-  <div className="flex items-start gap-2.5" data-testid={testId}>
-    <span
-      className={cn(
-        'mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border',
-        tone === 'warning'
-          ? 'border-warning/30 bg-warning/10 text-warning-text'
-          : 'border-border bg-surface text-muted-foreground',
-      )}
-    >
+  <div className="flex items-start gap-2.5 border-l border-border/70 px-3 py-3 first:border-l-0" data-testid={testId}>
+    <span className={cn('mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center', tone === 'warning' ? 'text-warning-text' : 'text-muted-foreground')}>
       <Icon className="h-4 w-4" aria-hidden />
     </span>
     <div className="min-w-0">

@@ -48,14 +48,14 @@ rule. The image/build pipeline passes these names directly:
 
 | Variable | Meaning |
 |---|---|
-| `TLSOC_VERSION` | Compose image tag/build argument; must match the code's Semantic Version (`0.1.0`) |
+| `TLSOC_VERSION` | Compose image tag/build argument; must match the code's Semantic Version (`0.1.1`) |
 | `TLSOC_RELEASE_CHANNEL` | `testing` by default; set to `stable` only for the accepted `main`/tag build |
 | `TLSOC_BUILD_SHA` | Exact source commit embedded in `/api/health/build-info` and image metadata |
 | `TLSOC_BUILD_DATE` | Build timestamp embedded in `/api/health/build-info` and image metadata |
 | `TLSOC_SOURCE_URL` | Dockerfile build argument for the canonical source URL embedded in OCI image metadata; the reference Compose files currently use the Dockerfile's repository default |
 
 The release channel is independent of SemVer: both the accepted Testing candidate and
-its Stable promotion are application `0.1.0`. Promotion changes provenance/channel,
+its Stable promotion are application `0.1.1`. Promotion changes provenance/channel,
 not the source version.
 
 The Console compiles version/channel/SHA/date into its own build and displays an
@@ -69,7 +69,7 @@ shown as Testing; Stable is never inferred from SemVer or a branch name.
 |---|---|---|
 | State | `STATE_BACKEND`, `STATE_DB_URL`, `ES_STORE_ENABLED` | Selects Agentic SOC-owned persistence; does not select a log source |
 | Elasticsearch wiring | `ES_URL`, `ES_CA_CERT`, `ES_VERIFY_CERTS`, `ES_REQUEST_TIMEOUT` | Used by the implicit Elastic source and/or Elastic state backend |
-| Elasticsearch keys | `ES_API_KEY`, `ES_MGMT_API_KEY` | Read-only log key and separate `tlsoc-agent-*` management key |
+| Elasticsearch keys | `ES_API_KEY`, `ES_MGMT_API_KEY` | Read-only log key and separate `tlsoc-agent-*` management key; lifecycle apply additionally needs cluster `manage_ilm`, `manage_index_templates`, and `monitor` |
 | LLMs | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `LITELLM_API_KEY`; Azure, Bedrock, and Vertex fields | Every call still goes through the Agentic SOC gateway and cost ledger |
 | Enrichment | provider-specific API keys plus `EMBEDDING_API_KEY` | Keyless providers need no key; enabled/keyed filtering happens at dispatch |
 | Cache | `REDIS_URL` | Enrichment caching degrades to an in-process cache when Redis is unavailable |
@@ -104,6 +104,70 @@ When the Elasticsearch state path cannot initialize, the current implementation 
 degrade to in-memory state; monitor readiness and do not mistake that fallback for
 durable operation.
 
+## Own-state storage lifecycle
+
+`Preferences.storage_lifecycle` records a desired lifecycle for Agentic SOC-owned
+state. Its default is 180 days Hot, 90 more days Warm, then a desired AWS S3 Glacier
+Flexible Retrieval archive beginning at day 270. Deletion is not supported and is
+always off.
+
+```json
+{
+  "storage_lifecycle": {
+    "enabled": true,
+    "hot_days": 180,
+    "warm_days": 90,
+    "archive_target": "aws_glacier",
+    "glacier_storage_class": "GLACIER",
+    "delete_after_archive": false
+  }
+}
+```
+
+This is desired policy, not a cross-provider promise. The status/preview API reports
+the effective state and blockers before any mutation:
+
+| State backend | Effective 0.1.1 behavior |
+|---|---|
+| Elasticsearch | Explicit Apply can install ILM for append-only `tlsoc-agent-audit-*` and `tlsoc-agent-usage-*` only, after the cluster/privilege/tier probe succeeds |
+| PostgreSQL | Advisory; no built-in partitions, tablespace movement, or archive scheduler |
+| SQLite | Export-only; no row-level Hot/Warm lifecycle inside one database file |
+
+Mutable cases and live metadata stay Hot on every backend. Connected SIEM/log
+retention remains under the source owner and is never changed by this preference.
+The Elasticsearch ILM policy has no delete phase and no Glacier phase. Archive needs
+a separate immutable export + manifest + checksum + restore-validation workflow;
+never transition an Elasticsearch snapshot-repository prefix to Glacier.
+
+## Upstream release discovery
+
+`Preferences.release_updates` controls bounded observation of the public source
+repository. It is enabled on fresh installations with this configuration:
+
+```json
+{
+  "release_updates": {
+    "enabled": true,
+    "repository_url": "https://github.com/ARYDESTROYER/Agentic-Kibana",
+    "stable_branch": "main",
+    "testing_branch": "Testing",
+    "check_interval_minutes": 360
+  }
+}
+```
+
+Only a canonical public `https://github.com/owner/repository` URL is accepted. Branch
+refs are bounded and reject ambiguous Git syntax. The discovery client is pinned to
+`api.github.com`, rejects redirects and oversized/malformed responses, and reads only
+the branch head plus root `VERSION`. The interval is 15 minutes to 7 days. This
+preference grants no clone, pull, execution, deployment, restart, promotion, rollback,
+or migration capability.
+
+Fork operators may change the repository and either release branch in **Settings →
+Organization → Updates & releases**. Save the preference before running a manual
+check. The same-origin `/release.json` and backend readiness identity remain the only
+authority for activating an already-deployed Console build.
+
 ## Durable preferences
 
 Every `Preferences` field has a default. Major blocks include:
@@ -114,7 +178,9 @@ Every `Preferences` field has a default. Major blocks include:
 - deterministic auto-close policy, case ID format, priority, and SLA targets;
 - playbooks, RAG, memory, enrichment, threat context, and personas;
 - auth policy, MFA/SSO metadata, RBAC, sessions, notifications, and realtime events;
-- branding, terminology, themes, saved views, and dashboard defaults.
+- branding, terminology, themes, saved views, dashboard defaults, and the desired
+  own-state storage lifecycle;
+- public release-source discovery repository, Stable/Testing refs, and cache interval.
 
 `PUT /api/settings` deep-merges a JSON object and validates the resulting complete
 preferences model. Prefer small section-specific changes and re-read after updating.
@@ -123,6 +189,15 @@ not provide a universal revision history in 0.1; detection rules have their own
 version ledger and rollback endpoints.
 
 ### Discounted alert inference
+
+Fresh preferences use official OpenAI `gpt-5.6-luna` for all six completion roles
+(router, investigator, formatter, standup, chat, and overview). Embeddings remain on
+the dedicated OpenAI `text-embedding-3-small` model. This changes only newly-created
+defaults: persisted role assignments and every alternate provider/model are preserved.
+The Chat Completions adapter explicitly uses `reasoning_effort: none` for Luna to
+retain the existing non-reasoning latency/cost and function-tool contract.
+The bundled short-context Standard ledger rate follows OpenAI's current public pricing:
+$0.20/M input, $0.02/M cached input, $0.25/M cache write, and $1.20/M output.
 
 `batch.prefer_discounted_alerts` defaults to `true`. When an automated-scan or
 entity/case investigation uses official OpenAI (no Azure/custom base URL) with a

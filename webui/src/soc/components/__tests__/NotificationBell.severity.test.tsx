@@ -57,4 +57,22 @@ describe('NotificationBell severity a11y (#29) + badge token (#30)', () => {
     // Severity is announced to AT via an sr-only label (WCAG 1.4.1 redundancy).
     expect(await screen.findByText('high severity')).toBeInTheDocument();
   });
+
+  it('uses the shared named loader while the inbox window opens', async () => {
+    let resolveInbox!: (value: { items: [] }) => void;
+    fetchInboxMock.mockImplementationOnce(
+      () => new Promise<{ items: [] }>((resolve) => { resolveInbox = resolve; }),
+    );
+
+    render(<NotificationBell onNavigate={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: /notifications/i }));
+
+    expect(
+      await screen.findByRole('status', { name: 'Loading notifications' }),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('console-loading-glyph')).toBeInTheDocument();
+
+    resolveInbox({ items: [] });
+    expect(await screen.findByText('You’re all caught up')).toBeInTheDocument();
+  });
 });

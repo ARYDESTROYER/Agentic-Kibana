@@ -20,7 +20,7 @@ Offline (no ES/LLM): exercises the pure engine functions
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi import FastAPI
@@ -325,10 +325,12 @@ def metrics_client(app_state):
 
 
 async def test_posture_endpoint(metrics_client, app_state) -> None:
+    created = datetime.now(timezone.utc) - timedelta(hours=2)
+    closed = created + timedelta(hours=1)
     await app_state.cases.save(
-        _case("ep1", created="2026-06-30T06:00:00+00:00", verdict=Verdict.TRUE_POSITIVE,
+        _case("ep1", created=created.isoformat(), verdict=Verdict.TRUE_POSITIVE,
               status=CaseStatus.CLOSED, decision_by=DecisionBy.AGENT, priority="P1",
-              history=[("new", "closed", "2026-06-30T07:00:00+00:00")])
+              history=[("new", "closed", closed.isoformat())])
     )
     r = metrics_client.get("/api/metrics/posture?window_hours=720&compare=prev")
     assert r.status_code == 200

@@ -7,7 +7,7 @@
  * the trigger never renders blank next to a populated badge.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 
 import { CaseTasks, canonicalStatus } from '../CaseTasks';
 import type { CaseTask } from '@/soc/pages/CaseDetail.api';
@@ -55,5 +55,25 @@ describe('CaseTasks — non-canonical status', () => {
     // The status Select trigger reflects the (normalised) selected value, not a blank.
     const trigger = screen.getByRole('combobox', { name: 'Task status' });
     expect(trigger.textContent).toContain('Done');
+  });
+
+  it('keeps the completion glyph inside a labelled 24px target', () => {
+    const onStatus = vi.fn();
+    render(
+      <CaseTasks
+        tasks={[task({ status: 'open' })]}
+        canWrite
+        onAdd={vi.fn()}
+        onStatus={onStatus}
+        onLog={vi.fn()}
+      />,
+    );
+
+    const toggle = screen.getByRole('button', { name: 'Mark task done' });
+    expect(toggle).toHaveClass('min-h-6', 'min-w-6');
+    expect(toggle.querySelector('svg')).toHaveClass('h-3.5', 'w-3.5');
+
+    fireEvent.click(toggle);
+    expect(onStatus).toHaveBeenCalledWith('t1', 'done');
   });
 });

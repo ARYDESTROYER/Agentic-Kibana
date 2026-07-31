@@ -6,7 +6,7 @@ description: Curated Agentic SOC API endpoint groups, authentication, pagination
 # API reference
 
 The **Agentic SOC API** is the FastAPI service behind the Agentic SOC Console. This page covers
-the public HTTP surface in application version **0.1.0** and documentation line
+the public HTTP surface in application version **0.1.1** and documentation line
 **0.1**. The API is mounted at `/api`; the service root is `/`.
 
 ## Interactive and machine-readable specifications
@@ -19,10 +19,10 @@ Each running API publishes:
 
 Build information reports the application version, independent release channel,
 commit SHA, build time, state backend, and OCSF version. A Testing candidate and its
-Stable promotion both remain `0.1.0`; `TLSOC_RELEASE_CHANNEL` distinguishes
+Stable promotion both remain `0.1.1`; `TLSOC_RELEASE_CHANNEL` distinguishes
 `testing` from the accepted `stable` build.
 
-The committed 0.1 OpenAPI snapshot contains 190 paths and 223 operations. It is the
+The committed 0.1 OpenAPI snapshot contains 202 paths and 243 operations. It is the
 best source for current request-body models, enums, parameters, and operation IDs.
 Some handlers return plain dictionaries without a FastAPI `response_model`, so their
 generated response schema is intentionally less specific than the runtime payload.
@@ -94,18 +94,94 @@ the exact request model and every operation under a prefix.
 | Cases | `GET /api/cases`, `GET /api/cases/{case_id}`, `POST /api/cases/bulk` | List, filter, retrieve, export, and act on cases |
 | Case investigation | `/api/cases/{case_id}/triage`, `/timeline`, `/trace`, `/stages`, `/rationale`, `/threat-context`, `/forwarding`; `POST /investigate`, `/reinvestigate`, `/feedback` | Explain evidence, agent work, deterministic routing, and analyst feedback |
 | Case collaboration | `/api/cases/{case_id}/thread*`, `/tasks*`, `/activity`, `/comment`, `/assign`, `/tags`, `/notify` | Discussion, reactions, tasks, ownership, activity, and manual notification |
-| Workspace | `POST /api/chat`, `POST /api/investigate`, `POST /api/overview`, `GET /api/search`, `/scans`, `/personas` | Console chat, entity investigation, cross-surface search, scan queues, and personas |
+| Workspace | `POST /api/chat`, `/api/chat/conversations*`, `POST /api/investigate`, `POST /api/overview`, `GET /api/search`, `/scans`, `/personas` | Console chat with per-user history, entity investigation, cross-surface search, scan queues, and personas |
 | Detection and automation | `/api/rules*`, `/api/tuning*`, `/api/baseline*`, `/api/campaigns*`, `/api/batch*`, `/api/proposals*` | Rule lifecycle, safe preview/version rollback, recommendations, baselines, campaigns, batch jobs, and approvals |
 | Playbooks | `GET/POST /api/playbooks`, `GET/PUT /api/playbooks/{playbook_id}`, `POST /api/playbooks/reload`, `GET /api/playbooks/selection/{case_id}`, `POST /api/cases/{case_id}/run-playbook` | Catalog/open, protected operator-file management, deterministic selection, hot reload, and case execution |
-| Knowledge and memory | `/api/rag/*`, `/api/memory*`, `/api/runbooks`, `POST /api/threat-context/import` | Import/search/delete knowledge, manage operator memory, and inspect runbooks |
+| Knowledge and memory | `/api/rag/*`, `/api/memory*`, `/api/runbooks*`, `POST /api/threat-context/import` | Import/search/delete knowledge, manage operator memory, and manage protected/owned runbooks |
 | Enrichment and MITRE | `/api/enrichment/*`, `/api/mitre/coverage*`, `GET /api/cases/{case_id}/threat-context` | IOC enrichment, provider configuration, ATT&CK coverage, and Navigator export |
-| Dashboards and metrics | `/api/dashboards*`, `/api/metrics*`, `/api/feedback/stats`, `/api/usage/summary`, `/api/cost/estimate` | Personal dashboards, posture/noise metrics, usage, feedback, and cost estimates |
+| Dashboards and metrics | `/api/dashboards*`, `/api/metrics*`, `/api/feedback/stats`, `/api/usage/summary`, `/api/cost/estimate` | Personal dashboards, posture/noise/improvement metrics, usage, feedback, and cost estimates |
 | Standup and handoff | `/api/standup*` | Shift report, acknowledgements, and action items |
 | Notifications | `/api/notifications/providers`, `/channels/*`, `/preview`, `/test`, `/prefs`, `/inbox*` | Channel catalog/secrets, safe previews, tests, per-user preferences, and in-app inbox |
 | Preferences and presentation | `/api/settings*`, `/api/prefs/*`, `/api/branding`, `/api/terminology`, `/api/views*`, `/api/budget*`, `/api/llm/*`, `/api/models` | Organization/user preferences, saved views, model routing/pricing, branding, and budget controls |
+| Release-source discovery | `GET /api/releases/upstream`, `POST /api/releases/upstream/check` | Read cached or force a cooldown-bounded refresh of public Stable/Testing source metadata; never deploys or activates code |
+| Own-state storage lifecycle | `GET/PUT /api/storage/lifecycle`, `POST /api/storage/lifecycle/preview`, `POST /api/storage/lifecycle/apply` | Inspect/save desired Hot/Warm/archive policy, preview capabilities, and explicitly apply the supported Elasticsearch ILM subset |
 | Portable data export | `POST /api/admin/export` | Download selected, bounded, secret-free application state for offline analysis (`data_export:export`) |
 | Audit and realtime | `GET /api/audit`, `GET /api/events` | Append-only action history and server-sent event updates |
 | Demo and reset | `/api/demo/*`, `POST /api/admin/reset` | Isolated synthetic demonstration lifecycle and privileged tiered reset |
+
+## Runbook management
+
+Runbooks use a dedicated resource boundary: list/detail require `runbooks:read`,
+while create, update, delete, and reindex require `runbooks:manage`.
+
+| Operation | Contract |
+| --- | --- |
+| `GET /api/runbooks` | Bundled and operator runbook summaries plus enabled/retrieval state and per-item index status |
+| `GET /api/runbooks/{runbook_id}` | Metadata, full stored `content`, and parsed guidance body |
+| `POST /api/runbooks` | Validate and create an operator runbook from `{id, content}`, then attempt immediate targeted indexing |
+| `PUT /api/runbooks/{runbook_id}` | Validate and replace an operator runbook using `{content, expected_revision}`, then attempt targeted reindexing |
+| `DELETE /api/runbooks/{runbook_id}?expected_revision=N` | Delete the expected operator revision and its retrieval projection |
+| `POST /api/runbooks/{runbook_id}/reindex` | Reconcile one runbook's full-body retrieval projection |
+| `POST /api/runbooks/reindex` | Reconcile all bundled and operator runbook projections without clearing unrelated knowledge |
+
+Bundled items return `source_type=bundled`, `protected=true`, and `editable=false`.
+Operator items return their current revision, actor/timestamp metadata, and separate
+index state (`index_status`, `indexed_revision`, `last_indexed_at`, and a bounded
+`index_error`). The list envelope also reports `enabled` and `retrieval_enabled`;
+catalog management remains possible when retrieval is disabled.
+
+Update and delete are optimistic: a stale `expected_revision` is rejected rather
+than overwriting another operator's edit. Create/update/delete responses report the
+durable catalog result separately from the index result. Reindex responses report
+`indexed`, `deleted`, `failed`, and bounded `errors`, so callers must not treat a
+partial synchronization as a complete success.
+
+New and replacement operator documents require a small plain-text manifest plus a
+strict plain-text body of no more than 1,800 characters. The body uses the required
+ordered labels documented in [Runbooks](../intelligence/runbooks.md), rejects
+Markdown and HTML formatting, and permits sequential numbered lines only in
+`INVESTIGATION STEPS`. Manifest fields have independent write ceilings and their
+combined retrieval descriptor may not exceed 1,200 Unicode characters.
+Validation failures return actionable issues identifying what failed, why it is
+rejected, and how to fix it. A rejected request creates neither a catalog revision nor
+a retrieval projection. Existing non-compliant content remains readable and
+reindexable; its next edited revision must satisfy the current contract.
+
+The validation response uses HTTP 422 with this stable detail envelope:
+
+```json
+{
+  "detail": {
+    "code": "runbook_validation_failed",
+    "message": "Runbook rejected. Fix the issues below and submit again.",
+    "issues": [
+      {
+        "code": "stable_issue_code",
+        "field": "body",
+        "problem": "What is missing or invalid.",
+        "reason": "Why the contract rejects it.",
+        "fix": "The concrete correction to make."
+      }
+    ],
+    "limits": {
+      "body_max_characters": 1800,
+      "retrieval_descriptor_max_characters": 1200,
+      "document_max_bytes": 131072
+    },
+    "body_characters": 0
+  }
+}
+```
+
+`body_characters` is the Unicode character count of the parsed, newline-normalized,
+outer-trimmed body. Clients should render all returned issues rather than stopping at
+the first one. `GET /api/runbooks` publishes the full backend-owned
+`authoring_standard`, including current field/list limits and prohibited formatting,
+so alternate authoring clients can present the same guidance.
+
+Runbook content is trusted operator-controlled knowledge and is projected under a
+stable `runbook:<id>` document identity. These routes never execute it as a playbook
+and never call or modify deterministic case-policy authority.
 
 ## Common query behavior
 
@@ -117,6 +193,146 @@ operation for the endpoint being called.
 Source and log browse limits are server-bounded. Treat every returned log field,
 raw record, case-derived string, and search result as untrusted data when presenting
 it in another system.
+
+## Workspace Chat persistence and retry
+
+`POST /api/chat` remains compatible with stateless and Case Manager callers. Durable
+personal Workspace history is opt-in with `persist_conversation: true` and is disabled
+whenever the effective request is case-scoped. Resume a saved thread with its
+`conversation_id`; the server transcript is authoritative and caller-supplied `history`
+does not replace it.
+
+Persisted Workspace sends may include an `idempotency_key` of **8 through 128
+characters** using letters, digits, `.`, `_`, `:`, or `-`. When omitted, the server
+returns a generated key for the completed persisted turn. Keep that value stable when
+retrying an ambiguous turn. Reusing a key for the same completed request replays the
+committed response without another transcript append or model charge. A still-running
+key returns `409 chat_request_in_progress`; a key reused for a different request returns
+`409 chat_idempotency_conflict`. Each principal may hold at most 256 simultaneous live
+request leases; while all are occupied, a new key returns retryable
+`409 chat_request_capacity_busy` without invoking or billing the model.
+
+The additive `ChatResponse` fields are:
+
+| Field | Meaning |
+|---|---|
+| `idempotency_key` | Stable identifier for the persisted Workspace turn |
+| `effective_model` | Model that actually executed the answer |
+| `effective_source_id`, `effective_source_name` | Queryable source that actually served the turn |
+| `truncated` | Whether the bounded saved response snapshot omitted larger supporting structures |
+
+An explicit `source_id` is strict: disabled, removed, push-only, or unbuildable sources
+return `422 chat_source_unavailable`; the route never queries Primary and labels it as
+the requested source. Primary remains the default only when no source was explicitly
+selected. Persisted assistant messages carry `idempotency_key`, `model`, `source_id`,
+and `source_name`, so later selector changes cannot rewrite historical provenance.
+
+History endpoints are newest-first and per authenticated user:
+
+| Operation | Contract |
+|---|---|
+| `GET /api/chat/conversations` | Retained summaries plus `total`, `history_truncated`, `total_conversation_count`, and `oldest_retained_at` |
+| `GET /api/chat/conversations/{conversation_id}` | Authoritative retained transcript and per-turn provenance |
+| `PATCH /api/chat/conversations/{conversation_id}` | Rename an owned conversation |
+| `DELETE /api/chat/conversations/{conversation_id}` | Delete an owned conversation; audit remains append-only |
+
+`total` and a conversation's `message_count` describe retained rows. The additive
+`total_conversation_count` and `total_message_count` describe the corresponding total
+before retention, while `history_truncated` and `oldest_retained_at` disclose an
+incomplete retained window. The current bounds are **50 conversations per user** and
+**100 messages per conversation**. Conversation summary/detail objects also include
+`source_name`, `history_truncated`, `total_message_count`, and `oldest_retained_at`.
+
+History lives in one hashed StateStore partition per normalized user. On first access,
+the compatibility path can read and lazily migrate that user's entries from the legacy
+shared document; no reset or new index/table is required. A history read or commit that
+cannot be verified returns `503 chat_history_unavailable` instead of an empty list or a
+false saved result. Existing `404 conversation not found` behavior remains unchanged.
+
+## Agent-improvement evidence
+
+`GET /api/metrics/agent-improvement` is an additive, read-only reporting endpoint
+protected by `metrics:view`. By default it compares the **last seven complete UTC
+days** with the **preceding, non-overlapping 28 complete UTC days**. The current UTC
+day is excluded so a partial day cannot be compared with complete history.
+
+Optional query parameters are:
+
+| Parameter | Default | Contract |
+|---|---:|---|
+| `as_of` | current UTC date | Exclusive `YYYY-MM-DD` boundary; future UTC dates are rejected |
+| `current_days` | `7` | Current cohort length, from 1 through 31 complete days |
+| `baseline_days` | `28` | Preceding baseline length, from 7 through 90 complete days |
+
+The established headline deliberately reports three separate measurements rather
+than a synthetic composite score:
+
+| Response key | Definition | Better direction |
+|---|---|---|
+| `analyst_reported_verdict_agreement` | Weighted analyst-reported agreement: `(agree + 0.5 × partial) / unique latest-valid graded cases` | Higher |
+| `material_analyst_correction_rate` | Explicit disagreement or an allow-listed AI-verdict/outcome conflict divided by the same unique graded-case cohort | Lower |
+| `human_review_turnaround` | p50 elapsed time from the first human acknowledgement to the final human terminal transition in the final live episode | Lower |
+
+Each metric carries its current and baseline samples, definition, delta, direction,
+minimum sample, and `enough_data`, `insufficient_evidence`, or `unavailable` status.
+Agreement and correction require at least 30 eligible cases in both cohorts;
+turnaround requires at least 20. Daily points remain `null` until that day has five
+eligible samples; missing evidence is never converted to zero.
+
+An additive `outcomes` object is reported separately and never changes the headline:
+
+| Response key | Contract |
+|---|---|
+| `recorded_case_cost` | Sum of gateway-recorded `UsageDoc.cost` for timestamped rows carrying `case_id`; includes per-day and per-costed-case readings. This is AI processing cost, not overtime, labor, or provider-invoice truth. |
+| `observed_time_saved` | p50 human-owned final-episode closure elapsed time minus p50 agent-closed elapsed time. Both cohorts are agent-assisted, actor labels are operational, and elapsed time is not active labor or a human-only benchmark. Requires 10 cases per owner in both compared windows. `observed_aggregate_elapsed_difference_minutes` is the signed p50 difference multiplied by the agent-closed count; the compatibility field `estimated_total_minutes_saved` is populated only when that difference is positive and is never counterfactual labor saved. Analyst-reported estimates remain a separate field. |
+| `confirmed_positive_case_rate` | Confirmed-positive latest-valid outcomes divided by all outcome-evaluable latest-valid case outcomes. Requires 20 evaluated cases in each window; direction is descriptive, not automatically good or bad. |
+| `true_positive_alert_yield` | Always `unavailable` in this release. Case outcomes and raw-alert counters are different units and alert-level confirmed-outcome lineage is not persisted. `supported_alternative` points to `confirmed_positive_case_rate`. |
+| `alert_volume` | Durable `ingested_alerts` and `after_clustering_alerts`, plus clustering-reduction count/rate, per-day readings, and deltas. Counter coverage must span both complete-UTC windows and is bounded by the retained 90-day hourly counter history. Lower ingress can mean a source outage; the response does not grade it as improvement. |
+| `tuning_context` | Applied/rolled-back threshold-change counts beside aggregate post-clustering movement. `causal_claim=false` and `model_fine_tuning_evidence=false`; this is context, not attribution. |
+| `source_guidance` | `not_available`, empty `items`, and `long_term_objective=true`. The current schema cannot support alert-specific missing-source advice without a governed coverage model. |
+
+`period_comparisons.week_over_week` compares seven complete UTC days with the prior
+seven. The compatibility wire key `period_comparisons.month_over_month` is labelled
+**Rolling 28 days over prior 28 days**, compares the latest 28 complete UTC days with
+the prior 28, and returns `calendar_period=false`; it is not a calendar-month
+comparison.
+Each period comparison reports the four case-derived metrics (agreement, correction,
+human review turnaround, and confirmed-positive case rate) with its own samples,
+reason, delta, and status, plus an `outcomes` object recomputed over those exact
+equal-length windows for cost, closure timing, case mix, volume, and tuning context.
+Outcome objects preserve `enough_data`,
+`insufficient_evidence`, `unavailable`, and where applicable `not_applicable`; source
+guidance uses `not_available`. A missing ledger, incomplete durable-counter window,
+bounded read, absent human/agent cohort, or undersized sample remains named rather
+than becoming zero.
+
+Agreement and correction use identical reference weights over exact source-by-severity
+strata represented by at least five grades in both windows. The payload reports only
+aggregate stratum counts and coverage—never source identifiers. A headline improvement
+claim requires at least 80% coverage in **each** cohort, complete non-truncated case
+retrieval, and sufficient samples. The guardrails report confirmed false-negative rate
+over confirmed positives and human reopen-after-agent-close rate over closures with a
+complete 24-hour follow-up window. A guardrail needs 20 eligible samples per cohort;
+until then `breached` is `null` and the headline remains insufficient evidence. A
+material guardrail regression prevents favorable efficiency changes from being
+promoted as improvement.
+
+The headline groups agreement and correction into one analyst-grade quality domain;
+they are not counted as two independent signals because both derive from the same
+graded-case cohort. The second independent domain is human review turnaround, and both
+domains must improve before the headline can say `improving`. Turnaround excludes known
+automation actor labels, but historical actor fields are operational labels rather
+than authenticated identity provenance. Exclusion counters are bounded to the same
+reporting horizon as the cohorts.
+
+The response is aggregate-only: it includes no case identifiers, entities, raw
+evidence, prompts, or model calls, and it performs no model call or write itself.
+`provenance.billing` is `none`, `case_ids_included` is `false`, and
+`decision_authority` is `reporting_only`. This endpoint describes observed outcome
+shifts; it does not claim that a model learned, establish causation, or participate
+in deterministic close/escalate decisions. When the bounded case load is truncated,
+the response says so and classifies the headline and metric directions as insufficient
+evidence.
 
 ## Case clustering explanation
 
@@ -137,6 +353,41 @@ The server emits heartbeats; clients should reconnect and fall back to bounded p
 when the stream is unavailable. When realtime preferences disable the event bus, the
 endpoint returns HTTP 204. Browser `EventSource` clients cannot set an Authorization
 header, so authenticated Console subscriptions use the session cookie.
+
+## Upstream release observations
+
+`GET /api/releases/upstream` requires `settings:read` and returns the cached
+observation for the saved `release_updates` preference. `POST
+/api/releases/upstream/check` requests a refresh but still respects a five-minute
+manual anti-hammering floor. A response contains the canonical repository URL, overall
+check/cache metadata, and independent `stable` and `testing` channel objects:
+
+- `state`: `available`, `unavailable`, or `disabled`;
+- the configured `branch`;
+- validated `version`, immutable `commit_sha`, and safe GitHub review links when
+  available;
+- `checked_at`, `stale`, and curated `error_code`/`error_message` fields.
+
+One channel's failure never hides its sibling. A later transient failure can retain a
+last-known-good available channel with `stale: true`; provider response bodies are not
+returned. Both endpoints are discovery-only. They cannot clone, download, execute,
+write Git state, deploy, migrate, restart, promote, activate, or roll back code.
+
+## Own-state storage lifecycle
+
+`GET /api/storage/lifecycle` returns the desired policy, effective state, provider
+capabilities, per-tier status, and a target-by-target explanation. `PUT` saves the
+validated desired policy but does not silently mutate storage. `POST .../preview`
+is read-only and returns the plan/blockers for the supplied or saved policy.
+`POST .../apply` is the explicit, freshly authenticated, audited mutation.
+
+Apply is deliberately allowlisted: on Elasticsearch it can install/remove the
+Agentic SOC ILM policy and lifecycle settings only for the append-only audit and
+usage/cost ledgers. It never accepts an arbitrary index pattern, never rolls mutable
+cases, never changes connected source retention, and never adds a delete phase.
+PostgreSQL and SQLite return their honest advisory/export-only state instead of
+claiming movement. AWS Glacier remains `not_configured` until an independent
+checksummed export/manifest/restore pipeline exists.
 
 ## Decision previews and side effects
 

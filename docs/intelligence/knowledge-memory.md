@@ -12,9 +12,10 @@ investigation, but they have different trust and lifecycle rules.
 ## Knowledge base
 
 The built-in corpus contains runbooks, MITRE ATT&CK reference text, and suppression
-guidance. When enabled, resolved-case summaries can also be indexed for similarity.
-Knowledge search combines lexical and vector retrieval and returns source and score
-metadata.
+guidance. Authorized operators can also create versioned runbook knowledge under
+**Intelligence → Runbooks**. When enabled, resolved-case summaries can be indexed for
+similarity. Knowledge search combines lexical and vector retrieval and returns source
+and score metadata.
 
 Use the Knowledge page to:
 
@@ -29,8 +30,8 @@ deletion; overriding that protection requires an explicit force operation.
 
 ## Trust labels
 
-Only the system-verified `runbook`, `mitre`, and `suppression` sources are treated as
-trusted reference material in a prompt. Imported documents, pasted threat
+Only administrator-controlled `runbook` knowledge and the system-verified `mitre` and
+`suppression` sources are treated as trusted reference material in a prompt. Imported documents, pasted threat
 intelligence, resolved-case summaries, and unknown future source types are fenced as
 untrusted data before model use.
 
@@ -54,9 +55,11 @@ decision.
 
 - Keep each entry narrow, dated, and attributable.
 - Deactivate or delete obsolete facts.
-- Prefer a versioned runbook for procedures and memory for short local facts.
+- Prefer a [versioned runbook](runbooks.md) for reusable investigation guidance and
+  memory for short local facts.
 - Test retrieval after large corpus changes.
 - Treat missing retrieval as degraded context, not permission to drop a case.
 
-See [Enrichment](enrichment.md), [MITRE and threat context](mitre-threat-context.md),
-and [Playbooks and approvals](../automation/playbooks-approvals.md).
+See [Runbooks](runbooks.md), [Enrichment](enrichment.md),
+[MITRE and threat context](mitre-threat-context.md), and
+[Playbooks and approvals](../automation/playbooks-approvals.md).

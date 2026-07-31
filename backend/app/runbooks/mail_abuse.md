@@ -8,22 +8,29 @@ keywords: [postfix, smtp, relay, recipient, spam, mail]
 persona: identity_access
 summary: High-volume relay attempts, rejected recipients, or submission auth failures.
 ---
-## What this looks like
-Postfix logs showing high-volume relay attempts, repeated rejected recipients, or
-authentication failures on the submission port — spam-relay abuse or credential
-stuffing against mail.
+SIGNAL
+Mail telemetry shows high-volume relay attempts, repeated rejected recipients, or submission authentication failures.
 
-## Steps
-1. **Classify the pattern.** Outbound relay attempts vs inbound spam vs auth
-   failures on submission each mean different things.
-2. **Check for auth success** on the submission service (mirrors the brute-force
-   runbook) — a successful auth followed by sending is account abuse.
-3. **Sender/recipient reputation.** Look at rejection reasons (RBL hits, unknown
-   recipients) and sender domains.
-4. **Volume + ratio.** A few rejects are normal mail hygiene; sustained high-volume
-   relay attempts are abuse.
+EVIDENCE REQUIRED
+Authentication outcomes, send volume, sender and recipient domains, rejection reasons, source reputation, and mailbox ownership.
 
-## Verdict guidance
-- Authenticated then mass-sending → TRUE_POSITIVE, escalate (compromised mailbox).
-- High-volume relay/spam from a hostile IP → TRUE_POSITIVE (block).
-- Low-volume rejects / normal bounce traffic → FALSE_POSITIVE.
+INVESTIGATION STEPS
+1. Classify the activity as outbound relay, inbound spam, or submission authentication abuse.
+2. Check whether submission authentication succeeded and whether sending activity followed.
+3. Review rejection reasons, sender domains, recipient patterns, and source reputation.
+4. Compare message and rejection volume with the normal baseline for the service and mailbox.
+
+TRUE POSITIVE SIGNALS
+Successful authentication followed by mass sending, or sustained relay abuse from a hostile source, supports a true positive.
+
+FALSE POSITIVE SIGNALS
+Low-volume rejects, normal bounce traffic, or expected bulk mail from an approved sender supports a false positive.
+
+NEEDS HUMAN WHEN
+Authentication outcomes, mailbox ownership, or the expected sending baseline cannot be established.
+
+RECOMMENDED NEXT ACTION
+Escalate suspected mailbox compromise for credential reset and session review; block a corroborated hostile relay source.
+
+LIMITATIONS
+Mail hygiene noise can resemble abuse when recipient and authentication context is missing.

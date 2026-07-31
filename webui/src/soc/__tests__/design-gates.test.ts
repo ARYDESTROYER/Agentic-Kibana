@@ -18,7 +18,11 @@
 import { describe, it, expect } from 'vitest';
 // The gate checkers live under webui/scripts/ (node ESM). Import their pure functions.
 import { checkTokenExistence } from '../../../scripts/gate-tokens.mjs';
-import { checkContrast, SEMANTIC_FILL_AXES } from '../../../scripts/gate-contrast.mjs';
+import {
+  checkContrast,
+  SEMANTIC_FILL_AXES,
+  TEXT_WASH_AXES,
+} from '../../../scripts/gate-contrast.mjs';
 import { checkCvd, CHART_TOKENS, SEMANTIC_AXES } from '../../../scripts/gate-cvd.mjs';
 import { checkGrepGuards, loadBaseline } from '../../../scripts/lib/grep-guard.mjs';
 
@@ -57,6 +61,14 @@ describe('design gate: WCAG contrast (both themes)', () => {
     // Guard the exact token that regressed: --medium on the light card must clear 3:1.
     const mediumLight = fills.find((r) => r.theme === 'light' && r.name === 'medium fill on card');
     expect(mediumLight?.ratio).toBeGreaterThanOrEqual(3);
+  });
+
+  it('every semantic small-text token clears 4.5:1 on its actual 10% wash in both themes', () => {
+    const { results } = checkContrast();
+    const washes = results.filter((r) => r.kind === 'text-wash');
+    expect(washes.length).toBe(TEXT_WASH_AXES.length * 2);
+    const failures = washes.filter((r) => !r.pass);
+    expect(failures, JSON.stringify(failures, null, 2)).toEqual([]);
   });
 
   it('a below-threshold pair is reported as a failure (checker is not a no-op)', () => {

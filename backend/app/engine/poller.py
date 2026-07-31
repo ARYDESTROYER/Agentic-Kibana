@@ -26,6 +26,7 @@ from ..connectors.elastic import ElasticConnector
 from ..constants import ActionType, SourceSurface
 from ..engine.cost_gate import passes_suppression
 from ..engine.ingest import (
+    InvestigationBudget,
     _is_ignored_cluster,
     attach_cluster,
     dedup_by_id,
@@ -404,7 +405,12 @@ class Poller:
         """Smoothed events/min over the last few ticks (A5.1). ``0.0`` until ≥2 ticks."""
         return events_per_min_from_ticks(self._recent_ticks)
 
-    async def poll_once(self, prefs: Preferences | None = None) -> dict[str, Any]:
+    async def poll_once(
+        self,
+        prefs: Preferences | None = None,
+        *,
+        investigation_budget: InvestigationBudget | None = None,
+    ) -> dict[str, Any]:
         prefs = prefs or self._get_prefs()
         cold_from = to_millis(now_utc()) - prefs.cold_start_lookback_minutes * 60 * 1000
 
@@ -421,6 +427,11 @@ class Poller:
         # this list stays empty and every event flows the byte-identical realtime path.
         event_routing = feeds and self._event_routing_active(prefs)
         funnel_events: list[RawEvent] = []
+        # Feed keys whose low/medium events are handed to async Batch.  Their cursors
+        # are committed only after the funnel durably accepts the outcome (a local
+        # Batch outbox row, or an explicit no-candidate result).
+        funnel_feed_keys: set[str] = set()
+        event_feed_sync_event_ids: set[int] = set()
         fetched: list[RawEvent] = []
         new_events: list[RawEvent] = []
         # Track each feed's (key, loaded cursor, advanced cursor) so we persist each
@@ -480,10 +491,27 @@ class Poller:
                 fetched.extend(fbatch)
                 feed_new = [e for e in fbatch if not fcursor.should_skip(e)]
                 # EVENT-feed routing: a ``role=events`` feed's new events go to the
-                # detection funnel (INSTEAD OF the realtime correlate window). ALERTS
-                # feeds are unchanged — they stay on the realtime path below.
+                # detection funnel only at/below ``batch.severity_floor``.  Higher
+                # severity records stay synchronous; no event is dropped. ALERTS feeds
+                # remain unchanged on the realtime path.
                 if event_routing and self._feed_is_events_role(feed):
-                    funnel_events.extend(feed_new)
+                    from ..engine.event_detection import split_batch_eligible_events
+
+                    own_source = prefs.source_by_id(
+                        getattr(self._source, "connector_id", None)
+                    )
+                    batch_new, sync_new = split_batch_eligible_events(
+                        feed_new,
+                        prefs,
+                        severity_scale=severity_scale_for_source(own_source),
+                    )
+                    if batch_new:
+                        funnel_feed_keys.add(key)
+                        funnel_events.extend(batch_new)
+                    if sync_new:
+                        new_events.extend(sync_new)
+                        if batch_new:
+                            event_feed_sync_event_ids.update(id(ev) for ev in sync_new)
                 else:
                     new_events.extend(feed_new)
         else:
@@ -518,15 +546,34 @@ class Poller:
                  "clusters": 0, "investigated": 0, "candidates": 0, "attached": 0,
                  "window_events": 0, "funnel_routed": 0}
 
-        # Round-4 Wave-4: hand routed EVENT-feed events to the detection funnel (best-
-        # effort, out-of-the-realtime-path). This is a NO-OP unless routing is engaged;
-        # ``funnel_events`` is empty otherwise. The hook never raises into the poll cycle.
+        # Hand routed EVENT-feed events to the detection funnel.  ``None`` remains an
+        # accepted return for backwards-compatible hooks; the production hook returns
+        # True only after a durable local outbox write (or an explicit no-candidate
+        # outcome).  A rejection/failure leaves every contributing feed cursor untouched
+        # and suppresses same-feed synchronous work this tick so the whole feed retries
+        # coherently without double-counting side effects.
+        accepted_funnel_events: list[RawEvent] = []
         if funnel_events and self._event_funnel is not None:
             stats["funnel_routed"] = len(funnel_events)
+            funnel_accepted = True
             try:
-                await self._event_funnel(funnel_events, prefs)
-            except Exception as exc:  # noqa: BLE001 — the funnel must never break a poll
+                outcome = await self._event_funnel(funnel_events, prefs)
+                funnel_accepted = outcome is not False
+            except Exception as exc:  # noqa: BLE001 — retry on the next poll
+                funnel_accepted = False
                 logger.warning("event-detection funnel routing failed: %s", exc)
+                feed_failures.append(("event_funnel", str(exc)))
+            if funnel_accepted:
+                accepted_funnel_events = list(funnel_events)
+            else:
+                # Do not commit cursors for any feed whose async work was rejected.
+                feed_state = [row for row in feed_state if row[0] not in funnel_feed_keys]
+                # Higher-severity siblings from the same EVENT feed must retry with the
+                # rejected low/medium work rather than create/count a partial tick.
+                new_events = [
+                    ev for ev in new_events if id(ev) not in event_feed_sync_event_ids
+                ]
+                stats["new"] = len(new_events)
 
         # Correlate over the FULL sliding look-back window (not just the incremental
         # batch) so real-time bursts spread across >1 poll interval still trigger.
@@ -566,9 +613,14 @@ class Poller:
             if event_routing:
                 routed_ids = self._routed_events_feed_ids(feeds)
                 if routed_ids:
+                    from ..engine.event_detection import event_is_batch_eligible
+
                     window_events = [
                         e for e in window_events
-                        if (getattr(e, "feed_id", "") or "") not in routed_ids
+                        if (
+                            (getattr(e, "feed_id", "") or "") not in routed_ids
+                            or not event_is_batch_eligible(e, prefs)
+                        )
                     ]
             stats["window_events"] = len(window_events)
 
@@ -608,6 +660,7 @@ class Poller:
                 tick_clusters, prefs, cases=self._cases, pipeline=self._pipeline,
                 source_surface=SourceSurface.AUTOMATED_SCAN,
                 query_source=self._source,
+                investigation_budget=investigation_budget,
             )
             stats.update(cluster_stats)
             # Round-7: band THIS tick's clusters + record the drops, INSIDE the block where
@@ -651,7 +704,8 @@ class Poller:
                 except Exception as exc:  # noqa: BLE001 — never break the poll loop
                     logger.warning("cross-source correlation failed: %s", exc)
 
-        # Round-7: ingested = ALL new alerts this tick (new_events + funnel-routed events),
+        # Round-7: ingested = ALL accepted new alerts this tick (new_events + durably
+        # accepted funnel events),
         # banded by the source's declared severity scale. The source instance is re-resolved
         # SEPARATELY here (NOT the if-block-local ``own_source``) so this path is always in
         # scope — an events-only feed (new_events empty, funnel_events non-empty) still tallies
@@ -662,7 +716,8 @@ class Poller:
             try:
                 _ns_source = prefs.source_by_id(getattr(self._source, "connector_id", None))
                 noise_ingested = count_events_by_band(
-                    new_events + funnel_events, severity_scale_for_source(_ns_source)
+                    new_events + accepted_funnel_events,
+                    severity_scale_for_source(_ns_source),
                 )
             except Exception:  # noqa: BLE001 — counters are advisory, never break a poll
                 pass

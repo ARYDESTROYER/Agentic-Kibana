@@ -47,6 +47,7 @@ The names describe defaults, not organizational job titles. Notably, the built-i
 | `users` | `manage` | `*` | `manage` | — | — | — | — |
 | `proposals` | `read`, `approve` | `*` | `*` | `read` | `read` | `read`, `approve` | `read` |
 | `playbooks` | `read`, `run`, `manage` | `*` | `*` | `read`, `run` | `read` | `read`, `run` | `read` |
+| `runbooks` | `read`, `manage` | `*` | `*` | `read` | `read` | `read` | `read` |
 | `rag` | `read`, `manage` | `*` | `*` | `read` | `read` | `read` | `read` |
 | `memory` | `read`, `manage` | `*` | `*` | `read` | `read` | `read` | `read` |
 | `cost` | `view` | `*` | `view` | `view` | `view` | `view` | `view` |

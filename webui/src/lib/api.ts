@@ -13,6 +13,7 @@ import type {
   AccountProfile,
   AccountProfileBody,
   ActivityResponse,
+  AgentImprovementEvidence,
   AuditQuery,
   AuditResponse,
   AuthMe,
@@ -28,6 +29,9 @@ import type {
   CaseRationale,
   CasesResponse,
   CaseStatus,
+  ChatConversation,
+  ChatConversationsResponse,
+  ChatConversationSummary,
   ChatResponse,
   ChatTurn,
   ColumnState,
@@ -76,6 +80,13 @@ import type {
   RagStats,
   ReauthResult,
   RolesResponse,
+  Runbook,
+  RunbookDeleteResponse,
+  RunbookDetail,
+  RunbookIndexResult,
+  RunbookMutationResponse,
+  RunbooksResponse,
+  UpstreamReleasesResponse,
   SessionsResponse,
   ScanNotifications,
   SearchResult,
@@ -554,6 +565,11 @@ async function parseBody(res: Response): Promise<unknown> {
 const ERROR_CODE_LABELS: Record<string, string> = {
   session_invalid: 'Your session is no longer valid. Please sign in again.',
   reauth_required: 'Please re-enter your password to continue.',
+  chat_history_unavailable: 'Conversation history is temporarily unavailable. Try again.',
+  chat_request_in_progress: 'This request is still running. Wait a moment, then retry.',
+  chat_request_capacity_busy: 'Too many chat requests are still running. Wait a moment, then retry.',
+  chat_idempotency_conflict: 'This retry no longer matches the original request. Send it as a new message.',
+  chat_source_unavailable: 'The selected source is unavailable. Choose another source and retry.',
 };
 
 function extractMessage(status: number, body: unknown): string {
@@ -580,7 +596,13 @@ function extractMessage(status: number, body: unknown): string {
 async function request<T>(
   method: string,
   path: string,
-  opts: { body?: unknown; query?: Record<string, unknown>; _retried?: boolean } = {},
+  opts: {
+    body?: unknown;
+    query?: Record<string, unknown>;
+    _retried?: boolean;
+    signal?: AbortSignal;
+    cache?: RequestCache;
+  } = {},
 ): Promise<T> {
   const clean = path.replace(/^\/+/, '');
   const url = `${API_BASE}/${clean}${buildQuery(opts.query)}`;
@@ -591,6 +613,8 @@ async function request<T>(
       // Send the auth cookie (HttpOnly) on every call so the optional login flow
       // works; harmless (and required for same-origin) when auth is disabled.
       credentials: 'include',
+      signal: opts.signal,
+      cache: opts.cache,
       headers:
         opts.body === undefined ? undefined : { 'Content-Type': 'application/json' },
       body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
@@ -628,6 +652,69 @@ async function request<T>(
     throw new ApiError(res.status, extractMessage(res.status, body), body);
   }
   return body as T;
+}
+
+/**
+ * Runbooks gained first-class management metadata after the original read-only
+ * catalog shipped. Normalise responses here so a rolling frontend/backend upgrade
+ * cannot crash the Intelligence page while an older worker still returns the
+ * smaller catalog shape. The defaults deliberately keep legacy documents bundled
+ * and immutable; they never manufacture operator write authority.
+ */
+function normalizeRunbook<T extends Runbook>(value: T): T {
+  const raw = value as unknown as Partial<Runbook> & Record<string, unknown>;
+  const strings = (candidate: unknown): string[] =>
+    Array.isArray(candidate)
+      ? candidate.filter((item): item is string => typeof item === 'string')
+      : [];
+  const sourceType = raw.source_type === 'operator' ? 'operator' : 'bundled';
+  const protectedRunbook =
+    typeof raw.protected === 'boolean' ? raw.protected : sourceType !== 'operator';
+
+  return {
+    ...value,
+    title: typeof raw.title === 'string' ? raw.title : String(raw.id || ''),
+    summary: typeof raw.summary === 'string' ? raw.summary : '',
+    persona: typeof raw.persona === 'string' ? raw.persona : '',
+    applies_to_rules: strings(raw.applies_to_rules),
+    applies_to_techniques: strings(raw.applies_to_techniques),
+    applies_to_entities: strings(raw.applies_to_entities),
+    keywords: strings(raw.keywords),
+    source_type: sourceType,
+    protected: protectedRunbook,
+    editable:
+      typeof raw.editable === 'boolean'
+        ? raw.editable && !protectedRunbook
+        : sourceType === 'operator' && !protectedRunbook,
+    revision: raw.revision ?? 1,
+    created_at: typeof raw.created_at === 'string' ? raw.created_at : null,
+    updated_at: typeof raw.updated_at === 'string' ? raw.updated_at : null,
+    index_status: typeof raw.index_status === 'string' ? raw.index_status : 'unknown',
+    indexed_revision: raw.indexed_revision ?? null,
+    last_indexed_at:
+      typeof raw.last_indexed_at === 'string' ? raw.last_indexed_at : null,
+    index_error: typeof raw.index_error === 'string' ? raw.index_error : null,
+  } as T;
+}
+
+function normalizeRunbooksResponse(value: RunbooksResponse): RunbooksResponse {
+  const raw = value as unknown as Partial<RunbooksResponse> & Record<string, unknown>;
+  const runbooks = Array.isArray(raw.runbooks)
+    ? raw.runbooks.map((runbook) => normalizeRunbook(runbook as Runbook))
+    : [];
+  const enabled = raw.enabled !== false;
+  const authoringStandard =
+    raw.authoring_standard && typeof raw.authoring_standard === 'object'
+      ? raw.authoring_standard
+      : undefined;
+  return {
+    enabled,
+    retrieval_enabled:
+      typeof raw.retrieval_enabled === 'boolean' ? raw.retrieval_enabled : enabled,
+    authoring_standard: authoringStandard,
+    count: typeof raw.count === 'number' ? raw.count : runbooks.length,
+    runbooks,
+  };
 }
 
 /** Generic verbs, for ad-hoc/endpoints not yet wrapped in a typed method. */
@@ -888,9 +975,52 @@ export const api = {
       body: { content },
     }),
 
+  // ---- Runbooks ------------------------------------------------------- //
+  // Trusted RAG reference knowledge. Unlike playbooks, runbooks are never
+  // selected as executable procedures and never influence deterministic case
+  // authority. Bundled documents remain readable but immutable.
+  getRunbooks: () =>
+    request<RunbooksResponse>('GET', 'runbooks').then(normalizeRunbooksResponse),
+  getRunbook: (runbookId: string) =>
+    request<RunbookDetail>('GET', `runbooks/${encodeURIComponent(runbookId)}`).then(
+      normalizeRunbook,
+    ),
+  createRunbook: (input: { id: string; content: string }) =>
+    request<RunbookMutationResponse>('POST', 'runbooks', { body: input }).then((result) => ({
+      ...result,
+      runbook: normalizeRunbook(result.runbook),
+    })),
+  updateRunbook: (
+    runbookId: string,
+    content: string,
+    expectedRevision: string | number,
+  ) =>
+    request<RunbookMutationResponse>('PUT', `runbooks/${encodeURIComponent(runbookId)}`, {
+      body: { content, expected_revision: expectedRevision },
+    }).then((result) => ({
+      ...result,
+      runbook: normalizeRunbook(result.runbook),
+    })),
+  deleteRunbook: (runbookId: string, expectedRevision: string | number) =>
+    request<RunbookDeleteResponse>('DELETE', `runbooks/${encodeURIComponent(runbookId)}`, {
+      query: { expected_revision: expectedRevision },
+    }),
+  reindexRunbooks: () => request<RunbookIndexResult>('POST', 'runbooks/reindex'),
+  reindexRunbook: (runbookId: string) =>
+    request<RunbookIndexResult>(
+      'POST',
+      `runbooks/${encodeURIComponent(runbookId)}/reindex`,
+    ),
+
   // ---- Health + setup --------------------------------------------------- //
-  health: () => request<HealthResponse>('GET', 'health'),
-  buildInfo: () => request<BuildInfoResponse>('GET', 'health/build-info'),
+  health: (options?: { signal?: AbortSignal; cache?: RequestCache }) =>
+    request<HealthResponse>('GET', 'health', options),
+  buildInfo: (options?: { signal?: AbortSignal; cache?: RequestCache }) =>
+    request<BuildInfoResponse>('GET', 'health/build-info', options),
+  upstreamReleases: (options?: { signal?: AbortSignal; cache?: RequestCache }) =>
+    request<UpstreamReleasesResponse>('GET', 'releases/upstream', options),
+  checkUpstreamReleases: () =>
+    request<UpstreamReleasesResponse>('POST', 'releases/upstream/check'),
   setupStatus: () => request<SetupStatus>('GET', 'setup/status'),
   updateSecrets: (secrets: SecretsUpdate) =>
     request<{ ok: boolean; configured: Record<string, boolean> }>('POST', 'setup/secrets', {
@@ -1046,6 +1176,18 @@ export const api = {
   getMetrics: (windowHours = 24) =>
     request<Metrics>('GET', 'metrics', { query: { window_hours: windowHours } }),
   getFeedbackStats: () => request<FeedbackStats>('GET', 'feedback/stats'),
+  getAgentImprovement: (params?: {
+    asOf?: string;
+    currentDays?: number;
+    baselineDays?: number;
+  }) =>
+    request<AgentImprovementEvidence>('GET', 'metrics/agent-improvement', {
+      query: {
+        as_of: params?.asOf,
+        current_days: params?.currentDays,
+        baseline_days: params?.baselineDays,
+      },
+    }),
 
   // ---- Noise-Reduction funnel (Round-7 ★) ------------------------------ //
   // GET /api/metrics/noise-reduction?window_hours= — the durable "raw alerts by
@@ -1107,6 +1249,9 @@ export const api = {
     caseId?: string,
     model?: string,
     sourceId?: string,
+    conversationId?: string,
+    persistConversation = false,
+    idempotencyKey?: string,
   ) =>
     request<ChatResponse>('POST', 'chat', {
       body: {
@@ -1115,8 +1260,31 @@ export const api = {
         ...(caseId ? { case_id: caseId } : {}),
         ...(model ? { model } : {}),
         ...(sourceId ? { source_id: sourceId } : {}),
+        ...(conversationId ? { conversation_id: conversationId } : {}),
+        ...(persistConversation ? { persist_conversation: true } : {}),
+        ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
       },
     }),
+  chatConversations: (limit = 50) =>
+    request<ChatConversationsResponse>('GET', 'chat/conversations', {
+      query: { limit },
+    }),
+  chatConversation: (conversationId: string) =>
+    request<ChatConversation>(
+      'GET',
+      `chat/conversations/${encodeURIComponent(conversationId)}`,
+    ),
+  renameChatConversation: (conversationId: string, title: string) =>
+    request<ChatConversationSummary>(
+      'PATCH',
+      `chat/conversations/${encodeURIComponent(conversationId)}`,
+      { body: { title } },
+    ),
+  deleteChatConversation: (conversationId: string) =>
+    request<{ ok: boolean; id: string }>(
+      'DELETE',
+      `chat/conversations/${encodeURIComponent(conversationId)}`,
+    ),
   investigate: (body: Record<string, unknown>) =>
     request<Case>('POST', 'investigate', { body }),
   scans: (limit = 50) => request<CasesResponse>('GET', 'scans', { query: { limit } }),

@@ -54,7 +54,7 @@ export function ChartCard({
 }: ChartCardProps) {
   return (
     <Card className={cn('flex flex-col', scrollBody && 'min-h-0', className)}>
-      <CardHeader className="pb-4">
+      <CardHeader className="border-b border-border/70 pb-3">
         <CardTitle className="flex items-center gap-2.5 text-sm font-semibold">
           <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-surface">
             <Icon className={cn('h-3.5 w-3.5', accentClass)} aria-hidden />
@@ -63,7 +63,7 @@ export function ChartCard({
           {action ? <span className="ml-auto">{action}</span> : null}
         </CardTitle>
       </CardHeader>
-      <CardContent className={cn('flex-1', scrollBody && 'min-h-0 overflow-auto')}>
+      <CardContent className={cn('flex-1 pt-4', scrollBody && 'min-h-0 overflow-auto')}>
         {children}
       </CardContent>
     </Card>

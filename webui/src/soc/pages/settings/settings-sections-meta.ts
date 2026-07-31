@@ -23,6 +23,7 @@
  */
 import type { LucideIcon } from 'lucide-react';
 import {
+  Archive,
   Bell,
   Brush,
   Database,
@@ -30,6 +31,7 @@ import {
   FileText,
   FlaskConical,
   Globe,
+  GitBranch,
   Hash,
   KeyRound,
   ListChecks,
@@ -410,6 +412,17 @@ export const SETTINGS_SECTIONS_META: SectionMeta[] = [
     keywords: ['branding', 'appearance', 'theme', 'logo', 'favicon', 'colour', 'color', 'white-label', 'accent'],
   },
   {
+    id: 'release_updates',
+    group: 'organization',
+    title: 'Updates & releases',
+    blurb: 'Public source repository, Stable/Testing refs, and read-only update discovery.',
+    icon: GitBranch,
+    perm: { resource: 'settings', action: 'manage' },
+    grid: true,
+    keywords: ['updates', 'release', 'repository', 'github', 'stable', 'testing', 'branch', 'version'],
+    ownedKeys: ['release_updates'],
+  },
+  {
     id: 'advanced',
     group: 'organization',
     title: 'Advanced',
@@ -447,6 +460,17 @@ export const SETTINGS_SECTIONS_META: SectionMeta[] = [
     icon: FlaskConical,
     perm: { resource: 'demo', action: 'manage' },
     keywords: ['demo', 'experimental', 'sample', 'synthetic', 'sandbox', 'simulated', 'seed', 'try it', 'preview'],
+  },
+  {
+    id: 'storage',
+    group: 'organization',
+    title: 'Storage & retention',
+    blurb: 'Capability-aware Hot, Warm, and desired archive lifecycle for Agentic SOC-owned state.',
+    icon: Archive,
+    perm: { resource: 'settings', action: 'manage' },
+    grid: true,
+    keywords: ['storage', 'retention', 'hot', 'warm', 'archive', 'glacier', 'ilm', 'lifecycle', 'audit', 'usage'],
+    ownedKeys: ['storage_lifecycle'],
   },
   {
     id: 'data_export',
@@ -518,6 +542,13 @@ export const SETTING_ANCHORS: readonly SettingAnchor[] = [
   { section: 'advanced', anchor: 'advanced-allowlist', label: 'Auto-forward allowlist', keywords: ['allowlist', 'auto-forward'] },
   { section: 'advanced', anchor: 'advanced-suppression', label: 'Suppression & rule catalog', keywords: ['suppression', 'rule catalog', 'detection rules'] },
   { section: 'advanced', anchor: 'advanced-lock', label: 'Settings lock', keywords: ['read-only', 'lock', 'settings lock'] },
+  // Organization › Storage & retention
+  { section: 'storage', anchor: 'storage-effective', label: 'Effective lifecycle', keywords: ['effective', 'backend', 'capability', 'ilm', 'status'] },
+  { section: 'storage', anchor: 'storage-policy', label: 'Desired policy', keywords: ['hot days', 'warm days', '180 days', '90 days', 'glacier', 'archive'] },
+  { section: 'storage', anchor: 'storage-preview', label: 'Preview & safe scope', keywords: ['preview', 'apply', 'source logs', 'cases', 'audit', 'usage', 'safe scope'] },
+  // Organization › Updates & releases
+  { section: 'release_updates', anchor: 'release-source', label: 'Source & channels', keywords: ['repository', 'github', 'stable', 'testing', 'branch', 'interval'] },
+  { section: 'release_updates', anchor: 'release-observed', label: 'Observed revisions', keywords: ['update', 'version', 'commit', 'check', 'source revision'] },
 ];
 
 /* -------------------------------------------------------------- derived ---- */
@@ -545,9 +576,11 @@ export type SectionId =
   | 'knowledge'
   | 'enrichment'
   | 'appearance'
+  | 'release_updates'
   | 'advanced'
   | 'advanced_all'
   | 'demo'
+  | 'storage'
   | 'data_export'
   | 'danger';
 

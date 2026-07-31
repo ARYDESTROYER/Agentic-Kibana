@@ -17,6 +17,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
 vi.mock('../Knowledge', () => ({ default: () => <div>knowledge body</div> }));
+vi.mock('../Runbooks', () => ({ default: () => <div>runbooks body</div> }));
 vi.mock('../Memory', () => ({ default: () => <div>memory body</div> }));
 vi.mock('../Catalog', () => ({ default: () => <div>catalog body</div> }));
 
@@ -36,5 +37,16 @@ describe('Intelligence host — Playbooks label alignment (#32)', () => {
     // The rendered header now agrees with it (was the "Playbooks & Agents" tab label).
     expect(screen.getByRole('heading', { name: 'Playbooks' })).toBeInTheDocument();
     expect(screen.queryByText(/Playbooks & Agents/i)).toBeNull();
+  });
+
+  it('renders the dedicated Runbooks Intelligence child at its registry label', () => {
+    render(
+      <TooltipProvider>
+        <Intelligence tab="runbooks" />
+      </TooltipProvider>,
+    );
+    expect(navLabel('runbooks')).toBe('Runbooks');
+    expect(screen.getByRole('heading', { name: 'Runbooks' })).toBeInTheDocument();
+    expect(screen.getByText('runbooks body')).toBeInTheDocument();
   });
 });

@@ -20,6 +20,7 @@ import {
   Coins,
   Cpu,
   Gauge,
+  Layers3,
   LayoutGrid,
   Minus,
   RefreshCw,
@@ -30,8 +31,13 @@ import {
 
 import type { Navigate } from '@/soc/router';
 import { api } from '@/lib/api';
+import { LoadingState } from '@/design-system';
 import { useDemo } from '@/soc/demo';
-import type { UsageSummary } from '@/lib/types';
+import type {
+  UsageProcessingTier,
+  UsageSummary,
+  UsageTierBreakdown,
+} from '@/lib/types';
 import {
   DASH,
   fmtMoney,
@@ -58,7 +64,6 @@ import { InlineCode } from '@/soc/components/CodeBlock';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/ui/card';
 import { Button } from '@/ui/button';
-import { Skeleton, SkeletonCard } from '@/ui/skeleton';
 
 // --------------------------------------------------------------------------- //
 // Local types + constants
@@ -103,6 +108,37 @@ const DIMENSIONS: { id: Dimension; label: string; verbatim: boolean }[] = [
 
 /** Donuts with more than this many slices roll the tail into "Other". */
 const MAX_DONUT_SLICES = 6;
+
+const TIER_ORDER: UsageProcessingTier[] = ['standard', 'flex', 'batch', 'unconfirmed'];
+const TIER_META: Record<
+  UsageProcessingTier,
+  { label: string; description: string; dot: string; bar: string }
+> = {
+  standard: {
+    label: 'Standard',
+    description: 'Normal provider service',
+    dot: 'bg-muted-foreground',
+    bar: 'bg-muted-foreground',
+  },
+  flex: {
+    label: 'Flex',
+    description: 'Actual Flex execution',
+    dot: 'bg-success',
+    bar: 'bg-success',
+  },
+  batch: {
+    label: 'Batch',
+    description: 'Actual async Batch execution',
+    dot: 'bg-info',
+    bar: 'bg-info',
+  },
+  unconfirmed: {
+    label: 'Unconfirmed',
+    description: 'Legacy or unknown attribution',
+    dot: 'bg-medium',
+    bar: 'bg-medium',
+  },
+};
 
 // --------------------------------------------------------------------------- //
 // Pure helpers (mirrors the legacy CostPage logic)
@@ -338,6 +374,24 @@ export default function Cost({ embedded = false }: CostProps = {}) {
   const totalCost = num(data?.total_cost);
   const totalTokens = num(data?.total_tokens);
   const callCount = num(data?.call_count);
+  const hasTierAttribution = Array.isArray(data?.by_processing_tier);
+  const tierRows = React.useMemo<UsageTierBreakdown[]>(
+    () =>
+      hasTierAttribution
+        ? TIER_ORDER.map(
+            (tier) =>
+              data?.by_processing_tier?.find((row) => row.key === tier) ?? {
+                key: tier,
+                cost: 0,
+                tokens: 0,
+                calls: 0,
+              },
+          )
+        : [],
+    [data, hasTierAttribution],
+  );
+  const discountedCoverage = data?.discounted_tier_coverage;
+  const tierAttribution = data?.processing_tier_attribution;
 
   // Spend-over-time series (bare numbers).
   const series = React.useMemo(
@@ -685,23 +739,17 @@ export default function Cost({ embedded = false }: CostProps = {}) {
     );
 
   // ----- States ---------------------------------------------------------- //
-  if (loading) {
+  if (loading && !data) {
     return wrap(
-      { 'aria-busy': true, 'aria-label': 'Loading cost data' },
+      {},
       <>
         {header}
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <SkeletonCard key={i} lines={1} />
-          ))}
-        </div>
-        <Skeleton className="h-64 w-full rounded-lg" />
-        <div className="grid gap-4 lg:grid-cols-3">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <SkeletonCard key={i} lines={5} />
-          ))}
-        </div>
-        <Skeleton className="h-80 w-full rounded-lg" />
+        <LoadingState
+          label="Loading cost data"
+          description="Preparing spend, token usage, and model efficiency."
+          layout={embedded ? 'panel' : 'page'}
+          shape={embedded ? 'panel' : 'page'}
+        />
       </>,
     );
   }
@@ -745,6 +793,109 @@ export default function Cost({ embedded = false }: CostProps = {}) {
               />
             ))}
           </Stagger>
+
+          {/* Actual execution tier — fixed ledger buckets, never policy inference. */}
+          <section
+            className="border-y border-border"
+            aria-labelledby="execution-tier-heading"
+          >
+            <div className="flex flex-col gap-3 px-1 py-5 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Layers3 className="h-4 w-4 text-muted-foreground" aria-hidden />
+                  <h2 id="execution-tier-heading" className="text-sm font-semibold text-foreground">
+                    Execution tiers
+                  </h2>
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Actual service tier recorded by the gateway—not the requested pricing policy.
+                </p>
+              </div>
+              {hasTierAttribution ? (
+                <div className="sm:text-right">
+                  <div className="font-mono text-2xl font-semibold tabular-nums text-foreground">
+                    {fmtPercent(num(discountedCoverage?.call_ratio))}
+                  </div>
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Discounted call coverage
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {fmtPercent(num(discountedCoverage?.token_ratio))} of tokens ·{' '}
+                    {fmtPercent(num(discountedCoverage?.cost_ratio))} of recorded spend
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            {hasTierAttribution ? (
+              <>
+                <div className="grid border-t border-border sm:grid-cols-2 xl:grid-cols-4 xl:divide-x xl:divide-border">
+                  {tierRows.map((row) => {
+                    const meta = TIER_META[row.key];
+                    const share = callCount > 0 ? Math.max(0, Math.min(1, row.calls / callCount)) : 0;
+                    return (
+                      <div
+                        key={row.key}
+                        className="border-b border-border px-4 py-4 last:border-b-0 xl:border-b-0"
+                        data-testid={`processing-tier-${row.key}`}
+                      >
+                        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          <span className={cn('size-2 rounded-full', meta.dot)} aria-hidden />
+                          {meta.label}
+                        </div>
+                        <div className="mt-3 flex items-baseline gap-2">
+                          <span className="font-mono text-xl font-semibold tabular-nums text-foreground">
+                            {fmtNumber(row.calls)}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {row.calls === 1 ? 'call' : 'calls'}
+                          </span>
+                        </div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          {fmtTokens(row.tokens)} tokens · {fmtMoney(row.cost, currency)}
+                        </div>
+                        <div
+                          className="mt-3 h-1 overflow-hidden rounded-full bg-muted"
+                          title={`${fmtPercent(share)} of calls`}
+                          aria-hidden
+                        >
+                          <div
+                            className={cn('h-full rounded-full', meta.bar)}
+                            style={{ width: `${share * 100}%` }}
+                          />
+                        </div>
+                        <p className="mt-2 text-xs text-muted-foreground">{meta.description}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="border-t border-border px-4 py-3 text-xs text-muted-foreground">
+                  {tierAttribution?.fallback_attribution_available ? (
+                    <span>
+                      {fmtNumber(num(tierAttribution.fallback_calls))} confirmed standard-tier
+                      fallbacks.
+                    </span>
+                  ) : (
+                    <span>
+                      Standard execution is confirmed, but the current ledger cannot distinguish an
+                      intentional standard request from a Flex fallback.
+                    </span>
+                  )}
+                  {num(tierAttribution?.unconfirmed_calls) > 0 ? (
+                    <span className="ml-1 text-medium-text">
+                      {fmtNumber(num(tierAttribution?.unconfirmed_calls))}{' '}
+                      {num(tierAttribution?.unconfirmed_calls) === 1 ? 'call has' : 'calls have'} legacy
+                      or unknown tier attribution.
+                    </span>
+                  ) : null}
+                </div>
+              </>
+            ) : (
+              <div className="border-t border-border px-4 py-5 text-sm text-muted-foreground">
+                Processing-tier attribution is unavailable from this backend response.
+              </div>
+            )}
+          </section>
 
           {/* Spend over time */}
           <Card>

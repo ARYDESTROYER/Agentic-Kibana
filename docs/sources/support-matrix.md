@@ -20,7 +20,7 @@ certified this release or that its transport durability has passed a live matrix
 
 All sources should be validated against a non-production tenant and a synthetic
 alert before wider rollout. Packaging and offline contract tests do not constitute
-live-vendor certification for Agentic SOC `0.1.0`.
+live-vendor certification for Agentic SOC `0.1.1`.
 
 ## Pull sources
 
@@ -40,7 +40,7 @@ metadata on the exact log patterns; never use an Elastic superuser,
 |---|---|---|---|
 | Generic webhook | HTTP push | JSON, NDJSON, CEF, LEEF, GELF, key/value | Use bearer or HMAC authentication; `none` is only for a trusted reverse proxy/network |
 | Splunk HEC-compatible | HTTP push | HEC event envelope and token authentication | This is an inbound HEC receiver, not a native Splunk search connector |
-| Syslog | UDP/TCP listener | RFC 3164, RFC 5424, RFC 6587 TCP framing | UDP is lossy; the current `tls` option does not create TLS and must not be used as if encrypted |
+| Syslog | UDP/TCP/TLS listener | RFC 3164, RFC 5424, RFC 6587 TCP framing | UDP is lossy. TLS requires mounted certificate/private-key paths; optional client-CA verification enables mTLS. Selecting TLS fails closed when its material is missing. |
 | Local file/directory | File tail | Auto-detected text formats | Container path must be mounted; byte offsets are process-local in version 0.1 |
 | Redis Streams | Queue | Consumer group via the bundled Redis client | Production replay/claim behaviour and multi-replica ownership are not yet certified |
 

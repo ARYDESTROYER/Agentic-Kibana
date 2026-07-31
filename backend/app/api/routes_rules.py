@@ -47,7 +47,7 @@ additionally is bounded by ``sources:read`` scoping upstream.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Callable
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, ValidationError
@@ -103,24 +103,17 @@ def _safe(value: Any) -> str:
 # --------------------------------------------------------------------------- #
 # Helpers — the deep-MERGE config-writer discipline (#3 / deep-merge PUT).
 # --------------------------------------------------------------------------- #
-async def _write_prefs(state: AppState, prefs: Preferences) -> Preferences:
-    """Persist a rebuilt ``Preferences`` (the caller changed exactly ONE rule
-    collection via ``model_copy(update=...)``, so every sibling block is preserved
-    byte-identically — this is the deep-MERGE semantics, done at the model level rather
-    than by JSON patch). Returns the stored prefs.
+async def _write_prefs(
+    state: AppState,
+    transform: Callable[[Preferences], Preferences],
+) -> Preferences:
+    """Atomically layer one rule mutation onto the freshest Preferences document.
 
-    TODO (P11 — concurrency, pre-existing app-wide, NOT Round-5-introduced): every CRUD
-    handler snapshots ``state.prefs`` then writes the whole doc back through
-    ``update_prefs`` with no ``_rev``/CAS/lock (``state.update_prefs`` is a plain full-doc
-    ``config_store.save``). Two concurrent edits — or a rule edit racing the nightly
-    ``threshold_tuner`` — each snapshot the same base, so the last writer clobbers the
-    other block. The correct fix is a CAS/locked read-modify-write in the store seam
-    (per-block merge under a prefs lock with an ``_rev`` compare-and-set), applied once for
-    the WHOLE app (settings PUT + terminology + tuner all share this exact pattern). A
-    lock inside ``update_prefs`` alone would NOT close the race here — the read+copy
-    happens in the handler ABOVE the lock — so it is deliberately left as a store-layer
-    task rather than a risky per-handler restructure. Not done in this polish pass."""
-    return await state.update_prefs(prefs)
+    ``AppState.mutate_prefs`` holds the application-wide preferences write lock across
+    read → transform → save. The transform is synchronous/pure, so concurrent rule,
+    settings, source, or tuner edits cannot clobber a sibling block with a stale snapshot.
+    """
+    return await state.mutate_prefs(transform)
 
 
 async def _audit(state: AppState, request: Request, event: str, detail: str) -> None:
@@ -256,17 +249,21 @@ async def upsert_detection_rule(
         raise HTTPException(status_code=400, detail="rule_name is required")
     # Force the URL name to be authoritative (the body name is advisory).
     incoming = body.model_copy(update={"name": name})
-    prefs = state.prefs
-    catalog = list(prefs.rule_catalog or [])
     existed = False
-    for idx, rd in enumerate(catalog):
-        if rd.name == name:
-            catalog[idx] = incoming
-            existed = True
-            break
-    if not existed:
-        catalog.append(incoming)
-    await _write_prefs(state, prefs.model_copy(update={"rule_catalog": catalog}))
+
+    def _apply(prefs: Preferences) -> Preferences:
+        nonlocal existed
+        catalog = list(prefs.rule_catalog or [])
+        for idx, rd in enumerate(catalog):
+            if rd.name == name:
+                catalog[idx] = incoming
+                existed = True
+                break
+        if not existed:
+            catalog.append(incoming)
+        return prefs.model_copy(update={"rule_catalog": catalog})
+
+    await _write_prefs(state, _apply)
     action = "update" if existed else "create"
     await _audit(state, request, f"detection_{action}",
                  f"name={name} enabled={incoming.enabled} priority={incoming.priority}")
@@ -287,20 +284,26 @@ async def set_detection_enabled(
     """Enable/disable ONE detection rule (a lifecycle toggle, deep-merge). 404 for an
     unknown rule. Audited + versioned (#2). Config-writer only (#3)."""
     name = (rule_name or "").strip()
-    prefs = state.prefs
-    catalog = list(prefs.rule_catalog or [])
-    for idx, rd in enumerate(catalog):
-        if rd.name == name:
-            updated = rd.model_copy(update={"enabled": bool(body.enabled)})
-            catalog[idx] = updated
-            await _write_prefs(state, prefs.model_copy(update={"rule_catalog": catalog}))
-            action = "enable" if body.enabled else "disable"
-            await _audit(state, request, f"detection_{action}", f"name={name}")
-            await _version(state, request, kind="detection", rule_id=name,
-                           config=updated.model_dump(mode="json"), action=action,
-                           summary=f"{action} detection rule {name}")
-            return {"ok": True, "rule": updated.model_dump(mode="json")}
-    raise HTTPException(status_code=404, detail=f"detection rule {_safe(name)} not found")
+    updated: RuleDefinition | None = None
+
+    def _apply(prefs: Preferences) -> Preferences:
+        nonlocal updated
+        catalog = list(prefs.rule_catalog or [])
+        for idx, rd in enumerate(catalog):
+            if rd.name == name:
+                updated = rd.model_copy(update={"enabled": bool(body.enabled)})
+                catalog[idx] = updated
+                return prefs.model_copy(update={"rule_catalog": catalog})
+        raise HTTPException(status_code=404, detail=f"detection rule {_safe(name)} not found")
+
+    await _write_prefs(state, _apply)
+    assert updated is not None
+    action = "enable" if body.enabled else "disable"
+    await _audit(state, request, f"detection_{action}", f"name={name}")
+    await _version(state, request, kind="detection", rule_id=name,
+                   config=updated.model_dump(mode="json"), action=action,
+                   summary=f"{action} detection rule {name}")
+    return {"ok": True, "rule": updated.model_dump(mode="json")}
 
 
 @router.delete("/rules/detection/{rule_name}")
@@ -313,18 +316,24 @@ async def delete_detection_rule(
     """Delete ONE detection rule (deep-merge: only its slot is removed). 404 for an
     unknown rule. Audited + versioned with the pre-delete snapshot (#2)."""
     name = (rule_name or "").strip()
-    prefs = state.prefs
-    catalog = list(prefs.rule_catalog or [])
-    for idx, rd in enumerate(catalog):
-        if rd.name == name:
-            removed = catalog.pop(idx)
-            await _write_prefs(state, prefs.model_copy(update={"rule_catalog": catalog}))
-            await _audit(state, request, "detection_delete", f"name={name}")
-            await _version(state, request, kind="detection", rule_id=name,
-                           config=removed.model_dump(mode="json"), action="delete",
-                           summary=f"delete detection rule {name}")
-            return {"ok": True, "deleted": name}
-    raise HTTPException(status_code=404, detail=f"detection rule {_safe(name)} not found")
+    removed: RuleDefinition | None = None
+
+    def _apply(prefs: Preferences) -> Preferences:
+        nonlocal removed
+        catalog = list(prefs.rule_catalog or [])
+        for idx, rd in enumerate(catalog):
+            if rd.name == name:
+                removed = catalog.pop(idx)
+                return prefs.model_copy(update={"rule_catalog": catalog})
+        raise HTTPException(status_code=404, detail=f"detection rule {_safe(name)} not found")
+
+    await _write_prefs(state, _apply)
+    assert removed is not None
+    await _audit(state, request, "detection_delete", f"name={name}")
+    await _version(state, request, kind="detection", rule_id=name,
+                   config=removed.model_dump(mode="json"), action="delete",
+                   summary=f"delete detection rule {name}")
+    return {"ok": True, "deleted": name}
 
 
 # --------------------------------------------------------------------------- #
@@ -347,11 +356,16 @@ async def upsert_correlation_rule(
     key = (rule_key or "").strip()
     if not key:
         raise HTTPException(status_code=400, detail="rule_key is required")
-    prefs = state.prefs
-    rules = dict(prefs.correlation_rules or {})
-    existed = key in rules
-    rules[key] = body
-    await _write_prefs(state, prefs.model_copy(update={"correlation_rules": rules}))
+    existed = False
+
+    def _apply(prefs: Preferences) -> Preferences:
+        nonlocal existed
+        rules = dict(prefs.correlation_rules or {})
+        existed = key in rules
+        rules[key] = body
+        return prefs.model_copy(update={"correlation_rules": rules})
+
+    await _write_prefs(state, _apply)
     action = "update" if existed else "create"
     await _audit(state, request, f"correlation_{action}",
                  f"key={key} n={body.n} window={body.window_seconds} "
@@ -372,12 +386,18 @@ async def delete_correlation_rule(
     """Delete ONE correlation rule (the rule falls back to ``default_correlation``
     thereafter). 404 for an unknown key. Audited + versioned (#2)."""
     key = (rule_key or "").strip()
-    prefs = state.prefs
-    rules = dict(prefs.correlation_rules or {})
-    if key not in rules:
-        raise HTTPException(status_code=404, detail=f"correlation rule {_safe(key)} not found")
-    removed = rules.pop(key)
-    await _write_prefs(state, prefs.model_copy(update={"correlation_rules": rules}))
+    removed: CorrelationRule | None = None
+
+    def _apply(prefs: Preferences) -> Preferences:
+        nonlocal removed
+        rules = dict(prefs.correlation_rules or {})
+        if key not in rules:
+            raise HTTPException(status_code=404, detail=f"correlation rule {_safe(key)} not found")
+        removed = rules.pop(key)
+        return prefs.model_copy(update={"correlation_rules": rules})
+
+    await _write_prefs(state, _apply)
+    assert removed is not None
     await _audit(state, request, "correlation_delete", f"key={key}")
     await _version(state, request, kind="correlation", rule_id=key,
                    config=removed.model_dump(mode="json"), action="delete",
@@ -410,22 +430,27 @@ async def upsert_case_automation_rule(
         raise HTTPException(status_code=400, detail="rule_id is required")
     incoming = body.model_copy(update={"id": rid})
     _validate_automation_verdict(incoming)  # bug #6
-    prefs = state.prefs
-    cfg = getattr(prefs, "threshold_automation", None)
-    if cfg is None:
-        from ..config import ThresholdAutomationConfig
-        cfg = ThresholdAutomationConfig()
-    rules = list(cfg.rules or [])
     existed = False
-    for idx, r in enumerate(rules):
-        if r.id == rid:
-            rules[idx] = incoming
-            existed = True
-            break
-    if not existed:
-        rules.append(incoming)
-    new_cfg = cfg.model_copy(update={"rules": rules})
-    await _write_prefs(state, prefs.model_copy(update={"threshold_automation": new_cfg}))
+
+    def _apply(prefs: Preferences) -> Preferences:
+        nonlocal existed
+        cfg = getattr(prefs, "threshold_automation", None)
+        if cfg is None:
+            from ..config import ThresholdAutomationConfig
+            cfg = ThresholdAutomationConfig()
+        rules = list(cfg.rules or [])
+        for idx, rule in enumerate(rules):
+            if rule.id == rid:
+                rules[idx] = incoming
+                existed = True
+                break
+        if not existed:
+            rules.append(incoming)
+        return prefs.model_copy(update={
+            "threshold_automation": cfg.model_copy(update={"rules": rules}),
+        })
+
+    await _write_prefs(state, _apply)
     action = "update" if existed else "create"
     await _audit(state, request, f"case_automation_{action}",
                  f"id={rid} action={incoming.action} enabled={incoming.enabled}")
@@ -446,22 +471,29 @@ async def set_case_automation_enabled(
     """Enable/disable ONE case-automation rule (lifecycle toggle, deep-merge). 404 for
     an unknown id. Audited + versioned (#2). Config-writer only (#3)."""
     rid = (rule_id or "").strip()
-    prefs = state.prefs
-    cfg = getattr(prefs, "threshold_automation", None)
-    rules = list(getattr(cfg, "rules", []) or [])
-    for idx, r in enumerate(rules):
-        if r.id == rid:
-            updated = r.model_copy(update={"enabled": bool(body.enabled)})
-            rules[idx] = updated
-            new_cfg = cfg.model_copy(update={"rules": rules})
-            await _write_prefs(state, prefs.model_copy(update={"threshold_automation": new_cfg}))
-            action = "enable" if body.enabled else "disable"
-            await _audit(state, request, f"case_automation_{action}", f"id={rid}")
-            await _version(state, request, kind="case_automation", rule_id=rid,
-                           config=updated.model_dump(mode="json"), action=action,
-                           summary=f"{action} case-automation rule {rid}")
-            return {"ok": True, "rule": updated.model_dump(mode="json")}
-    raise HTTPException(status_code=404, detail=f"case-automation rule {_safe(rid)} not found")
+    updated: CaseAutomationRule | None = None
+
+    def _apply(prefs: Preferences) -> Preferences:
+        nonlocal updated
+        cfg = getattr(prefs, "threshold_automation", None)
+        rules = list(getattr(cfg, "rules", []) or [])
+        for idx, rule in enumerate(rules):
+            if rule.id == rid:
+                updated = rule.model_copy(update={"enabled": bool(body.enabled)})
+                rules[idx] = updated
+                return prefs.model_copy(update={
+                    "threshold_automation": cfg.model_copy(update={"rules": rules}),
+                })
+        raise HTTPException(status_code=404, detail=f"case-automation rule {_safe(rid)} not found")
+
+    await _write_prefs(state, _apply)
+    assert updated is not None
+    action = "enable" if body.enabled else "disable"
+    await _audit(state, request, f"case_automation_{action}", f"id={rid}")
+    await _version(state, request, kind="case_automation", rule_id=rid,
+                   config=updated.model_dump(mode="json"), action=action,
+                   summary=f"{action} case-automation rule {rid}")
+    return {"ok": True, "rule": updated.model_dump(mode="json")}
 
 
 @router.delete("/rules/case-automation/{rule_id}")
@@ -474,20 +506,27 @@ async def delete_case_automation_rule(
     """Delete ONE case-automation rule (deep-merge). 404 for an unknown id. Audited +
     versioned with the pre-delete snapshot (#2)."""
     rid = (rule_id or "").strip()
-    prefs = state.prefs
-    cfg = getattr(prefs, "threshold_automation", None)
-    rules = list(getattr(cfg, "rules", []) or [])
-    for idx, r in enumerate(rules):
-        if r.id == rid:
-            removed = rules.pop(idx)
-            new_cfg = cfg.model_copy(update={"rules": rules})
-            await _write_prefs(state, prefs.model_copy(update={"threshold_automation": new_cfg}))
-            await _audit(state, request, "case_automation_delete", f"id={rid}")
-            await _version(state, request, kind="case_automation", rule_id=rid,
-                           config=removed.model_dump(mode="json"), action="delete",
-                           summary=f"delete case-automation rule {rid}")
-            return {"ok": True, "deleted": rid}
-    raise HTTPException(status_code=404, detail=f"case-automation rule {_safe(rid)} not found")
+    removed: CaseAutomationRule | None = None
+
+    def _apply(prefs: Preferences) -> Preferences:
+        nonlocal removed
+        cfg = getattr(prefs, "threshold_automation", None)
+        rules = list(getattr(cfg, "rules", []) or [])
+        for idx, rule in enumerate(rules):
+            if rule.id == rid:
+                removed = rules.pop(idx)
+                return prefs.model_copy(update={
+                    "threshold_automation": cfg.model_copy(update={"rules": rules}),
+                })
+        raise HTTPException(status_code=404, detail=f"case-automation rule {_safe(rid)} not found")
+
+    await _write_prefs(state, _apply)
+    assert removed is not None
+    await _audit(state, request, "case_automation_delete", f"id={rid}")
+    await _version(state, request, kind="case_automation", rule_id=rid,
+                   config=removed.model_dump(mode="json"), action="delete",
+                   summary=f"delete case-automation rule {rid}")
+    return {"ok": True, "deleted": rid}
 
 
 # --------------------------------------------------------------------------- #
@@ -539,32 +578,44 @@ async def rollback_rule(
             status_code=404,
             detail=f"no version {_safe(version_id)} for {_safe(kind)} rule {_safe(rule_id)}",
         )
-    prefs = state.prefs
     config = version.config or {}
     try:
         if kind == "detection":
             restored = RuleDefinition.model_validate({**config, "name": rule_id})
-            catalog = [rd for rd in (prefs.rule_catalog or []) if rd.name != rule_id]
-            catalog.append(restored)
-            await _write_prefs(state, prefs.model_copy(update={"rule_catalog": catalog}))
+
+            def _apply_detection(prefs: Preferences) -> Preferences:
+                catalog = [rd for rd in (prefs.rule_catalog or []) if rd.name != rule_id]
+                catalog.append(restored)
+                return prefs.model_copy(update={"rule_catalog": catalog})
+
+            await _write_prefs(state, _apply_detection)
             restored_json = restored.model_dump(mode="json")
         elif kind == "correlation":
             restored_c = CorrelationRule.model_validate(config)
-            rules = dict(prefs.correlation_rules or {})
-            rules[rule_id] = restored_c
-            await _write_prefs(state, prefs.model_copy(update={"correlation_rules": rules}))
+
+            def _apply_correlation(prefs: Preferences) -> Preferences:
+                rules = dict(prefs.correlation_rules or {})
+                rules[rule_id] = restored_c
+                return prefs.model_copy(update={"correlation_rules": rules})
+
+            await _write_prefs(state, _apply_correlation)
             restored_json = restored_c.model_dump(mode="json")
         elif kind == "case_automation":
             restored_a = CaseAutomationRule.model_validate({**config, "id": rule_id})
             _validate_automation_verdict(restored_a)  # never restore an impossible verdict
-            cfg = getattr(prefs, "threshold_automation", None)
-            if cfg is None:
-                from ..config import ThresholdAutomationConfig
-                cfg = ThresholdAutomationConfig()
-            arules = [r for r in (cfg.rules or []) if r.id != rule_id]
-            arules.append(restored_a)
-            new_cfg = cfg.model_copy(update={"rules": arules})
-            await _write_prefs(state, prefs.model_copy(update={"threshold_automation": new_cfg}))
+
+            def _apply_automation(prefs: Preferences) -> Preferences:
+                cfg = getattr(prefs, "threshold_automation", None)
+                if cfg is None:
+                    from ..config import ThresholdAutomationConfig
+                    cfg = ThresholdAutomationConfig()
+                arules = [r for r in (cfg.rules or []) if r.id != rule_id]
+                arules.append(restored_a)
+                return prefs.model_copy(update={
+                    "threshold_automation": cfg.model_copy(update={"rules": arules}),
+                })
+
+            await _write_prefs(state, _apply_automation)
             restored_json = restored_a.model_dump(mode="json")
         else:
             raise HTTPException(status_code=400, detail=f"unknown rule kind {_safe(kind)}")

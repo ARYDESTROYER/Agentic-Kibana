@@ -181,6 +181,18 @@ def main() -> int:
     for marker in ("location = /docs", "location ^~ /docs/", "=404"):
         if marker not in nginx_source:
             failures.append(f"webui/nginx.conf: missing documentation boundary {marker!r}")
+    if "location ^~ /examples/" not in nginx_source:
+        failures.append(
+            "webui/nginx.conf: missing downloadable-example static-file boundary"
+        )
+    for marker in (
+        "location = /release.json",
+        'Cache-Control "no-store, no-cache, must-revalidate"',
+    ):
+        if marker not in nginx_source:
+            failures.append(
+                f"webui/nginx.conf: missing deployed-release boundary {marker!r}"
+            )
 
     compose_source = (ROOT / "deploy/docker-compose.agnostic.yml").read_text(
         encoding="utf-8"
@@ -204,10 +216,39 @@ def main() -> int:
             if marker not in source:
                 failures.append(f"{relative}: missing browser release marker {marker!r}")
 
+    vite_source = (ROOT / "webui/vite.config.ts").read_text(encoding="utf-8")
+    for marker in (
+        "releaseManifestPlugin",
+        "release.json",
+        "name: 'tlsoc-release'",
+        "RELEASE_ENTRY_ID",
+    ):
+        if marker not in vite_source:
+            failures.append(f"webui/vite.config.ts: missing update artifact marker {marker!r}")
+
     shell_source = (ROOT / "webui/src/soc/AppShell.tsx").read_text(encoding="utf-8")
-    for marker in ("ReleaseBadge", "api.buildInfo", "resolveReleasePresentation"):
+    for marker in (
+        "ReleaseBadge",
+        "DeploymentUpdateButton",
+        "useDeploymentUpdate",
+        "resolveReleasePresentation",
+    ):
         if marker not in shell_source:
             failures.append(f"webui/src/soc/AppShell.tsx: missing release marker {marker!r}")
+
+    deployment_update_source = (
+        ROOT / "webui/src/lib/deployment-update.ts"
+    ).read_text(encoding="utf-8")
+    for marker in (
+        "deployedReleaseIsReady",
+        "meta[name=\"tlsoc-release\"]",
+        "cache: 'no-store'",
+    ):
+        if marker not in deployment_update_source:
+            failures.append(
+                "webui/src/lib/deployment-update.ts: missing fail-safe activation "
+                f"marker {marker!r}"
+            )
 
     demo_source = (ROOT / "scripts/run-demo.sh").read_text(encoding="utf-8")
     for marker in (

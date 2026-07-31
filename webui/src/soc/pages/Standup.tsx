@@ -44,6 +44,7 @@ import { api } from '@/lib/api';
 import type { StandupResponse } from '@/lib/types';
 import { DASH, fmtNumber, humanizeAge, humanizeToken } from '@/lib/format';
 import { cn } from '@/lib/cn';
+import { LoadingState } from '@/design-system';
 import { useAuth } from '@/soc/auth';
 import { useNavigateOptional, type Navigate } from '@/soc/router';
 
@@ -62,7 +63,6 @@ import {
 } from '@/ui/card';
 import { Button } from '@/ui/button';
 import { Input } from '@/ui/input';
-import { Skeleton } from '@/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
 import { Badge } from '@/ui/badge';
 import {
@@ -239,6 +239,7 @@ export default function Standup({ onNavigate }: StandupProps) {
 
   const disabled = report?.enabled === false;
   const degraded = report?.degraded === true;
+  const initialLoading = loading && !report;
 
   const attention = report?.attention_queue ?? [];
   const sla = report?.sla_aging;
@@ -307,7 +308,7 @@ export default function Standup({ onNavigate }: StandupProps) {
 
   /* ------------------------------------------------------------------ body */
   return (
-    <PageContainer variant="wide" className="animate-fade-in space-y-6">
+    <PageContainer variant="wide" className="space-y-6">
       <PageHeader
         variant="hero"
         eyebrow="Shift handoff"
@@ -321,20 +322,14 @@ export default function Standup({ onNavigate }: StandupProps) {
           </div>
         }
       >
-        {error ? (
+        {error && !report ? (
           <LoadError
             error={error}
             title="Could not reach the standup service"
             fallback="The backend may be unreachable. Try refreshing in a moment."
             onRetry={() => void load()}
           />
-        ) : loading ? (
-          <div className="space-y-3">
-            <Skeleton className="h-5 w-2/5" />
-            <Skeleton className="h-4 w-full" />
-            <Skeleton className="h-4 w-3/4" />
-          </div>
-        ) : disabled ? null : (
+        ) : initialLoading ? null : disabled ? null : (
           <div className="space-y-3">
             {degraded ? (
               <Alert variant="warning">
@@ -352,7 +347,7 @@ export default function Standup({ onNavigate }: StandupProps) {
       </PageHeader>
 
       {/* Disabled state — friendly, outside the hero. */}
-      {!loading && !error && disabled ? (
+      {!initialLoading && disabled ? (
         <Card>
           <CardContent className="p-0">
             <EmptyState
@@ -364,20 +359,26 @@ export default function Standup({ onNavigate }: StandupProps) {
         </Card>
       ) : null}
 
-      {/* Loading skeleton. */}
-      {loading ? (
-        <div className="space-y-6">
-          <Skeleton className="h-[320px] rounded-lg" />
-          <div className="grid gap-6 lg:grid-cols-3">
-            {[0, 1, 2].map((i) => (
-              <Skeleton key={i} className="h-[200px] rounded-lg" />
-            ))}
-          </div>
-        </div>
+      {initialLoading ? (
+        <LoadingState
+          label="Loading shift handoff"
+          description="Preparing the attention queue, SLA pressure, and action items."
+          layout="page"
+          shape="page"
+        />
+      ) : null}
+
+      {error && report ? (
+        <LoadError
+          error={error}
+          title="Could not refresh the standup"
+          fallback="The current shift snapshot is still available. Try refreshing again."
+          onRetry={() => void load()}
+        />
       ) : null}
 
       {/* Populated content. */}
-      {!loading && !error && !disabled && report ? (
+      {!initialLoading && !disabled && report ? (
         <>
           {/* ATTENTION QUEUE — the lead. */}
           <AttentionQueueCard attention={attention} onNavigate={navigate} />
@@ -461,7 +462,7 @@ function DeltaTiles({ deltas }: { deltas: Record<string, DeltaCell> }) {
                 <span
                   className={cn(
                     'mb-0.5 inline-flex items-center gap-0.5 text-xs font-semibold tabular-nums',
-                    good ? 'text-success' : 'text-critical',
+                    good ? 'text-success-text' : 'text-critical-text',
                   )}
                   aria-label={deltaAria}
                 >
@@ -631,9 +632,9 @@ function SlaCard({
         ) : (
           <div className="space-y-4">
             <div className="grid grid-cols-3 gap-3">
-              <MiniStat label="Open" value={fmtNumber(totals?.open)} accent="text-info" />
-              <MiniStat label="Breached" value={fmtNumber(totals?.breached)} accent="text-critical" />
-              <MiniStat label="At risk" value={fmtNumber(totals?.about_to_breach)} accent="text-high" />
+              <MiniStat label="Open" value={fmtNumber(totals?.open)} accent="text-info-text" />
+              <MiniStat label="Breached" value={fmtNumber(totals?.breached)} accent="text-critical-text" />
+              <MiniStat label="At risk" value={fmtNumber(totals?.about_to_breach)} accent="text-high-text" />
             </div>
             {sla.breached.length ? (
               <ul className="flex flex-col divide-y divide-border">
@@ -659,7 +660,7 @@ function SlaCard({
                       <span className="truncate text-muted-foreground">
                         {b.priority_level || '—'}
                       </span>
-                      <span className="ml-auto font-mono tabular-nums text-critical">
+                      <span className="ml-auto font-mono tabular-nums text-critical-text">
                         +{Math.round(b.overdue_minutes)}m
                       </span>
                     </li>
@@ -940,7 +941,7 @@ function AcknowledgeCard({
       </CardHeader>
       <CardContent className="space-y-4">
         {myAck ? (
-          <div className="flex items-start gap-2.5 rounded-lg border border-success/40 bg-success/10 px-4 py-3 text-success">
+          <div className="flex items-start gap-2.5 rounded-lg border border-success/40 bg-success/10 px-4 py-3 text-success-text">
             <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
             <div>
               <p className="text-sm font-medium">You acknowledged this handoff</p>

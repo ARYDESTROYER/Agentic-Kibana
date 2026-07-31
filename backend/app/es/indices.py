@@ -120,10 +120,13 @@ CONTRACT_INDICES = {
 }
 
 
-def index_template_body(base: str, mapping: dict) -> dict:
+def index_template_body(
+    base: str, mapping: dict, *, extra_settings: dict | None = None
+) -> dict:
+    settings = {**_COMMON_SETTINGS, **(extra_settings or {})}
     return {
         "index_patterns": [f"{base}-*"],
-        "template": {"settings": _COMMON_SETTINGS, "mappings": mapping},
+        "template": {"settings": settings, "mappings": mapping},
         "priority": 600,
         "_meta": {"owner": "tlsoc-agentic-triage", "contract": base},
     }

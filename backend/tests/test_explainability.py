@@ -7,10 +7,12 @@ from __future__ import annotations
 
 import json
 
-from app.api.routes import case_rationale, case_trace
-from app.constants import ActionType, EntityType, SourceSurface
+from app.api.routes import _build_rationale, case_rationale, case_trace
+from app.config import SourceInstance
+from app.constants import ActionType, EntityType, SourceSurface, SourceType
 from app.engine.correlation import cluster_from_events
-from app.models import RagChunk
+from app.models import RagChunk, TriggerReason
+from app.stores.tuning import TuningRecord
 
 from tests.conftest import make_raw_event
 
@@ -21,7 +23,17 @@ def _cluster(rule: str = "linux_auth", n: int = 6, ip: str = "203.0.113.50"):
         make_raw_event(id=f"e{i}", ip=ip, rule=rule, ts_millis=base + i * 1000)
         for i in range(n)
     ]
-    return cluster_from_events(EntityType.IP, ip, events)
+    cluster = cluster_from_events(EntityType.IP, ip, events)
+    # Manual builder clusters do not normally carry the correlator's threshold
+    # metadata.  Add the exact recorded trigger here so platform-tuning provenance
+    # can be tested without changing the production manual-investigation contract.
+    cluster.trigger_reason = TriggerReason(
+        rule_value=rule,
+        mode="threshold",
+        n=n,
+        observed_count=n,
+    )
+    return cluster
 
 
 def _final(verdict: str = "TRUE_POSITIVE", confidence: float = 0.92) -> str:
@@ -113,6 +125,14 @@ async def test_verdict_record_has_reasoning(app_state, mock_provider):
 # --------------------------------------------------------------------------- #
 async def test_rationale_endpoint_assembles_why(app_state, mock_provider):
     state = app_state
+    await state.tuning_store.add(TuningRecord(
+        id="tune-linux-auth",
+        rule_id="linux_auth",
+        target="correlation_n",
+        before=5,
+        after=6,
+        rationale="Raised after repeated false-positive clusters.",
+    ))
     case = await _run_investigation(state, mock_provider)
 
     out = await case_rationale(case.case_id, state)
@@ -126,11 +146,23 @@ async def test_rationale_endpoint_assembles_why(app_state, mock_provider):
     # playbook block present (id may be empty if no match, but reason is recorded).
     assert "id" in out["playbook"] and "reason" in out["playbook"]
     assert out["playbook"]["reason"]  # playbook_selector DECISION captured
+    assert "consulted" in out["playbook"]
 
     # knowledge with source.
     assert any(k["source"] == "runbook" for k in out["knowledge"])
     # memory facts injected.
     assert any("internal corporate range" in m for m in out["memory_used"])
+    # Platform tuning is an immutable case-run snapshot, not a mutable-ledger join.
+    assert out["platform_tuning_status"] == "recorded"
+    assert out["platform_tuning"] == [{
+        "record_id": "tune-linux-auth",
+        "target": "correlation_n",
+        "rule_id": "linux_auth",
+        "before": 5,
+        "after": 6,
+        "applied_at": out["platform_tuning"][0]["applied_at"],
+        "rationale": "Raised after repeated false-positive clusters.",
+    }]
     # enrichment present.
     assert out["enrichment"] is not None and "reputation_score" in out["enrichment"]
     # tools the agent ran, with the issued query recorded (es_query is read-only).
@@ -171,3 +203,161 @@ async def test_rationale_unknown_case_is_empty_not_error(app_state):
     assert out["verdict"] == "" and out["knowledge"] == [] and out["memory_used"] == []
     assert out["enrichment"] is None and out["tools"] == []
     assert out["reasoning"] == "" and out["decision_rationale"] == ""
+    assert out["platform_tuning_status"] == "not_recorded"
+    assert out["platform_tuning"] == []
+
+
+def test_rationale_projects_only_latest_investigation_run():
+    """A cheap/latest run must not inherit an older run's context or tool calls."""
+    rows = [
+        {
+            "actor": "playbook_selector",
+            "action_type": ActionType.DECISION.value,
+            "result_summary": "reason=old",
+            "tool_input": {"playbook_selection": {"id": "old-playbook", "reason": "old"}},
+        },
+        {
+            "actor": "context",
+            "action_type": ActionType.CONTEXT.value,
+            "tool_input": {
+                "memory": ["old memory"],
+                "knowledge": [{"source": "runbook", "snippet": "old runbook"}],
+                "playbook_detail": {"id": "old-playbook", "version": "1"},
+            },
+        },
+        {
+            "actor": "investigator",
+            "action_type": ActionType.TOOL_CALL.value,
+            "tool_name": "es_query",
+            "query_text": "old query",
+        },
+        {
+            "actor": "investigator",
+            "action_type": ActionType.VERDICT.value,
+            "result_summary": "reasoning=old reasoning",
+        },
+        {
+            "actor": "playbook_selector",
+            "action_type": ActionType.DECISION.value,
+            "result_summary": "reason=new selection",
+            "tool_input": {
+                "playbook_selection": {"id": "selected-only", "reason": "new selection"},
+                "platform_tuning": {
+                    "status": "recorded",
+                    "records": [{
+                        "record_id": "tune-new",
+                        "target": "correlation_n",
+                        "rule_id": "rule-new",
+                        "before": 2,
+                        "after": 3,
+                    }],
+                },
+            },
+        },
+        {
+            "actor": "router",
+            "action_type": ActionType.VERDICT.value,
+            "result_summary": "reasoning=new cheap-path reasoning",
+        },
+    ]
+
+    out = _build_rationale("case-reinvestigated", None, rows)
+
+    assert out["memory_used"] == []
+    assert out["knowledge"] == []
+    assert out["tools"] == []
+    assert out["reasoning"] == "new cheap-path reasoning"
+    # Selection is not consultation: no investigator CONTEXT row, no used playbook.
+    assert out["playbook"]["id"] == ""
+    assert out["playbook"]["consulted"] is False
+    assert out["platform_tuning"][0]["record_id"] == "tune-new"
+
+
+async def test_tuning_snapshot_does_not_resurrect_an_older_threshold(app_state):
+    """Only the newest active row for one knob can explain the current threshold."""
+    state = app_state
+    await state.tuning_store.add(TuningRecord(
+        id="tune-old-matching",
+        rule_id="linux_auth",
+        target="correlation_n",
+        before=5,
+        after=6,
+        applied_at="2026-01-01T00:00:00+00:00",
+    ))
+    await state.tuning_store.add(TuningRecord(
+        id="tune-new-stale",
+        rule_id="linux_auth",
+        target="correlation_n",
+        before=6,
+        after=7,
+        applied_at="2026-02-01T00:00:00+00:00",
+    ))
+
+    snapshot = await state.pipeline._platform_tuning_snapshot(_cluster(n=6), state.prefs)
+
+    assert snapshot == {"status": "recorded", "records": []}
+
+
+async def test_tuning_snapshot_does_not_attribute_an_unused_every_mode_n(app_state):
+    """An EVERY rule can carry ``n``, but that value does not gate its trigger."""
+    state = app_state
+    await state.tuning_store.add(TuningRecord(
+        id="tune-unused-every-n",
+        rule_id="linux_auth",
+        target="correlation_n",
+        before=5,
+        after=6,
+    ))
+    cluster = _cluster(n=6)
+    cluster.trigger_reason.mode = "every"
+
+    snapshot = await state.pipeline._platform_tuning_snapshot(cluster, state.prefs)
+
+    assert snapshot == {"status": "recorded", "records": []}
+
+
+async def test_tuning_snapshot_preserves_exact_source_feed_pairs(app_state):
+    """Independent source/feed lists must never become a false cross-product."""
+    state = app_state
+    sources = [
+        SourceInstance(
+            id="source-a",
+            source_type=SourceType.ELASTICSEARCH,
+            config={
+                "index_patterns": [
+                    {"id": "feed-a", "pattern": "a-*", "severity_floor": 2},
+                    {"id": "feed-b", "pattern": "a-b-*", "severity_floor": 4},
+                ],
+            },
+        ),
+        SourceInstance(
+            id="source-b",
+            source_type=SourceType.ELASTICSEARCH,
+            config={
+                "index_patterns": [
+                    {"id": "feed-b", "pattern": "b-*", "severity_floor": 4},
+                ],
+            },
+        ),
+    ]
+    prefs = state.prefs.model_copy(update={"sources": sources})
+    await state.tuning_store.add(TuningRecord(
+        id="tune-false-pair",
+        rule_id="source-a:feed-b",
+        target="severity_floor",
+        before=3,
+        after=4,
+    ))
+    events = [
+        make_raw_event(id="source-a-event", ts_millis=1_700_000_000_000),
+        make_raw_event(id="source-b-event", ts_millis=1_700_000_001_000),
+    ]
+    events[0].source_id = "source-a"
+    events[0].feed_id = "feed-a"
+    events[1].source_id = "source-b"
+    events[1].feed_id = "feed-b"
+    cluster = cluster_from_events(EntityType.IP, "203.0.113.50", events)
+
+    snapshot = await state.pipeline._platform_tuning_snapshot(cluster, prefs)
+
+    assert snapshot == {"status": "recorded", "records": []}

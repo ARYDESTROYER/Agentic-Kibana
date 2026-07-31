@@ -38,7 +38,7 @@ import { LoadError } from '@/soc/components/LoadError';
 import { VerdictBadge, RiskBadge } from '@/soc/components/badges';
 import type { Navigate } from '@/soc/router';
 
-import { PanelCard, SectionHeading } from './shared';
+import { CASE_MANAGER_PANEL_PADDING, PanelCard, SectionHeading } from './shared';
 import type { CasePanelPresentation } from './shared';
 import {
   ClusterFormationDiagram,
@@ -159,7 +159,7 @@ export const ThreatContextPanel: React.FC<{
 
   if (presentation === 'case-manager') {
     return (
-      <div className="space-y-6 px-8 py-7" data-case-panel="threat-context" data-presentation="case-manager">
+      <div className={cn('space-y-5', CASE_MANAGER_PANEL_PADDING)} data-case-panel="threat-context" data-presentation="case-manager">
         {/* Screenshot-first row: the ZIP's two equal threat-intelligence cards. */}
         <div className="grid gap-6 md:grid-cols-2">
           <PanelCard className="rounded-[8px] p-6">

@@ -468,6 +468,10 @@ export interface MultiSeriesTrendProps {
   format?: (v: number) => string;
   showXAxis?: boolean;
   showYAxis?: boolean;
+  /** Show the labelled series legend (default true). */
+  showLegend?: boolean;
+  /** Optional explicit Y-axis domain, useful when stacked lanes must share a stable scale. */
+  yDomain?: [number | 'auto', number | 'auto'];
   /**
    * Optional horizontal average/target reference line (e.g. the mean of a plotted
    * series). Rendered as a dashed muted rule when a finite number is supplied; absent
@@ -476,6 +480,10 @@ export interface MultiSeriesTrendProps {
   referenceY?: number;
   /** Plain-text label for the reference line (shown top-right on the rule). */
   referenceLabel?: string;
+  /** Optional X-axis category to mark (for example the start of the current cohort). */
+  referenceX?: string;
+  /** Plain-text label for the vertical reference rule. */
+  referenceXLabel?: string;
   ariaLabel?: string;
   className?: string;
 }
@@ -502,8 +510,12 @@ export const MultiSeriesTrend = React.forwardRef<HTMLDivElement, MultiSeriesTren
       format,
       showXAxis = true,
       showYAxis = true,
+      showLegend = true,
+      yDomain,
       referenceY,
       referenceLabel,
+      referenceX,
+      referenceXLabel,
       ariaLabel,
       className,
     },
@@ -543,13 +555,32 @@ export const MultiSeriesTrend = React.forwardRef<HTMLDivElement, MultiSeriesTren
                 axisLine={false}
                 tick={AXIS_TICK}
                 width={40}
+                domain={yDomain}
                 tickFormatter={(v) => (format ? format(Number(v)) : String(v))}
               />
             ) : (
               <YAxis hide />
             )}
             <Tooltip content={<SocTooltip format={format} />} cursor={{ stroke: 'hsl(var(--muted-foreground))', strokeOpacity: 0.25 }} />
-            <Legend content={<SemanticLegend />} />
+            {showLegend ? <Legend content={<SemanticLegend />} /> : null}
+            {referenceX ? (
+              <ReferenceLine
+                x={referenceX}
+                stroke="hsl(var(--primary))"
+                strokeDasharray="4 4"
+                strokeOpacity={0.7}
+                label={
+                  referenceXLabel
+                    ? {
+                        value: referenceXLabel,
+                        position: 'insideTopRight',
+                        fill: 'hsl(var(--primary))',
+                        fontSize: 10,
+                      }
+                    : undefined
+                }
+              />
+            ) : null}
             {typeof referenceY === 'number' && Number.isFinite(referenceY) ? (
               <ReferenceLine
                 y={referenceY}

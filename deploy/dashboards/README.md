@@ -22,9 +22,9 @@ They cover the backend's own bookkeeping indices (created by the management API 
 ## Files
 
 - `tlsoc-index-patterns.ndjson` — the 3 data views only.
-- `tlsoc-audit-dashboard.ndjson` — **TLSOC — Audit Trail** dashboard + the cases & audit
+- `tlsoc-audit-dashboard.ndjson` — **Agentic SOC — Audit Trail** dashboard + the cases & audit
   data views it needs (self-contained).
-- `tlsoc-cost-dashboard.ndjson` — **TLSOC — Cost & Tokens** dashboard + the usage data
+- `tlsoc-cost-dashboard.ndjson` — **Agentic SOC — Cost & Tokens** dashboard + the usage data
   view it needs (self-contained).
 - `tlsoc-dashboards.ndjson` — everything combined (3 data views + 15 Lens visualizations
   + both dashboards). **Import this one to get the whole set in a single step.**
@@ -41,7 +41,7 @@ as produced by Kibana's own Saved Objects export.
 3. Select `tlsoc-dashboards.ndjson` (or an individual dashboard file).
 4. Choose **"Check for existing objects" → "Automatically overwrite conflicts"** if
    re-importing, then **Import**.
-5. Open **Dashboard** and look for **TLSOC — Audit Trail** and **TLSOC — Cost & Tokens**.
+5. Open **Dashboard** and look for **Agentic SOC — Audit Trail** and **Agentic SOC — Cost & Tokens**.
 
 ### API (CI / scripted)
 
@@ -54,7 +54,7 @@ curl -sk -u "$KBN_USER:$KBN_PASS" \
 
 ## Dashboards
 
-**TLSOC — Audit Trail** (over `tlsoc-agent-cases-*` + `tlsoc-agent-audit-*`)
+**Agentic SOC — Audit Trail** (over `tlsoc-agent-cases-*` + `tlsoc-agent-audit-*`)
 - Total cases (metric)
 - Cases by status (pie)
 - Cases by verdict (pie)
@@ -62,7 +62,7 @@ curl -sk -u "$KBN_USER:$KBN_PASS" \
 - Audit actions over time, split by `action_type` (area)
 - Recent audit actions table (`action_type` / `actor` / `surface` + count)
 
-**TLSOC — Cost & Tokens** (over `tlsoc-agent-usage-*`)
+**Agentic SOC — Cost & Tokens** (over `tlsoc-agent-usage-*`)
 - Total cost, total tokens, LLM call count (metrics)
 - Cost by model (bar), cost by role (pie), cost by surface (pie)
 - Cost over time split by model (area)

@@ -90,6 +90,8 @@ _SECTION_TITLES: dict[str, str] = {
     "priority_matrix": "Priority Matrix",
     "budget": "Cost Budget",
     "realtime": "Realtime Updates",
+    "release_updates": "Release Updates",
+    "storage_lifecycle": "Storage Lifecycle",
     "customization": "Customization",
     # Round 4 additions.
     "threshold_tuning": "Threshold Tuning",

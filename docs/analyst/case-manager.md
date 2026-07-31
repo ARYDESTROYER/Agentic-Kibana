@@ -51,9 +51,9 @@ Timeline and Investigation remain tabs.
 
 | Tab | Purpose |
 | --- | --- |
-| Overview | Decision brief; signal profile; persisted risk-factor values; source, agent, and code provenance; entities; attack story; status history |
+| Overview | Decision brief; signal profile; persisted risk-factor values; conditional latest-run Investigation inputs; source, agent, and code provenance; entities; attack story; status history |
 | Timeline | Six-stage input-to-decision narrative; Risk Assigned reconstructs the arithmetic from persisted factor values and current weights, flags a historical-weight mismatch honestly, and pulses only the final marker |
-| Investigation | AI assessment, evidence, recommendation, reproduction query, deterministic decision, and collapsible full trace |
+| Investigation | AI assessment, detailed Investigation inputs, evidence, recommendation, reproduction query, deterministic decision, and collapsible full trace |
 | Threat context | IOC reputation, MITRE ATT&CK mapping, related cases, and the redacted persisted alert → correlation cluster → opened case explanation |
 | Collaboration | Case thread, reactions, activity, tasks, assignment, and handoff context |
 | Chat | Case-scoped use of the shared AI Analyst chat engine |
@@ -61,6 +61,18 @@ Timeline and Investigation remain tabs.
 The Overview visualization is explanatory, not a second scoring engine. It renders
 the score, confidence, and factors already recorded on the case. If a factor was not
 persisted, the UI does not manufacture a contribution to make the chart look full.
+
+**Investigation inputs** is also an evidence projection, not a feature-enabled list.
+It appears only when the latest investigation run recorded applicable context. The
+summary distinguishes approved operator **memory consulted**, indexed **RAG knowledge
+retrieved**, **runbook references retrieved**, a **playbook actually injected and
+consulted**, and an immutable **platform tuning** snapshot. The tuning record describes
+a deterministic correlation or severity-threshold change—never model fine-tuning—and
+includes its before/after values in the detailed Investigation view. **Review inputs**
+moves to that detail. Earlier-run inputs never carry into a later reinvestigation, and
+an unavailable provenance lookup is not rendered as an empty successful run. These
+inputs may inform preprocessing or the agent assessment; deterministic case policy
+remains the final close/escalate route authority.
 
 ## Single-case actions
 

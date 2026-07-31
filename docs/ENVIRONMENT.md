@@ -188,7 +188,7 @@ prefixed Docker build/runtime metadata rather than `Secrets` fields:
 
 | Build/runtime value | Default | Purpose |
 |---|---|---|
-| `TLSOC_VERSION` | `0.1.0` in Compose | Machine SemVer for images and API identity |
+| `TLSOC_VERSION` | `0.1.1` in Compose | Machine SemVer for images and API identity |
 | `TLSOC_RELEASE_CHANNEL` | `testing` | Independent promotion stamp; use `stable` only for the accepted main/tag build |
 | `TLSOC_BUILD_SHA` | `unknown` | Exact source revision |
 | `TLSOC_BUILD_DATE` | `unknown` | Reproducible-build timestamp supplied by the builder |
@@ -205,7 +205,7 @@ unless an explicit release-build override is supplied.
 |---|---|---|
 | `TLSOC_ES_URL` | `ES_URL` | log cluster URL (pull source) |
 | `TLSOC_ES_API_KEY` | `ES_API_KEY` | **read-only** key for the log surface (the agent's only path to logs) |
-| `TLSOC_ES_MGMT_API_KEY` | `ES_MGMT_API_KEY` | own-state key for `tlsoc-agent-*` (only when `STATE_BACKEND=elasticsearch`) |
+| `TLSOC_ES_MGMT_API_KEY` | `ES_MGMT_API_KEY` | own-state key for `tlsoc-agent-*`; explicit lifecycle preview/apply also needs cluster `manage_ilm` + `manage_index_templates` + `monitor` (only when `STATE_BACKEND=elasticsearch`) |
 | `TLSOC_ES_CA_CERT` / `TLSOC_ES_VERIFY_CERTS` | `ES_CA_CERT` / `ES_VERIFY_CERTS` | private-CA path + TLS verification toggle |
 | `TLSOC_STATE_BACKEND` | `STATE_BACKEND` | `elasticsearch` (default) \| `postgres` \| `sqlite` |
 | `TLSOC_STATE_DB_URL` | `STATE_DB_URL` | SQLAlchemy async URL for SQL backends (agnostic compose derives it from the PG vars below) |
@@ -264,8 +264,9 @@ unless an explicit release-build override is supplied.
   committed. The settings UI only ever sees a boolean `configured ✓` status, never
   values.
 - **Two scoped ES API keys** (never the superuser): `ES_API_KEY` (read-only log
-  surface) and `ES_MGMT_API_KEY` (read/write/create `tlsoc-agent-*`, only for the
-  ES state backend).
+  surface) and `ES_MGMT_API_KEY` (read/write/create/manage `tlsoc-agent-*`, plus
+  cluster `manage_ilm` + `manage_index_templates` + `monitor` for explicit own-state lifecycle preview/apply;
+  only for the ES state backend).
 - **Per-source connector secrets** (a webhook bearer token, an HMAC secret, a
   Splunk API token, …) are set per source via the first-run wizard or
   `POST /api/sources/{id}/secrets`. They live in the **in-memory secret tier**
@@ -367,7 +368,7 @@ the industry-standard citations behind the numbers; this is just the knob refere
 | `background_scan_enabled` | **`true`** (was `false`) | comprehensive ingestion — every source is correlated + risk-scored, not just what's on the auto-forward allowlist |
 | `auto_investigate_risk_floor` | **`70`** | the deterministic risk-gate floor: an `events`-role cluster auto-forwards to the strong-LLM investigation once `risk_score >= floor`; below-floor clusters stay `$0` OPEN candidates — risk-scored, visible, never dropped (#4) |
 | `autopilot_profile` | `"balanced"` (`conservative` \| `balanced` \| `aggressive`) | one dial that moves the three rows above/below together — see the profile table in `docs/USAGE.md` §33 |
-| `caps.max_auto_investigations_per_tick` | **`25`**, **PER SOURCE** | ceiling on clusters auto-forwarded to the strong LLM in one poll tick per source; cap-deferred candidates drain to investigation on a later tick once headroom frees. The **daily USD budget below is the one GLOBAL spend bound** across every source — the per-tick cap only smooths *when* spend happens |
+| `caps.max_auto_investigations_per_tick` | **`25`**, **GLOBAL PER POLL TICK** | one concurrency-safe ceiling shared across every concurrently polled source in the manager fan-out; each direct push batch enforces the same configured cap locally. Cap-deferred candidates drain later once headroom frees. The **daily USD budget below remains the global spend bound** — this cap smooths *when* spend happens |
 | `budget.{enabled,daily_usd,soft_warn_pct,on_exceed}` | `true` / `10.0` / `0.8` / `"block"` | the default spend backstop (pairs with §2.6's per-model pricing); the provider call is stopped before spend and the case fails safe to `NEEDS_HUMAN`, never a silent drop or close (#3/#4). Warning-only mode is an explicit operator choice. |
 | `baseline.{enabled,warmup_days,max_series}` | `true` / `14` / `50000` | the entity-baseline producer now runs from day one (silent-source + volume-flood detection); `warmup_days` is the advisory wall-clock warm-up target shown in the UI gauge, `max_series` LRU-bounds cardinality (`0` = unbounded) |
 | `threshold_tuning.enabled` (+ `shadow_eval` forced `true`) · `campaign.enabled` · `cross_source_correlation.enabled` · `sla.enabled` · `priority_matrix.enabled` · `realtime.enabled` · `threshold_automation.enabled` (ships with `rules: []`) | all **`true`** | the default-ON $0/#3-safe smart engines — full behavior + what's still opt-in in `docs/USAGE.md` §33 |

@@ -1,8 +1,9 @@
 /**
- * Intelligence — the host for the agent's knowledge surfaces (Knowledge, Memory,
- * Playbooks/Catalog), each with its own independent CRUD:
+ * Intelligence — the host for the agent's knowledge surfaces (Knowledge, Runbooks,
+ * Memory, Playbooks/Catalog), each with its own independent CRUD:
  *
  *   - Knowledge: the RAG retrieval corpus (import / inspect / search / delete).
+ *   - Runbooks:  trusted investigation-reference knowledge (browse / author / index).
  *   - Memory:    durable operator facts injected into every investigation + chat.
  *   - Catalog:   Playbooks management plus the reference agent-persona catalog.
  *
@@ -14,11 +15,12 @@
  * owns the single PageHeader (each sub-page renders `embedded`), whose title/icon
  * reflect the active sub-view so a left-nav click lands on a correctly-titled page.
  */
-import { Boxes, Brain, BookOpenCheck, type LucideIcon } from 'lucide-react';
+import { Boxes, Brain, BookMarked, BookOpenCheck, type LucideIcon } from 'lucide-react';
 import { useNavigateOptional, type Navigate } from '@/soc/router';
 import { PageHeader } from '@/soc/components/PageHeader';
 import { PageContainer } from '@/soc/components/PageContainer';
 import Knowledge from './Knowledge';
+import Runbooks from './Runbooks';
 import Memory from './Memory';
 import Catalog from './Catalog';
 
@@ -28,13 +30,18 @@ export interface IntelligenceProps {
   tab?: string;
 }
 
-type SubView = 'knowledge' | 'memory' | 'catalog';
+type SubView = 'knowledge' | 'runbooks' | 'memory' | 'catalog';
 
 const HEADERS: Record<SubView, { icon: LucideIcon; title: string; description: string }> = {
   knowledge: {
     icon: Boxes,
     title: 'Knowledge',
     description: 'The RAG retrieval corpus — import, inspect, search, and manage what the agents can look up.',
+  },
+  runbooks: {
+    icon: BookMarked,
+    title: 'Runbooks',
+    description: 'Trusted reference knowledge the agent can retrieve while investigating an alert.',
   },
   memory: {
     icon: Brain,
@@ -53,7 +60,14 @@ export default function Intelligence({ onNavigate, tab }: IntelligenceProps = {}
   // UNCONDITIONALLY (rules-of-hooks), then let an explicit prop win.
   const contextNavigate = useNavigateOptional();
   const navigate = onNavigate ?? contextNavigate;
-  const view: SubView = tab === 'memory' ? 'memory' : tab === 'catalog' ? 'catalog' : 'knowledge';
+  const view: SubView =
+    tab === 'runbooks'
+      ? 'runbooks'
+      : tab === 'memory'
+        ? 'memory'
+        : tab === 'catalog'
+          ? 'catalog'
+          : 'knowledge';
   const header = HEADERS[view];
   return (
     <PageContainer variant="wide" className="space-y-6">
@@ -65,6 +79,8 @@ export default function Intelligence({ onNavigate, tab }: IntelligenceProps = {}
       />
       {view === 'memory' ? (
         <Memory embedded onNavigate={navigate} />
+      ) : view === 'runbooks' ? (
+        <Runbooks embedded />
       ) : view === 'catalog' ? (
         <Catalog embedded defaultTab="playbooks" />
       ) : (

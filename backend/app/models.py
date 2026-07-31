@@ -1141,6 +1141,18 @@ class BatchJob(BaseModel):
     discount: float = 0.5
     submitted_at: str | None = None
     polled_at: str | None = None
+    # Durable LOCAL submission outbox.  Requests are persisted before a provider
+    # network call, allowing the scheduler to retry a failed/crashed submit without
+    # advancing the EVENT-feed cursor past unaccepted work.  Old jobs load unchanged.
+    requests: list[dict[str, Any]] = Field(default_factory=list)
+    submit_attempts: int = 0
+    last_error: str | None = None
+    # Strict provider-submission lease shared by the immediate submit path and the
+    # out-of-band scheduler.  Without it, both can observe the same durable outbox
+    # row before ``provider_batch_id`` is saved and call the provider concurrently.
+    # The timestamp makes an abandoned lease reclaimable after a bounded interval.
+    submission_lease_token: str | None = None
+    submission_lease_at_millis: int = 0
     # EVENT-detection re-entry payload (Wave-6). custom_id -> serialised CandidateAlert
     # (see engine/event_detection.candidate_to_json). Additive; default empty.
     candidates: dict[str, dict[str, Any]] = Field(default_factory=dict)
@@ -1390,9 +1402,9 @@ class UsageDoc(BaseModel):
     # Provenance of the price used: exact | heuristic | zero | default (Vigil-
     # inspired). Lets the cost surface badge an approximate cost vs a verified one.
     pricing_source: str = "exact"
-    # --- Round 4 (ALL additive + defaulted → old stored usage docs load unchanged, and
-    # ``cost`` is NOT changed this wave: these only CARRY the counts/flag; a later wave
-    # (W3) applies the prompt-caching + batch-discount rates when computing ``cost``).
+    # --- Round 4 (ALL additive + defaulted → old stored usage docs load unchanged).
+    # The gateway now applies prompt-cache and Batch/Flex rates when computing ``cost``;
+    # these fields retain the metering inputs and actual execution-tier provenance.
     # ⚠ NON-NEGOTIABLE #6 is preserved: still ONE UsageDoc per LLM call. ---
     # Prompt-cache accounting (Anthropic/OpenAI prompt caching): tokens READ from the
     # cache (cheaper) and tokens WRITTEN to the cache (a one-time surcharge).
@@ -1403,6 +1415,10 @@ class UsageDoc(BaseModel):
     batch: bool = False
     # Actual metered tier: standard | flex | batch. Old rows load as standard.
     processing_tier: str = "standard"
+    # Retry-safe identity for durable asynchronous folds.  Ordinary live calls leave
+    # this unset; Batch results use ``batch:<local-job-id>:<custom-id>`` so the bundled
+    # ledgers can upsert/check one authoritative row before marking retrieval complete.
+    idempotency_key: str | None = None
 
 
 # --------------------------------------------------------------------------- #
@@ -1477,6 +1493,59 @@ class ChatTurn(BaseModel):
     content: str
 
 
+class ChatConversationMessage(BaseModel):
+    """One durable Workspace-chat message.
+
+    ``response`` keeps the bounded structured result needed to restore tables,
+    query links, cost and memory feedback.  It is plain JSON presentation data;
+    the authoritative chat engine still receives only ``role`` + ``content`` as
+    prior model history.
+    """
+
+    id: str = Field(default_factory=lambda: new_id("chatmsg-"))
+    role: Literal["user", "assistant"]
+    content: str
+    created_at: str = Field(default_factory=iso_now)
+    response: dict[str, Any] | None = None
+    model: str | None = None
+    source_id: str | None = None
+    source_name: str | None = None
+    idempotency_key: str | None = None
+
+
+class ChatConversationSummary(BaseModel):
+    id: str
+    title: str
+    preview: str = ""
+    created_at: str
+    updated_at: str
+    message_count: int = 0
+    total_message_count: int = 0
+    history_truncated: bool = False
+    oldest_retained_at: str | None = None
+    model: str | None = None
+    source_id: str | None = None
+    source_name: str | None = None
+
+
+class ChatConversation(ChatConversationSummary):
+    messages: list[ChatConversationMessage] = Field(default_factory=list)
+
+
+class ChatConversationRenameRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=80)
+
+    @field_validator("title")
+    @classmethod
+    def clean_title(cls, value: str) -> str:
+        title = " ".join(str(value).split()).strip()
+        if not title:
+            raise ValueError("title is required")
+        if any(ord(ch) < 32 or ord(ch) == 127 for ch in title):
+            raise ValueError("title must be plain single-line text")
+        return title
+
+
 class ChatContext(BaseModel):
     """On-screen context snapshot the global chat flyout may attach (Feature 1).
 
@@ -1511,6 +1580,20 @@ class ChatRequest(BaseModel):
     # endpoint) instead of the primary. Absent → the primary source (today's
     # behaviour). NOTE: this is single-source SELECT, not cross-source aggregation.
     source_id: str | None = None
+    # Workspace chat opts into durable per-user history explicitly. Existing
+    # stateless callers and every case-scoped embed remain byte-compatible.
+    conversation_id: str | None = None
+    persist_conversation: bool = False
+    # A retry-safe Workspace-turn identity. The server reserves this key before
+    # invoking the model, so concurrent/retried sends cannot double-bill or append
+    # duplicate turns. Older clients may omit it; the server then returns a generated
+    # key for the completed turn.
+    idempotency_key: str | None = Field(
+        default=None,
+        min_length=8,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    )
 
 
 class DiscoverLink(BaseModel):
@@ -1543,6 +1626,15 @@ class ChatResponse(BaseModel):
     # on this turn (echoed for the UI), and an optional un-saved suggestion to confirm.
     memory_action: dict[str, Any] | None = None
     memory_suggestion: MemorySuggestion | None = None
+    # Set only for opt-in Workspace persistence. Stateless/case-scoped callers
+    # continue to receive ``None``/omitted-compatible additive fields.
+    conversation_id: str | None = None
+    conversation_title: str | None = None
+    idempotency_key: str | None = None
+    effective_model: str | None = None
+    effective_source_id: str | None = None
+    effective_source_name: str | None = None
+    truncated: bool = False
 
 
 class InvestigateRequest(BaseModel):

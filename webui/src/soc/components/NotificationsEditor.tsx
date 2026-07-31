@@ -81,6 +81,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/ui/tabs';
 import { HelpTip } from './HelpTip';
 import { IconButton } from './IconButton';
 import { SecretField } from './SecretField';
+import { SectionTitle } from '@/soc/pages/settings/primitives';
 
 /* ---------------------------------------------------------------- helpers --- */
 
@@ -251,7 +252,10 @@ function SwitchRow({
   onChange: (v: boolean) => void;
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 rounded-md border border-border bg-surface px-4 py-3">
+    <div
+      className="flex min-h-14 items-start justify-between gap-4 border-y border-border py-3"
+      data-settings-row="switch"
+    >
       <div className="min-w-0 space-y-0.5">
         <div className="flex items-center gap-1.5">
           <p className="text-sm font-medium text-foreground">{label}</p>
@@ -375,7 +379,10 @@ function ChannelEditor({
   };
 
   return (
-    <div className="space-y-4 rounded-lg border border-border bg-card p-4">
+    <div
+      className="space-y-4 border-y border-r border-l-2 border-border border-l-primary/40 px-4 py-4"
+      data-settings-editor="notification-channel"
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2.5">
           <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-accent text-primary">
@@ -601,7 +608,7 @@ function ChannelEditor({
         <FieldRow label="Source name" help="A label shown as the event source in PagerDuty.">
           <Input
             value={String(cfg.source_name || '')}
-            placeholder="tlsoc"
+            placeholder="Agentic SOC"
             onChange={(e) => setCfg({ source_name: e.target.value })}
           />
         </FieldRow>
@@ -918,7 +925,7 @@ function TemplateEditor({
           </div>
 
           {/* variable reference list */}
-          <div className="space-y-1.5 rounded-md border border-border bg-surface px-3 py-3">
+          <div className="space-y-1.5 border-y border-border py-3">
             <div className="flex items-center gap-1.5">
               <Code2 className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
               <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -953,7 +960,7 @@ function TemplateEditor({
 
           {preview ? (
             <div className="space-y-3">
-              <div className="rounded-md border border-border bg-surface px-3 py-2">
+              <div className="border-y border-border py-2">
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Subject
                 </p>
@@ -989,7 +996,7 @@ function TemplateEditor({
               </Tabs>
             </div>
           ) : (
-            <div className="flex h-80 flex-col items-center justify-center rounded-md border border-dashed border-border bg-surface text-center">
+            <div className="flex h-80 flex-col items-center justify-center border-y border-dashed border-border text-center">
               <Eye className="h-5 w-5 text-muted-foreground" aria-hidden />
               <p className="mt-2 max-w-xs text-sm text-muted-foreground">
                 Render a preview to see the server-escaped subject, HTML, and plain-text
@@ -1095,19 +1102,11 @@ export function NotificationsEditor({ prefs, update }: NotificationsEditorProps)
     setNotif({ triggers: { ...triggers, ...patch } });
 
   return (
-    <div className="space-y-6">
-      <div className="space-y-1 border-b border-border pb-4">
-        <div className="flex items-center gap-2">
-          <h2 className="text-lg font-semibold tracking-tight text-foreground">
-            Alerting &amp; Notifications
-          </h2>
-        </div>
-        <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          Deliver case alerts to email (SMTP, Resend, or Amazon SES), Slack, Teams, PagerDuty,
-          Telegram, or a generic webhook. Notifications fire AFTER the deterministic case
-          decision and never block or change it.
-        </p>
-      </div>
+    <div className="space-y-6" data-testid="notifications-settings-surface">
+      <SectionTitle
+        title="Alerting & notifications"
+        sub="Route post-decision case alerts to email, collaboration, paging, or webhook channels without changing the deterministic case decision."
+      />
 
       <SwitchRow
         label="Notifications enabled"
@@ -1130,7 +1129,7 @@ export function NotificationsEditor({ prefs, update }: NotificationsEditorProps)
           </div>
 
           {channels.length === 0 ? (
-            <div className="rounded-md border border-dashed border-border bg-surface px-4 py-6 text-center">
+            <div className="border-y border-dashed border-border px-4 py-6 text-center">
               <Bell className="mx-auto h-5 w-5 text-muted-foreground" aria-hidden />
               <p className="mt-2 text-sm text-muted-foreground">
                 No channels yet. Add one to start receiving alerts.
@@ -1207,7 +1206,7 @@ export function NotificationsEditor({ prefs, update }: NotificationsEditorProps)
             />
           </div>
 
-          <div className="space-y-3 rounded-md border border-border bg-surface px-4 py-4">
+          <div className="space-y-3 border-y border-border py-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
                 <Label>Minimum risk to notify</Label>

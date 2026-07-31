@@ -49,14 +49,32 @@ Compatible alert/case inference prefers live Flex by default. The gateway reques
 Flex only when all of these are true:
 
 - the surface is automated scan or entity/case investigation;
-- `prefer_discounted_alerts` is enabled and `openai` is in the provider allow-list;
+- `prefer_discounted_alerts` is enabled;
 - the configured provider is official OpenAI, not Azure or a custom/OpenAI-compatible
   base URL; and
 - the model family is GPT-5, o3, or o4-mini.
 
-Chat, standup, embeddings, and provider/model tests remain standard service.
+Chat, standup, per-log overview, embeddings, and provider/model tests remain standard service.
 Unsupported combinations are routed to standard service before a provider call and
 are never labelled or priced as discounted.
+
+Fresh installations assign official OpenAI `gpt-5.6-luna` to every completion role,
+so eligible alert/case calls can use Flex without a separate model reassignment.
+Embeddings remain on the dedicated `text-embedding-3-small` model. Existing stored
+role assignments are not rewritten, and every alternate provider/model remains
+available in Settings.
+
+The bundled short-context Luna Standard ledger rate is the current official
+[$0.20/M input, $0.02/M cached input, $0.25/M cache write, and $1.20/M output](https://developers.openai.com/api/docs/pricing).
+OpenAI currently lists Luna Batch and Flex at half those rates. Agentic SOC applies
+that half-rate only to an asynchronous Batch result or a live response whose returned
+service tier is Flex; a request or attempted route alone never earns the discount.
+
+Agentic SOC sends Luna through the existing Chat Completions adapter with
+`reasoning_effort: none`. This preserves the previous non-reasoning latency/cost
+baseline and function-tool compatibility instead of silently inheriting GPT-5.6's
+`medium` reasoning default. Change models only after comparing representative cases;
+reasoning-heavy tool workflows should be evaluated separately on the Responses API.
 
 Flex is best-effort capacity. With `fallback_to_standard` enabled (the default), an
 OpenAI 429 or a Flex/service-tier-specific 400 is retried without the Flex request.
@@ -66,8 +84,8 @@ provider's returned tier, so requesting Flex does not by itself earn a discount.
 ### Asynchronous Batch queue
 
 `batch.enabled` is a separate, opt-in delayed path for eligible low-urgency
-event-detection work. Its severity floor, provider allow-list, and optional flexible
-tier do not control the live preference above. Anthropic Message Batches and OpenAI
+event-detection work. Its severity floor and provider allow-list do not control the
+live preference above. Anthropic Message Batches and OpenAI
 Batch results can arrive out of order, so retrieval is keyed by `custom_id`; each
 result is written to the ledger exactly once at the 0.5× batch multiplier.
 

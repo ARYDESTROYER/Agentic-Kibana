@@ -8,7 +8,7 @@
  *      (border-input + branded focus ring).
  */
 import { describe, it, expect, vi } from 'vitest';
-import { render } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>();
@@ -27,6 +27,7 @@ vi.mock('sonner', () => ({
 }));
 
 import { TooltipProvider } from '@/ui/tooltip';
+import { api } from '@/lib/api';
 import { SecuritySsoInner } from '../Security';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -64,5 +65,26 @@ describe('Security SSO group→role map', () => {
     expect(first.tagName.toLowerCase()).toBe('textarea');
     // The primitive uses `border-input` (the control-border token), not `border-border`.
     expect(first.className).toContain('border-input');
+  });
+
+  it('keeps failed standalone reads unavailable until an explicit retry succeeds', async () => {
+    vi.mocked(api.getSettings)
+      .mockRejectedValue(new Error('settings unavailable'));
+
+    render(
+      <TooltipProvider>
+        <SecuritySsoInner />
+      </TooltipProvider>,
+    );
+
+    const heading = await screen.findByText('Could not load single sign-on settings');
+    expect(screen.queryByLabelText('Enable single sign-on')).not.toBeInTheDocument();
+
+    vi.mocked(api.getSettings).mockResolvedValue({ prefs: {}, configured: {} } as any);
+    const alert = heading.closest('[role="alert"]');
+    expect(alert).not.toBeNull();
+    fireEvent.click(within(alert as HTMLElement).getByRole('button', { name: 'Retry' }));
+
+    expect(await screen.findByLabelText('Enable single sign-on')).toBeInTheDocument();
   });
 });

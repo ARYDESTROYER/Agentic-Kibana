@@ -89,6 +89,40 @@ describe('BatchJobs', () => {
     });
   });
 
+  it('uses the shared blocking state while the first job snapshot loads', async () => {
+    jobsMock.mockReturnValue(new Promise(() => {}));
+    getConfigMock.mockReturnValue(new Promise(() => {}));
+    renderPage();
+
+    expect(
+      await screen.findByRole('status', { name: 'Loading batch jobs' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Total jobs')).toBeNull();
+    expect(screen.getAllByTestId('console-loading-glyph')).toHaveLength(1);
+    expect(screen.queryByRole('status', { name: 'Loading batch policy' })).toBeNull();
+  });
+
+  it('uses the shared blocking state while the saved batch policy loads', async () => {
+    jobsMock.mockResolvedValue({ jobs: [], count: 0 });
+    let resolveConfig: (value: { config: { enabled: boolean } }) => void = () => {};
+    getConfigMock.mockReturnValue(
+      new Promise<{ config: { enabled: boolean } }>((resolve) => {
+        resolveConfig = resolve;
+      }),
+    );
+    renderPage();
+
+    expect(
+      await screen.findByRole('status', { name: 'Loading batch policy' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('switch', { name: /enable batch routing/i })).toBeNull();
+
+    resolveConfig({ config: { enabled: false } });
+    expect(
+      await screen.findByRole('switch', { name: /enable batch routing/i }),
+    ).toBeInTheDocument();
+  });
+
   it('renders batch jobs with provider, state, discount and retrieved counts', async () => {
     jobsMock.mockResolvedValue({ jobs: JOBS, count: JOBS.length });
     renderPage();
@@ -111,11 +145,8 @@ describe('BatchJobs', () => {
     renderPage();
 
     // The "Requests retrieved" tile derives `of 14 total` from the async-loaded rows
-    // (totals.requests = 10 + 4). The four StatCards render EAGERLY (even during the
-    // loading skeleton, with totals = 0), so `Total jobs` is present before the
-    // jobsMock promise resolves — asserting it via getByText after a waitFor on a
-    // DIFFERENT node would race the row-load under CPU contention. Anchor the wait on
-    // the value that only appears once the rows land: `of 14 total`. findByText
+    // (totals.requests = 10 + 4). Anchor the wait on the value that only appears once
+    // the loaded-state re-render commits rather than on static heading copy. findByText
     // polls until the loaded-state re-render commits (default 1000ms is tight under a
     // fully parallel suite → give it explicit headroom without weakening the assert).
     expect(await screen.findByText(/of 14 total/, {}, { timeout: 5000 })).toBeInTheDocument();
@@ -169,6 +200,19 @@ describe('BatchJobs', () => {
       'false',
     );
     expect(screen.getByText(/separate async Batch queue is off/i)).toBeInTheDocument();
+    expect(screen.queryByRole('switch', { name: /flexible tier/i })).toBeNull();
+    expect(screen.queryByText(/further discount inside the async event funnel/i)).toBeNull();
+  });
+
+  it('surfaces a durable batch failure without obscuring the job state', async () => {
+    jobsMock.mockResolvedValue({
+      jobs: [{ ...JOBS[1], last_error: 'Detection re-entry will retry.' }],
+      count: 1,
+    });
+    renderPage();
+
+    expect(await screen.findByText('Detection re-entry will retry.')).toBeInTheDocument();
+    expect(screen.getByText('Polling')).toBeInTheDocument();
   });
 
   it('shows the empty state when there are no jobs', async () => {

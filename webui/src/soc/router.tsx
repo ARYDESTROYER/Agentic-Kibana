@@ -17,16 +17,27 @@
 import * as React from 'react';
 import { isPageId, type PageId } from './nav';
 import type { NavOpts } from '@/lib/types';
+import { ConfirmDialog } from './components/ConfirmDialog';
 
 export type { PageId } from './nav';
 
 /** Navigation function: switch page, optionally pre-seeding destination state. */
 export type Navigate = (page: PageId, opts?: NavOpts) => void;
 
+export interface NavigationBlockerOptions {
+  title: string;
+  description?: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+}
+
+type RegisterNavigationBlocker = (options: NavigationBlockerOptions) => () => void;
+
 interface RouteState {
   page: PageId;
   opts?: NavOpts;
   navigate: Navigate;
+  registerNavigationBlocker: RegisterNavigationBlocker;
 }
 
 const RouteContext = React.createContext<RouteState | null>(null);
@@ -149,32 +160,69 @@ export const RouterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // `#/cases?caseId=<id>`) lands with its opts, exactly like an in-app navigate would.
   const [opts, setOpts] = React.useState<NavOpts | undefined>(() => optsFromHash());
 
-  const navigate = React.useCallback<Navigate>((next, nextOpts) => {
-    // A navigate() into a retired standalone route lands inside Settings instead.
+  // Route-leave guards are registered by the currently mounted page. Keeping the
+  // registry in refs avoids re-rendering the whole shell as a form becomes dirty,
+  // while the token/cleanup contract makes the hook safe across lazy-route unmounts.
+  const blockersRef = React.useRef(new Map<symbol, NavigationBlockerOptions>());
+  const pageRef = React.useRef(page);
+  pageRef.current = page;
+  const [pendingNavigation, setPendingNavigation] = React.useState<{
+    page: PageId;
+    opts?: NavOpts;
+    blocker: NavigationBlockerOptions;
+  } | null>(null);
+  const pendingRef = React.useRef(false);
+
+  const registerNavigationBlocker = React.useCallback<RegisterNavigationBlocker>((options) => {
+    const token = Symbol('navigation-blocker');
+    blockersRef.current.set(token, options);
+    return () => blockersRef.current.delete(token);
+  }, []);
+
+  const resolveNavigation = React.useCallback((next: PageId, nextOpts?: NavOpts) => {
     const redirect = settingsRedirectHash(next);
     if (redirect) {
-      setPage('settings');
-      setOpts(undefined);
-      if (window.location.hash !== redirect) window.location.hash = redirect;
-      return;
+      return { page: 'settings' as PageId, opts: undefined, hash: redirect };
     }
-    // Settings sub-target: when a caller asks for a specific section (Cmd-K jump /
-    // card-level deep-link), write the FULL hash directly — `#/settings?s=<id>[&a=<anchor>]`.
-    // The historical bug was writing the bare `#/settings`, which stripped the `?s=`/`&a=`
-    // query so a palette→section deep-link dropped its target. `?a=` (the in-section card
-    // anchor) rides along so the Settings page can scroll+highlight the card.
     if (next === 'settings' && nextOpts?.section) {
-      const target = settingsSectionHash(nextOpts.section, nextOpts.anchor);
-      setPage('settings');
-      setOpts(nextOpts);
-      if (window.location.hash !== target) window.location.hash = target;
-      return;
+      return {
+        page: next,
+        opts: nextOpts,
+        hash: settingsSectionHash(nextOpts.section, nextOpts.anchor),
+      };
     }
-    setPage(next);
-    setOpts(nextOpts);
-    const target = pageHash(next, nextOpts);
-    if (window.location.hash !== target) window.location.hash = target;
+    return { page: next, opts: nextOpts, hash: pageHash(next, nextOpts) };
   }, []);
+
+  const commitNavigation = React.useCallback(
+    (next: PageId, nextOpts?: NavOpts) => {
+      const target = resolveNavigation(next, nextOpts);
+      // Update the ref synchronously so a rapid second activation sees the accepted
+      // destination even before React commits the state update.
+      pageRef.current = target.page;
+      setPage(target.page);
+      setOpts(target.opts);
+      if (window.location.hash !== target.hash) window.location.hash = target.hash;
+    },
+    [resolveNavigation],
+  );
+
+  const navigate = React.useCallback<Navigate>((next, nextOpts) => {
+    const target = resolveNavigation(next, nextOpts);
+    // Same-page transitions (notably Settings section/anchor jumps) preserve the
+    // mounted draft, so they must not nag. A route leave is paused BEFORE state/hash
+    // mutation and resumed only after the shared accessible ConfirmDialog resolves.
+    if (target.page !== pageRef.current && blockersRef.current.size > 0) {
+      if (pendingRef.current) return;
+      const blocker = Array.from(blockersRef.current.values()).at(-1);
+      if (blocker) {
+        pendingRef.current = true;
+        setPendingNavigation({ page: next, opts: nextOpts, blocker });
+        return;
+      }
+    }
+    commitNavigation(next, nextOpts);
+  }, [commitNavigation, resolveNavigation]);
 
   React.useEffect(() => {
     const onHashChange = () => {
@@ -225,11 +273,36 @@ export const RouterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, []);
 
   const value = React.useMemo<RouteState>(
-    () => ({ page, opts, navigate }),
-    [page, opts, navigate],
+    () => ({ page, opts, navigate, registerNavigationBlocker }),
+    [page, opts, navigate, registerNavigationBlocker],
   );
 
-  return <RouteContext.Provider value={value}>{children}</RouteContext.Provider>;
+  return (
+    <RouteContext.Provider value={value}>
+      {children}
+      {pendingNavigation ? (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) {
+              pendingRef.current = false;
+              setPendingNavigation(null);
+            }
+          }}
+          title={pendingNavigation.blocker.title}
+          description={pendingNavigation.blocker.description}
+          confirmLabel={pendingNavigation.blocker.confirmLabel ?? 'Leave page'}
+          cancelLabel={pendingNavigation.blocker.cancelLabel ?? 'Keep editing'}
+          onConfirm={() => {
+            const target = pendingNavigation;
+            pendingRef.current = false;
+            setPendingNavigation(null);
+            commitNavigation(target.page, target.opts);
+          }}
+        />
+      ) : null}
+    </RouteContext.Provider>
+  );
 };
 
 /** Access the current route (page + opts) and the navigate function. */
@@ -244,6 +317,35 @@ export function useRoute(): RouteState {
 /** Convenience hook returning just the navigate function. */
 export function useNavigate(): Navigate {
   return useRoute().navigate;
+}
+
+/**
+ * Pause in-app route leaves while a mounted editor owns unsaved state. Browser
+ * reload/tab-close protection remains the responsibility of `useUnsavedChanges`;
+ * this hook covers the Console's programmatic hash navigation without `window.confirm`.
+ */
+export function useNavigationBlocker(
+  enabled: boolean,
+  options: NavigationBlockerOptions,
+): void {
+  const ctx = React.useContext(RouteContext);
+  const { title, description, confirmLabel, cancelLabel } = options;
+  React.useEffect(() => {
+    if (!enabled || !ctx) return;
+    return ctx.registerNavigationBlocker({
+      title,
+      description,
+      confirmLabel,
+      cancelLabel,
+    });
+  }, [
+    enabled,
+    ctx,
+    title,
+    description,
+    confirmLabel,
+    cancelLabel,
+  ]);
 }
 
 /**

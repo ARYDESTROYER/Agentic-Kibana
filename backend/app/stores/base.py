@@ -32,9 +32,10 @@ logger = logging.getLogger("tlsoc.stores.base")
 # The compare-and-set revision field a :meth:`KVStore.mutate` stamps into the
 # stored value so concurrent read-modify-write writers can detect a lost update
 # and retry instead of silently clobbering each other. It rides INSIDE the value
-# dict (not a separate column / ES seq_no) so the contract is backend-agnostic —
-# every KVStore (ES adapter, SQL, in-memory fake) participates with no schema
-# change. A stored doc that predates this field reads as rev 0 (back-compat).
+# dict so the contract is backend-agnostic and needs no schema change. Native
+# backends may additionally fence the physical write (Elasticsearch uses
+# ``_seq_no``/``_primary_term``; SQL uses a revision predicate). A stored doc that
+# predates this field reads as rev 0 (back-compat).
 KV_REV_FIELD = "_rev"
 
 # How many times :func:`kv_mutate` re-runs the load→mutate→save cycle when a
@@ -139,6 +140,54 @@ async def kv_mutate(
             namespace, key, _KV_MUTATE_RETRIES,
         )
         return last or {}
+
+
+async def kv_mutate_strict(
+    kv: Any,
+    namespace: str,
+    key: str,
+    mutator: Callable[[dict[str, Any] | None], Awaitable[dict[str, Any]] | dict[str, Any]],
+    *,
+    lock: asyncio.Lock,
+) -> dict[str, Any]:
+    """Confirmed variant of :func:`kv_mutate` for durability boundaries.
+
+    Most Console KV collections intentionally fail soft. Batch submission/result
+    state is different: an ingest cursor, ledger fold, or case-pipeline handoff is
+    only safe after its state transition is durably confirmed. This helper therefore
+    propagates backend errors and raises after bounded CAS conflicts instead of
+    returning an unpersisted candidate value.
+    """
+    async with lock:
+        get = getattr(kv, "get_strict", None) or kv.get
+        put_if = getattr(kv, "put_if_strict", None) or getattr(kv, "put_if", None)
+        put = getattr(kv, "put_strict", None) or kv.put
+        for attempt in range(_KV_MUTATE_RETRIES):
+            current = await get(namespace, key)
+            base_rev = _rev_of(current)
+            result = mutator(current)
+            if asyncio.iscoroutine(result):
+                result = await result  # type: ignore[assignment]
+            new_value = dict(result or {})
+            new_value[KV_REV_FIELD] = base_rev + 1
+            if put_if is not None:
+                if await put_if(namespace, key, new_value, base_rev):
+                    return new_value
+                logger.debug(
+                    "Strict KV mutate(%s/%s) conflict; retry %d",
+                    namespace,
+                    key,
+                    attempt + 1,
+                )
+                continue
+            await put(namespace, key, new_value)
+            persisted = await get(namespace, key)
+            if _rev_of(persisted) == base_rev + 1:
+                return new_value
+        raise RuntimeError(
+            f"strict KV mutate conflict for {namespace}/{key} after "
+            f"{_KV_MUTATE_RETRIES} attempts"
+        )
 
 
 def _rev_of(value: Any) -> int:
@@ -255,14 +304,46 @@ class UsageRepository(ABC):
     @abstractmethod
     async def write(self, doc: UsageDoc) -> None: ...
 
+    async def write_strict(self, doc: UsageDoc) -> None:
+        """Durably write ``doc`` or raise.
+
+        Bundled stores override this with idempotent persistence for async Batch
+        folding. A third-party repository must opt into this contract explicitly;
+        falling back to ``write`` would be unsafe because the legacy method is allowed
+        to fail soft. Batch result folding therefore fails closed until implemented.
+        """
+        raise NotImplementedError("usage repository does not implement strict persistence")
+
     @abstractmethod
     async def summary(self, window_hours: int = 24, case_id: str | None = None) -> dict[str, Any]:
         """Windowed cost/token summary for the in-plugin cost panel."""
+
+    async def total_pipeline_cost_for_case(self, case_id: str) -> float | None:
+        """Return the all-time investigation-pipeline total for one case.
+
+        The safe default keeps third-party repositories source-compatible. Bundled
+        repositories override it with an exact, unbounded aggregation restricted to
+        router/investigator/formatter usage so a case can reconcile its rounded display
+        total without absorbing case-scoped Chat or overview spend.
+        ``None`` means the ledger could not prove a total; callers must preserve their
+        existing fail-soft accounting in that case.
+        """
+        return None
 
     async def records(self, *, limit: int = 1000) -> list[dict[str, Any]]:
         """Newest-first, bounded ledger export. The safe default keeps third-party
         repositories source-compatible; bundled ES/SQL repositories override it."""
         return []
+
+    async def records_strict(self, *, limit: int = 1000) -> list[dict[str, Any]]:
+        """Newest-first bounded rows, raising when availability cannot be proven.
+
+        Reporting surfaces that distinguish a genuinely empty ledger from a failed or
+        unsupported read use this opt-in contract. Existing export callers keep the
+        fail-open :meth:`records` behavior. Third-party repositories must implement the
+        strict projection explicitly rather than silently turning failure into ``[]``.
+        """
+        raise NotImplementedError("usage repository does not implement strict record reads")
 
 
 class KVStore(ABC):
@@ -290,8 +371,9 @@ class KVStore(ABC):
         The DEFAULT is non-atomic (get→check→put) — correct under the per-key in-process
         lock ``kv_mutate`` holds (the single-uvicorn deployment), but a genuine
         multi-process race can still slip through the read→write gap. A backend with
-        native optimistic concurrency (e.g. :class:`SqlKVStore`) OVERRIDES this with a
-        row-locked compare-and-set that is safe across processes (audit #27)."""
+        native optimistic concurrency (e.g. :class:`EsKVStore` or
+        :class:`SqlKVStore`) OVERRIDES this with a compare-and-set that is safe
+        across processes (audit #27)."""
         current = await self.get(namespace, key)
         if _rev_of(current) != int(expected_rev):
             return False

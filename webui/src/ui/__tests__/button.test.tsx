@@ -26,4 +26,9 @@ describe('buttonVariants destructive', () => {
     expect(cls).toContain('bg-primary');
     expect(cls).toContain('text-primary-foreground');
   });
+
+  it('does not add resting elevation to filled actions', () => {
+    expect(buttonVariants({ variant: 'default' })).not.toContain('shadow-sm');
+    expect(buttonVariants({ variant: 'destructive' })).not.toContain('shadow-sm');
+  });
 });

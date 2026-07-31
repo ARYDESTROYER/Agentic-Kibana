@@ -42,6 +42,7 @@ describe('Cost window-switch race', () => {
 
     // The initial 24h load is in flight.
     await waitFor(() => expect(pending.has(24)).toBe(true));
+    expect(screen.getByRole('status', { name: 'Loading cost data' })).toBeInTheDocument();
 
     // Switch the time window to 7d (168h) — a second request is issued. The window
     // switch is a SegmentedControl (Radix RadioGroup → role="radio"); a click selects.
@@ -58,5 +59,22 @@ describe('Cost window-switch race', () => {
 
     expect(screen.getByText('$99.00')).toBeInTheDocument();
     expect(screen.queryByText('$1.00')).not.toBeInTheDocument();
+  });
+
+  it('keeps resolved cost data mounted during a manual refresh', async () => {
+    render(<Cost />);
+    await waitFor(() => expect(pending.has(24)).toBe(true));
+
+    pending.get(24)!.resolve(summary(12));
+    await screen.findByText('$12.00');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh usage' }));
+    await waitFor(() => expect(usageSummary).toHaveBeenCalledTimes(2));
+
+    expect(screen.getByText('$12.00')).toBeInTheDocument();
+    expect(screen.queryByRole('status', { name: 'Loading cost data' })).toBeNull();
+
+    pending.get(24)!.resolve(summary(13));
+    await screen.findByText('$13.00');
   });
 });

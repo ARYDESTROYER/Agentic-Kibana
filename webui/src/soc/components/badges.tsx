@@ -1,5 +1,5 @@
 /**
- * Domain badges — map TLSOC enums/values onto the shared <Badge> primitive.
+ * Domain badges — map Agentic SOC enums/values onto the shared <Badge> primitive.
  *
  * Every badge here renders short, controlled labels (humanized enum tokens or
  * formatted numbers) — never raw free-form UNTRUSTED strings. When a value is an

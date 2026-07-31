@@ -1,9 +1,8 @@
 /**
- * Round-6 auth-login fixes for the Login layout shells.
+ * Round-6 auth-login compatibility for the minimal Login shell.
  *
- *  - finding 5  (glitch): in the 'full' layout the form floats over an ALWAYS-DARK
- *    hero, so the peripheral caption/support copy must use on-dark tokens, not the
- *    card/canvas theme tokens (dark-on-dark → fails WCAG-AA in light theme).
+ *  - finding 5  (glitch): every stored legacy layout uses the same quiet,
+ *    theme-native minimal identity column.
  *  - finding 17 (ux): the first paint is held until the setup-status probe settles,
  *    so a first-run install doesn't flash the 'signin' form before 'setup'.
  */
@@ -84,19 +83,28 @@ beforeEach(() => {
   ssoMock.mockResolvedValue({ providers: [] });
 });
 
-describe('Login — full layout on-dark peripheral text (finding 5)', () => {
-  it('renders the caption + support link with on-dark tokens over the dark hero', async () => {
+describe('Login — legacy full layout converges on the minimal identity shell (finding 5)', () => {
+  it('renders one minimal pane with ordinary theme tokens and no hero treatment', async () => {
     brandingMock.mockResolvedValue({ ...BASE_BRANDING, login_layout: 'full' });
     setupStatusMock.mockResolvedValue({ setup_complete: true, seeded_default: false });
-    renderLogin();
+    const { container } = renderLogin();
 
-    const caption = await screen.findByText('Audited, cost-metered agentic triage.');
-    expect(caption).toHaveClass('text-white/60');
-    expect(caption).not.toHaveClass('text-muted-foreground');
+    await screen.findByLabelText('Username');
+    expect(container.querySelector('[data-login-layout="full"]')).toHaveClass(
+      'login-auth-canvas',
+      'relative',
+      'overflow-x-hidden',
+    );
+    expect(container.querySelector('[data-login-layout="full"]')).toHaveAttribute(
+      'data-login-shell',
+      'minimal',
+    );
+    expect(container.querySelector('[data-login-identity-pane]')).not.toBeNull();
+    expect(container.querySelector('[data-login-panel]')).toHaveAttribute('data-login-surface', 'minimal');
 
-    const support = screen.getByRole('link', { name: /docs & help/i });
-    expect(support).toHaveClass('text-white/70');
-    expect(support).not.toHaveClass('text-muted-foreground');
+    const support = screen.getByRole('link', { name: /help/i });
+    expect(support).toHaveClass('text-muted-foreground');
+    expect(support).not.toHaveClass('text-white/70');
   });
 });
 
@@ -112,12 +120,14 @@ describe('Login — setup-status gate avoids the signin→setup flash (finding 1
     renderLogin();
 
     // Before status settles the sign-in form is NOT painted (no flash).
-    expect(screen.queryByRole('button', { name: 'Sign in' })).toBeNull();
+    expect(screen.getByText('Loading sign-in')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull();
 
     await act(async () => {
       resolveStatus({ setup_complete: true, seeded_default: false });
     });
     // Once settled, the resolved form paints.
-    expect(await screen.findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+    expect(await screen.findByLabelText('Username')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Continue' })).not.toBeInTheDocument();
   });
 });

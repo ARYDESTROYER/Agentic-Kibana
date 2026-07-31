@@ -285,6 +285,8 @@ def test_webhook_and_syslog_have_curated_setup_help():
     syslog = reg.manifest(SourceType.SYSLOG)
     assert "ingest" in webhook.setup_help.lower()
     assert "syslog" in syslog.setup_help.lower()
+    assert "planned" not in syslog.setup_help.lower()
+    assert "mounted certificate" in syslog.setup_help.lower()
 
 
 def test_authfield_help_fields_default_empty_back_compat():

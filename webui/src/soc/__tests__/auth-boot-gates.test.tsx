@@ -11,12 +11,15 @@
  */
 import * as React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
-const { meMock, rolesMock, ssoMock, setupStatusMock } = vi.hoisted(() => ({
+const { loginMock, meMock, rolesMock, ssoMock, setupPublicStatusMock, setupStatusMock } = vi.hoisted(() => ({
+  loginMock: vi.fn(),
   meMock: vi.fn(),
   rolesMock: vi.fn(),
   ssoMock: vi.fn(),
+  setupPublicStatusMock: vi.fn(),
   setupStatusMock: vi.fn(),
 }));
 
@@ -46,8 +49,11 @@ vi.mock('@/lib/api', () => {
         accent_color: '', accent_color2: '', theme: '', login_subtitle: '',
         footer_text: '', support_url: '', dark_mode_default: false,
       }),
-      setupStatus: ok({ setup_complete: true }),
+      setupStatus: () => setupStatusMock(),
+      listConnectors: ok({ connectors: [] }),
+      listSources: ok({ sources: [] }),
       auth: {
+        login: (...args: unknown[]) => loginMock(...args),
         me: () => meMock(),
         logout: ok({ ok: true }),
         changePassword: ok({ ok: true }),
@@ -55,7 +61,7 @@ vi.mock('@/lib/api', () => {
         mfa: { setup: ok({}), confirm: ok({}), verify: ok({}), disable: ok({}) },
       },
       roles: { get: () => rolesMock() },
-      setup: { status: () => setupStatusMock() },
+      setup: { status: () => setupPublicStatusMock() },
     },
   };
 });
@@ -63,12 +69,25 @@ vi.mock('@/lib/api', () => {
 import { App } from '../App';
 import { AuthProvider, useAuth } from '../auth';
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((nextResolve, nextReject) => {
+    resolve = nextResolve;
+    reject = nextReject;
+  });
+  return { promise, resolve, reject };
+}
+
 beforeEach(() => {
+  loginMock.mockReset();
   meMock.mockReset();
   rolesMock.mockReset();
   ssoMock.mockReset();
+  setupPublicStatusMock.mockReset();
   setupStatusMock.mockReset();
   ssoMock.mockResolvedValue({ providers: [] });
+  setupPublicStatusMock.mockResolvedValue({ setup_complete: true, needs_user: false });
   setupStatusMock.mockResolvedValue({ setup_complete: true, seeded_default: false });
   rolesMock.mockResolvedValue({ roles: [], default_role: 'analyst_tier1', rbac_enabled: false, matrix: {} });
 });
@@ -82,7 +101,7 @@ describe('Boot gate — must-change-password on reload (finding 0)', () => {
     });
     render(<App />);
     // The Login surface renders (the forced-change flow re-resolves after re-auth)…
-    expect(await screen.findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+    expect(await screen.findByLabelText('Username')).toBeInTheDocument();
     // …and the console (page hero) is NOT rendered — the rotation is not skipped.
     expect(screen.queryByTestId('page-hero')).toBeNull();
   });
@@ -97,6 +116,73 @@ describe('Boot gate — failed /api/auth/me (finding 1)', () => {
     // Neither the console nor the login form leaked through.
     expect(screen.queryByTestId('page-hero')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Sign in' })).toBeNull();
+  });
+});
+
+describe('Boot gate — failed /api/setup/status', () => {
+  it('stays fail-closed and retries instead of opening the console', async () => {
+    meMock.mockResolvedValue({ auth_enabled: false, authenticated: true, user: null });
+    setupStatusMock.mockRejectedValueOnce(new Error('setup status unavailable'));
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    expect(await screen.findByText(/can’t verify setup state/i)).toBeInTheDocument();
+    expect(screen.queryByTestId('page-hero')).toBeNull();
+
+    setupStatusMock.mockResolvedValue({ setup_complete: true, seeded_default: false });
+    await user.click(screen.getByRole('button', { name: /retry/i }));
+
+    await waitFor(() => expect(screen.queryByText(/can’t verify setup state/i)).toBeNull());
+    expect(setupStatusMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('ignores an older setup failure after a newer post-auth check succeeds', async () => {
+    const stale = deferred<{ setup_complete: boolean; configured: Record<string, boolean> }>();
+    const current = deferred<{ setup_complete: boolean; configured: Record<string, boolean> }>();
+    setupStatusMock
+      .mockImplementationOnce(() => stale.promise)
+      .mockImplementationOnce(() => current.promise)
+      // The successful result opens the first-run Wizard, which performs its own status load.
+      .mockResolvedValue({ setup_complete: false, configured: {} });
+    meMock
+      .mockResolvedValueOnce({ auth_enabled: true, authenticated: false, user: null })
+      .mockResolvedValue({
+        auth_enabled: true,
+        authenticated: true,
+        user: { username: 'admin', role: 'super_admin', must_change_password: false },
+      });
+    loginMock.mockResolvedValue({
+      requires_mfa: false,
+      user: { username: 'admin', role: 'super_admin', must_change_password: false },
+    });
+    const user = userEvent.setup();
+
+    render(<App />);
+    await user.type(await screen.findByLabelText(/username/i), 'admin');
+    await user.click(await screen.findByRole('button', { name: 'Continue' }));
+    await user.type(await screen.findByLabelText(/^password/i), 'CorrectHorseBatteryStaple!');
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    // onAuthenticated() and the auth-state effect both probe setup. Resolve the newest
+    // result first, then reject the older request to reproduce the out-of-order race.
+    await waitFor(() => expect(setupStatusMock).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      current.resolve({ setup_complete: false, configured: {} });
+      await current.promise;
+    });
+    expect(
+      await screen.findByRole('heading', { name: /How do you want to start/i }),
+    ).toBeVisible();
+
+    const staleSettled = stale.promise.catch(() => undefined);
+    await act(async () => {
+      stale.reject(new Error('older setup request failed'));
+      await staleSettled;
+    });
+
+    expect(screen.queryByText(/can’t verify setup state/i)).toBeNull();
+    expect(screen.getByRole('heading', { name: /How do you want to start/i })).toBeVisible();
   });
 });
 

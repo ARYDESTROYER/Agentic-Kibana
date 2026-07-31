@@ -99,6 +99,41 @@ describe('Campaigns page', () => {
     apiPutMock.mockResolvedValue({ ok: true, config: { enabled: true, cadence: 'daily' } });
   });
 
+  it('uses one shared page loader while the first campaign snapshot loads', async () => {
+    listMock.mockReturnValue(new Promise(() => {}));
+    apiGetMock.mockReturnValue(new Promise(() => {}));
+    renderCampaigns();
+
+    expect(
+      await screen.findByRole('status', { name: 'Loading campaigns' }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByTestId('console-loading-glyph')).toHaveLength(1);
+    expect(screen.queryByRole('status', { name: 'Loading campaign policy' })).toBeNull();
+    expect(screen.queryByText('Campaign clustering is off.')).toBeNull();
+  });
+
+  it('uses the shared blocking state while the saved campaign policy loads', async () => {
+    let resolveConfig: (value: { config: { enabled: boolean; cadence: string } }) => void = () => {};
+    apiGetMock.mockReturnValue(
+      new Promise<{ config: { enabled: boolean; cadence: string } }>((resolve) => {
+        resolveConfig = resolve;
+      }),
+    );
+    renderCampaigns();
+
+    expect(
+      await screen.findByRole('status', { name: 'Loading campaign policy' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('switch', { name: /enable campaign clustering/i }),
+    ).toBeNull();
+
+    resolveConfig({ config: { enabled: true, cadence: 'daily' } });
+    expect(
+      await screen.findByRole('switch', { name: /enable campaign clustering/i }),
+    ).toBeInTheDocument();
+  });
+
   it('renders campaigns with name, case count and shared entities as plain text', async () => {
     renderCampaigns();
     await waitFor(() => expect(listMock).toHaveBeenCalled());

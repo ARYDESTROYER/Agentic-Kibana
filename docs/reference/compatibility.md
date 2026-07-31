@@ -5,7 +5,7 @@ description: Supported runtimes, state backends, telemetry sources, providers, d
 
 # Compatibility
 
-This matrix describes application **0.1.0** and documentation line **0.1**. It
+This matrix describes application **0.1.1** and documentation line **0.1**. It
 distinguishes implemented support from enum placeholders and archived components.
 
 ## Runtime and build matrix
@@ -16,7 +16,7 @@ distinguishes implemented support from enum placeholders and archived components
 | Agentic SOC Console | Node 22 for install/build | React 18, Vite 5, TypeScript 5.6, Tailwind, and Radix/shadcn-style primitives |
 | Container frontend | nginx | Serves the compiled SPA, version-matched `/docs/<major.minor>/` Help Center, and relative `/api/*` proxy |
 | Event schema | OCSF 1.4.0 | Every connector normalizes before the engine processes an event |
-| Documentation | MkDocs Material; Mike for public publication | Every app serves its installed 0.1 guide at `/docs/0.1/`; the public selector uses `0.1`; packages/images use `0.1.0` |
+| Documentation | MkDocs Material; Mike for public publication | Every app serves its installed 0.1 guide at `/docs/0.1/`; the public selector uses `0.1`; packages/images use `0.1.1` |
 
 The Agentic SOC Console is the only supported primary UI. It does not require Kibana. The
 former Kibana plugin is archived, frozen, and excluded from current build/test/release
@@ -32,7 +32,7 @@ internet connection is not required to open the installed guide.
 | Backend | Supported baseline | Vector behavior | Deployment notes |
 |---|---|---|---|
 | PostgreSQL | 15/16 with pgvector | pgvector-backed retrieval | The reference standalone stack uses the `pg16` image |
-| Elasticsearch | 8.x; client pinned to 8.12.1 and legacy stack target 8.19.12 | Agentic SOC vector-store implementation for the ES profile | Requires a management key scoped only to `tlsoc-agent-*` |
+| Elasticsearch | 8.x; client pinned to 8.12.1 and legacy stack target 8.19.12 | Agentic SOC vector-store implementation for the ES profile | Requires a management key scoped only to `tlsoc-agent-*`; explicit owned-ledger lifecycle additionally needs cluster `manage_ilm` + `manage_index_templates` + `monitor` and Hot/Warm roles |
 | SQLite | SQLite through `aiosqlite` | SQL/in-process-compatible development path | Single-node file profile; exercised by the offline test suite |
 
 The state backend is independent of telemetry connectors. A PostgreSQL deployment can
@@ -91,7 +91,7 @@ path.
 
 ## API and stored-data compatibility
 
-Version 0.1 uses Semantic Version `0.1.0`. As a pre-1.0 product, it prioritizes
+Version 0.1 uses Semantic Version `0.1.1`. As a pre-1.0 product, it prioritizes
 additive API and model changes but does not promise indefinite wire or storage
 compatibility across future minor versions.
 

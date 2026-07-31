@@ -20,6 +20,7 @@ import {
   DEFAULT_RANGE,
   REFRESH_OPTIONS,
   REFRESH_MS,
+  type RefreshValue,
   type TimeRange,
 } from '../TimeRangePicker';
 
@@ -222,9 +223,10 @@ describe('<TimeRangePicker/> render', () => {
     );
     const trigger = screen.getByRole('combobox', { name: 'Auto-refresh interval: Off' });
     expect(trigger).toBeInTheDocument();
-    // Narrow viewports get the compact icon-pair control; the full cadence label
-    // returns at `sm` without changing the accessible name.
-    expect(trigger).toHaveClass('w-14', 'sm:w-36');
+    // The cadence stays visible at narrow widths; the separate manual-refresh
+    // button owns the only refresh glyph.
+    expect(trigger).toHaveClass('w-24');
+    expect(trigger).not.toHaveClass('sm:w-36');
     // default option set exists
     expect(REFRESH_OPTIONS.map((o) => o.value)).toContain('off');
   });
@@ -249,7 +251,32 @@ describe('<TimeRangePicker/> render', () => {
     expect(onRefreshChange).toHaveBeenCalledWith('5s');
   });
 
-  it('offers LIVE below 5 minutes and renders its pulsing status indicator', () => {
+  it.each([
+    ['5s', '5 seconds', '5 sec'],
+    ['30s', '30 seconds', '30 sec'],
+    ['1m', '1 minute', '1 min'],
+    ['5m', '5 minutes', '5 min'],
+  ] as const)(
+    'shows %s as compact trigger copy while retaining the full accessible label',
+    (refresh, fullLabel, compactLabel) => {
+      render(
+        <TimeRangePicker
+          value={PRESETS[2]}
+          onChange={() => {}}
+          refresh={refresh as RefreshValue}
+          onRefreshChange={() => {}}
+        />,
+      );
+
+      const trigger = screen.getByRole('combobox', {
+        name: `Auto-refresh interval: ${fullLabel}`,
+      });
+      expect(trigger).toHaveTextContent(compactLabel);
+      expect(trigger).not.toHaveTextContent(fullLabel);
+    },
+  );
+
+  it('offers LIVE directly below Off with one pulse and no duplicate refresh glyph', () => {
     const onRefreshChange = vi.fn();
     const { rerender, container } = render(
       <TimeRangePicker
@@ -262,9 +289,18 @@ describe('<TimeRangePicker/> render', () => {
 
     fireEvent.click(screen.getByRole('combobox', { name: 'Auto-refresh interval: Off' }));
     const live = screen.getByRole('option', { name: 'LIVE' });
+    expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
+      'Off',
+      'LIVE',
+      '5 seconds',
+      '30 seconds',
+      '1 minute',
+      '5 minutes',
+    ]);
     fireEvent.click(live);
     expect(onRefreshChange).toHaveBeenCalledWith('live');
-    expect(REFRESH_OPTIONS.at(-1)?.value).toBe('live');
+    expect(REFRESH_OPTIONS[1]?.value).toBe('live');
+    expect(REFRESH_OPTIONS[2]?.value).toBe('5s');
 
     rerender(
       <TimeRangePicker
@@ -274,7 +310,13 @@ describe('<TimeRangePicker/> render', () => {
         onRefreshChange={onRefreshChange}
       />,
     );
-    expect(screen.getByRole('combobox', { name: 'Auto-refresh interval: LIVE' })).toBeInTheDocument();
-    expect(container.querySelector('.animate-pulse.bg-success')).not.toBeNull();
+    const trigger = screen.getByRole('combobox', { name: 'Auto-refresh interval: LIVE' });
+    expect(trigger).toBeInTheDocument();
+    const pulse = trigger.querySelector('.animate-pulse.bg-success');
+    expect(pulse).toHaveClass('block', 'size-2');
+    expect(pulse?.parentElement).toHaveClass('!inline-flex');
+    expect(trigger.querySelectorAll('.animate-pulse.bg-success')).toHaveLength(1);
+    expect(trigger.querySelector('.lucide-refresh-cw')).toBeNull();
+    expect(container.querySelectorAll('.animate-pulse.bg-success')).toHaveLength(1);
   });
 });

@@ -2,9 +2,9 @@ import * as React from 'react';
 import { cn } from '@/lib/cn';
 
 /**
- * Skeleton placeholder. Uses the global `.shimmer` sweep (defined in theme.css)
- * over a muted block. Token-themed for both light and dark; reduced-motion safe
- * (the sweep is neutralised globally under `prefers-reduced-motion`).
+ * Motionless geometry placeholder. Blocking waits use the shared LoadingState ring;
+ * Skeleton only reserves the resolved control/row footprint behind that one motion
+ * mark. Keeping it static avoids several competing shimmer regions on dense pages.
  */
 const Skeleton = React.forwardRef<
   HTMLDivElement,
@@ -12,11 +12,9 @@ const Skeleton = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
-    className={cn(
-      'shimmer relative overflow-hidden bg-muted rounded-md',
-      className,
-    )}
+    className={cn('relative overflow-hidden rounded-md bg-muted/75', className)}
     {...props}
+    aria-hidden="true"
   />
 ));
 Skeleton.displayName = 'Skeleton';
@@ -38,8 +36,8 @@ const SkeletonCard = React.forwardRef<HTMLDivElement, SkeletonCardProps>(
     <div
       ref={ref}
       className={cn('rounded-lg border border-border bg-card p-5', className)}
-      aria-hidden
       {...props}
+      aria-hidden
     >
       <div className="flex items-center justify-between gap-3">
         <Skeleton className="h-3.5 w-24" />

@@ -5,10 +5,10 @@
  * Overview KPIs / Standup) behind a double tab strip. They now live under ONE strip
  * owned by the Metrics page:
  *
- *   Operational | Performance | Posture | Cost
+ *   Operational | Performance | Posture | Effectiveness | Cost
  *
  * with Cost folded in as the SINGLE spend home. This spec asserts:
- *   1. all four tabs render in one strip (no double strip),
+ *   1. all five tabs render in one strip (no double strip),
  *   2. the Cost tab shows the spend ledger (the former standalone Cost page, hosted),
  *   3. the Operational tab no longer owns the full cost view (LLM spend moved) but
  *      keeps a compact pointer into the Cost tab, and
@@ -62,6 +62,65 @@ vi.mock('@/lib/api', () => ({
     }),
     ragStats: vi.fn().mockResolvedValue(null),
     getMemory: vi.fn().mockResolvedValue(null),
+    getAgentImprovement: vi.fn().mockResolvedValue({
+      generated_at: '2026-07-28T00:00:00Z',
+      synthetic: false,
+      windows: {
+        as_of_exclusive: '2026-07-28',
+        current: { start: '2026-07-21', end_exclusive: '2026-07-28', days: 7 },
+        baseline: { start: '2026-06-23', end_exclusive: '2026-07-21', days: 28 },
+        timezone: 'UTC', complete_days_only: true,
+      },
+      headline: {
+        state: 'insufficient_evidence',
+        reason: 'Complete comparable cohorts are required before declaring improvement.',
+        improving_signals: 0, regressing_signals: 0, guardrails_ready: false,
+        comparable_mix_coverage: 0, minimum_comparable_mix_coverage: 0.8,
+        composite_score: null,
+        signal_domains: {
+          analyst_grade_quality: 'insufficient_evidence',
+          human_review_turnaround: 'insufficient_evidence',
+        },
+      },
+      metrics: Object.fromEntries([
+        ['analyst_reported_verdict_agreement', ['Analyst-reported verdict agreement', 'ratio', 'up']],
+        ['material_analyst_correction_rate', ['Material analyst correction rate', 'ratio', 'down']],
+        ['human_review_turnaround', ['Human review turnaround', 'minutes', 'down']],
+      ].map(([key, [label, unit, good_direction]]) => [key, {
+        label, unit, good_direction,
+        current: { value: null, available: false, status: 'unavailable', reason: 'No eligible observations.', sample_count: 0, minimum_sample: 20 },
+        baseline: { value: null, available: false, status: 'unavailable', reason: 'No eligible observations.', sample_count: 0, minimum_sample: 20 },
+        delta: {}, direction: 'insufficient_evidence',
+        definition: { formula: 'aggregate formula', numerator: 'eligible outcomes', denominator: 'eligible cases', eligibility: 'complete UTC days', caveats: 'Observed outcomes only.' },
+      }])),
+      guardrails: {
+        confirmed_false_negative_rate: {
+          status: 'unavailable', minimum_sample: 20,
+          current: { value: null, confirmed_positive_count: 0, missed_positive_count: 0 },
+          baseline: { value: null, confirmed_positive_count: 0, missed_positive_count: 0 },
+          material_increase_threshold: 0.01, breached: null,
+          definition: 'Missed confirmed positives divided by confirmed positives.',
+        },
+        reopen_after_agent_close_rate: {
+          status: 'not_applicable', minimum_sample: 20,
+          current: { candidate_agent_terminal_decisions: 0, eligible_agent_terminal_decisions: 0, right_censored_decisions: 0, human_reopens: 0, rate: null, follow_up_hours: 24 },
+          baseline: { candidate_agent_terminal_decisions: 0, eligible_agent_terminal_decisions: 0, right_censored_decisions: 0, human_reopens: 0, rate: null, follow_up_hours: 24 },
+          material_increase_threshold: 0.02, breached: null,
+          caveat: 'Only complete 24-hour follow-up windows are eligible.',
+        },
+      },
+      case_mix: {
+        dimensions: ['source', 'severity'], minimum_per_stratum: 5,
+        baseline_total: 0, current_total: 0, baseline_covered: 0, current_covered: 0,
+        comparable_mix_coverage: 0, baseline_mix_coverage: 0, current_mix_coverage: 0,
+        comparable_strata: 0, baseline_only_strata: 0, current_only_strata: 0,
+        suppressed_strata: 0, adjusted_baseline_agreement: null,
+        adjusted_current_agreement: null, adjusted_baseline_correction_rate: null,
+        adjusted_current_correction_rate: null,
+      },
+      daily_points: [], exclusions: {},
+      provenance: { truncated: false, store_total: 0, fetched: 0, aggregate_only: true, case_ids_included: false, billing: 'none', decision_authority: 'reporting_only' },
+    }),
     // The Cost tab (embedded) reads this ONE ledger endpoint.
     usageSummary: vi.fn().mockResolvedValue({
       total_cost: 1.23,
@@ -112,7 +171,7 @@ describe('Analytics consolidation (Round 4 / #10)', () => {
     fetchMitreMock.mockResolvedValue(null);
   });
 
-  it('renders ONE tab strip: Operational | Performance | Posture | Cost', async () => {
+  it('renders ONE tab strip: Operational | Performance | Posture | Effectiveness | Cost', async () => {
     render(<Metrics embedded />);
     // Anchor on the stable per-id tab testids (reword-proof) while KEEPING the
     // accessible role+name checks (a tab that drops its label still fails).
@@ -121,16 +180,28 @@ describe('Analytics consolidation (Round 4 / #10)', () => {
     );
     expect(screen.getByTestId('metrics-tab-performance')).toBeInTheDocument();
     expect(screen.getByTestId('metrics-tab-posture')).toBeInTheDocument();
+    expect(screen.getByTestId('metrics-tab-effectiveness')).toBeInTheDocument();
     expect(screen.getByTestId('metrics-tab-cost')).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /operational/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /performance/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /posture/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /effectiveness/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /^cost$/i })).toBeInTheDocument();
-    // Exactly four SECTION tabs in the metrics strip — no double strip / phantom
+    // Exactly five SECTION tabs in the metrics strip — no double strip / phantom
     // tab. Scoped to the metrics TabsList; the inline window/sort SegmentedControls
     // (now radiogroups, role="radio") in the same row can't inflate a role="tab" count.
     const strip = screen.getByTestId('metrics-tabs');
-    expect(within(strip).getAllByRole('tab')).toHaveLength(4);
+    expect(within(strip).getAllByRole('tab')).toHaveLength(5);
+  });
+
+  it('keeps weak evidence explicit and never invents an agent score', async () => {
+    render(<Metrics embedded tab="effectiveness" />);
+    await waitFor(() =>
+      expect(screen.getByText(/not enough evidence to assess change/i)).toBeInTheDocument(),
+    );
+    expect(screen.getByText(/not a model-learning score/i)).toBeInTheDocument();
+    expect(screen.queryByText(/agent score/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/reporting only/i)).toBeInTheDocument();
   });
 
   it('Cost tab is the single spend home — shows the ledger controls + breakdown', async () => {

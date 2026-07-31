@@ -29,7 +29,6 @@ import { humanizeAge, humanizeToken, formatTimestamp, DASH } from '@/lib/format'
 import { Button } from '@/ui/button';
 import { Input } from '@/ui/input';
 import { Badge } from '@/ui/badge';
-import { Card } from '@/ui/card';
 import {
   Select,
   SelectTrigger,
@@ -328,7 +327,7 @@ function AuditViewer({ onNavigate }: AuditProps) {
       />
 
       {/* Filter bar */}
-      <Card className="flex flex-wrap items-center gap-2 p-3">
+      <div className="flex flex-wrap items-center gap-2 border-y border-border/70 bg-surface/40 p-2">
         <div className="relative min-w-[14rem] flex-1">
           <Search
             className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
@@ -410,7 +409,7 @@ function AuditViewer({ onNavigate }: AuditProps) {
           Showing <strong className="text-foreground">{filtered.length}</strong> of{' '}
           {records.length}
         </span>
-      </Card>
+      </div>
 
       {error ? (
         <LoadError

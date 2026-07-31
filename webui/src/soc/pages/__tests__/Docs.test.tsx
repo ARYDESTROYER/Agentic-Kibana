@@ -49,6 +49,23 @@ describe('Help Center', () => {
     expect(screen.queryByRole('link', { name: /users and roles/i })).not.toBeInTheDocument();
   });
 
+  it('discovers the primary Workspace Chat, Campaigns, and Analytics guides', () => {
+    renderDocs();
+
+    expect(screen.getByRole('link', { name: /workspace chat/i })).toHaveAttribute(
+      'href',
+      '/docs/0.1/analyst/chat/',
+    );
+    expect(screen.getByRole('link', { name: /^campaigns/i })).toHaveAttribute(
+      'href',
+      '/docs/0.1/analyst/campaigns/',
+    );
+    expect(screen.getByRole('link', { name: /analytics and standup/i })).toHaveAttribute(
+      'href',
+      '/docs/0.1/analyst/analytics/',
+    );
+  });
+
   it('navigates categories without leaving the Help Center', () => {
     renderDocs();
 

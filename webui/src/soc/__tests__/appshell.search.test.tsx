@@ -181,9 +181,13 @@ describe('AppShell top-nav search (W0.10)', () => {
     expect(frame).toHaveClass('w-16');
     expect(tuning.closest('aside')).toHaveAttribute('data-nav-state', 'collapsed');
 
-    // Keyboard focus must not swap the icon rail for a differently laid-out drawer
-    // between pointer-down/focus and click. That DOM replacement previously caused a
-    // click aimed at Auto-tuning to land on a neighbouring destination.
+    // Pointer hover and keyboard focus must not swap the locked icon rail for a
+    // differently laid-out drawer. Grouped destinations reveal compact flyouts instead;
+    // the full drawer opens only through the explicit toggle / Cmd-Ctrl+B contract.
+    fireEvent.mouseEnter(frame);
+    expect(frame).toHaveClass('w-16');
+    expect(tuning.closest('aside')).toHaveAttribute('data-nav-state', 'collapsed');
+
     fireEvent.focus(tuning);
     expect(screen.getByTestId('nav-tuning')).toBe(tuning);
     expect(tuning.closest('aside')).toHaveAttribute('data-nav-state', 'collapsed');
@@ -216,7 +220,7 @@ describe('AppShell top-nav search (W0.10)', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Open navigation' }));
     const dialog = await screen.findByRole('dialog', { name: 'Primary navigation' });
-    const docs = within(dialog).getByRole('button', { name: 'Docs' });
+    const docs = within(dialog).getByRole('button', { name: 'Documentation' });
     expect(within(dialog).getByTestId('nav-footer')).toContainElement(docs);
 
     fireEvent.click(docs);

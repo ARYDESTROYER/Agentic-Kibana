@@ -10,6 +10,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 
 import { useConfigEditor } from '../useConfigEditor';
+import { useHasUnsavedChanges } from '@/soc/hooks/useDirtyDraft';
 
 interface Cfg {
   enabled: boolean;
@@ -48,6 +49,27 @@ describe('useConfigEditor', () => {
     act(() => result.current.discard());
     expect(result.current.dirty).toBe(false);
     expect(result.current.draft.n).toBe(3);
+  });
+
+  it('registers its draft with the shell guard until discard or unmount', async () => {
+    const client = makeClient({ n: 3 });
+    const { result, unmount } = renderHook(() => {
+      const editor = useConfigEditor<Cfg>(client, DEFAULTS);
+      const hasUnsavedChanges = useHasUnsavedChanges();
+      return { editor, hasUnsavedChanges };
+    });
+    await waitFor(() => expect(result.current.editor.loading).toBe(false));
+    expect(result.current.hasUnsavedChanges).toBe(false);
+
+    act(() => result.current.editor.update({ n: 5 }));
+    await waitFor(() => expect(result.current.hasUnsavedChanges).toBe(true));
+
+    act(() => result.current.editor.discard());
+    await waitFor(() => expect(result.current.hasUnsavedChanges).toBe(false));
+
+    act(() => result.current.editor.update({ n: 7 }));
+    await waitFor(() => expect(result.current.hasUnsavedChanges).toBe(true));
+    unmount();
   });
 
   it('saves the draft via putConfig and re-baselines the dirty flag', async () => {

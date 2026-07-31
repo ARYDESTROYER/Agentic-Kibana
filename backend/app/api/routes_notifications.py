@@ -157,17 +157,22 @@ async def set_notification_channel_secret(
     # Reflect the configured field NAMES (not values) onto the channel config so the
     # UI can show ✓ across reloads. Best-effort — never blocks the secret write.
     try:
-        cfg = getattr(state.prefs, "notifications", None)
-        if cfg is not None:
+        def _stamp(current):
+            cfg = getattr(current, "notifications", None)
+            if cfg is None:
+                return current
             channels = list(cfg.channels)
-            for i, ch in enumerate(channels):
-                if ch.id == channel_id:
-                    channels[i] = ch.model_copy(update={"configured_secrets": configured})
-                    new_notif = cfg.model_copy(update={"channels": channels})
-                    await state.update_prefs(
-                        state.prefs.model_copy(update={"notifications": new_notif})
+            for i, channel in enumerate(channels):
+                if channel.id == channel_id:
+                    channels[i] = channel.model_copy(
+                        update={"configured_secrets": configured}
                     )
-                    break
+                    return current.model_copy(update={
+                        "notifications": cfg.model_copy(update={"channels": channels}),
+                    })
+            return current
+
+        await state.mutate_prefs(_stamp)
     except Exception as exc:  # noqa: BLE001
         logger.warning("notification configured_secrets stamp failed for %s: %s", channel_id, exc)
     await state.control_audit.record(

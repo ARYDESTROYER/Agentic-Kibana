@@ -9,6 +9,11 @@ Playbooks are operator-authored Markdown procedures selected deterministically f
 case. They guide investigation; they do not override auto-close policy or directly
 change case status.
 
+Playbooks are different from [runbooks](../intelligence/runbooks.md). A runbook is
+retrievable reference knowledge whose full body may ground an investigation; a
+playbook is a separately selected procedure that an operator can explicitly run for a
+case. Neither replaces deterministic case policy.
+
 ## Select and run a playbook
 
 Open a case and choose **Run playbook**. Agentic SOC matches playbooks against rule IDs,
@@ -79,4 +84,4 @@ approval-gated. Closing a case or approving a proposal is never an autonomous to
 action.
 
 See [Detection and rules](rules.md), [Cases](../analyst/cases.md), and
-[Knowledge and memory](../intelligence/knowledge-memory.md).
+[Runbooks](../intelligence/runbooks.md).

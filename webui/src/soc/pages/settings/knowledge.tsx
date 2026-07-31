@@ -5,7 +5,6 @@
  * RAG retrieval config, the per-case threat-context panel, and deep-links to the
  * corpus/playbook management pages.
  */
-import { useId } from 'react';
 import { FileText, Library, ShieldAlert } from 'lucide-react';
 
 import type { ThreatContextConfig } from '@/lib/types';
@@ -13,8 +12,8 @@ import { cn } from '@/lib/cn';
 
 import { Button } from '@/ui/button';
 import { Input } from '@/ui/input';
-import { Label } from '@/ui/label';
 import { SettingsGrid, SettingsCard, type SettingsTOCItem } from '@/soc/components/SettingsGrid';
+import { Field } from '@/soc/components/Field';
 import { HelpTip } from '@/soc/components/HelpTip';
 
 import { SectionShell, NumPref, SwitchPref, type NavigateFn, type SecProps } from './primitives';
@@ -54,7 +53,6 @@ export function KnowledgeSection({
   const cfg: ThreatContextConfig = prefs.threat_context || {};
   const set = (patch: Partial<ThreatContextConfig>) =>
     update({ threat_context: { ...cfg, ...patch } });
-  const iocThresholdId = useId();
 
   return (
     <SectionShell
@@ -100,20 +98,25 @@ export function KnowledgeSection({
               onChange={(v) => set({ reuse_resolved_cases: v })}
             />
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-1.5">
-                  <Label htmlFor={iocThresholdId}>IOC malicious threshold</Label>
+              <Field
+                label="IOC malicious threshold"
+                description="Reputation scores at or above this threshold are marked malicious."
+                labelAction={
                   <HelpTip text="A reputation score at or above this (0–100) marks an indicator as malicious in the panel." />
-                </div>
-                <Input
-                  id={iocThresholdId}
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={cfg.ioc_malicious_threshold ?? 50}
-                  onChange={(e) => set({ ioc_malicious_threshold: Number(e.target.value) })}
-                />
-              </div>
+                }
+              >
+                {({ id, describedBy }) => (
+                  <Input
+                    id={id}
+                    aria-describedby={describedBy}
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={cfg.ioc_malicious_threshold ?? 50}
+                    onChange={(e) => set({ ioc_malicious_threshold: Number(e.target.value) })}
+                  />
+                )}
+              </Field>
             </div>
           </div>
         </SettingsCard>
@@ -125,9 +128,14 @@ export function KnowledgeSection({
           description="Manage the RAG knowledge corpus (runbooks, MITRE, imported threat-intel) and the per-cluster playbooks on their dedicated pages."
           wide="full"
         >
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-surface px-4 py-3">
-              <span className="text-sm text-muted-foreground">Knowledge corpus (RAG)</span>
+          <div className="divide-y divide-border/70 border-y border-border/70 sm:grid sm:grid-cols-2 sm:divide-x sm:divide-y-0">
+            <div className="flex flex-wrap items-center justify-between gap-3 py-3 sm:pr-4">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-foreground">Knowledge corpus</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Runbooks, MITRE context, and imported intelligence.
+                </p>
+              </div>
               {onNavigate ? (
                 <Button
                   variant="outline"
@@ -139,8 +147,13 @@ export function KnowledgeSection({
                 </Button>
               ) : null}
             </div>
-            <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-surface px-4 py-3">
-              <span className="text-sm text-muted-foreground">Playbooks &amp; agents</span>
+            <div className="flex flex-wrap items-center justify-between gap-3 py-3 sm:pl-4">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-foreground">Playbooks &amp; agents</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Cluster procedures and agent routing context.
+                </p>
+              </div>
               {onNavigate ? (
                 <Button
                   variant="outline"

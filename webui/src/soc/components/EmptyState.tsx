@@ -44,21 +44,21 @@ export const EmptyState = React.forwardRef<HTMLDivElement, EmptyStateProps>(
         role={isError ? 'alert' : undefined}
         className={cn(
           'flex flex-col items-center justify-center text-center',
-          compact ? 'gap-2 px-4 py-8' : 'gap-3 px-6 py-14',
+          compact ? 'gap-2 px-4 py-6' : 'gap-3 px-6 py-10',
           className,
         )}
         {...props}
       >
         <div
           className={cn(
-            'flex items-center justify-center rounded-full border',
-            compact ? 'h-11 w-11' : 'h-16 w-16',
+            'flex items-center justify-center rounded-md border',
+            compact ? 'size-9' : 'size-11',
             isError
               ? 'border-critical/20 bg-critical/10 text-critical'
               : 'border-border bg-surface text-muted-foreground',
           )}
         >
-          <Icon className={cn(compact ? 'h-5 w-5' : 'h-7 w-7')} aria-hidden />
+          <Icon className={cn(compact ? 'size-4' : 'size-5')} aria-hidden />
         </div>
         <div className={cn('space-y-1', compact ? 'max-w-sm' : 'max-w-md')}>
           <p

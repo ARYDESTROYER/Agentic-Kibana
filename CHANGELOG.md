@@ -12,8 +12,9 @@ History is reconstructed from `git log`.
 
 ## [Unreleased]
 
-**Current development snapshot (2026-07-22): Security Command Center, canonical
-Case Manager detail, portable export, and version-matched Help Center.**
+**Current development snapshot (2026-07-30): Security Command Center, canonical
+Case Manager detail, durable Workspace Chat, minimal identity and setup workspaces,
+portable export, and a version-matched Help Center.**
 
 ### Added
 
@@ -25,18 +26,82 @@ Case Manager detail, portable export, and version-matched Help Center.**
   Set disposition, Reinvestigate, and Resolve. Successful cases leave the
   selection; per-case failures remain selected with their reason for retry. Raw
   Close is intentionally omitted from the bulk menu.
+- Case Manager now conditionally exposes **Investigation inputs** from the latest
+  investigation run: operator memory consulted, RAG knowledge retrieved, runbook
+  references retrieved, playbooks actually injected and consulted, and immutable
+  platform threshold-tuning snapshots. Earlier runs cannot leak into a later
+  reinvestigation, selected-only playbooks stay hidden, missing provenance remains
+  explicit, and threshold tuning is labelled separately from model fine-tuning.
+  These inputs never replace deterministic case policy as the final route authority.
+- Durable per-user **Workspace Chat history** over the selected state backend,
+  with newest-first list/detail, search, selection, rename, and delete. A new
+  conversation is persisted only after its first successful, verified state-store
+  commit; the saved server transcript and each assistant turn's effective source/model
+  are authoritative when it is resumed. Stable request identifiers make an ambiguous
+  retry replay the one committed turn without appending or billing twice. Per-user live
+  request leases are capped at 256; saturation fails before model invocation with a
+  typed retryable response and recovers as leases complete or expire.
 - An always-visible `vX.Y.Z · Testing|Stable` Console badge with a provenance
   popover for separate Console/backend channel, SHA, and build time. An identity
   mismatch can only downgrade the session to Testing.
+- A fail-safe **Update available** control beside the release badge for activating
+  a different Console release that has already been deployed. A no-store static
+  manifest must exactly match healthy backend build-info before the offer appears;
+  known unsaved drafts block confirmation, and a final manifest/backend/health/
+  entry-document preflight preserves the current hash route only after every check
+  passes. Discovery or activation failure leaves the current Console running. The
+  browser never pulls artifacts, restarts services, runs migrations, promotes a
+  channel, holds deployment credentials, or performs rollback.
+- Read-only upstream release discovery with safe defaults for the public Agentic SOC
+  repository, Stable `main`, and Testing `Testing`. **Settings → Organization →
+  Updates & releases** lets fork operators change the canonical GitHub URL, either
+  branch, and the cache interval. The backend performs bounded cached metadata reads;
+  the shell can link a newer source version/revision for review, suppresses downgrades,
+  and never confuses source availability with the separately verified deployment
+  activation control.
 - A dedicated operator contract at `docs/analyst/case-manager.md` covering queue
   scope, action authority, confirmations, permissions, audit, and partial failures.
 - A compact persisted System / Light / Dark appearance selector, an in-app Docs
   destination with bundled-version guidance, and a current Console UI standard for
   page structure, flat surfaces, navigation, motion/loading, themes, and accessibility.
+- A canonical `webui/src/design-system/` boundary with one centered,
+  reduced-motion-safe loading grammar, original theme-adaptive source marks for the
+  connector catalog, and a JSON-serializable component/token/asset catalog. The
+  catalog is future agent/MCP input only; 0.1.1 does not ship an MCP server.
+- Additive aggregate-only `GET /api/metrics/agent-improvement` reporting behind
+  `metrics:view`: the last seven complete UTC days are compared with the preceding
+  28 through weighted analyst-reported agreement, material correction rate, and human
+  review turnaround. Identically weighted source/severity cohorts must cover both
+  windows; sample sufficiency, bounded-load truncation, evaluable false-negative and
+  fixed-horizon reopen guardrails, exclusions, and definitions remain explicit. The
+  response returns no synthetic composite, source/case identifiers, raw evidence, or
+  model calls and makes no causal learning claim. Agreement and correction are treated
+  as one correlated quality domain for headline promotion, actor-label limitations are
+  disclosed, and exclusion counters are bounded to the reporting horizon.
+- The same report now carries a separate, non-headline outcome layer: confirmed-
+  positive rate among outcome-graded cases; recorded usage-ledger cost for case-linked
+  model calls; observed agent-terminal versus human-terminal closure elapsed-time
+  difference; durable ingested versus after-clustering volume; and applied tuning
+  chronology with `causal_claim=false`. It adds true 7-day versus prior-7-day and
+  rolling-28-day versus prior-28-day comparisons. A true-positive/raw-alert yield is
+  explicitly unavailable because cases and alerts are unlike units, and semantic
+  missing-source guidance remains a documented long-term objective. Missing human
+  cohorts, undersized samples, or unavailable ledgers remain explicit rather than
+  becoming synthetic time, overtime, savings, or improvement claims.
+- Shared `ComparisonMetric` and `MetricDefinition` Console primitives now keep
+  **Analytics → Agent effectiveness** and Auto-tuning's dedicated **Outcomes**
+  workspace aligned. They reuse the established KPI delta grammar and add explicit
+  prior/sample/availability context plus keyboard/touch-accessible formula, numerator,
+  denominator, eligibility, and caveat disclosure.
 - A permission-gated **Intelligence → Playbooks** manager for browsing/opening plain
   Markdown and creating/editing operator-owned procedures. Bundled procedures remain
   protected; mutations are slug/path-contained, size-bounded, atomically reloaded,
   append-only audited, and recommendation-only with deterministic decisions untouched.
+- A dedicated **Intelligence → Runbooks** manager for browsing full bundled guidance
+  and creating, editing, deleting, or reindexing durable operator Markdown. It uses
+  `runbooks:read/manage`, optimistic revisions, protected bundled content, targeted
+  full-body RAG projection, explicit stale/failed index state, and append-only audit;
+  runbooks remain retrieval knowledge and cannot replace deterministic case policy.
 - A redacted **alert → correlation cluster → opened case** explanation on the case
   Threat Context tab. It projects persisted input counts, opaque stable references,
   source breakdown, matched rule/window/grouping/threshold, opened-case status, and
@@ -46,11 +111,62 @@ Case Manager detail, portable export, and version-matched Help Center.**
   The dedicated `data_export:export` permission defaults to `super_admin` and
   `soc_manager`; every request is audited, while credentials, users/sessions,
   password/MFA material, upstream raw logs, and raw knowledge chunks are excluded.
+- A capability-aware **Settings → Organization → Storage & retention** policy:
+  desired Hot 180 days, Warm 90 days, then AWS S3 Glacier Flexible Retrieval from
+  day 270, with deletion always off. Explicit preview/apply can enforce Elasticsearch
+  ILM only for append-only audit and usage ledgers when privileges and data tiers are
+  present; cases/live metadata remain Hot, PostgreSQL is advisory, SQLite is
+  export-only, and connected source retention remains external. Glacier correctly
+  stays not configured until an independent checksummed export/restore pipeline exists.
 - Microsoft Entra ID / Active Directory is the fifth isolated Demo Mode source,
   exercising synthetic Graph `auditLogs/signIns` and Identity Protection vocabulary
   alongside Splunk, QRadar, Wazuh, and syslog.
 
 ### Changed
+
+- The current **Unreleased Testing candidate** is versioned **0.1.1**. Patch
+  releases continue to bundle the existing **0.1** Help Center line; this
+  candidate metadata does not imply that a Stable tag exists.
+- Fresh workspaces now use official OpenAI `gpt-5.6-luna` for every completion
+  role, with `reasoning_effort: none` preserving the existing Chat Completions
+  latency/tool contract. Embeddings remain on `text-embedding-3-small`; persisted
+  role assignments and all alternate providers/models remain available and are
+  never rewritten by the default change. Luna's bundled catalog and cost ledger use
+  the current $1/M input, $0.10/M cached-input, and $6/M output rates.
+- The shared Console shell and explicitly migrated reference surfaces now use one
+  visual grammar: consistent page anatomy, flat telemetry and control bands, compact
+  squared controls, restrained section boundaries, responsive tables/tabs, shared
+  empty states, and one centered blocking-load treatment. Supported compatibility and
+  older routes continue to migrate under the documented UI standard rather than being
+  called complete because their surrounding shell changed. Presentation work preserves
+  route contracts, deep links, RBAC, APIs, data, and deterministic case decisions.
+- Sign-in now uses one minimal, centered identity-first surface instead of a marketing
+  split pane: username advances to password, optional demo credentials and SSO remain
+  explicit, and System/Light/Dark follows the same persisted theme path as the Console.
+  The sparse tile canvas stays behind the opaque form, disappears on narrow screens,
+  honors reduced motion, and switches theme atomically. Setup, MFA, enrollment, and
+  forced-password modes retain the same practical identity shell, with no synthetic
+  audit-status claim or repeated security copy.
+- Workspace Chat is now a compact split conversation workspace: a searchable 264px
+  desktop history rail becomes a mobile History Sheet, the transcript starts at the
+  top of a readable measure, and one status plus one composer remain anchored to the
+  active thread. Answer provenance is consolidated under **Evidence & execution**;
+  saved-thread restore/error states preserve the workspace, each visited thread keeps
+  its own unsent browser draft, focus revalidates history, and follow-scroll yields to
+  **Jump to latest** while older evidence is being read. Bounded-history metadata makes
+  the 50-conversation/100-message retention boundary explicit. Case Manager chat
+  continues to use the same engine while remaining case-scoped and outside personal
+  Workspace history. Chats from before durable history were browser-only and cannot be
+  recovered.
+- The entire first-run wizard is now a wide, responsive Console-style setup
+  workspace with four honest stages: **Workspace, Data sources, AI runtime, and
+  Review & launch**. Synthetic demo and Live are explicit starting modes; live
+  setup may launch with warnings instead of falsely claiming readiness. Provider
+  keys remain write-only and auto-save through one guarded navigation path, open
+  source drafts require discard confirmation, and the final labels are **Launch
+  Agentic SOC** on first run or **Apply changes** on a Settings re-run. Setup-status
+  failure now blocks the operational console behind a retryable fail-closed state;
+  lost completion responses reconcile against authoritative setup status.
 
 - The Security Command Center now uses one selected-window lifecycle story across
   five primary KPIs, puts Open before Resolved, uses the current open queue for
@@ -59,6 +175,12 @@ Case Manager detail, portable export, and version-matched Help Center.**
   It defaults to visibility-aware **LIVE** refresh at a five-second cadence and can
   expand Noise Reduction into a near-fullscreen aggregate inspection view with
   counter-coverage and truncation caveats.
+- Noise Reduction retains the established horizontal ribbon and aligned stage rail.
+  Its data semantics are now explicit: Auto-cleared and Escalated partition opened
+  cases, human closure is an analyst-owned subset of Escalated, optional candidates
+  are not presented as a required stage before case creation, and outcome controls
+  open the matching selected-window Cases cohort. Counts, percentages, coverage, and
+  truncation notices remain authoritative over decorative chart geometry.
 - Opening a record from the full-width Cases table now shows a short announced
   handoff and opens that exact case in Case Manager, the canonical detail workspace.
   The desktop queue/detail divider is pointer- and keyboard-resizable, bounded,
@@ -77,14 +199,36 @@ Case Manager detail, portable export, and version-matched Help Center.**
 - The redundant Automated Scans page has left primary navigation (its route/API remain
   compatible for bookmarked links); Workspace now calls the targeted workflow
   **Entity investigation** and explains its scope → analysis → case lifecycle.
-- Settings now uses a wider, searchable, divider-led command-center layout with one
-  active-section heading instead of nested card chrome. Shared route loading and the
-  navigation rail use the same reduced-motion-aware transition language.
-- Auto-tuning tables now reserve stable column widths, wrap long rule identifiers,
-  and keep their supporting side rail separate only at genuinely wide viewports, so
-  every row starts on the same grid without squeezing the primary data. Workspace's
-  targeted flow is consistently labelled **Entity investigation** and explains the
-  telemetry → correlation → saved-case outcome.
+- Settings is now a responsive configuration workspace: a grouped, searchable desktop
+  rail becomes a compact searchable Sheet chooser on narrow layouts; each renderer owns
+  exactly one active-section heading beneath a quiet location/dirty-status line; and
+  flat `SettingsCard`, field, switch, and posture lanes replace nested card chrome.
+  One sticky Save/Discard bar retains deep links, RBAC filtering, write-only secrets,
+  and partial-update dirty tracking. Blocking loads use the shared centered
+  Fluent/Material-style indeterminate progress ring.
+- Auto-tuning Operations is rebuilt as a flat task workspace with a continuous
+  evidence strip, a rule-grouped Review queue, truthful **Collecting / Within target /
+  Needs attention** states, a searchable responsive All monitored rules list, and a
+  contextual rule inspector. Attention rows now lead with the exact evidence gate,
+  policy gap in percentage points, recommended action, expected operational effect,
+  and safety-replay result; supporting statistics no longer compete with the diagnosis.
+  The redesign removes wide-table overflow and misleading per-kind Apply affordances:
+  one action now reflects the backend's actual rule-scoped processing contract while
+  unrelated rules remain usable. **Eligible after replay** replaces misleading
+  **Safe** copy because processing always recomputes the evidence and safeguards.
+- Workspace's targeted flow is consistently labelled **Entity investigation** and
+  explains the telemetry → correlation → saved-case outcome.
+- Auto-tuning is divided into three focused workspaces: **Operations** for rule health
+  and proposals, permission-gated **Outcomes** for controlled aggregate comparison,
+  and **Policy & history**, with editable policy before audit chronology. The
+  Outcomes workspace shows one operator-selected graph at a time, preserves the exact
+  complete-UTC windows, comparable samples, exclusions, truncation, and distinct
+  safety-guardrail states from the Agent Effectiveness contract, and keeps change
+  chronology explicitly non-causal. Loading or evidence failure remains isolated from
+  tuning controls, while the full-evidence action opens the canonical Analytics view.
+- Under-sampled tuning rules are no longer presented as healthy, and multiple
+  recommendations for one rule are no longer rendered as independently actionable
+  when the backend processes them together.
 - The false-positive auto-close policy note is shown only for a false-positive/benign
   case where it can still explain an active or manual outcome. True-positive and
   needs-human cases no longer inherit the irrelevant sentence, and an already
@@ -102,9 +246,35 @@ Case Manager detail, portable export, and version-matched Help Center.**
   Center before typecheck/Vite. Installed documentation is authoritative for that
   build; public Stable and Development remain explicitly separate secondary views.
 
+### Fixed
+
+- Final UI-standard hardening removed nested table-row activation, restored named
+  row actions and visible chat-composer focus, protected dirty Settings drafts during
+  Console navigation and page exit, corrected Scans focus/heading semantics, and
+  normalized shared overlays to dynamic viewport units without changing route, API,
+  RBAC, or case-decision contracts.
+- Branding now clears stale inline tokens before reapplication, keeps semantic
+  severity/status/verdict axes system-owned, measures semantic text on the actual
+  translucent wash, and derives a contrast-safe primary foreground consistently in
+  the backend, editor preview, and browser. Legacy hex color documents normalize at
+  the DOM boundary, including exact crossover colors, while saved display-font keys
+  round-trip across current and legacy full-stack values without switching the
+  operator's chosen appearance.
+- Workspace Chat no longer presents a failed history read as an empty account or a
+  failed history write as a saved conversation. Explicit unavailable/non-queryable
+  source scope now returns `chat_source_unavailable` instead of silently querying
+  Primary, and saved turns expose the source/model that actually executed them.
+- Workspace history now uses one hashed StateStore partition per normalized user rather
+  than rewriting a shared all-user document. Existing shared-history deployments are
+  read and lazily migrated through the compatibility path, with no reset required.
+- Opening **Settings → Branding** no longer replaces an operator's explicit Light or
+  Dark appearance with the organization's default theme. The org-default selector now
+  edits branding configuration only; explicit personal appearance remains authoritative,
+  while System users adopt a newly saved organization default as intended.
+
 ### Verification
 
-- Current baseline: **1,968 backend tests** and **1,441 web tests across 246 files**;
+- Latest fully recorded baseline: **2,073 backend tests** and **1,732 web tests across 268 files**;
   release/version, generated-contract, Compose, lint/design, build, and strict-docs
   checks remain part of promotion acceptance.
 - Focused Case Manager bulk-action and release-badge coverage is **21/21** green.
@@ -174,9 +344,11 @@ is untouched and no LLM/playbook path can drive close/escalate.
 - **Ingestion durability:** object-store & Kinesis receiver cursors persist via
   `CursorStore`; the non-PIT offset drain caps at `max_result_window` (no more permanent
   stall); the poller only handles clusters with a new event this tick (no duplicate
-  cases); the cross-source drain sums per-source unused headroom (no starvation) and
+  cases); one concurrency-safe per-tick budget now caps the complete cross-source
+  fan-out while durable deferred candidates drain without starvation, and the drain
   scans only OPEN cases; MQTT acks only after a confirmed ingest; syslog-UDP ingest
-  errors are surfaced.
+  errors are surfaced. Syslog TLS now creates a real TLS 1.2+ listener from mounted
+  key/certificate material, optionally verifies client certificates, and fails closed.
 - **Correctness / cost:** MTTA/SLA count only human acknowledgments (not autopilot
   system escalations); stringified-epoch and uppercase-`Z` timestamps parse to the right
   instant; ModSec sub-rules match the real `rule.id`; the OpenAI batch parser subtracts

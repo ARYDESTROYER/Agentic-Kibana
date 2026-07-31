@@ -59,7 +59,12 @@ export default function AdminSessions(_props: AdminSessionsPageProps) {
  * `users:manage` there) while the standalone /admin_sessions route keeps using the
  * default export below during cutover.
  */
-export function AdminSessionsInner() {
+export interface AdminSessionsInnerProps {
+  /** True when this body is hosted beneath the Settings page header. */
+  embedded?: boolean;
+}
+
+export function AdminSessionsInner({ embedded = false }: AdminSessionsInnerProps) {
   const [sessions, setSessions] = React.useState<Session[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [loadError, setLoadError] = React.useState<unknown>(null);
@@ -133,6 +138,7 @@ export function AdminSessionsInner() {
   return (
     <div className="space-y-6">
       <PageHeader
+        embedded={embedded}
         icon={Network}
         eyebrow="Administration"
         title="Active sessions"

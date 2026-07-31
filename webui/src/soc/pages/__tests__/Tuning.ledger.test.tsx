@@ -8,7 +8,7 @@
  * distinct states show correctly.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { isLedgerRowActive, type TuningLedgerRow } from '../Tuning.api';
 
@@ -120,6 +120,9 @@ describe('Tuning ledger render (bug #12)', () => {
       </TooltipProvider>,
     );
     await waitFor(() => expect(recsMock).toHaveBeenCalled());
+    fireEvent.keyDown(screen.getByRole('tab', { name: 'Policy & history' }), {
+      key: 'Enter',
+    });
     await screen.findByText('rule-live');
 
     // BUG #12 would have rendered BOTH the same. We now show the real states.

@@ -45,6 +45,7 @@ export function GeneralSection({
           title="Data sources"
           icon={Database}
           description="Connect and manage SIEM/EDR/queue sources (Elasticsearch, OpenSearch, Wazuh, push receivers) on the dedicated Sources page."
+          wide="full"
           actions={
             onNavigate ? (
               <Button variant="outline" size="sm" onClick={() => onNavigate('sources')}>
@@ -90,7 +91,7 @@ export function GeneralSection({
           title="Polling"
           icon={RefreshCw}
           description="The background poller pulls new events on a durable cursor (no skip, no dup). Off by default in some deployments."
-          wide
+          wide="full"
         >
           <div className="space-y-4">
             <SwitchPref

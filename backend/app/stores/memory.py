@@ -23,6 +23,9 @@ import logging
 from typing import Any
 
 from ..constants import (
+    CHAT_CONVERSATIONS_DOC_ID,
+    CHAT_CONVERSATIONS_KEY,
+    CHAT_CONVERSATIONS_NS,
     CONFIG_INDEX,
     MEMORY_DOC_ID,
     MEMORY_KEY,
@@ -55,7 +58,8 @@ class EsKVStore(KVStore):
     directly), so this adapter gives MemoryStore the SAME ``get/put`` contract the
     SQL backend already provides. Each (namespace, key) maps to a single doc in the
     existing ``CONFIG_INDEX`` (no new index), keyed ``<namespace>:<key>`` so it
-    never collides with the preferences/cursor docs. Never raises."""
+    never collides with the preferences/cursor docs. Ordinary reads/writes fail soft;
+    strict durability methods preserve backend failures."""
 
     def __init__(self, es: BaseESClient) -> None:
         self._es = es
@@ -74,6 +78,8 @@ class EsKVStore(KVStore):
             return SESSIONS_DOC_ID
         if namespace == USER_PREFS_NS and key == USER_PREFS_KEY:
             return USER_PREFS_DOC_ID
+        if namespace == CHAT_CONVERSATIONS_NS and key == CHAT_CONVERSATIONS_KEY:
+            return CHAT_CONVERSATIONS_DOC_ID
         return f"{namespace}:{key}"
 
     async def get(self, namespace: str, key: str) -> dict[str, Any] | None:
@@ -90,6 +96,46 @@ class EsKVStore(KVStore):
             )
         except Exception as exc:  # noqa: BLE001 — memory is best-effort
             logger.warning("KV put(%s/%s) failed: %s", namespace, key, exc)
+
+    async def get_strict(self, namespace: str, key: str) -> dict[str, Any] | None:
+        """Variant for stores whose HTTP contract requires a confirmed read."""
+        return await self._es.get_doc_strict(
+            CONFIG_INDEX, self._doc_id(namespace, key)
+        )
+
+    async def put_strict(
+        self, namespace: str, key: str, value: dict[str, Any]
+    ) -> None:
+        """Variant for stores that must surface persistence failures."""
+        await self._es.index_doc(
+            CONFIG_INDEX, value, doc_id=self._doc_id(namespace, key), refresh=True
+        )
+
+    async def put_if(
+        self,
+        namespace: str,
+        key: str,
+        value: dict[str, Any],
+        expected_rev: int,
+    ) -> bool:
+        """Native backend CAS for best-effort KV mutations."""
+        return await self._es.compare_and_set_doc(
+            CONFIG_INDEX,
+            self._doc_id(namespace, key),
+            value,
+            expected_rev,
+            refresh=True,
+        )
+
+    async def put_if_strict(
+        self,
+        namespace: str,
+        key: str,
+        value: dict[str, Any],
+        expected_rev: int,
+    ) -> bool:
+        """Native Elasticsearch CAS; backend errors propagate to strict callers."""
+        return await self.put_if(namespace, key, value, expected_rev)
 
 
 class MemoryStore:

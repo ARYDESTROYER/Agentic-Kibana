@@ -209,9 +209,16 @@ def mount_moved_routers(api, *, dependencies=None) -> None:
     from app.api.routes_prefs import router as prefs_router
     from app.api.routes_rag import router as rag_router
     from app.api.routes_search import router as search_router
+    from app.api.routes_runbooks import router as runbooks_router
 
     kwargs = {"dependencies": dependencies} if dependencies else {}
-    for _r in (prefs_router, rag_router, search_router, notifications_router):
+    for _r in (
+        prefs_router,
+        rag_router,
+        search_router,
+        notifications_router,
+        runbooks_router,
+    ):
         api.include_router(_r, **kwargs)
 
 

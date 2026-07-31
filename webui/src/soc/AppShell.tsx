@@ -5,7 +5,7 @@
  * - Rail: the registry-derived `NavSidebar` (collapsible groups Overview / Triage /
  *   Intelligence / Analytics / Notifications / Platform, per nav.ts ← registry.FEATURES),
  *   with disclosure groups + fly-outs when collapsed; the active item is highlighted
- *   with `bg-primary` + `shadow-glow`. Width toggles with Cmd/Ctrl-B (persisted).
+ *   with a quiet accent surface + edge rail. Width toggles with Cmd/Ctrl-B (persisted).
  * - Top bar: product breadcrumb ("<Product> / <Page>" using OUR product name from
  *   branding), and on the right a theme toggle, version badge, a health pill
  *   (polls /api/health, debounced), an optional user chip + logout, and a Cmd-K
@@ -38,6 +38,9 @@ import {
   PanelLeftOpen,
   Menu,
   Search,
+  RefreshCw,
+  GitBranch,
+  ExternalLink,
 } from 'lucide-react';
 import { Button } from '@/ui/button';
 import { badgeVariants } from '@/ui/badge';
@@ -68,6 +71,11 @@ import { api } from '@/lib/api';
 import { initialsFrom } from '@/lib/avatar';
 import { humanizeToken } from '@/lib/format';
 import type { AccountProfile, BuildInfoResponse, HealthResponse } from '@/lib/types';
+import type { DeployedReleaseManifest } from '@/lib/deployment-update';
+import {
+  upstreamReleaseNotice,
+  type UpstreamReleaseNotice,
+} from '@/lib/upstream-release';
 import {
   CONSOLE_RELEASE_IDENTITY,
   resolveReleasePresentation,
@@ -82,6 +90,10 @@ import { CommandPalette } from './components/CommandPalette';
 import { GlassSurface } from './components/GlassSurface';
 import { NavSidebar, useNavPrefs } from './components/NavSidebar';
 import { NotificationBell } from './components/NotificationBell';
+import { ConfirmDialog } from './components/ConfirmDialog';
+import { useDeploymentUpdate } from './hooks/useDeploymentUpdate';
+import { useUpstreamReleaseUpdates } from './hooks/useUpstreamReleaseUpdates';
+import { useHasUnsavedChanges } from './hooks/useDirtyDraft';
 import { useIsMobile } from './hooks/useMediaQuery';
 import { usePrefersReducedMotion } from './hooks/usePrefersReducedMotion';
 import { navItem, navLabel, navParentOf, type PageId } from './nav';
@@ -136,7 +148,7 @@ export function healthView(health: HealthResponse | null, err: boolean): HealthV
       help:
         'The console cannot reach the backend API. The agentic pipeline, cases and ' +
         'settings are unavailable until it returns.\n\n' +
-        'How to fix: confirm the tlsoc-backend service is running and reachable; ' +
+        'How to fix: confirm the Agentic SOC backend is running and reachable; ' +
         'see docs/TROUBLESHOOTING.md.',
     };
   }
@@ -197,9 +209,9 @@ export function healthView(health: HealthResponse | null, err: boolean): HealthV
 }
 
 const TONE_PILL: Record<HealthTone, string> = {
-  success: 'border-success/40 text-success',
-  warning: 'border-warning/40 text-warning',
-  critical: 'border-critical/40 text-critical',
+  success: 'border-success/40 text-success-text',
+  warning: 'border-warning/40 text-warning-text',
+  critical: 'border-critical/40 text-critical-text',
   muted: 'border-border text-muted-foreground',
 };
 
@@ -233,28 +245,6 @@ function useHealth(): { health: HealthResponse | null; err: boolean } {
   }, []);
 
   return { health, err };
-}
-
-/** Build identity is immutable for a running backend, so fetch it once per shell. */
-function useBuildInfo(): BuildInfoResponse | null {
-  const [buildInfo, setBuildInfo] = React.useState<BuildInfoResponse | null>(null);
-  React.useEffect(() => {
-    // A few isolated shell tests intentionally provide only the API methods their
-    // scenario exercises. Treat an older/mocked client exactly like an unavailable
-    // build-info endpoint and keep the compile-time Console identity visible.
-    const getBuildInfo = api.buildInfo;
-    if (typeof getBuildInfo !== 'function') return undefined;
-    let alive = true;
-    void getBuildInfo()
-      .then((value) => {
-        if (alive) setBuildInfo(value);
-      })
-      .catch(() => undefined);
-    return () => {
-      alive = false;
-    };
-  }, []);
-  return buildInfo;
 }
 
 /**
@@ -340,6 +330,162 @@ export function ReleaseBadge({
             Backend build-info is unavailable; showing the immutable Console build stamp.
           </p>
         )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/** Activate an already-deployed, backend-matched Console build after confirmation. */
+export function DeploymentUpdateButton({
+  target,
+  activating,
+  hasUnsavedChanges,
+  onActivate,
+}: {
+  target: DeployedReleaseManifest;
+  activating: boolean;
+  hasUnsavedChanges: boolean;
+  onActivate: () => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const triggerRef = React.useRef<HTMLButtonElement>(null);
+  const accessibleLabel = `Update Agentic SOC to v${target.version}`;
+  const setDialogOpen = React.useCallback((next: boolean) => {
+    setOpen(next);
+    if (!next) window.requestAnimationFrame(() => triggerRef.current?.focus());
+  }, []);
+
+  return (
+    <>
+      <span className="sr-only" role="status" aria-live="polite">
+        Agentic SOC v{target.version} is ready to update.
+      </span>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            ref={triggerRef}
+            type="button"
+            size="sm"
+            data-testid="deployment-update-button"
+            className="h-7 shrink-0 gap-1.5 px-2.5 text-xs"
+            aria-label={accessibleLabel}
+            disabled={activating}
+            onClick={() => setOpen(true)}
+          >
+            <RefreshCw className={cn('h-3.5 w-3.5', activating && 'animate-spin')} aria-hidden />
+            <span className="hidden xl:inline">{activating ? 'Checking…' : 'Update'}</span>
+            <span className="hidden 2xl:inline">v{target.version}</span>
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{accessibleLabel}</TooltipContent>
+      </Tooltip>
+
+      <ConfirmDialog
+        open={open}
+        onOpenChange={setDialogOpen}
+        title={hasUnsavedChanges ? 'Save your changes first' : `Update to v${target.version}?`}
+        description={
+          hasUnsavedChanges ? (
+            <span className="block">
+              You have unsaved changes. Save or discard them before updating; this release will
+              remain available when you are ready.
+            </span>
+          ) : (
+            <span className="block space-y-2">
+              <span className="block">
+                Version v{target.version} is already deployed and verified against the backend.
+              </span>
+              <span className="block">
+                Updating reloads this browser tab; backend jobs continue. Save any unfinished
+                draft before continuing.
+              </span>
+            </span>
+          )
+        }
+        confirmLabel="Update now"
+        cancelLabel={hasUnsavedChanges ? 'Return to work' : 'Keep working'}
+        hideConfirm={hasUnsavedChanges}
+        onConfirm={onActivate}
+      />
+    </>
+  );
+}
+
+/**
+ * A source-only notice. It deliberately offers no activate/install action: a branch
+ * observation is not a deployed release and cannot satisfy the same-origin preflight.
+ */
+export function UpstreamSourceNoticeButton({ notice }: { notice: UpstreamReleaseNotice }) {
+  const { candidate, kind } = notice;
+  const versionLabel = candidate.version ? `v${candidate.version}` : 'a new revision';
+  const accessibleLabel =
+    kind === 'version'
+      ? `New source version ${versionLabel} available on ${candidate.branch}`
+      : `Source revision on ${candidate.branch} differs from this Console build`;
+
+  return (
+    <Popover>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              data-testid="upstream-source-notice"
+              className="h-7 shrink-0 gap-1.5 border-warning/40 px-2.5 text-xs text-warning-text"
+              aria-label={accessibleLabel}
+            >
+              <GitBranch className="h-3.5 w-3.5" aria-hidden />
+              <span className="hidden 2xl:inline">Source</span>
+              <span>{kind === 'version' ? versionLabel : 'differs'}</span>
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>{accessibleLabel}</TooltipContent>
+      </Tooltip>
+      <PopoverContent align="end" className="w-[min(22rem,calc(100vw-2rem))] space-y-3 text-xs">
+        <div>
+          <p className="font-semibold text-foreground">
+            {kind === 'version' ? `${versionLabel} is available upstream` : 'Source revision differs'}
+          </p>
+          <p className="mt-1 leading-relaxed text-muted-foreground">
+            {kind === 'version'
+              ? `The ${candidate.channel === 'stable' ? 'Stable' : 'Testing'} branch publishes a newer version than this Console build.`
+              : `The configured ${candidate.channel === 'stable' ? 'Stable' : 'Testing'} branch currently points to a different commit than this Console build.`}{' '}
+            It has not been deployed here yet.
+          </p>
+        </div>
+        <dl className="space-y-1.5 border-y border-border py-3">
+          <div className="flex justify-between gap-4">
+            <dt className="text-muted-foreground">Branch</dt>
+            <dd className="break-all text-right font-mono text-foreground">{candidate.branch}</dd>
+          </div>
+          {candidate.version ? (
+            <div className="flex justify-between gap-4">
+              <dt className="text-muted-foreground">Version</dt>
+              <dd className="font-mono text-foreground">{candidate.version}</dd>
+            </div>
+          ) : null}
+          {candidate.commit_sha ? (
+            <div className="flex justify-between gap-4">
+              <dt className="text-muted-foreground">Commit</dt>
+              <dd className="font-mono text-foreground">{candidate.commit_sha.slice(0, 12)}</dd>
+            </div>
+          ) : null}
+        </dl>
+        <p className="leading-relaxed text-muted-foreground">
+          Review and deploy through your normal release pipeline. The Update button appears
+          only after a matching Console and backend are already deployed and healthy.
+        </p>
+        {candidate.commit_url ? (
+          <Button asChild variant="outline" size="sm" className="w-full">
+            <a href={candidate.commit_url} target="_blank" rel="noreferrer">
+              Review source commit
+              <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+            </a>
+          </Button>
+        ) : null}
       </PopoverContent>
     </Popover>
   );
@@ -431,7 +577,7 @@ const UserMenu: React.FC<{
         <button
           type="button"
           className={cn(
-            'inline-flex items-center gap-2 rounded-full border border-border bg-card py-1 pl-1 pr-2 text-xs',
+            'inline-flex items-center gap-2 rounded-md border border-border/80 bg-card py-1 pl-1 pr-2 text-xs',
             'transition-colors hover:bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           )}
           aria-label="Open account menu"
@@ -533,7 +679,10 @@ export const AppShell: React.FC<AppShellProps> = ({
     [isDark, setThemeMode],
   );
   const { health, err } = useHealth();
-  const buildInfo = useBuildInfo();
+  const deploymentUpdate = useDeploymentUpdate();
+  const upstreamUpdates = useUpstreamReleaseUpdates();
+  const buildInfo = deploymentUpdate.buildInfo;
+  const hasUnsavedChanges = useHasUnsavedChanges();
   const { active: demoActive, refresh: refreshDemo } = useDemo();
   const profile = useAccountProfile(Boolean(username));
   const [paletteOpen, setPaletteOpen] = React.useState(false);
@@ -541,6 +690,14 @@ export const AppShell: React.FC<AppShellProps> = ({
   const mobileNavRef = React.useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
   const reducedMotion = usePrefersReducedMotion();
+  const releasePresentation = resolveReleasePresentation(CONSOLE_RELEASE_IDENTITY, buildInfo);
+  const sourceNotice = releasePresentation.mismatch
+    ? null
+    : upstreamReleaseNotice(upstreamUpdates.data, {
+        version: releasePresentation.version,
+        channel: releasePresentation.channel,
+        commitSha: releasePresentation.console.commitSha,
+      });
   // Nav collapse + open-group state (shell-owned; hydrates synchronously from a
   // localStorage mirror to avoid a first-paint flash, then reconciles with the
   // server-side UserPrefs.misc and persists every change). See useNavPrefs.
@@ -567,21 +724,6 @@ export const AppShell: React.FC<AppShellProps> = ({
     [openGroup, page],
   );
 
-  // TASK 6 — HOVER-TO-EXPAND for the collapsed icon rail. When the PERSISTED pref is
-  // "collapsed" (a 64px rail), pointing at the rail temporarily expands it to the
-  // full labelled drawer, then collapses back on leave. This is a
-  // TRANSIENT visual overlay only — we never call setCollapsed, so the user's persisted
-  // choice is untouched and a PINNED-OPEN sidebar (collapsed === false) is unaffected.
-  // Keyboard focus deliberately does NOT replace the entire rail DOM: doing so between
-  // pointer-down/focus and click could activate whichever expanded-row happened to move
-  // under the cursor. Collapsed buttons are already labelled, and parent groups expose
-  // keyboard-reachable inline fly-outs via their own focus-within state.
-  const [railHovered, setRailHovered] = React.useState(false);
-  const transientExpand = railHovered;
-  // The width the sidebar actually renders at: the persisted rail expands on hover/focus,
-  // a pinned-open drawer is left alone.
-  const effectiveCollapsed = collapsed && !transientExpand;
-
   // A desktop rail permanently consumes 240px when expanded, which left a 390px
   // viewport with only ~150px of routed content and forced document-wide horizontal
   // scrolling. Below `md`, navigation is a true modal Sheet instead: zero layout
@@ -594,11 +736,9 @@ export const AppShell: React.FC<AppShellProps> = ({
     [onNavigate],
   );
 
-  // A collapsed desktop rail temporarily expands while one of its links owns
-  // keyboard focus. After activating a destination, hand focus to the routed
-  // main landmark so the floating drawer does not remain over the new page.
-  // This also gives keyboard/screen-reader users an immediate, predictable
-  // starting point in the content they just opened.
+  // After activating a destination, hand focus to the routed main landmark so a
+  // collapsed-rail group flyout closes and keyboard/screen-reader users receive an
+  // immediate, predictable starting point in the content they just opened.
   const navigateFromDesktop = React.useCallback(
     (id: PageId) => {
       onNavigate(id);
@@ -736,7 +876,7 @@ export const AppShell: React.FC<AppShellProps> = ({
     // shares announce() so deep components (DataTable sort/bulk outcomes, etc.) can
     // speak status to assistive tech without a visible UI change.
     <AnnouncerProvider>
-    <div className="flex min-h-screen bg-canvas text-foreground">
+    <div className="flex min-h-dvh bg-canvas text-foreground">
       {/* Skip-to-main link (#1 — WCAG 2.4.1). Visually hidden until it receives
           keyboard focus, then it pins to the top-left so a keyboard/SR user can jump
           straight past the nav to the routed content (#socMain). */}
@@ -796,16 +936,12 @@ export const AppShell: React.FC<AppShellProps> = ({
         </Sheet>
       ) : null}
 
-      {/* ---- Single expandable navigation sidebar (icon rail ↔ labelled drawer) --
-          The wrapper reserves the nav's LAYOUT FOOTPRINT (64px collapsed / 240px
-          pinned-open). When the persisted rail is hover/focus-expanded, only the
-          sidebar INSIDE grows to the drawer width and FLOATS over the content
-          (elevated via `floating`), so the footprint — and the page layout — never
-          shift on hover (no reflow). `min-w-0` defeats flex `min-width:auto` so the
-          overflowing drawer can exceed the reserved 64px. Mouse enter/leave drives
-          the transient expand; keyboard navigation stays on the stable icon rail. */}
+      {/* ---- Single dockable navigation sidebar (icon rail ↔ labelled drawer) ----
+          The wrapper reserves exactly the persisted footprint: 64px while locked
+          collapsed, 240px while pinned open. A collapsed grouped destination reveals
+          only its compact flyout; hovering never swaps the rail DOM or widens the
+          sidebar over routed content. */}
       {!isMobile ? (
-        // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- presentational hover/focus affordance; nested nav remains fully operable
         <div
           data-testid="desktop-navigation-frame"
           data-motion={reducedMotion ? 'reduced' : 'full'}
@@ -819,14 +955,11 @@ export const AppShell: React.FC<AppShellProps> = ({
               : 'transition-[width] duration-200 ease-premium',
             collapsed ? 'z-40 w-16' : 'w-60',
           )}
-          onMouseEnter={() => setRailHovered(true)}
-          onMouseLeave={() => setRailHovered(false)}
         >
           <NavSidebar
             page={page}
             onNavigate={navigateFromDesktop}
-            collapsed={effectiveCollapsed}
-            floating={collapsed}
+            collapsed={collapsed}
             openGroups={openGroups}
             onToggleGroup={toggleGroup}
             onOpenGroup={openGroup}
@@ -896,7 +1029,7 @@ export const AppShell: React.FC<AppShellProps> = ({
             </kbd>
           </button>
 
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-1 sm:gap-2">
             {/* Compact search opener for the narrowest widths, where the wide trigger
                 above is hidden (`md:hidden`). Opens the same command palette. */}
             <Button
@@ -938,6 +1071,19 @@ export const AppShell: React.FC<AppShellProps> = ({
                 backend build-info endpoint. It never infers Stable from SemVer. */}
             <ReleaseBadge buildInfo={buildInfo} />
 
+            {sourceNotice && !deploymentUpdate.target ? (
+              <UpstreamSourceNoticeButton notice={sourceNotice} />
+            ) : null}
+
+            {deploymentUpdate.target ? (
+              <DeploymentUpdateButton
+                target={deploymentUpdate.target}
+                activating={deploymentUpdate.activating}
+                hasUnsavedChanges={hasUnsavedChanges}
+                onActivate={() => void deploymentUpdate.activate()}
+              />
+            ) : null}
+
             {/* Health pill — a click-to-open Popover with plain-language help.
                 store_type/help text is backend-derived and rendered as PLAIN
                 text only (never markup). */}
@@ -946,7 +1092,7 @@ export const AppShell: React.FC<AppShellProps> = ({
                 <button
                   type="button"
                   className={cn(
-                    'inline-flex items-center gap-1.5 rounded-full border bg-card px-2.5 py-1 text-xs font-medium',
+                    'inline-flex items-center gap-1.5 rounded-md border bg-card px-2.5 py-1 text-xs font-medium',
                     'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                     TONE_PILL[hv.tone],
                   )}
@@ -997,7 +1143,7 @@ export const AppShell: React.FC<AppShellProps> = ({
             (PageContainer no longer re-declares the gutter), so PageContainer and
             not-yet-migrated pages share one consistent inset. Keep `min-w-0` so
             flex/grid children can shrink + truncate. */}
-        <main id="socMain" role="main" tabIndex={-1} className="flex-1 outline-none">
+        <main id="socMain" role="main" tabIndex={-1} className="min-w-0 flex-1 outline-none">
           {/* Once a real navigation has engaged motion (the lazy chunk was loaded AT the
               time of that navigation — see the `motionActive` latch above), the routed
               content is wrapped in RouteMotion's AnimatePresence for a page → page

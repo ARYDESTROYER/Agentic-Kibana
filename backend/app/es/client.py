@@ -17,6 +17,7 @@ import logging
 from typing import Any
 
 from ..config import Secrets
+from ..constants import AUDIT_INDEX, USAGE_INDEX
 from .base import BaseESClient
 
 logger = logging.getLogger("tlsoc.es")
@@ -32,7 +33,35 @@ except Exception:  # pragma: no cover - exercised only when driver absent
     _DRIVER_AVAILABLE = False
 
 
+def _elastic_status(exc: Exception) -> int | None:
+    """Extract an HTTP status from official-driver and test-double exceptions."""
+    status = getattr(exc, "status_code", None)
+    if status is None:
+        status = getattr(getattr(exc, "meta", None), "status", None)
+    try:
+        return int(status) if status is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_not_found(exc: Exception) -> bool:
+    return bool(
+        (es_exceptions and isinstance(exc, es_exceptions.NotFoundError))
+        or _elastic_status(exc) == 404
+    )
+
+
+def _is_conflict(exc: Exception) -> bool:
+    return bool(
+        (es_exceptions and isinstance(exc, es_exceptions.ConflictError))
+        or _elastic_status(exc) == 409
+    )
+
+
 class RealESClient(BaseESClient):
+    storage_lifecycle_backend = "elasticsearch"
+    _LIFECYCLE_INDEX_PATTERNS = (f"{AUDIT_INDEX}-*", f"{USAGE_INDEX}-*")
+
     def __init__(self, secrets: Secrets) -> None:
         if not _DRIVER_AVAILABLE:
             raise RuntimeError("elasticsearch driver not installed; install requirements.txt")
@@ -202,6 +231,82 @@ class RealESClient(BaseESClient):
             logger.warning("get_doc(%s/%s) failed: %s", index, doc_id, exc)
             return None
 
+    async def get_doc_strict(self, index: str, doc_id: str) -> dict[str, Any] | None:
+        """Strict owned-state read used where persistence is part of the API contract."""
+        client = self._require_mgmt()
+        try:
+            resp = await client.get(index=index, id=doc_id)
+            return resp["_source"]
+        except Exception as exc:  # noqa: BLE001
+            if _is_not_found(exc):
+                return None
+            raise
+
+    async def compare_and_set_doc(
+        self,
+        index: str,
+        doc_id: str,
+        doc: dict[str, Any],
+        expected_rev: int,
+        refresh: bool = False,
+    ) -> bool:
+        """Atomically replace one owned-state doc with Elasticsearch OCC.
+
+        Existing documents are fenced by the exact ``_seq_no`` and
+        ``_primary_term`` returned by the management read.  An absent document is
+        created with ``op_type=create``.  A 409 is an ordinary compare-and-set miss;
+        every other backend failure propagates to the strict durability caller.
+
+        The embedded ``_rev`` check preserves the backend-neutral KV contract and
+        supports documents created before CAS bookkeeping (revision zero).  Native
+        Elasticsearch metadata closes the read/write race across processes and
+        replicas; no process-local lock is relied upon here.
+        """
+        client = self._require_mgmt()
+        try:
+            current = await client.get(index=index, id=doc_id)
+        except Exception as exc:  # noqa: BLE001
+            if not _is_not_found(exc):
+                raise
+            if int(expected_rev) != 0:
+                return False
+            try:
+                await client.index(
+                    index=index,
+                    id=doc_id,
+                    document=doc,
+                    op_type="create",
+                    refresh=refresh,
+                )
+                return True
+            except Exception as create_exc:  # noqa: BLE001
+                if _is_conflict(create_exc):
+                    return False
+                raise
+
+        source = current.get("_source") or {}
+        try:
+            current_rev = int(source.get("_rev", 0) or 0)
+        except (TypeError, ValueError):
+            current_rev = 0
+        if current_rev != int(expected_rev):
+            return False
+
+        try:
+            await client.index(
+                index=index,
+                id=doc_id,
+                document=doc,
+                if_seq_no=int(current["_seq_no"]),
+                if_primary_term=int(current["_primary_term"]),
+                refresh=refresh,
+            )
+            return True
+        except Exception as exc:  # noqa: BLE001
+            if _is_conflict(exc):
+                return False
+            raise
+
     async def update_doc(
         self,
         index: str,
@@ -237,6 +342,316 @@ class RealESClient(BaseESClient):
             if es_exceptions and isinstance(exc, es_exceptions.NotFoundError):
                 return 0
             logger.warning("ES count(%s) failed: %s", index, exc)
+            raise
+
+    # --- OWN-index lifecycle management ----------------------------------
+    async def index_lifecycle_capabilities(self) -> dict[str, Any]:
+        """Probe ILM privilege and Hot/Warm node roles without writing anything."""
+        if self._mgmt is None:
+            return {
+                "supported": False,
+                "can_manage": False,
+                "privileged": False,
+                "index_privileged": False,
+                "hot_ready": False,
+                "warm_ready": False,
+                "roles": [],
+                "reason": "ES_MGMT_API_KEY is not configured.",
+            }
+        try:
+            privilege_response = await self._mgmt.security.has_privileges(
+                cluster=["manage_ilm", "manage_index_templates", "monitor"],
+                index=[
+                    {
+                        "names": list(self._LIFECYCLE_INDEX_PATTERNS),
+                        "privileges": ["manage"],
+                    }
+                ],
+            )
+            privilege_body = (
+                privilege_response.body
+                if hasattr(privilege_response, "body")
+                else dict(privilege_response)
+            )
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "supported": False,
+                "can_manage": False,
+                "privileged": False,
+                "index_privileged": False,
+                "hot_ready": False,
+                "warm_ready": False,
+                "roles": [],
+                "reason": (
+                    "The management credential's lifecycle privileges could not be "
+                    f"inspected (probe: {type(exc).__name__})."
+                ),
+            }
+        all_requested = bool(privilege_body.get("has_all_requested"))
+        granted = privilege_body.get("cluster") or {}
+        index_grants = privilege_body.get("index") or {}
+        control_cluster_privileged = bool(
+            granted.get("manage_ilm") and granted.get("manage_index_templates")
+        )
+        monitor_privileged = bool(granted.get("monitor"))
+        index_privileged = bool(
+            all_requested
+            or all(
+                (index_grants.get(pattern) or {}).get("manage")
+                for pattern in self._LIFECYCLE_INDEX_PATTERNS
+            )
+        )
+        can_manage = bool(
+            all_requested or (control_cluster_privileged and index_privileged)
+        )
+        if not can_manage:
+            missing = [
+                name
+                for name in ("manage_ilm", "manage_index_templates")
+                if not granted.get(name)
+            ]
+            missing.extend(
+                f"manage on {pattern}"
+                for pattern in self._LIFECYCLE_INDEX_PATTERNS
+                if not (index_grants.get(pattern) or {}).get("manage")
+            )
+            return {
+                "supported": False,
+                "can_manage": False,
+                "privileged": control_cluster_privileged,
+                "index_privileged": index_privileged,
+                "hot_ready": False,
+                "warm_ready": False,
+                "roles": [],
+                "reason": (
+                    "The management credential needs lifecycle privileges: "
+                    + ", ".join(
+                        missing or ["manage_ilm", "manage_index_templates", "monitor"]
+                    )
+                    + "."
+                ),
+            }
+        if not (all_requested or monitor_privileged):
+            return {
+                "supported": False,
+                "can_manage": True,
+                "privileged": True,
+                "index_privileged": True,
+                "hot_ready": False,
+                "warm_ready": False,
+                "roles": [],
+                "reason": (
+                    "The management credential can detach lifecycle, but cluster "
+                    "monitor is required to verify Hot/Warm tier readiness before enabling it."
+                ),
+            }
+        try:
+            status_response = await self._mgmt.ilm.get_status()
+            status_body = (
+                status_response.body
+                if hasattr(status_response, "body")
+                else dict(status_response)
+            )
+            ilm_mode = str(status_body.get("operation_mode") or "unknown").upper()
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "supported": False,
+                "can_manage": True,
+                "privileged": True,
+                "index_privileged": True,
+                "hot_ready": False,
+                "warm_ready": False,
+                "roles": [],
+                "reason": f"ILM status could not be read (probe: {type(exc).__name__}).",
+            }
+        if ilm_mode != "RUNNING":
+            return {
+                "supported": False,
+                "can_manage": True,
+                "privileged": True,
+                "index_privileged": True,
+                "hot_ready": False,
+                "warm_ready": False,
+                "roles": [],
+                "ilm_mode": ilm_mode,
+                "reason": f"Elasticsearch ILM is {ilm_mode}; start ILM before applying lifecycle.",
+            }
+        try:
+            response = await self._mgmt.nodes.info(metric="settings")
+            body = response.body if hasattr(response, "body") else dict(response)
+            roles = sorted({
+                str(role)
+                for node in (body.get("nodes") or {}).values()
+                for role in (node.get("roles") or [])
+            })
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "supported": False,
+                "can_manage": True,
+                "privileged": True,
+                "index_privileged": True,
+                "hot_ready": False,
+                "warm_ready": False,
+                "roles": [],
+                "reason": (
+                    "ILM is visible, but data-tier readiness could not be inspected; "
+                    f"grant cluster monitor (probe: {type(exc).__name__})."
+                ),
+            }
+        generic_data = "data" in roles
+        hot_ready = generic_data or "data_hot" in roles or "data_content" in roles
+        warm_ready = generic_data or "data_warm" in roles
+        ready = bool(hot_ready and warm_ready)
+        return {
+            "supported": ready,
+            "can_manage": True,
+            "privileged": True,
+            "index_privileged": True,
+            "hot_ready": hot_ready,
+            "warm_ready": warm_ready,
+            "roles": roles,
+            "ilm_mode": ilm_mode,
+            "reason": (
+                "ILM privilege and Hot/Warm data roles are available."
+                if ready
+                else "The cluster needs both Hot and Warm-capable data roles."
+            ),
+        }
+
+    async def put_index_lifecycle_policy(self, name: str, body: dict[str, Any]) -> None:
+        client = self._require_mgmt()
+        try:
+            await client.ilm.put_lifecycle(name=name, policy=body["policy"])
+        except TypeError:  # elasticsearch-py compatibility
+            await client.ilm.put_lifecycle(name=name, body=body)
+
+    async def get_index_lifecycle_policy(self, name: str) -> dict[str, Any] | None:
+        client = self._require_mgmt()
+        try:
+            response = await client.ilm.get_lifecycle(name=name)
+            body = response.body if hasattr(response, "body") else dict(response)
+            entry = body.get(name)
+            if not isinstance(entry, dict):
+                return None
+            policy = entry.get("policy")
+            return {"policy": policy} if isinstance(policy, dict) else None
+        except Exception as exc:  # noqa: BLE001
+            if es_exceptions and isinstance(exc, es_exceptions.NotFoundError):
+                return None
+            raise
+
+    async def get_owned_index_lifecycle_attachment(
+        self, base: str, policy_name: str
+    ) -> dict[str, Any]:
+        """Inspect lifecycle settings for one allow-listed append-only ledger."""
+        if base not in {AUDIT_INDEX, USAGE_INDEX}:
+            raise ValueError("lifecycle attachment inspection is limited to owned ledgers")
+        client = self._require_mgmt()
+
+        def setting(settings: dict[str, Any], dotted: str) -> Any:
+            if dotted in settings:
+                return settings[dotted]
+            current: Any = settings
+            for part in dotted.split("."):
+                if not isinstance(current, dict) or part not in current:
+                    return None
+                current = current[part]
+            return current
+
+        template_attached = False
+        try:
+            response = await client.indices.get_index_template(
+                name=f"{base}-template", flat_settings=True
+            )
+            body = response.body if hasattr(response, "body") else dict(response)
+            templates = body.get("index_templates") or []
+            entry = next(
+                (
+                    item
+                    for item in templates
+                    if isinstance(item, dict) and item.get("name") == f"{base}-template"
+                ),
+                None,
+            )
+            template_settings = (
+                entry.get("index_template", {}).get("template", {}).get("settings", {})
+                if isinstance(entry, dict)
+                else {}
+            )
+            template_attached = bool(
+                setting(template_settings, "index.lifecycle.name") == policy_name
+                and setting(template_settings, "index.lifecycle.rollover_alias") == base
+            )
+        except Exception as exc:  # noqa: BLE001
+            if not (es_exceptions and isinstance(exc, es_exceptions.NotFoundError)):
+                raise
+
+        response = await client.indices.get_settings(
+            index=f"{base}-*",
+            name=["index.lifecycle.name", "index.lifecycle.rollover_alias"],
+            allow_no_indices=True,
+            ignore_unavailable=True,
+            expand_wildcards="all",
+            flat_settings=True,
+        )
+        body = response.body if hasattr(response, "body") else dict(response)
+        existing_indices = [
+            value for value in body.values() if isinstance(value, dict)
+        ]
+        attached_count = 0
+        for value in existing_indices:
+            index_settings = value.get("settings") or {}
+            if (
+                setting(index_settings, "index.lifecycle.name") == policy_name
+                and setting(index_settings, "index.lifecycle.rollover_alias") == base
+            ):
+                attached_count += 1
+        all_existing_attached = attached_count == len(existing_indices)
+        attached = bool(template_attached and all_existing_attached)
+        return {
+            "verified": True,
+            "template_attached": template_attached,
+            "indices_total": len(existing_indices),
+            "indices_attached": attached_count,
+            "all_existing_indices_attached": all_existing_attached,
+            "attached": attached,
+            "reason": (
+                "Template and existing indices carry the expected lifecycle settings."
+                if attached
+                else "Template or existing-index lifecycle settings are missing or drifted."
+            ),
+        }
+
+    async def index_lifecycle_policy_exists(self, name: str) -> bool:
+        return await self.get_index_lifecycle_policy(name) is not None
+
+    async def delete_index_lifecycle_policy(self, name: str) -> None:
+        client = self._require_mgmt()
+        try:
+            await client.ilm.delete_lifecycle(name=name)
+        except Exception as exc:  # noqa: BLE001
+            if es_exceptions and isinstance(exc, es_exceptions.NotFoundError):
+                return
+            raise
+
+    async def put_index_settings(self, index: str, settings: dict[str, Any]) -> None:
+        client = self._require_mgmt()
+        try:
+            await client.indices.put_settings(index=index, settings=settings)
+        except TypeError:  # elasticsearch-py compatibility
+            await client.indices.put_settings(index=index, body={"index": settings})
+
+    async def remove_index_lifecycle(self, index: str) -> None:
+        client = self._require_mgmt()
+        try:
+            await client.ilm.remove_policy(index=index)
+        except Exception as exc:  # noqa: BLE001
+            # A missing index or an index without a policy is already in the desired
+            # unmanaged state. Other failures must surface to the explicit caller.
+            if es_exceptions and isinstance(exc, es_exceptions.NotFoundError):
+                return
+            if "not managed" in str(exc).lower():
+                return
             raise
 
     async def close(self) -> None:

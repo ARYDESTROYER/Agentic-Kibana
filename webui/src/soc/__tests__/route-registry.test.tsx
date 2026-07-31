@@ -32,7 +32,7 @@ describe('ROUTES registry', () => {
     // The DESIGN_STANDARD deep-link contract: these ids must remain routable.
     const EXPECTED = [
       'overview', 'dashboard', 'dashboards', 'cases', 'case_manager', 'investigate', 'chat',
-      'intelligence', 'metrics', 'models', 'scans', 'standup', 'catalog', 'playbooks',
+      'intelligence', 'metrics', 'effectiveness', 'models', 'scans', 'standup', 'catalog', 'runbooks', 'playbooks',
       'approvals', 'knowledge', 'memory', 'sources', 'cost', 'inbox', 'account',
       'sessions', 'settings', 'security', 'roles', 'users', 'audit', 'admin_sessions',
       'logs', 'campaigns', 'tuning', 'batchjobs', 'baseline',
@@ -64,8 +64,12 @@ describe('ROUTES registry', () => {
   it('renderRoute threads config props (not onNavigate) for special routes', () => {
     // `cases` seeds initialStatus from opts.status; `dashboard` forces the tab; neither
     // receives an onNavigate prop (pages use useNavigate/useNavigateOptional now).
-    const cases = renderRoute('cases', { opts: { status: 'needs_human' }, onRerunWizard: () => {} });
+    const cases = renderRoute('cases', {
+      opts: { status: 'needs_human', window: 24 },
+      onRerunWizard: () => {},
+    });
     expect((cases.props as { initialStatus?: string }).initialStatus).toBe('needs_human');
+    expect((cases.props as { initialWindowHours?: number }).initialWindowHours).toBe(24);
     expect((cases.props as Record<string, unknown>).onNavigate).toBeUndefined();
 
     const manager = renderRoute('case_manager', {

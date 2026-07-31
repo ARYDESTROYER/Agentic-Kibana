@@ -51,10 +51,13 @@ TRUTH_TABLE = [
     (MGR, "users", "manage", True),
     (MGR, "cases", "close", True),
     (MGR, "settings", "manage", True),
+    (MGR, "runbooks", "manage", True),
     # analyst_tier2: full case lifecycle, read-only support surfaces, playbook run
     (T2, "cases", "close", True),
     (T2, "cases", "reinvestigate", True),
     (T2, "playbooks", "run", True),
+    (T2, "runbooks", "read", True),
+    (T2, "runbooks", "manage", False),
     (T2, "metrics", "view", True),
     (T2, "cost", "view", True),
     (T2, "users", "manage", False),
@@ -69,9 +72,13 @@ TRUTH_TABLE = [
     (T1, "cases", "close", False),
     (T1, "cases", "reinvestigate", False),
     (T1, "playbooks", "run", False),
+    (T1, "runbooks", "read", True),
+    (T1, "runbooks", "manage", False),
     (T1, "proposals", "approve", False),
     # responder: tier1 + playbooks:run + proposals:approve
     (RESP, "playbooks", "run", True),
+    (RESP, "runbooks", "read", True),
+    (RESP, "runbooks", "manage", False),
     (RESP, "proposals", "approve", True),
     (RESP, "cases", "close", False),  # responders triage/act, not close
     (RESP, "users", "manage", False),
@@ -86,6 +93,8 @@ TRUTH_TABLE = [
     (AUD, "users", "manage", False),
     (AUD, "proposals", "approve", False),
     (AUD, "playbooks", "run", False),
+    (AUD, "runbooks", "read", True),
+    (AUD, "runbooks", "manage", False),
 ]
 
 

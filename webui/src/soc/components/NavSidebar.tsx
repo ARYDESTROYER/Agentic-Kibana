@@ -9,11 +9,11 @@
  *     the parent label itself navigates to the host page (its primary destination)
  *     AND opens the group; the chevron is a separate toggle so the destination is
  *     never hidden behind the disclosure. An item WITHOUT children is a direct link.
- *   - COLLAPSED (64px): an icon rail. A childless item is a tooltip'd icon button; an
- *     item WITH children opens an INLINE fly-out (shown on pointer hover OR keyboard
- *     focus-within, via CSS group state) listing the children so the destinations are
- *     never hidden AND stay keyboard-reachable (Tab moves from the rail button into the
- *     in-flow child links — a portaled HoverCard would drop them from the tab order).
+ *   - COLLAPSED (64px): a locked icon rail. A childless item is a tooltip'd icon button;
+ *     an item WITH children opens one compact, fixed-position flyout after deliberate
+ *     pointer hover or immediately on keyboard focus. The rail itself never widens.
+ *     Flyout children mount only while exposed, remain in the natural Tab order, and
+ *     close on focus exit or Escape without replacing the trigger DOM.
  *     The active trail is marked on the collapsed parent (a primary side-bar + tint),
  *     and `aria-current="page"` rides the active leaf both in the rail and inside the
  *     fly-out.
@@ -22,14 +22,10 @@
  * role="tree": these are page links, not a hierarchical data tree, so disclosure is
  * the correct, lower-friction a11y model.
  *
- * HOVER-TO-EXPAND (Task 6): the shell can render the COLLAPSED rail in a `floating`
- * mode where it reserves only a 64px footprint but is allowed to render wider and
- * float OVER the page content when the shell pointer-hover expands it (the shell flips
- * the `collapsed` prop transiently, without touching the persisted pref). Keyboard
- * focus stays on the stable icon rail and uses its labelled buttons/inline fly-outs.
- * In floating mode
- * the expanded drawer gets a drop shadow (`floating && !collapsed`); the shell wrapper
- * owns the z-index so the overlay survives the collapse-back animation.
+ * LOCKED-RAIL FLYOUT: the persisted collapsed preference is stable under hover. Group
+ * flyouts are intent-delayed for pointers, immediate for focus, viewport-clamped, and
+ * pointer-safe across the rail-to-panel gap. The explicit toggle and Cmd/Ctrl+B remain
+ * the only ways to pin the full labelled drawer open.
  *
  * RBAC: items + children carry an optional `perm`; they are filtered out for users
  * lacking the grant (with auth/RBAC off, `hasPermission()` is always true → full nav).
@@ -320,7 +316,7 @@ const ExpandedItem: React.FC<{
             // scroll-my-1: keep a focused leaf off the scroll edge (§2.4.11).
             'scroll-my-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
             selfActive
-              ? 'bg-primary text-primary-foreground shadow-glow dark:bg-accent dark:text-primary dark:shadow-none'
+              ? 'bg-primary/10 font-medium text-primary dark:bg-accent'
               : 'text-muted-foreground hover:bg-muted hover:text-foreground',
           )}
         >
@@ -411,48 +407,132 @@ const ExpandedItem: React.FC<{
 /* Collapsed (icon-rail) rendering.                                          */
 /* -------------------------------------------------------------------------- */
 
+export const NAV_FLYOUT_OPEN_DELAY_MS = 100;
+export const NAV_FLYOUT_CLOSE_DELAY_MS = 180;
+
+const NAV_FLYOUT_GAP_PX = 8;
+const NAV_FLYOUT_VIEWPORT_MARGIN_PX = 8;
+const NAV_FLYOUT_FALLBACK_WIDTH_PX = 224;
+const NAV_FLYOUT_FALLBACK_HEIGHT_PX = 192;
+
+/** @internal Pure geometry seam used by the browser interaction and its regressions. */
+export function placeNavFlyout(
+  trigger: Pick<DOMRect, 'top' | 'right'>,
+  panel: { width: number; height: number },
+  viewport: { width: number; height: number },
+): { top: number; left: number } {
+  const width = panel.width || NAV_FLYOUT_FALLBACK_WIDTH_PX;
+  const height = panel.height || NAV_FLYOUT_FALLBACK_HEIGHT_PX;
+  const maxLeft = Math.max(
+    NAV_FLYOUT_VIEWPORT_MARGIN_PX,
+    viewport.width - width - NAV_FLYOUT_VIEWPORT_MARGIN_PX,
+  );
+  const maxTop = Math.max(
+    NAV_FLYOUT_VIEWPORT_MARGIN_PX,
+    viewport.height - height - NAV_FLYOUT_VIEWPORT_MARGIN_PX,
+  );
+
+  return {
+    left: Math.min(
+      Math.max(NAV_FLYOUT_VIEWPORT_MARGIN_PX, trigger.right + NAV_FLYOUT_GAP_PX),
+      maxLeft,
+    ),
+    top: Math.min(Math.max(NAV_FLYOUT_VIEWPORT_MARGIN_PX, trigger.top), maxTop),
+  };
+}
+
 const CollapsedItem: React.FC<{
   item: NavItem;
   page: PageId;
   onNavigate: (id: PageId) => void;
+  open: boolean;
+  onOpen: () => void;
+  onClose: () => void;
   reducedMotion?: boolean;
-}> = ({ item, page, onNavigate, reducedMotion = false }) => {
+}> = ({ item, page, onNavigate, open, onOpen, onClose, reducedMotion = false }) => {
   const Icon = item.icon as LucideIcon;
   const children = item.children ?? [];
   const hasChildren = children.length > 0;
   const childActive = children.some((c) => c.id === page);
   const selfActive = page === item.id;
   const trailActive = selfActive || childActive;
-  // Same shared-id host case as the expanded rail: the fly-out child (ALWAYS mounted in
-  // the collapsed rail) carries the canonical aria-current, so the rail button must not
-  // double it (the active trail is still shown visually via the selfActive/trailActive
-  // className branch).
+  // Same shared-id host case as the expanded rail: while the panel is open, its active
+  // child owns aria-current. While closed, the parent trail owns it so the landmark
+  // never loses the current-page marker merely because its destinations are hidden.
   const idIsAlsoChild = children.some((c) => c.id === item.id);
+  const panelId = `nav-fly-${item.id}`;
 
-  // The child fly-out is positioned with `position: fixed` — NOT `absolute`. An
-  // absolutely-positioned descendant of the scrolling <nav> (which is
-  // `overflow-y-auto overflow-x-hidden`, hence a clip container on BOTH axes) gets
-  // clipped to the ~64px rail width, hiding almost the entire fly-out. A `fixed`
-  // element is positioned against the viewport and is NOT subject to an ancestor's
-  // overflow clip (no ancestor here establishes a transform/filter/contain containing
-  // block), so it escapes the clip while staying an in-flow DOM descendant of the
-  // `.group` wrapper — keeping the CSS hover/focus-within reveal AND the child links'
-  // native tab order intact. We drive its viewport coords from the rail button's rect.
   const btnRef = React.useRef<HTMLButtonElement>(null);
   const wrapRef = React.useRef<HTMLDivElement>(null);
+  const panelRef = React.useRef<HTMLDivElement>(null);
+  const openTimerRef = React.useRef<number | null>(null);
+  const closeTimerRef = React.useRef<number | null>(null);
+  const suppressNextFocusOpenRef = React.useRef(false);
   const [pos, setPos] = React.useState<{ top: number; left: number }>({ top: 0, left: 0 });
-  const [engaged, setEngaged] = React.useState(false);
 
   const measure = React.useCallback(() => {
-    const r = btnRef.current?.getBoundingClientRect();
-    if (r) setPos({ top: r.top, left: r.right + 10 }); // +10px ≈ the old ml-2.5 gap
+    const triggerRect = btnRef.current?.getBoundingClientRect();
+    if (!triggerRect) return;
+    const panelRect = panelRef.current?.getBoundingClientRect();
+    const next = placeNavFlyout(
+      triggerRect,
+      {
+        width: panelRect?.width ?? NAV_FLYOUT_FALLBACK_WIDTH_PX,
+        height: panelRect?.height ?? NAV_FLYOUT_FALLBACK_HEIGHT_PX,
+      },
+      { width: window.innerWidth, height: window.innerHeight },
+    );
+    setPos((current) =>
+      current.top === next.top && current.left === next.left ? current : next,
+    );
   }, []);
 
-  // While the fly-out is engaged (hovered or focus-within), keep it pinned to the rail
-  // button as the nav/page scrolls or the viewport resizes; detach the listeners the
-  // moment it disengages so idle rail items cost nothing.
+  const cancelOpen = React.useCallback(() => {
+    if (openTimerRef.current === null) return;
+    window.clearTimeout(openTimerRef.current);
+    openTimerRef.current = null;
+  }, []);
+
+  const cancelClose = React.useCallback(() => {
+    if (closeTimerRef.current === null) return;
+    window.clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = null;
+  }, []);
+
+  const openImmediately = React.useCallback(() => {
+    cancelOpen();
+    cancelClose();
+    measure();
+    onOpen();
+  }, [cancelClose, cancelOpen, measure, onOpen]);
+
+  const schedulePointerOpen = React.useCallback(() => {
+    cancelClose();
+    if (open || openTimerRef.current !== null) return;
+    openTimerRef.current = window.setTimeout(() => {
+      openTimerRef.current = null;
+      measure();
+      onOpen();
+    }, NAV_FLYOUT_OPEN_DELAY_MS);
+  }, [cancelClose, measure, onOpen, open]);
+
+  const schedulePointerClose = React.useCallback(() => {
+    cancelOpen();
+    cancelClose();
+    closeTimerRef.current = window.setTimeout(() => {
+      closeTimerRef.current = null;
+      onClose();
+    }, NAV_FLYOUT_CLOSE_DELAY_MS);
+  }, [cancelClose, cancelOpen, onClose]);
+
+  React.useLayoutEffect(() => {
+    if (open) measure();
+  }, [measure, open]);
+
+  // A fixed panel escapes the rail's overflow clip. Re-measure while exposed so it
+  // remains aligned and clamped as the page scrolls or the viewport changes.
   React.useEffect(() => {
-    if (!engaged) return;
+    if (!open) return;
     const onMove = () => measure();
     window.addEventListener('scroll', onMove, true);
     window.addEventListener('resize', onMove);
@@ -460,7 +540,15 @@ const CollapsedItem: React.FC<{
       window.removeEventListener('scroll', onMove, true);
       window.removeEventListener('resize', onMove);
     };
-  }, [engaged, measure]);
+  }, [open, measure]);
+
+  React.useEffect(
+    () => () => {
+      cancelOpen();
+      cancelClose();
+    },
+    [cancelClose, cancelOpen],
+  );
 
   const railButton = (
     <button
@@ -468,16 +556,28 @@ const CollapsedItem: React.FC<{
       type="button"
       onClick={() => onNavigate(item.id)}
       aria-label={item.label}
-      aria-current={selfActive && !idIsAlsoChild ? 'page' : undefined}
+      aria-current={
+        open
+          ? selfActive && !idIsAlsoChild
+            ? 'page'
+            : undefined
+          : trailActive
+            ? 'page'
+            : undefined
+      }
+      aria-expanded={hasChildren ? open : undefined}
+      aria-controls={hasChildren ? panelId : undefined}
+      aria-haspopup={hasChildren ? 'true' : undefined}
+      data-active-trail={trailActive ? 'true' : undefined}
       data-testid={`nav-${item.id}`}
       className={cn(
-        'relative flex h-10 w-10 items-center justify-center rounded-lg',
+        'relative flex h-10 w-10 items-center justify-center rounded-md',
         reducedMotion ? 'transition-none' : 'transition-[color,background-color,transform] duration-150 ease-premium',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface',
-        selfActive
-          ? 'bg-primary text-primary-foreground shadow-glow dark:bg-accent dark:text-primary dark:shadow-none'
-          : trailActive
-            ? 'bg-primary/10 text-primary dark:bg-accent'
+        trailActive
+          ? 'bg-primary/10 text-primary dark:bg-accent'
+          : open
+            ? 'bg-muted text-foreground'
             : 'text-muted-foreground hover:bg-muted hover:text-foreground',
       )}
     >
@@ -502,77 +602,94 @@ const CollapsedItem: React.FC<{
     );
   }
 
-  // Item with children → a fly-out listing the destinations. We render the fly-out
-  // INLINE (not in a portal) inside a `group` so it appears on pointer HOVER *and*
-  // on keyboard FOCUS-WITHIN (#8 — WCAG 2.1.1): the child links are real, in-flow
-  // buttons, so Tab from the rail button moves straight into them — the previous
-  // Radix HoverCard portaled the content out of the tab order, leaving the
-  // destinations keyboard-unreachable in the collapsed rail. A HoverCard is no
-  // longer used here; visibility is driven purely by CSS group state, and
-  // `position: fixed` (measured coords) keeps the fly-out out of the nav's clip.
-  const panelId = `nav-fly-${item.id}`;
+  // Grouped item → one compact panel. It stays inline in DOM ownership (rather than a
+  // portal) so focus moves naturally from trigger to destinations, but only mounts
+  // while exposed so hidden buttons never remain in the accessibility or Tab tree.
   return (
     <div
       ref={wrapRef}
-      className="group relative"
-      onPointerEnter={() => {
-        measure();
-        setEngaged(true);
-      }}
-      onPointerLeave={() => setEngaged(false)}
+      className="relative"
+      onPointerEnter={schedulePointerOpen}
+      onPointerLeave={schedulePointerClose}
       onFocusCapture={() => {
-        measure();
-        setEngaged(true);
+        if (suppressNextFocusOpenRef.current) return;
+        openImmediately();
       }}
       onBlurCapture={(e) => {
-        if (!wrapRef.current?.contains(e.relatedTarget as Node | null)) setEngaged(false);
+        if (!wrapRef.current?.contains(e.relatedTarget as Node | null)) {
+          cancelOpen();
+          cancelClose();
+          onClose();
+        }
+      }}
+      onKeyDownCapture={(event) => {
+        if (event.key !== 'Escape' || !open) return;
+        event.preventDefault();
+        event.stopPropagation();
+        cancelOpen();
+        cancelClose();
+        onClose();
+        if (document.activeElement !== btnRef.current) {
+          suppressNextFocusOpenRef.current = true;
+          window.requestAnimationFrame(() => {
+            btnRef.current?.focus();
+            suppressNextFocusOpenRef.current = false;
+          });
+        }
       }}
     >
       {railButton}
-      <div
-        id={panelId}
-        // `position: fixed` + measured top/left escapes the nav's overflow clip (see the
-        // note above). Hidden by default; revealed on hover OR when any descendant has
-        // focus. `pointer-events-none` + `opacity-0` keep it out of the way until shown,
-        // but it stays in the DOM/tab order so focus can enter it (focus-within then
-        // makes it interactive). `motion-reduce` drops the fade for reduced-motion users.
-        style={{ position: 'fixed', top: pos.top, left: pos.left }}
-        className={cn(
-          'z-50 w-52 rounded-lg border border-border bg-popover p-1.5 text-popover-foreground shadow-elev2',
-          'pointer-events-none opacity-0',
-          reducedMotion ? 'transition-none' : 'transition-opacity duration-100',
-          'group-hover:pointer-events-auto group-hover:opacity-100',
-          'group-focus-within:pointer-events-auto group-focus-within:opacity-100',
-        )}
-      >
-        <p className="px-2 py-1 text-xs font-semibold text-muted-foreground">{item.label}</p>
-        <Separator className="my-1" />
-        <ul className="space-y-0.5">
-          {children.map((c) => {
-            const CIcon = c.icon;
-            const active = page === c.id;
-            return (
-              <li key={`fly-${item.id}-${c.id}`}>
-                <button
-                  type="button"
-                  onClick={() => onNavigate(c.id)}
-                  aria-current={active ? 'page' : undefined}
-                  className={cn(
-                    'flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
-                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                    active
-                      ? 'bg-primary/10 font-medium text-primary dark:bg-accent'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-                  )}
-                >
-                  {CIcon ? <CIcon className="h-3.5 w-3.5 shrink-0" aria-hidden /> : null}
-                  <span className="truncate">{c.label}</span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      </div>
+      {open ? (
+        <div
+          ref={panelRef}
+          id={panelId}
+          data-testid={`nav-flyout-${item.id}`}
+          data-state="open"
+          role="group"
+          aria-label={`${item.label} destinations`}
+          style={{ position: 'fixed', top: pos.top, left: pos.left }}
+          onPointerEnter={() => {
+            cancelOpen();
+            cancelClose();
+          }}
+          onPointerLeave={schedulePointerClose}
+          className={cn(
+            "relative z-[60] w-56 before:absolute before:-left-2 before:top-0 before:h-full before:w-2 before:content-['']",
+            reducedMotion
+              ? 'transition-none'
+              : 'animate-in fade-in-0 slide-in-from-left-1 duration-150 ease-premium',
+          )}
+        >
+          <div className="max-h-[calc(100dvh-1rem)] overflow-y-auto rounded-md border border-border bg-popover p-2 text-popover-foreground shadow-menu">
+            <p className="px-2.5 py-1.5 text-xs font-semibold text-muted-foreground">
+              {item.label}
+            </p>
+            <ul className="space-y-1">
+              {children.map((c) => {
+                const active = page === c.id;
+                return (
+                  <li key={`fly-${item.id}-${c.id}`}>
+                    <button
+                      type="button"
+                      onClick={() => onNavigate(c.id)}
+                      aria-current={active ? 'page' : undefined}
+                      className={cn(
+                        'flex h-9 w-full items-center rounded-sm px-2.5 text-left text-sm transition-colors',
+                        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                        active
+                          ? 'bg-primary/10 font-medium text-primary dark:bg-accent'
+                          : 'text-foreground hover:bg-muted',
+                      )}
+                    >
+                      <span className="truncate">{c.label}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 };
@@ -588,15 +705,6 @@ export interface NavSidebarProps {
   onNavigate: Navigate;
   /** Whether the rail is in the 64px icon state (true) or the 248px drawer. */
   collapsed: boolean;
-  /**
-   * TASK 6 — the sidebar is in "floating footprint" mode: the shell reserves only a
-   * 64px rail footprint, but this sidebar may render WIDER than that (pointer-hover
-   * expand) and float OVER the page content. When set, the expanded-on-hover drawer
-   * gets a drop shadow so it reads as an overlay; layering is handled by the shell
-   * wrapper's z-index (so the elevation survives the collapse-back animation without
-   * the content bleeding through). Undefined/false ⇒ the classic in-flow sidebar.
-   */
-  floating?: boolean;
   /** The expanded disclosure-group ids (host PageIds), shell-owned. */
   openGroups: Set<string>;
   /** Toggle one disclosure group's expanded state. */
@@ -624,7 +732,6 @@ export function NavSidebar({
   page,
   onNavigate,
   collapsed,
-  floating = false,
   openGroups,
   onToggleGroup,
   onOpenGroup,
@@ -643,6 +750,15 @@ export function NavSidebar({
     () => filterItems(NAV_FOOTER_ITEMS, hasPermission),
     [hasPermission],
   );
+  const [openFlyoutId, setOpenFlyoutId] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!collapsed) setOpenFlyoutId(null);
+  }, [collapsed]);
+
+  const closeFlyout = React.useCallback((id: string) => {
+    setOpenFlyoutId((current) => (current === id ? null : current));
+  }, []);
 
   // Navigating ALSO opens the owning disclosure group — both when navigating into a
   // child (keep the trail visible) AND when tapping a parent host label itself (the
@@ -651,6 +767,7 @@ export function NavSidebar({
   // collapses an already-open group — the chevron stays the sole explicit collapse.
   const navigate = React.useCallback(
     (id: PageId) => {
+      setOpenFlyoutId(null);
       const parent = navParentOf(id);
       if (parent && (parent.children?.length ?? 0) > 0) onOpenGroup(parent.id);
       onNavigate(id);
@@ -668,16 +785,11 @@ export function NavSidebar({
         // eager AppShell first-paint graph, and statically importing motion.dev would drag
         // its runtime onto the entry chunk (breaking the <400 kB budget). Full spring/
         // shared-layout on the nav is deferred to a lazy-boundary follow-up.
-        'sticky top-0 flex h-screen shrink-0 flex-col border-r border-border bg-surface',
+        'sticky top-0 flex h-dvh shrink-0 flex-col border-r border-border bg-surface',
         reducedMotion
           ? 'transition-none'
-          : 'transition-[width,box-shadow] duration-200 ease-premium',
+          : 'transition-[width] duration-200 ease-premium',
         collapsed ? 'w-16 items-center' : 'w-60',
-        // TASK 6 — while a floating rail is expanded over the content (hover/focus), give
-        // the drawer a drop shadow so it reads as an overlay above the page. Only when it
-        // is actually wider than the reserved rail (floating && expanded); the resting
-        // 64px rail stays flush. The shell wrapper owns the z-index layering.
-        floating && !collapsed ? 'shadow-elev2' : '',
         className,
       )}
       aria-label="Primary navigation"
@@ -689,7 +801,7 @@ export function NavSidebar({
           collapsed ? 'w-full justify-center px-2' : 'gap-2 px-3',
         )}
       >
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary dark:bg-accent">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary dark:bg-accent">
           {logoUrl ? (
             <img src={logoUrl} alt="" className="h-6 w-6 rounded object-contain" />
           ) : (
@@ -727,6 +839,9 @@ export function NavSidebar({
                     item={item}
                     page={page}
                     onNavigate={navigate}
+                    open={openFlyoutId === item.id}
+                    onOpen={() => setOpenFlyoutId(item.id)}
+                    onClose={() => closeFlyout(item.id)}
                     reducedMotion={reducedMotion}
                   />
                 ))}
@@ -770,6 +885,9 @@ export function NavSidebar({
                   item={item}
                   page={page}
                   onNavigate={navigate}
+                  open={openFlyoutId === item.id}
+                  onOpen={() => setOpenFlyoutId(item.id)}
+                  onClose={() => closeFlyout(item.id)}
                   reducedMotion={reducedMotion}
                 />
               ))

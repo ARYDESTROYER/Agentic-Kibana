@@ -18,7 +18,7 @@
 > Kibana plugin was later **archived**, not merely retired mid-flight — see
 > `archive/kibana-plugin/`).
 >
-> This document is the master plan that turned the original TLSOC prototype
+> This document is the master plan that turned the original triage prototype
 > (at the time: an ELK/Kibana-coupled triage backend + Kibana plugin) into an
 > **open-source, self-hosted, vendor-agnostic agentic SOC** that fetches alerts
 > from any SIEM/EDR/XDR. It complements `AGENTS.md` (process), `README.md`
@@ -71,7 +71,7 @@ the product requires the customer to run Kibana, it isn't agnostic.**
                  ▼
    dedup → correlate → risk-gate          deterministic; millions → tens happen HERE
                  ▼
-   cheap router LLM → strong investigator (ReAct) → deterministic case manager
+   router role model → investigator role model (ReAct) → deterministic case manager
                  ▼
    StateStore  (Postgres + pgvector)        NOT a mandatory Elasticsearch
                  ▼
@@ -236,7 +236,7 @@ collapses through a deterministic funnel *before* any model call:
 ~10K–100K alerts/day   dedup + suppress              40–60% gone
 ~500–5K incidents      deterministic correlate       10–30× collapse
 ~50–500 candidates     deterministic risk gate       auto-close below threshold
-~10–200/day            cheap router LLM → strong investigator for the subset
+~10–200/day            router role → investigator role for the subset
 ~1–20/day              true positives → humans
 ```
 
@@ -246,8 +246,8 @@ the suite already has it (correlation, risk gate, router→investigator, and the
 **aggregate-then-summarise, never raw logs to a model** rule, non-negotiable #7).
 
 **Build now (handles <~50K alerts/day):** durable-cursor poller; Redis dedup;
-deterministic correlate + risk gate; model tiering (cheap router + strong
-investigator); one LLM gateway + cost ledger; `max_tokens` on every call; a
+deterministic correlate + risk gate; independently configurable router and
+investigator roles; one LLM gateway + cost ledger; `max_tokens` on every call; a
 **daily budget circuit-breaker** (over budget → downgrade model → route to
 `NEEDS_HUMAN`, never drop); prompt caching (structure the system prompt as a
 stable prefix → ~90% off cached tokens).
@@ -263,9 +263,10 @@ gateway) for multi-tenant — **not** the same thing as the Round-9 local-model
 feature described next.
 
 **Shipped since this doc was written:** the LLM batch API (`llm/batch.py`
-`BatchProvider` — Anthropic Message Batches + OpenAI Batch + `service_tier='flex'`,
-at 0.5× price) and, separately, a **local/self-hosted LiteLLM-compatible model
-provider** (Round 9): the gateway can call any OpenAI-compatible endpoint
+`BatchProvider` — Anthropic Message Batches + OpenAI Batch, at 0.5× price), plus
+separate live OpenAI `service_tier='flex'` routing, and a **local/self-hosted
+LiteLLM-compatible model provider** (Round 9): the gateway can call any
+OpenAI-compatible endpoint
 (LiteLLM/vLLM/Ollama/LM Studio) as one more `llm/providers.py` provider via
 `POST /api/llm/models/custom`, at $0 pricing. That is a *provider* the gateway
 talks to directly, not the *proxy-in-front-of-the-gateway* pattern described in
@@ -327,8 +328,10 @@ time:
 reusing `@elastic/eui` standalone — it was built on (and later, in the Round-5
 design-system overhaul, fully committed to) **Tailwind CSS + shadcn-style
 primitives on Radix UI**. There is no `@elastic/eui` dependency anywhere in the
-webui today. The "add a source" wizard did become the product's front door as
-planned (a 4-step Welcome → Sources → Provider keys → Review flow), and per-source
+webui today. The connector-driven setup workspace did become the product's front
+door as planned. Its current four-stage flow is **Workspace → Data sources → AI
+runtime → Review & launch**; it supports isolated Demo and Live starts, guards
+source and provider-key drafts, and reports limited readiness honestly. Per-source
 query-language rendering is driven by the active connector as described. See
 `webui/README.md` for the current stack and `AGENTS.md` §8 for the design system.
 
@@ -382,7 +385,7 @@ covering OCSF `unmapped`).
 - **Standalone EUI build/licensing outside Kibana** — **resolved by not doing
   it**: the webui was built (and later fully re-skinned) on Tailwind + shadcn/Radix
   instead, sidestepping the question entirely.
-- **Naming/branding** — "TLSOC … Kibana" branding is ELK-specific; an
+- **Naming/branding** — coupling the product name to "Kibana" is ELK-specific; an
   open-source agnostic product needs a neutral name. **Current resolution**: the
   operator-facing product is **Agentic SOC**. Technical `TLSOC_*` compatibility
   identifiers remain stable, with operator-configurable white-label branding

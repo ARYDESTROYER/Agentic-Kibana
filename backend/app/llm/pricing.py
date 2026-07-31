@@ -42,6 +42,10 @@ PRICES: dict[str, tuple[float, float]] = {
     "gpt-4-turbo": (10.0, 30.0),
     "gpt-4": (30.0, 60.0),
     "o4-mini": (1.10, 4.40),
+    # Current official short-context Standard rate (2026-07-31). Long-context
+    # requests have a separate tariff; Agentic SOC's bounded role prompts remain
+    # comfortably below that threshold.
+    "gpt-5.6-luna": (0.20, 1.20),
     "gpt-5": (1.25, 10.0),
     "gpt-5-mini": (0.25, 2.0),
     # --- Embeddings (input only) ---
@@ -63,6 +67,7 @@ _TIER_HEURISTIC: tuple[tuple[str, tuple[float, float]], ...] = (
     ("claude-opus", (5.0, 25.0)),
     ("claude-sonnet", (3.0, 15.0)),
     ("claude-haiku", (1.0, 5.0)),
+    ("gpt-5.6-luna", (0.20, 1.20)),
     ("gpt-5-mini", (0.25, 2.0)),
     ("gpt-5", (1.25, 10.0)),
     ("gpt-4o-mini", (0.15, 0.60)),

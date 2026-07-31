@@ -321,7 +321,7 @@ export interface RolesResponse {
 }
 
 // --------------------------------------------------------------------------- //
-// Agent personas + operator-managed playbooks.
+// Agent personas + operator-managed playbooks/runbooks.
 // --------------------------------------------------------------------------- //
 /** One specialist persona the router can specialise the investigator into. */
 export interface AgentPersona {
@@ -385,6 +385,99 @@ export interface PlaybookMutationResponse {
     skipped: { file: string; reason: string }[];
     ids: string[];
   };
+}
+
+/**
+ * One trusted investigation-reference runbook. Runbooks are retrieval knowledge,
+ * not executable procedures: a match may inform an investigation, but it never
+ * changes deterministic case authority.
+ */
+export interface Runbook {
+  id: string;
+  title: string;
+  summary: string;
+  persona: string;
+  applies_to_rules: string[];
+  applies_to_techniques: string[];
+  applies_to_entities: string[];
+  keywords: string[];
+  source_type: 'bundled' | 'operator';
+  /** Packaged reference runbooks are protected; operator runbooks are editable. */
+  protected: boolean;
+  editable: boolean;
+  /** Opaque optimistic-concurrency token supplied back on update/delete. */
+  revision: string | number;
+  created_at: string | null;
+  updated_at: string | null;
+  /** Authoritative projection state for the runbook's RAG document. */
+  index_status: string;
+  indexed_revision: string | number | null;
+  last_indexed_at: string | null;
+  index_error: string | null;
+}
+
+/** One opened Markdown document. Render as plain text; never as raw HTML. */
+export interface RunbookDetail extends Runbook {
+  content: string;
+  body: string;
+}
+
+/** Backend-owned Runbook authoring contract exposed to Console clients. */
+export interface RunbookAuthoringStandard {
+  version: number;
+  body_max_characters: number;
+  retrieval_descriptor_max_characters: number;
+  document_max_bytes: number;
+  section_min_characters: number;
+  reserved_ids: string[];
+  character_count: string;
+  metadata_limits: {
+    title_max_characters: number;
+    summary_max_characters: number;
+    persona_max_characters: number;
+    list_max_items: number;
+    list_item_max_characters: number;
+  };
+  required_manifest_fields: string[];
+  optional_manifest_fields: string[];
+  required_body_labels: string[];
+  optional_body_labels: string[];
+  investigation_steps: string;
+  allowed_metadata_format: string;
+  allowed_body_format: string;
+  prohibited_metadata_format: string[];
+  prohibited_body_format: string[];
+}
+
+export interface RunbooksResponse {
+  enabled: boolean;
+  /** Whether runbook knowledge is currently eligible for RAG retrieval. */
+  retrieval_enabled: boolean;
+  /** Missing only while interoperating with a legacy backend during a rolling upgrade. */
+  authoring_standard?: RunbookAuthoringStandard;
+  count: number;
+  runbooks: Runbook[];
+}
+
+/** Result of reconciling one or more runbooks into the RAG corpus. */
+export interface RunbookIndexResult {
+  ok: boolean;
+  indexed: number;
+  deleted: number;
+  failed: number;
+  errors: Array<string | { id?: string; error: string }>;
+}
+
+export interface RunbookMutationResponse {
+  ok: boolean;
+  runbook: Runbook;
+  index: RunbookIndexResult;
+}
+
+export interface RunbookDeleteResponse {
+  ok: boolean;
+  id: string;
+  index: RunbookIndexResult;
 }
 
 // --------------------------------------------------------------------------- //
@@ -840,6 +933,52 @@ export interface BuildInfoResponse {
 }
 
 // --------------------------------------------------------------------------- //
+// Read-only upstream release discovery.
+// --------------------------------------------------------------------------- //
+/** Operator-configurable source used only to discover branch metadata. */
+export interface ReleaseUpdateConfig {
+  enabled: boolean;
+  repository_url: string;
+  stable_branch: string;
+  testing_branch: string;
+  check_interval_minutes: number;
+}
+
+export type UpstreamReleaseState = 'available' | 'unavailable' | 'disabled';
+export type UpstreamReleaseChannel = 'stable' | 'testing';
+
+/** One bounded, plain-data branch observation returned by the backend. */
+export interface UpstreamReleaseCandidate {
+  channel: UpstreamReleaseChannel;
+  branch: string;
+  state: UpstreamReleaseState;
+  version: string | null;
+  commit_sha: string | null;
+  commit_url: string | null;
+  source_url: string | null;
+  checked_at: string | null;
+  stale: boolean;
+  error_code: string | null;
+  error_message: string | null;
+}
+
+/** GET/POST `/api/releases/upstream*` response. Discovery never activates code. */
+export interface UpstreamReleasesResponse {
+  enabled: boolean;
+  repository_url: string;
+  checked_at: string | null;
+  cache: {
+    hit: boolean;
+    stale: boolean;
+    max_age_seconds: number;
+  };
+  channels: {
+    stable: UpstreamReleaseCandidate;
+    testing: UpstreamReleaseCandidate;
+  };
+}
+
+// --------------------------------------------------------------------------- //
 // Models (per-role pickers).
 // --------------------------------------------------------------------------- //
 export interface ModelsResponse {
@@ -1040,6 +1179,82 @@ export interface ThreatContextConfig {
 }
 
 /**
+ * Desired lifecycle for Agentic SOC's OWN state. Connected SIEM/log indices are
+ * deliberately outside this policy because the Console consumes them read-only.
+ * Automatic deletion is not supported in this release and is fixed to `false`.
+ */
+export interface StorageLifecycleConfig {
+  enabled: boolean;
+  /** Days append-only ledgers remain on the Hot tier. */
+  hot_days: number;
+  /** Additional days append-only ledgers remain on the Warm tier. */
+  warm_days: number;
+  /** The desired archive provider; archive export/restore is not configured yet. */
+  archive_target: 'aws_glacier';
+  glacier_storage_class: 'GLACIER' | 'DEEP_ARCHIVE';
+  delete_after_archive: false;
+}
+
+export interface StorageLifecycleCapability {
+  supported: boolean;
+  /** Control-plane and managed-index privileges are sufficient to detach policy safely. */
+  can_manage?: boolean;
+  privileged?: boolean;
+  index_privileged?: boolean;
+  hot_ready?: boolean;
+  warm_ready?: boolean;
+  roles?: string[];
+  ilm_mode?: string;
+  reason?: string;
+}
+
+export interface StorageLifecycleTier {
+  id: 'hot' | 'warm' | 'archive' | string;
+  label: string;
+  from_day: number;
+  until_day: number | null;
+  enforcement: string;
+  status: string;
+}
+
+export interface StorageLifecycleTarget {
+  id: 'audit' | 'usage' | 'cases' | 'live_metadata' | 'source_logs' | string;
+  label: string;
+  enforcement: string;
+  reason: string;
+}
+
+export interface StorageLifecycleAttachmentStatus {
+  verified: boolean;
+  template_attached: boolean;
+  indices_total: number;
+  indices_attached: number;
+  all_existing_indices_attached: boolean;
+  attached: boolean;
+  reason: string;
+}
+
+/** Capability-aware projection returned by GET/POST `/api/storage/lifecycle*`. */
+export interface StorageLifecycleStatus {
+  state_backend: 'elasticsearch' | 'postgres' | 'sqlite' | string;
+  effective_state: 'active' | 'disabled' | 'not_configured' | 'blocked' | 'advisory' | string;
+  policy_name: string | null;
+  capabilities: StorageLifecycleCapability;
+  attachments?: Record<string, StorageLifecycleAttachmentStatus>;
+  inspection_error?: string | null;
+  policy: StorageLifecycleConfig & { archive_from_days: number };
+  tiers: StorageLifecycleTier[];
+  targets: StorageLifecycleTarget[];
+  archive: {
+    enforcement: string;
+    status: string;
+    storage_class: StorageLifecycleConfig['glacier_storage_class'];
+    reason: string;
+  };
+  delete_enabled: false;
+}
+
+/**
  * The complete preferences object is large; we type the fields the UI touches
  * and keep an index signature so unknown fields round-trip unharmed.
  */
@@ -1109,6 +1324,12 @@ export interface Preferences {
   threshold_automation?: ThresholdAutomationConfig;
   /** Threat-context panel + reusable-knowledge loop (F11). */
   threat_context?: ThreatContextConfig;
+
+  /** Capability-aware Hot/Warm/archive intent for Agentic SOC-owned state. */
+  storage_lifecycle?: StorageLifecycleConfig;
+
+  /** Public GitHub source and refs used for read-only release discovery. */
+  release_updates?: ReleaseUpdateConfig;
 
   setup_complete?: boolean;
   read_only_settings_mode?: boolean;
@@ -1956,6 +2177,54 @@ export interface ChatTurn {
   content: string;
 }
 
+/** One durably stored Workspace-chat message. Assistant rows retain the original
+ * response envelope so tables, provenance, cost, and memory feedback survive a
+ * reload instead of degrading into plain prose. */
+export interface ChatConversationMessage extends ChatTurn {
+  id: string;
+  created_at: string;
+  response?: ChatResponse | null;
+  idempotency_key?: string | null;
+  model?: string | null;
+  source_id?: string | null;
+  source_name?: string | null;
+}
+
+/** Compact row returned for the Workspace conversation rail. */
+export interface ChatConversationSummary {
+  id: string;
+  title: string;
+  preview?: string;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+  /** Total turns ever accepted, including turns older than the retained window. */
+  total_message_count?: number;
+  model?: string | null;
+  source_id?: string | null;
+  source_name?: string | null;
+  /** True when older turns were removed from this bounded transcript. */
+  history_truncated?: boolean;
+  oldest_retained_at?: string | null;
+}
+
+/** Full per-user Workspace conversation returned when a rail row is opened. */
+export interface ChatConversation extends ChatConversationSummary {
+  messages: ChatConversationMessage[];
+}
+
+export interface ChatConversationsResponse {
+  conversations: ChatConversationSummary[];
+  /** Retained row count (the backend's existing `total` contract). */
+  total?: number;
+  /** Total rows accepted before bounded retention evicted older conversations. */
+  total_conversation_count?: number;
+  history_truncated?: boolean;
+  oldest_retained_at?: string | null;
+  limit?: number;
+  offset?: number;
+}
+
 export interface ChatTable {
   columns: string[];
   rows: Array<Array<string | number | null>>;
@@ -1968,7 +2237,7 @@ export interface ChatTable {
  */
 export interface ChatMemoryAction {
   /** The operation the chat engine applied to operator memory. */
-  op: 'add' | 'update' | 'delete' | string;
+  op: 'add' | 'update' | 'delete' | 'remove' | string;
   /** The memory text added/updated (when applicable). */
   text?: string;
   /** Affected memory entry ids (when applicable). */
@@ -1983,6 +2252,8 @@ export interface ChatMemorySuggestion {
 
 export interface ChatResponse {
   answer: string;
+  /** True only when an oversized response snapshot was compacted in saved history. */
+  truncated?: boolean;
   table?: ChatTable | null;
   query?: string | null;
   discover?: Record<string, unknown> | null;
@@ -1992,6 +2263,16 @@ export interface ChatResponse {
   memory_action?: ChatMemoryAction | null;
   /** A memory the agent suggests the operator save (additive). */
   memory_suggestion?: ChatMemorySuggestion | null;
+  /** Present only for the opt-in persisted Workspace-chat flow. */
+  conversation_id?: string | null;
+  /** Deterministic title derived from the first operator turn. */
+  conversation_title?: string | null;
+  /** Stable key echoed by persisted Workspace chat; reuse it for an explicit retry. */
+  idempotency_key?: string | null;
+  /** Effective execution provenance after backend defaults and overrides resolve. */
+  effective_model?: string | null;
+  effective_source_id?: string | null;
+  effective_source_name?: string | null;
   /**
    * Optional provenance the chat engine may attach (additive; render only when
    * present). All values are UNTRUSTED — render as plain text / the `CodeBlock`
@@ -2004,6 +2285,38 @@ export interface ChatResponse {
   citations?: Array<{ n: number; source: string; snippet?: string; ref?: string }>;
 }
 
+export type UsageProcessingTier = 'standard' | 'flex' | 'batch' | 'unconfirmed';
+
+export interface UsageTierBreakdown {
+  /** Actual tier recorded by the gateway; never inferred from requested policy. */
+  key: UsageProcessingTier;
+  cost: number;
+  tokens: number;
+  calls: number;
+}
+
+export interface DiscountedTierCoverage {
+  /** Combined actual Flex + Batch ledger values. */
+  calls: number;
+  tokens: number;
+  cost: number;
+  /** Ratios use every ledger row as the denominator, including unconfirmed rows. */
+  call_ratio: number;
+  token_ratio: number;
+  cost_ratio: number;
+}
+
+export interface ProcessingTierAttribution {
+  confirmed_calls: number;
+  /** Legacy/missing or future unknown tier values; never folded into standard. */
+  unconfirmed_calls: number;
+  /** Null until the ledger records requested tier and explicit fallback provenance. */
+  fallback_calls: number | null;
+  fallback_attribution_available: boolean;
+  /** Always false: reporting must not reverse-engineer execution from policy intent. */
+  requested_policy_inferred: false;
+}
+
 export interface UsageSummary {
   window_hours?: number;
   total_cost?: number;
@@ -2014,6 +2327,10 @@ export interface UsageSummary {
   by_surface?: Array<{ key: string; cost: number; tokens: number; calls: number }>;
   by_model?: Array<{ key: string; cost: number; tokens: number; calls: number }>;
   by_role?: Array<{ key: string; cost: number; tokens: number; calls: number }>;
+  /** Fixed standard/Flex/Batch/unconfirmed execution buckets from actual ledger rows. */
+  by_processing_tier?: UsageTierBreakdown[];
+  discounted_tier_coverage?: DiscountedTierCoverage;
+  processing_tier_attribution?: ProcessingTierAttribution;
   cost_over_time?: Array<{ ts: number; cost: number }>;
   top_cost_drivers?: Array<{ key: string; cost: number; tokens: number; calls: number }>;
   [key: string]: unknown;
@@ -2209,6 +2526,379 @@ export interface Metrics {
   cost: Partial<UsageSummary> & Record<string, unknown>;
   window_hours?: number;
   [key: string]: unknown;
+}
+
+// --------------------------------------------------------------------------- //
+// Agent-improvement evidence (GET /api/metrics/agent-improvement).
+// Aggregate-only and advisory: this contract contains no source/case identifiers,
+// raw evidence, model calls, or deterministic decision input.
+// --------------------------------------------------------------------------- //
+export type AgentEvidenceStatus =
+  | 'enough_data'
+  | 'insufficient_evidence'
+  | 'unavailable'
+  | 'not_applicable';
+
+export interface AgentComparisonReading {
+  value: number | null;
+  unadjusted_value?: number | null;
+  available: boolean;
+  status: AgentEvidenceStatus;
+  reason: string;
+  sample_count: number;
+  minimum_sample: number;
+  total_graded_cases?: number;
+  comparable_graded_cases?: number;
+  [key: string]: unknown;
+}
+
+export interface AgentComparisonMetric {
+  label: string;
+  unit: 'ratio' | 'minutes' | string;
+  good_direction: 'up' | 'down';
+  current: AgentComparisonReading;
+  baseline: AgentComparisonReading;
+  delta: { percentage_points?: number | null; relative?: number | null };
+  direction: 'improving' | 'stable' | 'regressing' | 'insufficient_evidence';
+  definition: {
+    formula: string;
+    numerator: string;
+    denominator: string;
+    eligibility: string;
+    caveats: string;
+  };
+}
+
+export interface AgentFalseNegativeReading {
+  value: number | null;
+  confirmed_positive_count: number;
+  missed_positive_count: number;
+}
+
+export interface AgentReopenReading {
+  candidate_agent_terminal_decisions: number;
+  eligible_agent_terminal_decisions: number;
+  right_censored_decisions: number;
+  human_reopens: number;
+  rate: number | null;
+  follow_up_hours: number;
+}
+
+export interface AgentImprovementGuardrails {
+  confirmed_false_negative_rate: {
+    status: AgentEvidenceStatus;
+    minimum_sample: number;
+    current: AgentFalseNegativeReading;
+    baseline: AgentFalseNegativeReading;
+    material_increase_threshold: number;
+    breached: boolean | null;
+    definition: string;
+  };
+  reopen_after_agent_close_rate: {
+    status: AgentEvidenceStatus;
+    minimum_sample: number;
+    current: AgentReopenReading;
+    baseline: AgentReopenReading;
+    material_increase_threshold: number;
+    breached: boolean | null;
+    caveat: string;
+  };
+}
+
+export interface AgentImprovementCaseMix {
+  dimensions: string[];
+  minimum_per_stratum: number;
+  baseline_total: number;
+  current_total: number;
+  baseline_covered: number;
+  current_covered: number;
+  comparable_mix_coverage: number | null;
+  baseline_mix_coverage: number | null;
+  current_mix_coverage: number | null;
+  comparable_strata: number;
+  baseline_only_strata: number;
+  current_only_strata: number;
+  suppressed_strata: number;
+  adjusted_baseline_agreement: number | null;
+  adjusted_current_agreement: number | null;
+  adjusted_baseline_correction_rate: number | null;
+  adjusted_current_correction_rate: number | null;
+}
+
+export interface AgentImprovementDailyPoint {
+  date: string;
+  window: 'current' | 'baseline';
+  analyst_reported_agreement: number | null;
+  correction_rate: number | null;
+  false_negative_rate: number | null;
+  review_turnaround_p50_minutes: number | null;
+  quality_sample_count: number;
+  confirmed_positive_sample_count: number;
+  turnaround_sample_count: number;
+  status: 'enough_data' | 'collecting_evidence';
+}
+
+export type AgentOutcomeDirection =
+  | 'improving'
+  | 'stable'
+  | 'regressing'
+  | 'up'
+  | 'down'
+  | 'insufficient_evidence';
+
+export interface AgentOutcomeDefinition {
+  formula: string;
+  numerator: string;
+  denominator: string;
+  eligibility: string;
+  caveats: string;
+}
+
+export interface AgentRecordedCaseCostPeriod {
+  total_cost: number;
+  call_count: number;
+  costed_cases: number;
+  cost_per_costed_case: number | null;
+  cost_per_day: number;
+}
+
+export interface AgentRecordedCaseCostOutcome {
+  label: string;
+  unit: 'USD' | string;
+  currency: 'USD' | string;
+  status: AgentEvidenceStatus;
+  reason: string;
+  current: AgentRecordedCaseCostPeriod;
+  baseline: AgentRecordedCaseCostPeriod;
+  delta: {
+    cost_per_day_relative: number | null;
+    cost_per_costed_case_relative: number | null;
+  };
+  direction: AgentOutcomeDirection;
+  cost_per_day_direction: AgentOutcomeDirection;
+  definition: AgentOutcomeDefinition;
+}
+
+export interface AgentObservedTimeSavedPeriod {
+  status: AgentEvidenceStatus;
+  reason: string;
+  human_owned_closure_p50_minutes: number | null;
+  agent_closed_p50_minutes: number | null;
+  observed_difference_minutes_per_case: number | null;
+  observed_aggregate_elapsed_difference_minutes: number | null;
+  /** Legacy positive-only projection; null when the observed cohort difference is negative. */
+  estimated_total_minutes_saved: number | null;
+  human_owned_closure_count: number;
+  agent_closed_count: number;
+  analyst_reported_total_minutes_saved: number | null;
+  analyst_reported_sample_count: number;
+  minimum_sample_per_owner: number;
+}
+
+export interface AgentObservedTimeSavedOutcome {
+  label: string;
+  unit: 'minutes' | string;
+  status: AgentEvidenceStatus;
+  reason: string;
+  current: AgentObservedTimeSavedPeriod;
+  baseline: AgentObservedTimeSavedPeriod;
+  delta: { minutes_per_case: number | null };
+  direction: AgentOutcomeDirection;
+  definition: AgentOutcomeDefinition;
+}
+
+export interface AgentConfirmedPositivePeriod extends AgentComparisonReading {
+  confirmed_positive_cases: number;
+  outcome_evaluable_cases: number;
+}
+
+export interface AgentConfirmedPositiveCaseRateOutcome {
+  label: string;
+  unit: 'ratio' | string;
+  status: AgentEvidenceStatus;
+  reason: string;
+  current: AgentConfirmedPositivePeriod;
+  baseline: AgentConfirmedPositivePeriod;
+  delta: { percentage_points: number | null };
+  direction: AgentOutcomeDirection;
+  definition: AgentOutcomeDefinition;
+}
+
+export interface AgentTruePositiveAlertYieldPeriod {
+  value: null;
+  true_positive_alerts: null;
+  total_alerts: number | null;
+  lineage_coverage: null;
+}
+
+export interface AgentTruePositiveAlertYieldOutcome {
+  label: string;
+  unit: 'ratio' | string;
+  status: 'unavailable';
+  reason: string;
+  current: AgentTruePositiveAlertYieldPeriod;
+  baseline: AgentTruePositiveAlertYieldPeriod;
+  delta: { percentage_points: null };
+  direction: 'insufficient_evidence';
+  supported_alternative: 'confirmed_positive_case_rate';
+  definition: AgentOutcomeDefinition;
+}
+
+export interface AgentAlertVolumePeriod {
+  ingested_alerts: number | null;
+  after_clustering_alerts: number | null;
+  clustering_reduction_count: number | null;
+  clustering_reduction_rate: number | null;
+  ingested_per_day: number | null;
+  after_clustering_per_day: number | null;
+}
+
+export interface AgentAlertVolumeOutcome {
+  label: string;
+  unit: 'alerts' | string;
+  status: AgentEvidenceStatus;
+  reason: string;
+  window_basis: string;
+  current: AgentAlertVolumePeriod;
+  baseline: AgentAlertVolumePeriod;
+  delta: {
+    ingested_per_day_relative: number | null;
+    after_clustering_per_day_relative: number | null;
+  };
+  direction: AgentOutcomeDirection;
+  ingested_direction: AgentOutcomeDirection;
+  after_clustering_direction: AgentOutcomeDirection;
+  definition: AgentOutcomeDefinition;
+}
+
+export interface AgentTuningContextPeriod {
+  applied_changes: number;
+  rolled_back_changes: number;
+}
+
+export interface AgentTuningContextOutcome {
+  label: string;
+  status: AgentEvidenceStatus;
+  reason: string;
+  current: AgentTuningContextPeriod;
+  baseline: AgentTuningContextPeriod;
+  delta: { applied_changes: number };
+  direction: AgentOutcomeDirection;
+  cooccurring_after_clustering_direction: AgentOutcomeDirection;
+  causal_claim: false;
+  model_fine_tuning_evidence: false;
+  definition: AgentOutcomeDefinition;
+}
+
+export interface AgentSourceGuidanceItem {
+  id?: string;
+  telemetry_kind?: string;
+  title?: string;
+  rationale?: string;
+  affected_context?: string;
+  evidence_gap_count?: number;
+}
+
+export interface AgentSourceGuidanceOutcome {
+  status:
+    | 'ready'
+    | 'collecting_evidence'
+    | 'insufficient_evidence'
+    | 'unavailable'
+    | 'not_available';
+  reason: string;
+  items: AgentSourceGuidanceItem[];
+  long_term_objective: boolean;
+  required_evidence: string;
+}
+
+export interface AgentOperationalOutcomes {
+  recorded_case_cost: AgentRecordedCaseCostOutcome;
+  observed_time_saved: AgentObservedTimeSavedOutcome;
+  confirmed_positive_case_rate: AgentConfirmedPositiveCaseRateOutcome;
+  true_positive_alert_yield: AgentTruePositiveAlertYieldOutcome;
+  alert_volume: AgentAlertVolumeOutcome;
+  tuning_context: AgentTuningContextOutcome;
+  source_guidance: AgentSourceGuidanceOutcome;
+}
+
+export interface AgentPeriodComparisonMetric {
+  status: AgentEvidenceStatus;
+  reason: string;
+  current: number | null;
+  baseline: number | null;
+  current_sample_count: number;
+  baseline_sample_count: number;
+  delta: number | null;
+  direction: AgentOutcomeDirection;
+}
+
+export interface AgentPeriodComparison {
+  label: string;
+  status: AgentEvidenceStatus;
+  reason: string;
+  current: { start: string; end_exclusive: string; days: number };
+  baseline: { start: string; end_exclusive: string; days: number };
+  calendar_period: false;
+  metrics: {
+    analyst_reported_verdict_agreement: AgentPeriodComparisonMetric;
+    material_analyst_correction_rate: AgentPeriodComparisonMetric;
+    human_review_turnaround: AgentPeriodComparisonMetric;
+    confirmed_positive_case_rate: AgentPeriodComparisonMetric;
+  };
+  /** Operational outcomes recomputed over these exact equal-length windows. */
+  outcomes: AgentOperationalOutcomes;
+}
+
+export interface AgentImprovementEvidence {
+  generated_at: string;
+  synthetic: boolean;
+  windows: {
+    as_of_exclusive: string;
+    current: { start: string; end_exclusive: string; days: number };
+    baseline: { start: string; end_exclusive: string; days: number };
+    timezone: 'UTC';
+    complete_days_only: true;
+  };
+  headline: {
+    state: 'improving' | 'stable' | 'mixed' | 'guardrail_breach' | 'insufficient_evidence';
+    reason: string;
+    improving_signals: number;
+    regressing_signals: number;
+    signal_domains: {
+      analyst_grade_quality: 'improving' | 'stable' | 'regressing' | 'insufficient_evidence';
+      human_review_turnaround: 'improving' | 'stable' | 'regressing' | 'insufficient_evidence';
+    };
+    guardrails_ready: boolean;
+    comparable_mix_coverage: number | null;
+    minimum_comparable_mix_coverage: number;
+    composite_score: null;
+  };
+  metrics: {
+    analyst_reported_verdict_agreement: AgentComparisonMetric;
+    material_analyst_correction_rate: AgentComparisonMetric;
+    human_review_turnaround: AgentComparisonMetric;
+  };
+  guardrails: AgentImprovementGuardrails;
+  case_mix: AgentImprovementCaseMix;
+  daily_points: AgentImprovementDailyPoint[];
+  /** Additive operational domains. Omitted by older compatible backends. */
+  outcomes?: AgentOperationalOutcomes | null;
+  /** True 7d/7d and rolling 28d/28d trend checks. Omitted by older backends. */
+  period_comparisons?: {
+    week_over_week: AgentPeriodComparison;
+    month_over_month: AgentPeriodComparison;
+  } | null;
+  exclusions: Record<string, number>;
+  provenance: {
+    truncated: boolean;
+    store_total: number;
+    fetched: number;
+    aggregate_only: true;
+    case_ids_included: false;
+    billing: 'none';
+    decision_authority: 'reporting_only';
+  };
 }
 
 // --------------------------------------------------------------------------- //
@@ -2529,7 +3219,7 @@ export interface MemoryPayload {
 // --------------------------------------------------------------------------- //
 // Case decision rationale (GET /api/cases/{id}/rationale).
 // --------------------------------------------------------------------------- //
-/** A knowledge snippet the investigator drew on (RAG/runbook/playbook). */
+/** A knowledge snippet the investigator retrieved through RAG. */
 export interface RationaleKnowledge {
   source: string;
   snippet: string;
@@ -2542,10 +3232,23 @@ export interface RationaleTool {
   summary?: string;
 }
 
-/** The playbook selected for the case + why. */
+/** The playbook actually injected into the investigation + its selection context. */
 export interface RationalePlaybook {
   id: string;
+  version?: string;
   reason?: string;
+  consulted?: boolean;
+}
+
+/** One immutable adaptive-threshold snapshot on this case's processing path. */
+export interface RationalePlatformTuning {
+  record_id?: string;
+  target: 'correlation_n' | 'severity_floor' | string;
+  rule_id: string;
+  before?: number;
+  after?: number;
+  applied_at?: string;
+  rationale?: string;
 }
 
 /** Cached enrichment used in the decision (null when none applied). */
@@ -2572,6 +3275,10 @@ export interface CaseRationale {
   /** Operator memories the investigation drew on. */
   memory_used?: string[];
   knowledge?: RationaleKnowledge[];
+  /** Whether tuning provenance was recorded for this investigation run. */
+  platform_tuning_status?: 'recorded' | 'not_recorded' | 'unavailable';
+  /** Thresholds snapshotted at investigation time; never inferred from live config. */
+  platform_tuning?: RationalePlatformTuning[];
   enrichment?: RationaleEnrichment | null;
   tools?: RationaleTool[];
   reasoning?: string;
@@ -2905,7 +3612,7 @@ export interface BatchConfig {
   severity_floor?: number;
   /** Providers whose batch APIs may be used. */
   providers?: string[];
-  /** Opt into a provider's flexible / best-effort tier. */
+  /** Legacy compatibility field; ignored. Live Flex uses prefer_discounted_alerts. */
   flex?: boolean;
   /** Prefer live discounted processing for compatible case/alert inference. */
   prefer_discounted_alerts?: boolean;
@@ -2915,7 +3622,7 @@ export interface BatchConfig {
 
 /**
  * Anomaly-detection BASELINE policy (mirrors backend `BaselineConfig`). Default
- * OFF. When enabled a later wave warms per-series streaming sketches and flags
+ * ON. It warms per-series streaming sketches and flags
  * modified-z-score deviations as ANOMALY candidates (advisory — never feeds #3).
  */
 export interface BaselineConfig {

@@ -180,6 +180,11 @@ class Investigator:
                 tool_input={
                     "persona": (persona.id if persona else "generalist"),
                     "playbook": (f"{playbook.id} v{playbook.version}" if playbook else None),
+                    "playbook_detail": (
+                        {"id": playbook.id, "version": playbook.version}
+                        if playbook is not None
+                        else None
+                    ),
                     "memory": [truncate(m.text, 200) for m in (memory or []) if (m.text or "").strip()][:20],
                     "knowledge": [
                         {"source": ch.source, "snippet": truncate(ch.text, 200)}

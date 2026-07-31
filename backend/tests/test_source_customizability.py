@@ -338,10 +338,35 @@ def test_chat_without_source_id_uses_primary(client_two_es, mock_provider):
     assert any(row[ip_idx] == "1.1.1.1" for row in body["table"]["rows"])
 
 
-def test_chat_unknown_source_id_falls_back_without_error(client_two_es, mock_provider):
+def test_chat_unknown_source_id_is_rejected_without_primary_fallback(client_two_es, mock_provider):
     mock_provider.push("chat", json.dumps({"answer": "No query needed."}))
     r = client_two_es.post("/api/chat", json={"message": "hello", "source_id": "does-not-exist"})
-    assert r.status_code == 200, r.text
+    assert r.status_code == 422, r.text
+    assert r.json()["detail"]["code"] == "chat_source_unavailable"
+
+
+def test_completed_chat_replays_after_its_source_is_disabled(client_two_es, mock_provider):
+    mock_provider.push("chat", json.dumps({"answer": "Durable scoped response."}))
+    payload = {
+        "message": "summarize the other source",
+        "source_id": "other",
+        "persist_conversation": True,
+        "idempotency_key": "chat-disabled-source-replay-001",
+    }
+    before = len([call for call in mock_provider.calls if call["role"] == "chat"])
+    first = client_two_es.post("/api/chat", json=payload)
+    assert first.status_code == 200, first.text
+    assert first.json()["effective_source_id"] == "other"
+    assert first.json()["effective_source_name"] == "Other"
+
+    state = client_two_es.app.state.tlsoc
+    source = next(item for item in state.prefs.sources if item.id == "other")
+    source.enabled = False
+    replay = client_two_es.post("/api/chat", json=payload)
+    after = len([call for call in mock_provider.calls if call["role"] == "chat"])
+    assert replay.status_code == 200, replay.text
+    assert replay.json() == first.json()
+    assert after - before == 1
 
 
 # --------------------------------------------------------------------------- #

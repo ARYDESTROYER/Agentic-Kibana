@@ -109,6 +109,16 @@ describe('AdvancedSchemaSection (schema-driven generic renderer)', () => {
     expect(update).toHaveBeenCalledWith({ data_view_pattern: 'wazuh-*' });
   });
 
+  it('uses the shared centered loading grammar while the schema is unresolved', () => {
+    schemaMock.mockReturnValueOnce(new Promise(() => undefined));
+    renderSection({});
+
+    const loading = screen.getByRole('status', { name: 'Loading settings schema' });
+    expect(loading).toHaveAttribute('data-loading-layout', 'panel');
+    expect(loading.querySelector('[data-testid="console-loading-glyph"]')).toBeTruthy();
+    expect(loading.querySelectorAll('[data-loading-shape]')).toHaveLength(1);
+  });
+
   it('hides curated-home blocks (notifications) from the generic long tail', async () => {
     renderSection({ baseline: { enabled: false } });
     await waitFor(() => expect(screen.getByLabelText('Data view pattern')).toBeInTheDocument());

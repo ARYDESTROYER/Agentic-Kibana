@@ -42,7 +42,7 @@ export interface ControlBarProps {
 
 const SURFACE: Record<NonNullable<ControlBarProps['variant']>, string> = {
   flat: 'border-b border-border',
-  bordered: 'rounded-lg border border-border bg-card px-3 shadow-elev1',
+  bordered: 'rounded-md border border-border/80 bg-card px-3',
   plain: '',
 };
 
@@ -67,7 +67,9 @@ export function ControlBar({
       {(title || meta) && (
         <div className="mr-auto flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
           {title ? (
-            <div className="min-w-0 truncate text-sm font-semibold text-foreground">{title}</div>
+            <div className="min-w-0 max-w-full overflow-x-auto text-sm font-semibold text-foreground">
+              {title}
+            </div>
           ) : null}
           {meta ? <div className="truncate text-xs text-muted-foreground">{meta}</div> : null}
         </div>

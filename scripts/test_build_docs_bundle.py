@@ -25,7 +25,7 @@ class DocumentationBundleTests(unittest.TestCase):
         )
 
     def test_documentation_version_uses_major_minor(self) -> None:
-        self.assertEqual(bundle.documentation_version("0.1.0"), "0.1")
+        self.assertEqual(bundle.documentation_version("0.1.1"), "0.1")
         self.assertEqual(bundle.documentation_version("12.34.56-rc.2+build.7"), "12.34")
 
     def test_unknown_channel_fails_safe_to_testing(self) -> None:
@@ -55,13 +55,13 @@ class DocumentationBundleTests(unittest.TestCase):
 
             bundle.write_bundle_metadata(
                 output,
-                version="0.1.0",
+                version="0.1.1",
                 docs_version="0.1",
                 channel="Testing",
             )
             bundle.validate_bundle(
                 output,
-                version="0.1.0",
+                version="0.1.1",
                 docs_version="0.1",
                 channel="Testing",
             )

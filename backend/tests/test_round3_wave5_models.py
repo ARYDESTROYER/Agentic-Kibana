@@ -30,7 +30,7 @@ from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
 from app.config import BudgetConfig, ModelConfig, Secrets
-from app.constants import Role, USAGE_READ_PATTERN, UsageOutcome
+from app.constants import Role, USAGE_READ_PATTERN, USAGE_WRITE_ALIAS, UsageOutcome
 from app.engine.budget import BudgetGate
 from app.es.fake import InMemoryESClient
 from app.llm import pricing
@@ -176,6 +176,110 @@ async def test_summary_today_window_is_exact_under_the_cap() -> None:
     assert summ["total_cost"] == pytest.approx(0.05)
     assert summ["today_cost"] == pytest.approx(0.05)
     assert summ["total_tokens"] == 25
+
+
+@pytest.mark.asyncio
+async def test_processing_tier_summary_reports_actual_rows_without_fallback_inference() -> None:
+    """Actual ledger tiers are fixed buckets; missing/future values stay unconfirmed.
+
+    A standard row proves standard execution but cannot prove whether Flex was never
+    requested or fell back, so fallback attribution must remain explicitly unavailable.
+    """
+    es = InMemoryESClient()
+    store = UsageStore(es)
+    ts = now_utc().isoformat()
+    for doc in (
+        UsageDoc(ts=ts, model="gpt-5", processing_tier="standard", cost=0.4,
+                 total_tokens=40),
+        UsageDoc(ts=ts, model="gpt-5", processing_tier="flex", batch=True, cost=0.2,
+                 total_tokens=20),
+        UsageDoc(ts=ts, model="gpt-5", processing_tier="batch", batch=True, cost=0.1,
+                 total_tokens=10),
+    ):
+        await store.write(doc)
+
+    # A legacy raw row has no processing_tier; a future provider value is likewise
+    # not safe to classify as standard/Flex/Batch until the contract understands it.
+    await es.index_doc(USAGE_WRITE_ALIAS, {
+        "ts": ts, "model": "legacy", "cost": 0.2, "total_tokens": 20,
+    })
+    await store.write(UsageDoc(
+        ts=ts, model="future", processing_tier="priority", cost=0.1, total_tokens=10,
+    ))
+
+    summary = await store.summary(window_hours=24)
+    tiers = {row["key"]: row for row in summary["by_processing_tier"]}
+    assert tiers == {
+        "standard": {"key": "standard", "cost": 0.4, "tokens": 40, "calls": 1},
+        "flex": {"key": "flex", "cost": 0.2, "tokens": 20, "calls": 1},
+        "batch": {"key": "batch", "cost": 0.1, "tokens": 10, "calls": 1},
+        "unconfirmed": {"key": "unconfirmed", "cost": 0.3, "tokens": 30, "calls": 2},
+    }
+    assert summary["discounted_tier_coverage"] == {
+        "calls": 2,
+        "tokens": 30,
+        "cost": 0.3,
+        "call_ratio": 0.4,
+        "token_ratio": 0.3,
+        "cost_ratio": 0.3,
+    }
+    assert summary["processing_tier_attribution"] == {
+        "confirmed_calls": 3,
+        "unconfirmed_calls": 2,
+        "fallback_calls": None,
+        "fallback_attribution_available": False,
+        "requested_policy_inferred": False,
+    }
+
+
+@pytest.mark.asyncio
+async def test_processing_tier_real_es_path_uses_exact_fixed_filters() -> None:
+    """The real-ES path uses fixed filters, not a truncatable top-N terms result."""
+
+    class _AggregationES(InMemoryESClient):
+        body: dict | None = None
+
+        async def search(self, index: str, body: dict) -> dict:  # type: ignore[override]
+            self.body = body
+            return {
+                "hits": {"total": {"value": 4}, "hits": []},
+                "aggregations": {
+                    "total_cost": {"value": 1.0},
+                    "total_tokens": {"value": 100},
+                    "today_cost": {"cost": {"value": 1.0}},
+                    "by_surface": {"buckets": []},
+                    "by_model": {"buckets": []},
+                    "by_role": {"buckets": []},
+                    "cost_over_time": {"buckets": []},
+                    "by_processing_tier": {
+                        "buckets": {
+                            "standard": {"doc_count": 1, "cost": {"value": 0.4},
+                                         "tokens": {"value": 40}},
+                            "flex": {"doc_count": 1, "cost": {"value": 0.2},
+                                     "tokens": {"value": 20}},
+                            "batch": {"doc_count": 1, "cost": {"value": 0.1},
+                                      "tokens": {"value": 10}},
+                            # Simulate a partial/older adapter that omitted the
+                            # unconfirmed filter bucket. The global totals below still
+                            # reconcile the unattributed remainder truthfully.
+                        }
+                    },
+                },
+            }
+
+    es = _AggregationES()
+    summary = await UsageStore(es).summary(window_hours=24)
+    assert summary["discounted_tier_coverage"]["call_ratio"] == 0.5
+    assert summary["processing_tier_attribution"]["unconfirmed_calls"] == 1
+
+    assert es.body is not None
+    tier_agg = es.body["aggs"]["by_processing_tier"]
+    assert set(tier_agg["filters"]["filters"]) == {
+        "standard", "flex", "batch", "unconfirmed",
+    }
+    assert tier_agg["filters"]["filters"]["unconfirmed"]["bool"]["must_not"] == [
+        {"terms": {"processing_tier": ["standard", "flex", "batch"]}}
+    ]
 
 
 # --------------------------------------------------------------------------- #

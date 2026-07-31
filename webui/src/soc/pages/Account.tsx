@@ -35,14 +35,16 @@ import { resizeAvatar, initialsFrom } from '@/lib/avatar';
 import { humanizeToken, formatTimestamp, DASH } from '@/lib/format';
 import { useAuth } from '@/soc/auth';
 import { useNavigateOptional } from '@/soc/router';
+import { useUnsavedChanges } from '@/soc/hooks/useDirtyDraft';
 import { PageHeader } from '@/soc/components/PageHeader';
+import { SettingsCard } from '@/soc/components/SettingsGrid';
 import { Button } from '@/ui/button';
 import { Input } from '@/ui/input';
 import { Label } from '@/ui/label';
 import { Badge } from '@/ui/badge';
 import { Card, CardContent } from '@/ui/card';
 import { Separator } from '@/ui/separator';
-import { Skeleton } from '@/ui/skeleton';
+import { LoadingState } from '@/design-system';
 import { Alert, AlertDescription } from '@/ui/alert';
 import { LoadError } from '@/soc/components/LoadError';
 import {
@@ -164,6 +166,52 @@ export interface AccountInnerProps {
    * When omitted the button is hidden.
    */
   onNavigateToSecurity?: () => void;
+  /** True when this body is hosted beneath the Settings page header. */
+  embedded?: boolean;
+}
+
+interface AccountSurfaceProps {
+  embedded: boolean;
+  title: string;
+  description: string;
+  testId: string;
+  bodyClassName?: string;
+  children: React.ReactNode;
+}
+
+/**
+ * Profile is both a standalone page and a Settings-hosted section. Keep the established
+ * card presentation on the standalone route, but let Settings inherit its divider-led
+ * section grammar instead of nesting framed cards inside the active workspace.
+ */
+function AccountSurface({
+  embedded,
+  title,
+  description,
+  testId,
+  bodyClassName,
+  children,
+}: AccountSurfaceProps) {
+  if (embedded) {
+    return (
+      <SettingsCard
+        title={title}
+        description={description}
+        data-testid={testId}
+        data-surface="embedded"
+      >
+        <div className={bodyClassName}>{children}</div>
+      </SettingsCard>
+    );
+  }
+
+  return (
+    <Card data-testid={testId} data-surface="standalone">
+      <CardContent className={bodyClassName ? `pt-6 ${bodyClassName}` : 'pt-6'}>
+        {children}
+      </CardContent>
+    </Card>
+  );
 }
 
 /**
@@ -171,7 +219,7 @@ export interface AccountInnerProps {
  * embed it under the Account (Personal) group. No `<Can>` gate: every signed-in user
  * edits their OWN profile (the backend scopes it to the caller).
  */
-export function AccountInner({ onNavigateToSecurity }: AccountInnerProps) {
+export function AccountInner({ onNavigateToSecurity, embedded = false }: AccountInnerProps) {
   const { authEnabled, username: sessionUser, role: sessionRole } = useAuth();
 
   const [profile, setProfile] = React.useState<AccountProfile | null>(null);
@@ -239,6 +287,9 @@ export function AccountInner({ onNavigateToSecurity }: AccountInnerProps) {
       locale !== (profile.locale ?? '')
     );
   }, [profile, displayName, alias, altEmail, timezone, locale]);
+  // Account is self-saving even when embedded in Settings. Include a staged avatar:
+  // it is already cropped in memory but is not durable until "Save photo" succeeds.
+  useUnsavedChanges(dirty || avatarPending !== null, editable);
 
   const onSave = React.useCallback(
     async (e?: React.FormEvent) => {
@@ -322,6 +373,7 @@ export function AccountInner({ onNavigateToSecurity }: AccountInnerProps) {
   return (
     <div className="space-y-6">
       <PageHeader
+        embedded={embedded}
         eyebrow="Personal account"
         title="Profile"
         description="How you appear across the console. Identity (username, role) is managed by your administrator."
@@ -337,19 +389,12 @@ export function AccountInner({ onNavigateToSecurity }: AccountInnerProps) {
       />
 
       {loading ? (
-        <Card>
-          <CardContent className="space-y-4 pt-6">
-            <div className="flex items-center gap-4">
-              <Skeleton className="h-20 w-20 rounded-full" />
-              <div className="flex-1 space-y-2">
-                <Skeleton className="h-4 w-40" />
-                <Skeleton className="h-3 w-24" />
-              </div>
-            </div>
-            <Skeleton className="h-9 w-full" />
-            <Skeleton className="h-9 w-full" />
-          </CardContent>
-        </Card>
+        <LoadingState
+          layout="panel"
+          shape="panel"
+          label="Loading profile"
+          description="Preparing your identity and personal preferences."
+        />
       ) : loadError ? (
         <LoadError
           error={loadError}
@@ -378,8 +423,12 @@ export function AccountInner({ onNavigateToSecurity }: AccountInnerProps) {
           ) : null}
 
           {/* ---- Identity + avatar ----------------------------------------- */}
-          <Card>
-            <CardContent className="pt-6">
+          <AccountSurface
+            embedded={embedded}
+            title="Identity & photo"
+            description="Your operator identity, role, and console avatar."
+            testId="profile-identity-surface"
+          >
               <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
                 <AvatarBlock src={previewAvatar} name={shownName} size={80} />
                 <div className="min-w-0 flex-1">
@@ -451,13 +500,17 @@ export function AccountInner({ onNavigateToSecurity }: AccountInnerProps) {
                   </p>
                 </div>
               </div>
-            </CardContent>
-          </Card>
+          </AccountSurface>
 
           {/* ---- Editable fields ------------------------------------------- */}
           <form onSubmit={onSave}>
-            <Card>
-              <CardContent className="space-y-5 pt-6">
+            <AccountSurface
+              embedded={embedded}
+              title="Personal details"
+              description="Choose how the console addresses you and formats account activity."
+              testId="profile-details-surface"
+              bodyClassName="space-y-5"
+            >
                 <div className="grid gap-5 sm:grid-cols-2">
                   <div className="space-y-1.5">
                     <Label htmlFor="acct-display">Display name</Label>
@@ -602,8 +655,7 @@ export function AccountInner({ onNavigateToSecurity }: AccountInnerProps) {
                     </Button>
                   </div>
                 ) : null}
-              </CardContent>
-            </Card>
+            </AccountSurface>
           </form>
         </>
       )}

@@ -70,7 +70,7 @@ async def test_every_live_alert_surface_prefers_openai_flex_and_is_truthfully_me
     )
     result = await gateway.complete(
         "investigator", [{"role": "user", "content": "alert"}],
-        ModelConfig(provider="openai", model="gpt-5-mini"),
+        ModelConfig(provider="openai", model="gpt-5.6-luna"),
         surface=surface, case_id=f"case-{surface}",
     )
 
@@ -81,6 +81,9 @@ async def test_every_live_alert_surface_prefers_openai_flex_and_is_truthfully_me
     assert len(docs) == 1
     assert docs[0]["processing_tier"] == "flex"
     assert docs[0]["batch"] is True
+    # 100 input + 20 output tokens at Luna Standard ($0.20/M + $1.20/M),
+    # discounted by 0.5 only because the provider confirmed the Flex tier.
+    assert docs[0]["cost"] == pytest.approx(0.000022)
 
 
 @pytest.mark.asyncio
@@ -108,6 +111,32 @@ async def test_flex_provider_cache_tracks_live_fallback_policy(monkeypatch):
     )
 
     assert [call["fallback_to_standard"] for call in captured] == [True, False]
+
+
+@pytest.mark.asyncio
+async def test_live_flex_is_independent_of_async_batch_provider_allow_list(monkeypatch):
+    captured: list[dict] = []
+
+    def factory(**kwargs):
+        captured.append(dict(kwargs))
+        return _ResultProvider("flex")
+
+    monkeypatch.setitem(PROVIDER_REGISTRY, "openai", factory)
+    policy = BatchConfig(
+        providers=["anthropic"],
+        prefer_discounted_alerts=True,
+        fallback_to_standard=True,
+    )
+    gateway = LLMGateway(
+        _FakeSecrets(), UsageStore(InMemoryESClient()), discounted_policy=lambda: policy,
+    )
+    await gateway.complete(
+        "investigator", [{"role": "user", "content": "alert"}],
+        ModelConfig(provider="openai", model="gpt-5-mini"),
+        surface="investigate",
+    )
+
+    assert captured[0]["service_tier"] == "flex"
 
 
 @pytest.mark.asyncio

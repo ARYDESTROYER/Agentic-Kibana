@@ -134,12 +134,13 @@ class TuningStore:
     def __init__(self, kv: KVStore) -> None:
         self._kv = kv
 
-    async def _load(self) -> list[TuningRecord]:
-        try:
-            doc = await self._kv.get(TUNING_NS, TUNING_KEY)
-        except Exception as exc:  # noqa: BLE001 — the ledger is best-effort
-            logger.warning("Loading tuning ledger failed (%s); using empty set", exc)
-            return []
+    async def _load_strict(self) -> list[TuningRecord]:
+        """Load the ledger or raise when persistence is unavailable.
+
+        Operational tuning remains fail-open through :meth:`_load`; evidence reports
+        use this strict projection so a backend failure cannot look like "no changes".
+        """
+        doc = await self._kv.get(TUNING_NS, TUNING_KEY)
         if not doc:
             return []
         raw = doc.get("entries", []) if isinstance(doc, dict) else []
@@ -151,15 +152,40 @@ class TuningStore:
                 continue
         return out
 
-    async def list(self, *, rule_id: str | None = None, active_only: bool = False) -> list[TuningRecord]:
-        """All tuning records, NEWEST first. Optionally scoped to one ``rule_id`` and/or
-        only the not-yet-rolled-back ones (``active_only``)."""
-        entries = await self._load()
+    async def _load(self) -> list[TuningRecord]:
+        try:
+            return await self._load_strict()
+        except Exception as exc:  # noqa: BLE001 — the ledger is best-effort
+            logger.warning("Loading tuning ledger failed (%s); using empty set", exc)
+            return []
+
+    @staticmethod
+    def _filter_entries(
+        entries: list[TuningRecord],
+        *,
+        rule_id: str | None,
+        active_only: bool,
+    ) -> list[TuningRecord]:
         if rule_id is not None:
             entries = [e for e in entries if e.rule_id == rule_id]
         if active_only:
             entries = [e for e in entries if not e.rolled_back]
         return sorted(entries, key=lambda e: e.applied_at, reverse=True)
+
+    async def list(self, *, rule_id: str | None = None, active_only: bool = False) -> list[TuningRecord]:
+        """All tuning records, NEWEST first. Optionally scoped to one ``rule_id`` and/or
+        only the not-yet-rolled-back ones (``active_only``)."""
+        return self._filter_entries(
+            await self._load(), rule_id=rule_id, active_only=active_only
+        )
+
+    async def list_strict(
+        self, *, rule_id: str | None = None, active_only: bool = False
+    ) -> list[TuningRecord]:
+        """Newest-first records, raising when ledger availability is unknown."""
+        return self._filter_entries(
+            await self._load_strict(), rule_id=rule_id, active_only=active_only
+        )
 
     async def get(self, record_id: str) -> TuningRecord | None:
         for e in await self._load():

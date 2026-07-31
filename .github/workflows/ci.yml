@@ -1,13 +1,8 @@
 name: CI
 
-# Gate merges on the release checks that must always be green (AGENTS.md §7):
-#   1. canonical version metadata + Compose configuration validation;
-#   2. the offline backend test suite (fake ES + mock LLM, no network/keys) —
-#      this INCLUDES the deny-by-default auth route-coverage test, so a new
-#      unauthenticated /api route fails CI.
-#   3. the standalone web UI lint, design gates, Vitest suite, and production build.
-# Make `ci` a REQUIRED status check in branch protection (see CONTRIBUTING.md) so
-# a PR cannot merge unless both pass.
+# Twelve independently visible status checks: eleven repository-native quality
+# gates plus one aggregate branch-protection target. Keep "CI passed" required on
+# main and Testing; the individual jobs make a failure immediately diagnosable.
 
 on:
   pull_request:
@@ -15,7 +10,6 @@ on:
     branches: [main, Testing]
     tags: ["v*"]
 
-# Cancel superseded runs on the same ref to save CI minutes.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -23,10 +17,30 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  PYTHON_VERSION: "3.11"
+  NODE_VERSION: "22"
+
 jobs:
-  backend:
+  repository-contracts:
+    name: Repository & version contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Check canonical version and release metadata
+        env:
+          TLSOC_SOURCE_REF: ${{ github.ref }}
+          TLSOC_RELEASE_CHANNEL: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && 'stable' || 'testing' }}
+        run: python scripts/check_version.py
+
+  backend-tests:
     name: Backend tests (offline)
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     defaults:
       run:
         working-directory: backend
@@ -34,42 +48,172 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-          cache-dependency-path: backend/requirements-dev.txt
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: webui/package-lock.json
-      - name: Install dev dependencies
-        run: pip install -r requirements-dev.txt
-      - name: Install API contract generator
-        run: npm ci --prefix ../webui --ignore-scripts
-      - name: Check canonical release version
-        env:
-          TLSOC_SOURCE_REF: ${{ github.ref }}
-          TLSOC_RELEASE_CHANNEL: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && 'stable' || 'testing' }}
-        run: python ../scripts/check_version.py
-      - name: Check public documentation structure and links
-        run: python ../scripts/check_docs.py
-      - name: Validate standalone Compose configuration
-        env:
-          TLSOC_PG_PASSWORD: ci-compose-password
-        # The legacy docker-compose.tlsoc.yml file is intentionally a service
-        # fragment merged into an existing ELK project, so it cannot be validated
-        # truthfully as a standalone project (its elasticsearch service is external).
-        run: docker compose -f ../deploy/docker-compose.agnostic.yml config --quiet
-      - name: Check generated OpenAPI and TypeScript contracts
-        env:
-          TLSOC_REQUIRE_TYPEGEN: "1"
-        run: npm --prefix ../webui run check:types
-      - name: Run pytest (offline; includes auth route-coverage gate)
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+      - name: Install test dependencies
+        run: python -m pip install --requirement requirements-dev.txt
+      - name: Check the resolved Python environment
+        run: python -m pip check
+      - name: Run the complete offline suite
         run: python -m pytest -q
 
-  webui:
-    name: Web UI build
+  backend-package:
+    name: Backend package integrity
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+      - name: Install runtime dependencies and the pinned package builder
+        run: |
+          python -m pip install --requirement requirements.txt build==1.2.2.post1
+          python -m pip check
+      - name: Build wheel and source distribution
+        run: python -m build --sdist --wheel --outdir dist
+      - name: Verify shipped runtime data and installability
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          wheels = list(Path("dist").glob("*.whl"))
+          sdists = list(Path("dist").glob("*.tar.gz"))
+          assert len(wheels) == 1, f"expected one wheel, found {wheels}"
+          assert len(sdists) == 1, f"expected one sdist, found {sdists}"
+          with ZipFile(wheels[0]) as archive:
+              names = set(archive.namelist())
+          required = {
+              "app/llm/model_registry.json",
+              "app/threat/mitre_techniques.json",
+              "app/threat/SOURCE.md",
+          }
+          missing = sorted(required - names)
+          assert not missing, f"wheel is missing runtime data: {missing}"
+          assert any(name.startswith("app/runbooks/") and name.endswith(".md") for name in names)
+          assert any(name.startswith("playbooks/") and name.endswith(".md") for name in names)
+          PY
+          python -m pip install --no-deps --target "${RUNNER_TEMP}/wheel-site" dist/*.whl
+          cd "${RUNNER_TEMP}"
+          EXPECTED_VERSION="$(tr -d '[:space:]' < "${GITHUB_WORKSPACE}/VERSION")" \
+          PYTHONPATH="${RUNNER_TEMP}/wheel-site" \
+            python - <<'PY'
+          import os
+          from importlib.metadata import version
+
+          import app
+          from app.main import app as fastapi_app, discover_feature_routers
+
+          expected = os.environ["EXPECTED_VERSION"]
+          assert app.__version__ == fastapi_app.version == expected
+          assert version("tlsoc-agentic-triage") == expected
+          routers = discover_feature_routers()
+          names = [name for name, _router in routers]
+          assert names == sorted(names)
+          assert len(names) == len(set(names))
+          print(f"installed wheel verified with {len(names)} feature routers")
+          PY
+      - name: Upload backend distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-distributions-${{ github.sha }}
+          path: backend/dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  backend-smoke:
+    name: Backend startup smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Install production dependencies
+        run: python -m pip install --requirement requirements.txt
+      - name: Compile and boot against isolated SQLite state
+        env:
+          STATE_BACKEND: sqlite
+          STATE_DB_URL: sqlite+aiosqlite:///${{ runner.temp }}/agentic-soc-ci.db
+          AUTH_ENABLED: "false"
+          ES_STORE_ENABLED: "false"
+          REDIS_URL: redis://127.0.0.1:1
+          LOG_LEVEL: WARNING
+        run: |
+          python -m compileall -q app
+          smoke_log="${RUNNER_TEMP}/agentic-soc-backend-smoke.log"
+          python -m uvicorn app.main:app --host 127.0.0.1 --port 18088 \
+            >"${smoke_log}" 2>&1 &
+          server_pid=$!
+          cleanup() {
+            status=$?
+            trap - EXIT
+            kill "${server_pid}" 2>/dev/null || true
+            wait "${server_pid}" 2>/dev/null || true
+            if (( status != 0 )); then
+              cat "${smoke_log}"
+            fi
+            exit "${status}"
+          }
+          trap cleanup EXIT
+          python - <<'PY'
+          import json
+          import time
+          import urllib.error
+          import urllib.request
+          from pathlib import Path
+
+          expected_version = Path("../VERSION").read_text(encoding="utf-8").strip()
+          live_url = "http://127.0.0.1:18088/api/health/live"
+          ready_url = "http://127.0.0.1:18088/api/health/ready"
+          last_error = None
+          for _ in range(120):
+              try:
+                  with urllib.request.urlopen(ready_url, timeout=1) as response:
+                      ready = json.load(response)
+                  assert response.status == 200
+                  assert ready["ready"] is True
+                  assert ready["checks"] == {"state_store": True}
+                  with urllib.request.urlopen(live_url, timeout=1) as response:
+                      live = json.load(response)
+                  assert response.status == 200
+                  assert live == {
+                      "status": "ok",
+                      "service": "tlsoc-agentic-triage",
+                      "version": expected_version,
+                  }
+                  break
+              except (AssertionError, OSError, urllib.error.URLError) as exc:
+                  last_error = exc
+                  time.sleep(0.25)
+          else:
+              raise SystemExit(f"backend did not become ready: {last_error}")
+          PY
+          kill "${server_pid}"
+          wait "${server_pid}" || true
+          trap - EXIT
+
+  webui-tests:
+    name: Web UI tests (Vitest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: webui
@@ -77,38 +221,210 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: webui/package-lock.json
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Run the complete Vitest suite
+        run: npm test
+
+  types-and-api:
+    name: TypeScript & OpenAPI drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: webui/package-lock.json
+      - name: Install backend and Web UI dependencies
+        run: |
+          python -m pip install --requirement backend/requirements.txt
+          npm ci --prefix webui
+      - name: Fail on generated API drift
+        env:
+          TLSOC_REQUIRE_TYPEGEN: "1"
+        run: npm --prefix webui run check:types
+      - name: Type-check the application
+        run: npm --prefix webui run typecheck
+
+  webui-lint:
+    name: Web UI lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: webui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: webui/package-lock.json
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Run ESLint, accessibility, and hooks rules
+        run: npm run lint -- --max-warnings=0
+
+  design-gates:
+    name: Design-system gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: webui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: webui/package-lock.json
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Enforce tokens, contrast, CVD, and grep guards
+        run: npm run gates
+
+  docs:
+    name: Help Center & docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: docs/requirements.txt
+      - name: Install the pinned Help Center toolchain
+        run: python -m pip install --requirement docs/requirements.txt
+      - name: Check documentation links and structure
+        run: python scripts/check_docs.py
+      - name: Test bundle and theme contracts
+        run: |
+          python scripts/test_build_docs_bundle.py
+          python scripts/test_docs_theme.py
+      - name: Build and revalidate the versioned Help Center
+        env:
+          TLSOC_RELEASE_CHANNEL: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && 'stable' || 'testing' }}
+        run: |
+          python scripts/run_docs_bundle.py --output /tmp/agentic-soc-docs
+          python scripts/run_docs_bundle.py --output /tmp/agentic-soc-docs --check-only
+
+  webui-build:
+    name: Web UI production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: webui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: webui/package-lock.json
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
           cache-dependency-path: docs/requirements.txt
-      - name: Install dependencies
+      - name: Install locked dependencies
         run: npm ci
-      - name: Install versioned Help Center dependencies
+      - name: Install the pinned Help Center toolchain
         run: python -m pip install --requirement ../docs/requirements.txt
-      - name: Test versioned Help Center artifact contract
-        run: python ../scripts/test_build_docs_bundle.py
-      - name: Lint (jsx-a11y and hooks are errors)
-        run: npm run lint
-      - name: Run design-system gates
-        run: npm run gates
-      - name: Run Vitest
-        run: npm test
-      - name: Build versioned Help Center + type-check + Vite bundle
+      - name: Build the release-complete production bundle
         env:
           TLSOC_RELEASE_CHANNEL: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && 'stable' || 'testing' }}
           TLSOC_BUILD_SHA: ${{ github.sha }}
         run: |
           export TLSOC_BUILD_DATE="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           npm run build
+      - name: Upload Web UI production bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: webui-production-${{ github.sha }}
+          path: webui/dist/
+          if-no-files-found: error
+          retention-days: 7
 
-  # A single aggregate check to require in branch protection.
+  deploy-contracts:
+    name: Deploy & shell contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate every tracked shell script
+        run: |
+          while IFS= read -r -d '' script; do
+            echo "checking ${script}"
+            bash -n "${script}"
+          done < <(git ls-files -z '*.sh')
+      - name: Reject an invalid local demo mode before startup
+        run: |
+          set +e
+          DEMO_MODE=invalid bash scripts/run-demo.sh >/tmp/invalid-demo-mode.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/invalid-demo-mode.log
+          [[ "${status}" -eq 2 ]]
+          grep -Fq "DEMO_MODE must be 'live' or 'seeded'" /tmp/invalid-demo-mode.log
+      - name: Validate standalone Compose topology
+        env:
+          TLSOC_PG_PASSWORD: ci-compose-password
+        run: |
+          docker compose -f deploy/docker-compose.agnostic.yml config --quiet
+          docker compose -f deploy/docker-compose.agnostic.yml config --services \
+            | LC_ALL=C sort > /tmp/actual-services
+          printf '%s\n' tlsoc-backend tlsoc-postgres tlsoc-redis tlsoc-webui \
+            | LC_ALL=C sort > /tmp/expected-services
+          diff -u /tmp/expected-services /tmp/actual-services
+
   ci:
     name: CI passed
     runs-on: ubuntu-latest
-    needs: [backend, webui]
+    timeout-minutes: 5
+    if: ${{ always() }}
+    needs:
+      - repository-contracts
+      - backend-tests
+      - backend-package
+      - backend-smoke
+      - webui-tests
+      - types-and-api
+      - webui-lint
+      - design-gates
+      - docs
+      - webui-build
+      - deploy-contracts
     steps:
-      - run: echo "All required checks passed."
+      - name: Require every quality gate
+        run: |
+          results=(
+            "${{ needs.repository-contracts.result }}"
+            "${{ needs.backend-tests.result }}"
+            "${{ needs.backend-package.result }}"
+            "${{ needs.backend-smoke.result }}"
+            "${{ needs.webui-tests.result }}"
+            "${{ needs.types-and-api.result }}"
+            "${{ needs.webui-lint.result }}"
+            "${{ needs.design-gates.result }}"
+            "${{ needs.docs.result }}"
+            "${{ needs.webui-build.result }}"
+            "${{ needs.deploy-contracts.result }}"
+          )
+          printf 'quality gate results: %s\n' "${results[*]}"
+          for result in "${results[@]}"; do
+            [[ "${result}" == "success" ]] || exit 1
+          done
+          echo "All required checks passed."

@@ -3,7 +3,7 @@
  *
  * Focus: the policy form must NOT render its DEFAULT values while the persisted
  * config is still loading (that flashes a misleading "disabled" state, then snaps to
- * the saved values). It shows a Skeleton until the GET resolves, matching the warm-up
+ * the saved values). It shows the shared loading state until the GET resolves, matching the warm-up
  * section directly above it.
  *
  * The stats fetch + config client + auth are mocked (no network).
@@ -77,6 +77,10 @@ describe('Baseline config editor loading state', () => {
 
     renderPage();
 
+    expect(
+      await screen.findByRole('status', { name: 'Loading baseline policy' }),
+    ).toBeInTheDocument();
+
     // While the config load is in flight the form (and its Enable switch) must be
     // absent — the operator never sees the DEFAULT (disabled) form as if it were saved.
     expect(
@@ -88,6 +92,21 @@ describe('Baseline config editor loading state', () => {
 
     const toggle = await screen.findByRole('switch', { name: /enable anomaly baseline/i });
     expect(toggle).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('uses the shared blocking state while the first baseline snapshot loads', async () => {
+    fetchStatsMock.mockReturnValue(new Promise(() => {}));
+    getConfigMock.mockReturnValue(new Promise(() => {}));
+
+    renderPage();
+
+    expect(
+      await screen.findByRole('status', { name: 'Loading anomaly baseline' }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByTestId('console-loading-glyph')).toHaveLength(1);
+    expect(
+      screen.queryByRole('status', { name: 'Loading baseline policy' }),
+    ).toBeNull();
   });
 });
 

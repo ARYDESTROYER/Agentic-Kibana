@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import type { ConnectorManifest, ConnectorCategory } from '@/lib/types';
 import { cn } from '@/lib/cn';
+import { SourceMark } from '@/design-system/source-mark';
 
 import { Card } from '@/ui/card';
 import { Input } from '@/ui/input';
@@ -34,17 +35,18 @@ const CATEGORY_ORDER = ['siem', 'edr_xdr', 'transport', 'queue', 'object_store',
 
 interface CategoryMeta {
   label: string;
+  /** Category fallback used by older list/table surfaces. */
   icon: LucideIcon;
-  /** Token text-color class for the category icon. */
+  /** Token text-color class inherited by the custom source mark. */
   tone: string;
 }
 
 const CATEGORY_META: Record<string, CategoryMeta> = {
   siem: { label: 'SIEM / Log stores', icon: Database, tone: 'text-primary' },
-  edr_xdr: { label: 'EDR / XDR', icon: ShieldAlert, tone: 'text-critical' },
-  transport: { label: 'Transports / Receivers', icon: Network, tone: 'text-info' },
-  queue: { label: 'Queues / Brokers', icon: Workflow, tone: 'text-warning' },
-  object_store: { label: 'Object stores', icon: HardDrive, tone: 'text-success' },
+  edr_xdr: { label: 'EDR / XDR', icon: ShieldAlert, tone: 'text-critical-text' },
+  transport: { label: 'Transports / Receivers', icon: Network, tone: 'text-info-text' },
+  queue: { label: 'Queues / Brokers', icon: Workflow, tone: 'text-warning-text' },
+  object_store: { label: 'Object stores', icon: HardDrive, tone: 'text-success-text' },
   file: { label: 'Files', icon: FileText, tone: 'text-muted-foreground' },
 };
 
@@ -139,7 +141,6 @@ export const ConnectorPicker: React.FC<ConnectorPickerProps> = ({
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {items.map((c) => {
                 const isSel = selected === c.source_type;
-                const Icon = meta.icon;
                 return (
                   <Card
                     key={c.source_type}
@@ -171,11 +172,15 @@ export const ConnectorPicker: React.FC<ConnectorPickerProps> = ({
                     <div className="flex items-start">
                       <span
                         className={cn(
-                          'inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-surface',
+                          'inline-flex h-10 w-10 items-center justify-center rounded-md border border-border bg-surface',
                           meta.tone,
                         )}
                       >
-                        <Icon className="h-5 w-5" aria-hidden />
+                        <SourceMark
+                          sourceType={c.source_type}
+                          decorative
+                          className="size-[1.35rem]"
+                        />
                       </span>
                     </div>
                     <div

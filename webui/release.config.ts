@@ -17,6 +17,18 @@ export interface BuildReleaseIdentity {
   buildTime: string;
 }
 
+/**
+ * Public, deterministic identifier shared by release.json and the emitted SPA entry.
+ * It is not a signature; its purpose is to prove those two static artifacts came from
+ * the same Web build during the final activation preflight.
+ */
+export function releaseEntryId(identity: BuildReleaseIdentity): string {
+  return [identity.version, identity.channel, identity.commitSha, identity.buildTime]
+    .join('-')
+    .replace(/[^0-9A-Za-z._-]/g, '_')
+    .slice(0, 160);
+}
+
 function clean(value: string | undefined): string {
   return (value || '').trim();
 }

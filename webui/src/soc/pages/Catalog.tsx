@@ -56,13 +56,13 @@ import { LoadError } from '@/soc/components/LoadError';
 import { Stagger } from '@/soc/components/Stagger';
 import { CodeBlock } from '@/soc/components/CodeBlock';
 import { useCan } from '@/soc/components/Can';
+import { LoadingState } from '@/design-system';
 
 import { Card, CardContent, CardHeader } from '@/ui/card';
 import { Badge } from '@/ui/badge';
 import { Button } from '@/ui/button';
 import { Input } from '@/ui/input';
 import { Label } from '@/ui/label';
-import { Skeleton } from '@/ui/skeleton';
 import {
   Sheet,
   SheetContent,
@@ -161,27 +161,13 @@ const BadgeRow: React.FC<{
 
 /* ----------------------------------------------------------- shared states --- */
 
-const GridSkeleton: React.FC = () => (
-  <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-    {Array.from({ length: 4 }).map((_, i) => (
-      <Card key={i}>
-        <CardHeader className="gap-3">
-          <div className="flex items-center gap-3">
-            <Skeleton className="h-10 w-10 rounded-md" />
-            <div className="flex-1 space-y-2">
-              <Skeleton className="h-4 w-1/2" />
-              <Skeleton className="h-3 w-1/3" />
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <Skeleton className="h-3 w-full" />
-          <Skeleton className="h-3 w-5/6" />
-          <Skeleton className="h-6 w-2/3" />
-        </CardContent>
-      </Card>
-    ))}
-  </div>
+const CatalogLoading: React.FC<{ label: string }> = ({ label }) => (
+  <LoadingState
+    layout="panel"
+    shape="panel"
+    label={label}
+    description="Preparing the catalog and its operator controls."
+  />
 );
 
 /** Calm explanatory note above each catalog grid. */
@@ -259,7 +245,7 @@ const PersonasCatalog: React.FC = () => {
     void load();
   }, [load]);
 
-  if (loading) return <GridSkeleton />;
+  if (loading) return <CatalogLoading label="Loading agent personas" />;
   if (error) return <LoadError error={error} title="Could not load personas" onRetry={load} />;
   if (!enabled) {
     return (
@@ -409,10 +395,12 @@ const PlaybookWorkspace: React.FC<PlaybookWorkspaceProps> = ({
 
         <div className="min-h-0 flex-1 overflow-y-auto p-6">
           {loading ? (
-            <div className="space-y-4" aria-label="Loading playbook">
-              <Skeleton className="h-9 w-64" />
-              <Skeleton className="h-96 w-full" />
-            </div>
+            <LoadingState
+              layout="panel"
+              shape="panel"
+              label="Loading playbook"
+              description="Opening the selected procedure."
+            />
           ) : editing ? (
             <div className="space-y-4">
               {creating ? (
@@ -824,7 +812,7 @@ export const PlaybooksCatalog: React.FC = () => {
     />
   );
 
-  if (loading) return <GridSkeleton />;
+  if (loading) return <CatalogLoading label="Loading playbooks" />;
   if (error) return <LoadError error={error} title="Could not load playbooks" onRetry={load} />;
   if (!playbooks.length) {
     return <>

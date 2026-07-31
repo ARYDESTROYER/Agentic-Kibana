@@ -34,6 +34,7 @@ import { Separator } from '@/ui/separator';
 import { cn } from '@/lib/cn';
 import { humanizeAge } from '@/lib/format';
 import { ApiError } from '@/lib/api';
+import { LoadingState } from '@/design-system';
 import { semanticIcon, type SeverityKey } from './palette';
 import type { Navigate } from '../router';
 import {
@@ -306,7 +307,11 @@ export function NotificationBell({ onNavigate, className }: NotificationBellProp
         <ScrollArea className="max-h-80">
           <div className="p-1.5">
             {loading ? (
-              <p className="px-2 py-6 text-center text-xs text-muted-foreground">Loading…</p>
+              <LoadingState
+                label="Loading notifications"
+                layout="inline"
+                className="w-full px-2 py-6"
+              />
             ) : failed ? (
               <p className="flex items-center justify-center gap-1.5 px-2 py-6 text-center text-xs text-muted-foreground">
                 <AlertTriangle className="h-3.5 w-3.5" aria-hidden />

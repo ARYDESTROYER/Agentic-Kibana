@@ -55,6 +55,8 @@ export interface ConfirmDialogProps extends ConfirmOptions {
   onCancel?: () => void;
   /** Extra content between the description and the footer (e.g. a "type to confirm" input). */
   children?: React.ReactNode;
+  /** Hide the confirm action when the caller cannot safely offer it yet. */
+  hideConfirm?: boolean;
 }
 
 /** The controlled dialog. */
@@ -69,6 +71,7 @@ export function ConfirmDialog({
   cancelLabel = 'Cancel',
   destructive,
   children,
+  hideConfirm = false,
 }: ConfirmDialogProps) {
   // The Action/Cancel buttons are Radix `Close`s, so clicking either ALSO fires
   // `onOpenChange(false)`. We route the cancel/dismiss path through onOpenChange
@@ -108,15 +111,17 @@ export function ConfirmDialog({
         <AlertDialogFooter>
           {/* Cancel closes the dialog; onCancel fires via onOpenChange (single path). */}
           <AlertDialogCancel>{cancelLabel}</AlertDialogCancel>
-          <AlertDialogAction
-            variant={destructive ? 'destructive' : 'default'}
-            onClick={() => {
-              confirmedRef.current = true;
-              onConfirm();
-            }}
-          >
-            {confirmLabel}
-          </AlertDialogAction>
+          {hideConfirm ? null : (
+            <AlertDialogAction
+              variant={destructive ? 'destructive' : 'default'}
+              onClick={() => {
+                confirmedRef.current = true;
+                onConfirm();
+              }}
+            >
+              {confirmLabel}
+            </AlertDialogAction>
+          )}
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

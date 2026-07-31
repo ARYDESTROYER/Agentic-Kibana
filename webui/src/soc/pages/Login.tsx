@@ -9,10 +9,11 @@
  *      pending token at /api/auth/mfa/verify.                           (`mfa`)
  *   4. SET-A-NEW-PASSWORD — when `must_change_password`.                (`change`)
  *
- * Round-2 Wave 2 restyle: a 2-column split (brand hero + form) on lg+, collapsing
- * to a single column with a compact brand header below. The submit handlers and
- * the mode state machine are UNCHANGED — only the presentation and a few UX
- * niceties (password-strength meter, segmented OTP, per-provider SSO icons) are new.
+ * The page deliberately stays minimal: one quiet, vertically-centred identity slab in
+ * every stored layout, with no marketing hero or decorative command-center chrome.
+ * The authentication state machine remains presentation-independent; the visual
+ * layer adds stable credential controls, segmented OTP, original SSO marks, and a
+ * compact System / Light / Dark chooser without introducing another theme path.
  *
  * When `seeded_default` is true, a subtle hint surfaces the demo Admin / Admin@123
  * credentials. When auth is disabled this component is never mounted, so the
@@ -28,7 +29,6 @@
 import * as React from 'react';
 import {
   Shield,
-  LockKeyhole,
   User,
   AlertCircle,
   ExternalLink,
@@ -37,6 +37,11 @@ import {
   KeyRound,
   ShieldCheck,
   IdCard,
+  ArrowLeft,
+  Monitor,
+  Sun,
+  Moon,
+  type LucideIcon,
 } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import type { LoginResult, SetupStatus, SsoProviderPublic } from '@/lib/types';
@@ -48,15 +53,12 @@ import {
   CardContent,
   CardDescription,
   CardHeader,
-  CardTitle,
 } from '@/ui/card';
-import { Input } from '@/ui/input';
 import { Label } from '@/ui/label';
 import { Alert, AlertDescription } from '@/ui/alert';
 import {
-  asLoginIllustration,
   asLoginLayout,
-  BrandHero,
+  LoginTextInput,
   OtpInput,
   PasswordInput,
   PasswordStrengthMeter,
@@ -64,6 +66,8 @@ import {
 } from '@/soc/components/auth/loginParts';
 import { setupAccount, type LoginBranding } from '@/soc/components/auth/login.api';
 import { MfaSetupCard } from '@/soc/components/MfaSetupCard';
+import { LoginAuthBackdrop } from '@/soc/components/auth/LoginAuthBackdrop';
+import { LoadingState } from '@/design-system';
 
 export interface LoginProps {
   /** Called after a fully-successful login so the app can re-fetch the session. */
@@ -73,6 +77,56 @@ export interface LoginProps {
 // `setup` is the OOBE create-first-admin flow; `mfa-enroll` is the optional
 // prompted MFA step shown AFTER the admin account is created (never forced).
 type Mode = 'signin' | 'setup' | 'change' | 'mfa' | 'mfa-enroll';
+type LoginThemeMode = 'system' | 'light' | 'dark';
+type SigninStep = 'identity' | 'password';
+
+const LOGIN_THEME_OPTIONS: ReadonlyArray<{
+  id: LoginThemeMode;
+  label: string;
+  icon: LucideIcon;
+}> = [
+  { id: 'system', label: 'Use system theme', icon: Monitor },
+  { id: 'light', label: 'Use light theme', icon: Sun },
+  { id: 'dark', label: 'Use dark theme', icon: Moon },
+];
+
+function LoginThemeControl({
+  value,
+  onChange,
+}: {
+  value: LoginThemeMode;
+  onChange: (mode: LoginThemeMode) => void;
+}) {
+  return (
+    <div
+      data-login-theme-control
+      role="group"
+      aria-label="Appearance"
+      className="inline-flex items-center gap-0.5"
+    >
+      {LOGIN_THEME_OPTIONS.map(({ id, label, icon: Icon }) => {
+        const selected = value === id;
+        return (
+          <button
+            key={id}
+            type="button"
+            title={label}
+            aria-label={label}
+            aria-pressed={selected}
+            onClick={() => onChange(id)}
+            className={cn(
+              'inline-flex h-8 w-8 items-center justify-center rounded-sm text-muted-foreground transition-colors',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-canvas',
+              selected ? 'bg-muted text-foreground' : 'hover:bg-muted/70 hover:text-foreground',
+            )}
+          >
+            <Icon className="h-3.5 w-3.5" aria-hidden />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 // The OOBE password policy MIRRORS the server-side gate in routes_setup.py
 // (min length + not equal to the username + not a trivially-common password) so the
@@ -109,7 +163,12 @@ function oobePasswordPolicyError(password: string, username: string): string | n
 }
 
 export default function Login({ onAuthenticated }: LoginProps) {
-  const { branding: brandingBase, refreshBranding } = useTheme();
+  const {
+    branding: brandingBase,
+    refreshBranding,
+    theme,
+    setTheme,
+  } = useTheme();
   // Read the additive Round-4 login white-label fields structurally (they are not in
   // the shared `Branding` interface yet; see login.api.ts). All are operator-set →
   // rendered as PLAIN text / mapped to CODE-defined layouts (#6/#9).
@@ -130,16 +189,20 @@ export default function Login({ onAuthenticated }: LoginProps) {
     ? branding.login_chips.map((c) => String(c)).filter((c) => c.trim().length > 0)
     : [];
   const loginLayout = asLoginLayout(branding.login_layout);
-  const loginIllustration = asLoginIllustration(branding.login_illustration);
 
   const [status, setStatus] = React.useState<SetupStatus | null>(null);
   // Whether the initial setup-status probe has settled (resolved OR failed). Gates
   // the first paint so a first-run install doesn't flash 'signin' before 'setup'.
   const [statusResolved, setStatusResolved] = React.useState(false);
   const [mode, setMode] = React.useState<Mode>('signin');
+  const [signinStep, setSigninStep] = React.useState<SigninStep>('identity');
   const [username, setUsername] = React.useState('');
   const [displayName, setDisplayName] = React.useState('');
   const [password, setPassword] = React.useState('');
+  const signinIdentityRef = React.useRef<HTMLInputElement>(null);
+  const signinPasswordRef = React.useRef<HTMLInputElement>(null);
+  const [themePaletteSettling, setThemePaletteSettling] = React.useState(false);
+  const themePaletteFrameRef = React.useRef<number | null>(null);
   const [confirm, setConfirm] = React.useState('');
   const [newPassword, setNewPassword] = React.useState('');
   const [error, setError] = React.useState<string | null>(null);
@@ -172,6 +235,30 @@ export default function Login({ onAuthenticated }: LoginProps) {
   // login never paints with stale/default branding then SNAPS to the operator's real
   // login_layout/headline/illustration (a FOUC). Fails safe: set on both ok + error.
   const [brandingResolved, setBrandingResolved] = React.useState(false);
+
+  const changeLoginTheme = React.useCallback((next: LoginThemeMode) => {
+    if (themePaletteFrameRef.current !== null) {
+      window.cancelAnimationFrame(themePaletteFrameRef.current);
+    }
+    // The reference tiles deliberately cross-fade between their two neutral shades.
+    // Theme changes are different: allowing that same 1.8s transition to interpolate
+    // Light white into Dark charcoal creates giant grey flashes around the slab. Keep
+    // the motion running, but snap the palette itself over two paint frames.
+    setThemePaletteSettling(true);
+    setTheme(next);
+    themePaletteFrameRef.current = window.requestAnimationFrame(() => {
+      themePaletteFrameRef.current = window.requestAnimationFrame(() => {
+        themePaletteFrameRef.current = null;
+        setThemePaletteSettling(false);
+      });
+    });
+  }, [setTheme]);
+
+  React.useEffect(() => () => {
+    if (themePaletteFrameRef.current !== null) {
+      window.cancelAnimationFrame(themePaletteFrameRef.current);
+    }
+  }, []);
 
   // Detect the first-run OOBE state once on mount.
   React.useEffect(() => {
@@ -261,6 +348,15 @@ export default function Login({ onAuthenticated }: LoginProps) {
 
   const seededHint = Boolean(status?.seeded_default) && mode === 'signin';
 
+  const continueSignin = (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (busy || username.trim().length === 0) return;
+    setError(null);
+    setErrorDetail(null);
+    setSigninStep('password');
+    window.setTimeout(() => signinPasswordRef.current?.focus(), 0);
+  };
+
   // --- Mode 1: first-run create admin (OOBE account-setup) ------------------ //
   // Round-4 Wave-5: the OOBE step now calls POST /api/setup/account (the force-set,
   // strong-password writer that REPLACES init-admin) with a client-mirrored policy
@@ -347,6 +443,7 @@ export default function Login({ onAuthenticated }: LoginProps) {
       );
       setPassword('');
       setBusy(false);
+      window.setTimeout(() => signinPasswordRef.current?.focus(), 0);
     }
   };
 
@@ -399,14 +496,14 @@ export default function Login({ onAuthenticated }: LoginProps) {
   };
 
   const titleByMode: Record<Mode, string> = {
-    signin: 'Sign in',
+    signin: 'Welcome back',
     setup: 'Create your admin account',
     change: 'Set a new password',
     mfa: 'Two-factor authentication',
     'mfa-enroll': 'Secure your account',
   };
   const descByMode: Record<Mode, string> = {
-    signin: loginSubtitle || 'Enter your credentials to access the console.',
+    signin: loginSubtitle || `Sign in to continue to ${wordmark}.`,
     setup:
       'No accounts exist yet. Create the first administrator to get started — pick a strong, unique password.',
     change: 'Your password must be changed before you can continue.',
@@ -416,6 +513,16 @@ export default function Login({ onAuthenticated }: LoginProps) {
     'mfa-enroll':
       'Optional but recommended: add a second factor now. You can skip and set it up later.',
   };
+  const activeTitle =
+    mode === 'signin'
+      ? loginHeadline || 'Welcome back'
+      : titleByMode[mode];
+  const activeDescription =
+    mode === 'signin' && signinStep === 'password'
+      ? `Enter the password for ${username.trim()}.`
+      : mode === 'signin' && loginBody
+        ? loginBody
+        : descByMode[mode];
 
   // OOBE submit guard — mirror the server policy so the button reflects acceptance.
   const setupPolicyError = React.useMemo(
@@ -437,60 +544,50 @@ export default function Login({ onAuthenticated }: LoginProps) {
     return p.id;
   };
 
-  // The brand hero copy/backdrop, shared across every layout (split hero panel,
-  // full-bleed hero, centered backdrop band). Every text field is operator-set →
-  // rendered as plain text by BrandHero (#6/#9).
-  const heroProps = {
-    wordmark,
-    tagline,
-    logoUrl,
-    headline: loginHeadline,
-    body: loginBody,
-    chips: loginChips,
-    subtitle: loginSubtitle,
-    footerText,
-    illustration: loginIllustration,
-  };
-
-  // The form CARD + support/footer. In the 'full' layout the form floats over the
-  // ALWAYS-DARK brand hero (which itself carries the wordmark/tagline/footer), so the
-  // peripheral brand/help copy must NOT use theme tokens tuned for a card/canvas
-  // surface — in light theme they'd be dark-on-dark (fails WCAG-AA). We hide the
-  // (duplicated) compact header there and render the remaining copy on-dark.
-  const onDarkHero = loginLayout === 'full';
+  // One quiet identity slab serves every legacy stored layout. Authentication state
+  // remains above this presentation boundary; the slab owns only hierarchy and the
+  // current mode's controlled form.
   const formInner = (
-    <div className="relative z-10 w-full max-w-sm animate-rise-in">
-      {/* Compact brand header — hidden on lg for 'split' (the side hero carries it),
-          hidden entirely for 'full' (the full-bleed hero carries the wordmark),
-          shown for 'centered' (the backdrop band carries no copy). */}
+    <div className="relative isolate my-auto w-full sm:w-[30rem] sm:max-w-[30rem]">
+      <LoginAuthBackdrop />
       <div
-        className={cn(
-          'mb-8 flex flex-col items-center text-center',
-          loginLayout === 'split' && 'lg:hidden',
-          onDarkHero && 'hidden',
-        )}
+        className="login-auth-slab relative z-30 flex max-h-[100dvh] min-h-[100dvh] w-full flex-col overflow-y-auto px-8 pb-20 pt-8 sm:min-h-[30.75rem] sm:w-[30rem] sm:px-12 sm:pb-24 sm:pt-12"
+        data-login-slab
+        data-login-identity-pane
       >
-            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-xl border border-border bg-card shadow-elev1">
-              {logoUrl ? (
-                <img src={logoUrl} alt="" className="h-9 w-9 rounded-md object-contain" />
-              ) : (
-                <Shield className="h-7 w-7 text-primary" aria-hidden />
-              )}
-            </div>
-            <h1 className="text-xl font-semibold tracking-tight text-foreground">{wordmark}</h1>
-            <p className="mt-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
-              {tagline}
-            </p>
+        <div className="relative mx-auto my-auto w-full max-w-sm sm:my-0">
+        <div className="mb-5 flex h-14 min-w-0 items-center" aria-label={`${wordmark} — ${tagline}`}>
+          <div className="flex h-14 w-14 shrink-0 items-center justify-start">
+            {logoUrl ? (
+              <img src={logoUrl} alt="" className="h-14 w-14 object-contain" />
+            ) : (
+              <Shield className="h-12 w-12 stroke-[1.35] text-primary" aria-hidden />
+            )}
           </div>
+          <span className="sr-only">{wordmark}. {tagline}.</span>
+        </div>
 
-          <Card className="shadow-elev2">
-            <CardHeader>
-              <CardTitle className="text-lg">{titleByMode[mode]}</CardTitle>
-              <CardDescription>{descByMode[mode]}</CardDescription>
+        <Card
+          data-login-panel
+          data-login-surface="minimal"
+          elevation="none"
+          className="rounded-none border-0 bg-transparent shadow-none"
+        >
+            <CardHeader className="space-y-0 px-0 pb-0 pt-0 text-left">
+              <h1 className="break-words text-display font-medium text-foreground">
+                {activeTitle}
+              </h1>
+              <CardDescription className="mt-3 max-w-sm break-words text-base leading-5">
+                {activeDescription}
+              </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="px-0 pb-0 pt-9">
               {error ? (
-                <Alert variant="destructive" className="mb-4">
+                <Alert
+                  id={mode === 'signin' ? 'login-error' : undefined}
+                  variant="destructive"
+                  className="mb-5"
+                >
                   <AlertCircle aria-hidden />
                   <AlertDescription>
                     <span className="font-medium">{error}</span>
@@ -501,61 +598,49 @@ export default function Login({ onAuthenticated }: LoginProps) {
                 </Alert>
               ) : null}
 
-              {seededHint ? (
-                <Alert className="mb-4">
-                  <KeyRound aria-hidden />
-                  <AlertDescription>
-                    Default sign-in — <span className="font-medium">Admin</span> /{' '}
-                    <span className="font-medium">Admin@123</span>
-                  </AlertDescription>
-                </Alert>
-              ) : null}
-
               {/* ---- Mode: create first admin (OOBE account-setup) ----------- */}
               {mode === 'setup' ? (
-                <form onSubmit={submitSetup} className="space-y-4" noValidate>
-                  <div className="space-y-1.5">
+                <form onSubmit={submitSetup} className="space-y-5" noValidate>
+                  <div className="space-y-2">
                     <Label htmlFor="setup-username">Admin username</Label>
-                    <div className="relative">
-                      <User className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-                      <Input
-                        id="setup-username"
-                        className="pl-9"
-                        value={username}
-                        onChange={(e) => setUsername(e.target.value)}
-                        autoComplete="username"
-                        disabled={busy}
-                        /* eslint-disable-next-line jsx-a11y/no-autofocus -- deliberate focus placement on the primary field of a focused dialog/login flow; behavior-preserving */
-                        autoFocus
-                      />
-                    </div>
+                    <LoginTextInput
+                      id="setup-username"
+                      icon={User}
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      autoComplete="username"
+                      placeholder="Choose an admin username"
+                      disabled={busy}
+                      required
+                      /* eslint-disable-next-line jsx-a11y/no-autofocus -- deliberate focus placement on the primary field of a focused dialog/login flow; behavior-preserving */
+                      autoFocus
+                    />
                   </div>
-                  <div className="space-y-1.5">
+                  <div className="space-y-2">
                     <Label htmlFor="setup-display">
                       Display name <span className="text-muted-foreground">(optional)</span>
                     </Label>
-                    <div className="relative">
-                      <IdCard className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-                      <Input
-                        id="setup-display"
-                        className="pl-9"
-                        value={displayName}
-                        onChange={(e) => setDisplayName(e.target.value)}
-                        autoComplete="name"
-                        placeholder="e.g. Alex Morgan"
-                        disabled={busy}
-                      />
-                    </div>
+                    <LoginTextInput
+                      id="setup-display"
+                      icon={IdCard}
+                      value={displayName}
+                      onChange={(e) => setDisplayName(e.target.value)}
+                      autoComplete="name"
+                      placeholder="e.g. Alex Morgan"
+                      disabled={busy}
+                    />
                   </div>
-                  <div className="space-y-1.5">
+                  <div className="space-y-2">
                     <Label htmlFor="setup-password">Password</Label>
                     <PasswordInput
                       id="setup-password"
                       value={password}
                       onChange={setPassword}
                       autoComplete="new-password"
+                      placeholder="Create a strong password"
                       ariaDescribedBy="setup-password-help"
                       disabled={busy}
+                      required
                     />
                     {/* Reserve a fixed-height slot for the strength meter so the FIRST
                         keystroke (meter appears) never shoves the fields/button below
@@ -576,14 +661,16 @@ export default function Login({ onAuthenticated }: LoginProps) {
                         : `Use at least ${OOBE_MIN_PASSWORD_LEN} characters — not your username or a common password.`}
                     </p>
                   </div>
-                  <div className="space-y-1.5">
+                  <div className="space-y-2">
                     <Label htmlFor="setup-confirm">Confirm password</Label>
                     <PasswordInput
                       id="setup-confirm"
                       value={confirm}
                       onChange={setConfirm}
                       autoComplete="new-password"
+                      placeholder="Repeat your password"
                       disabled={busy}
+                      required
                     />
                     {/* Reserved slot: the mismatch line inserts on a typing mismatch —
                         keep its height always so it never shoves the submit button. */}
@@ -593,7 +680,7 @@ export default function Login({ onAuthenticated }: LoginProps) {
                       ) : null}
                     </div>
                   </div>
-                  <Button type="submit" className="w-full" disabled={!canSubmitSetup}>
+                  <Button type="submit" className="h-12 w-full" disabled={!canSubmitSetup}>
                     {busy ? <Loader2 className="animate-spin" aria-hidden /> : <UserPlus aria-hidden />}
                     {busy ? 'Creating…' : 'Create admin & sign in'}
                   </Button>
@@ -623,81 +710,155 @@ export default function Login({ onAuthenticated }: LoginProps) {
 
               {/* ---- Mode: normal sign-in ------------------------------------ */}
               {mode === 'signin' ? (
-                <form onSubmit={submitSignin} className="space-y-4" noValidate>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="login-username">Username</Label>
-                    <div className="relative">
-                      <User className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-                      <Input
+                signinStep === 'identity' ? (
+                  <form onSubmit={continueSignin} className="space-y-4" noValidate>
+                    <div className="space-y-2">
+                      <Label htmlFor="login-username">Username</Label>
+                      <LoginTextInput
+                        ref={signinIdentityRef}
                         id="login-username"
-                        className="pl-9"
                         value={username}
                         onChange={(e) => setUsername(e.target.value)}
                         autoComplete="username"
                         name="username"
+                        placeholder="Enter your username"
                         disabled={busy}
+                        required
                         /* eslint-disable-next-line jsx-a11y/no-autofocus -- deliberate focus placement on the primary field of a focused dialog/login flow; behavior-preserving */
                         autoFocus
                       />
                     </div>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="login-password">Password</Label>
-                    <PasswordInput
-                      id="login-password"
-                      value={password}
-                      onChange={setPassword}
-                      autoComplete="current-password"
-                      name="password"
-                      disabled={busy}
-                    />
-                  </div>
-                  <Button
-                    type="submit"
-                    className="w-full"
-                    disabled={busy || username.trim().length === 0 || password.length === 0}
-                  >
-                    {busy ? <Loader2 className="animate-spin" aria-hidden /> : <LockKeyhole aria-hidden />}
-                    {busy ? 'Signing in…' : 'Sign in'}
-                  </Button>
-                </form>
+                    {username.trim().length > 0 ? (
+                      <Button
+                        type="submit"
+                        className="ml-auto flex h-10 bg-foreground px-5 text-background hover:bg-foreground/90 active:bg-foreground/85"
+                        disabled={busy}
+                      >
+                        Continue
+                      </Button>
+                    ) : null}
+                  </form>
+                ) : (
+                  <form onSubmit={submitSignin} className="space-y-4" noValidate>
+                    <div className="flex min-h-8 items-center justify-between gap-3 text-sm">
+                      <span className="min-w-0 truncate text-foreground">{username.trim()}</span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 shrink-0 px-2 text-xs text-muted-foreground"
+                        onClick={() => {
+                          setSigninStep('identity');
+                          setPassword('');
+                          setError(null);
+                          setErrorDetail(null);
+                          window.setTimeout(() => signinIdentityRef.current?.focus(), 0);
+                        }}
+                        disabled={busy}
+                      >
+                        <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
+                        Back
+                      </Button>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="login-password">Password</Label>
+                      <PasswordInput
+                        ref={signinPasswordRef}
+                        id="login-password"
+                        value={password}
+                        onChange={setPassword}
+                        autoComplete="current-password"
+                        name="password"
+                        placeholder="Enter your password"
+                        ariaDescribedBy={error ? 'login-error' : undefined}
+                        ariaInvalid={Boolean(error)}
+                        disabled={busy}
+                        required
+                      />
+                    </div>
+                    <Button
+                      type="submit"
+                      className="ml-auto flex h-10 bg-foreground px-5 text-background hover:bg-foreground/90 active:bg-foreground/85"
+                      disabled={busy || password.length === 0}
+                    >
+                      {busy ? <Loader2 className="animate-spin" aria-hidden /> : null}
+                      {busy ? 'Signing in…' : 'Sign in'}
+                    </Button>
+                  </form>
+                )
               ) : null}
 
-              {/* ---- SSO: "Sign in with …" (only on the sign-in screen) ------- */}
-              {mode === 'signin' && ssoProviders.length > 0 ? (
-                <div className="mt-5">
-                  <div className="relative mb-4 flex items-center">
-                    <span className="h-px flex-1 bg-border" aria-hidden />
-                    <span className="px-3 text-xs uppercase tracking-wide text-muted-foreground">
-                      or continue with
-                    </span>
-                    <span className="h-px flex-1 bg-border" aria-hidden />
-                  </div>
-                  <div className="space-y-2">
-                    {ssoProviders.map((p) => (
+              {/* The reference keeps identity providers below the credential path.
+                  Providers stay explicitly named for assistive technology while the
+                  visual controls remain compact and icon-led. */}
+              {mode === 'signin' && signinStep === 'identity' && ssoProviders.length > 0 ? (
+                <div
+                  className="mt-6 grid gap-2"
+                  style={{ gridTemplateColumns: `repeat(${Math.min(ssoProviders.length, 3)}, minmax(0, 1fr))` }}
+                  aria-label="Single sign-on"
+                >
+                  {ssoProviders.map((p) => {
+                    const label = ssoLabel(p);
+                    return (
                       <Button
                         key={p.id}
                         type="button"
-                        variant="outline"
-                        className="w-full"
+                        variant="secondary"
+                        className="press-scale h-10 min-w-0 px-3"
+                        aria-label={`Sign in with ${label}`}
+                        title={`Sign in with ${label}`}
                         onClick={() => void startSso(p.id)}
                         disabled={Boolean(ssoBusy)}
                       >
                         {ssoBusy === p.id ? (
                           <Loader2 className="animate-spin" aria-hidden />
                         ) : (
-                          <SsoBrandIcon type={p.type} />
+                          <SsoBrandIcon type={p.type} className="h-5 w-5" />
                         )}
-                        Sign in with {ssoLabel(p)}
+                        <span className="sr-only">Sign in with {label}</span>
                       </Button>
-                    ))}
-                  </div>
+                    );
+                  })}
+                </div>
+              ) : null}
+
+              {seededHint && signinStep === 'identity' ? (
+                <div
+                  data-login-demo-hint
+                  className="mt-5 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 text-xs text-muted-foreground"
+                >
+                  <p className="min-w-0 break-words">
+                    <span className="font-medium text-foreground">Demo credentials</span>
+                    <span aria-hidden> · </span>
+                    <span className="font-mono text-foreground">Admin</span>
+                    <span aria-hidden> / </span>
+                    <span className="font-mono text-foreground">Admin@123</span>
+                    <span className="sr-only">Username Admin. Password Admin at 123.</span>
+                  </p>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    aria-label="Use demo credentials"
+                    className="h-8 shrink-0 px-2 text-xs"
+                    onClick={() => {
+                      setUsername('Admin');
+                      setPassword('Admin@123');
+                      setError(null);
+                      setErrorDetail(null);
+                      setSigninStep('password');
+                      window.setTimeout(() => signinPasswordRef.current?.focus(), 0);
+                    }}
+                    disabled={busy}
+                  >
+                    Use
+                  </Button>
                 </div>
               ) : null}
 
               {/* ---- Mode: MFA second factor (TOTP / recovery) --------------- */}
               {mode === 'mfa' ? (
-                <form onSubmit={submitMfa} className="space-y-4" noValidate>
+                <form onSubmit={submitMfa} className="space-y-5" noValidate>
                   <div className="space-y-2">
                     {/* htmlFor only in the recovery branch (id="mfa-code" is the text
                         Input there). In the OTP branch the control is the segmented
@@ -708,21 +869,19 @@ export default function Login({ onAuthenticated }: LoginProps) {
                     </Label>
                     {useRecovery ? (
                       <>
-                        <div className="relative">
-                          <ShieldCheck className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-                          <Input
-                            id="mfa-code"
-                            className="pl-9 font-mono tracking-wider"
-                            inputMode="text"
-                            autoComplete="one-time-code"
-                            placeholder="XXXX-XXXX"
-                            value={mfaCode}
-                            onChange={(e) => setMfaCode(e.target.value)}
-                            disabled={busy}
-                            /* eslint-disable-next-line jsx-a11y/no-autofocus -- deliberate focus placement on the primary field of a focused dialog/login flow; behavior-preserving */
-                            autoFocus
-                          />
-                        </div>
+                        <LoginTextInput
+                          id="mfa-code"
+                          icon={ShieldCheck}
+                          className="font-mono tracking-wider"
+                          inputMode="text"
+                          autoComplete="one-time-code"
+                          placeholder="XXXX-XXXX"
+                          value={mfaCode}
+                          onChange={(e) => setMfaCode(e.target.value)}
+                          disabled={busy}
+                          /* eslint-disable-next-line jsx-a11y/no-autofocus -- deliberate focus placement on the primary field of a focused dialog/login flow; behavior-preserving */
+                          autoFocus
+                        />
                         <div className="text-xs">
                           <button
                             type="button"
@@ -752,7 +911,7 @@ export default function Login({ onAuthenticated }: LoginProps) {
                       />
                     )}
                   </div>
-                  <Button type="submit" className="w-full" disabled={busy || mfaCode.trim().length === 0}>
+                  <Button type="submit" className="h-12 w-full" disabled={busy || mfaCode.trim().length === 0}>
                     {busy ? <Loader2 className="animate-spin" aria-hidden /> : <ShieldCheck aria-hidden />}
                     {busy ? 'Verifying…' : 'Verify & continue'}
                   </Button>
@@ -778,6 +937,7 @@ export default function Login({ onAuthenticated }: LoginProps) {
                       className="h-auto p-0 text-xs font-normal text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
                       onClick={() => {
                         setMode('signin');
+                        setSigninStep('identity');
                         setMfaCode('');
                         setPendingToken('');
                         setPassword('');
@@ -795,15 +955,17 @@ export default function Login({ onAuthenticated }: LoginProps) {
 
               {/* ---- Mode: forced password change ---------------------------- */}
               {mode === 'change' ? (
-                <form onSubmit={submitChange} className="space-y-4" noValidate>
-                  <div className="space-y-1.5">
+                <form onSubmit={submitChange} className="space-y-5" noValidate>
+                  <div className="space-y-2">
                     <Label htmlFor="change-new">New password</Label>
                     <PasswordInput
                       id="change-new"
                       value={newPassword}
                       onChange={setNewPassword}
                       autoComplete="new-password"
+                      placeholder="Create a new password"
                       disabled={busy}
+                      required
                       /* eslint-disable-next-line jsx-a11y/no-autofocus -- deliberate focus placement on the primary field of the forced password-change step; behavior-preserving */
                       autoFocus
                     />
@@ -812,19 +974,21 @@ export default function Login({ onAuthenticated }: LoginProps) {
                       <PasswordStrengthMeter password={newPassword} />
                     </div>
                   </div>
-                  <div className="space-y-1.5">
+                  <div className="space-y-2">
                     <Label htmlFor="change-confirm">Confirm new password</Label>
                     <PasswordInput
                       id="change-confirm"
                       value={confirm}
                       onChange={setConfirm}
                       autoComplete="new-password"
+                      placeholder="Repeat your new password"
                       disabled={busy}
+                      required
                     />
                   </div>
                   <Button
                     type="submit"
-                    className="w-full"
+                    className="h-12 w-full"
                     disabled={busy || newPassword.length === 0 || confirm.length === 0}
                   >
                     {busy ? <Loader2 className="animate-spin" aria-hidden /> : <KeyRound aria-hidden />}
@@ -835,49 +999,39 @@ export default function Login({ onAuthenticated }: LoginProps) {
             </CardContent>
           </Card>
 
-          <p
-            className={cn(
-              'mt-6 text-center text-xs',
-              onDarkHero ? 'text-white/60' : 'text-muted-foreground',
-            )}
-          >
-            Audited, cost-metered agentic triage.
-          </p>
-
-          {supportUrl ? (
-            <div className="mt-3 flex justify-center">
-              <a
-                href={supportUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={cn(
-                  'inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs',
-                  'transition-colors focus-visible:outline-none',
-                  onDarkHero
-                    ? 'text-white/70 hover:text-white focus-visible:ring-offset-transparent'
-                    : 'text-muted-foreground hover:text-foreground focus-visible:ring-offset-canvas',
-                  'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-                )}
-              >
-                <ExternalLink className="h-3.5 w-3.5" aria-hidden />
-                Docs &amp; help
-              </a>
+        {supportUrl || (mode === 'signin' && loginChips.length > 0) || footerText ? (
+          <div className="mt-8 space-y-1.5 text-center text-xs leading-5 text-muted-foreground">
+            <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
+              {supportUrl ? (
+                <a
+                  href={supportUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={cn(
+                    'inline-flex min-h-8 items-center gap-1 rounded-sm text-muted-foreground',
+                    'transition-colors focus-visible:outline-none hover:text-foreground',
+                    'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card',
+                  )}
+                >
+                  Help &amp; support
+                  <span className="sr-only"> (opens in a new tab)</span>
+                  <ExternalLink className="h-3 w-3" aria-hidden />
+                </a>
+              ) : null}
+              {mode === 'signin'
+                ? loginChips.map((chip, index) => (
+                    <React.Fragment key={`${chip}-${index}`}>
+                      {supportUrl || index > 0 ? <span aria-hidden>·</span> : null}
+                      <span className="break-words">{chip}</span>
+                    </React.Fragment>
+                  ))
+                : null}
             </div>
-          ) : null}
-
-        {/* Footer line — shown near the form only when NO hero carries it: always for
-            'centered', and below lg for 'split' (the side hero carries it on lg+).
-            'full' shows it inside the hero, so suppress it here. */}
-        {footerText && loginLayout !== 'full' ? (
-          <p
-            className={cn(
-              'mt-3 text-center text-xs text-muted-foreground',
-              loginLayout === 'split' && 'lg:hidden',
-            )}
-          >
-            {footerText}
-          </p>
+            {footerText ? <p className="break-words">{footerText}</p> : null}
+          </div>
         ) : null}
+        </div>
+      </div>
     </div>
   );
 
@@ -890,63 +1044,33 @@ export default function Login({ onAuthenticated }: LoginProps) {
   // flag flips on error too), so an unreachable backend still resolves to the fallback.
   if (!statusResolved || !ssoResolved || !brandingResolved) {
     return (
-      <div
-        className="flex min-h-screen items-center justify-center bg-canvas text-muted-foreground"
-        role="status"
-        aria-live="polite"
-        aria-busy="true"
-      >
-        <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
-        <span className="sr-only">Loading sign-in…</span>
-      </div>
-    );
-  }
-
-  // ---- Layout shells ------------------------------------------------------ //
-  // Every shell TOP-ALIGNs the form column (`items-start` + a top offset) rather than
-  // vertically centring it. Centring re-centres the whole card whenever a mode switch
-  // (signin ↔ mfa ↔ setup ↔ mfa-enroll ↔ change) changes its height — the visible
-  // vertical "hop". Top-aligned, a height change grows DOWNWARD from a fixed top edge,
-  // so the card header never moves (reserve-space / CLS≈0 on this screen).
-  //
-  // 'centered': a single centred column over a decorative backdrop band (no copy).
-  if (loginLayout === 'centered') {
-    return (
-      <div className="relative flex min-h-screen items-start justify-center overflow-hidden bg-canvas px-6 pb-12 pt-[10vh]">
-        <BrandHero {...heroProps} variant="backdrop" />
-        <div
-          className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-canvas/60 to-canvas"
-          aria-hidden
+      <main className="login-auth-canvas min-h-[100dvh] px-5">
+        <LoadingState
+          label="Loading sign-in"
+          layout="page"
+          shape="page"
+          className="min-h-[100dvh]"
         />
-        {formInner}
-      </div>
+      </main>
     );
   }
 
-  // 'full': a full-bleed brand hero with the form floating over it (top-right on lg+).
-  if (loginLayout === 'full') {
-    return (
-      <div className="relative min-h-screen overflow-hidden bg-canvas">
-        <BrandHero {...heroProps} variant="full" />
-        <div className="pointer-events-none absolute inset-0 bg-black/30" aria-hidden />
-        <div className="relative z-10 flex min-h-screen items-start justify-center px-6 pb-12 pt-[10vh] lg:justify-end lg:pr-[8vw]">
-          {formInner}
-        </div>
-      </div>
-    );
-  }
-
-  // 'split' (default): the brand hero panel (lg+) beside the form column.
+  // Legacy split / centered / full preferences remain readable and round-trip through
+  // Branding, but intentionally converge on one minimal surface. Keeping one geometry
+  // avoids separate branded experiences and makes every auth mode predictable.
   return (
-    <div className="grid min-h-screen lg:grid-cols-2">
-      <BrandHero {...heroProps} variant="panel" />
-      <div className="relative flex items-start justify-center overflow-hidden bg-canvas px-6 pb-12 pt-[10vh]">
-        <div
-          className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-hero-glow lg:hidden"
-          aria-hidden
-        />
-        {formInner}
+    <main
+      data-login-layout={loginLayout}
+      data-login-shell="minimal"
+      data-login-theme-palette-settling={themePaletteSettling ? 'true' : 'false'}
+      className="login-auth-canvas relative min-h-[100dvh] overflow-x-hidden"
+    >
+      <div className="absolute right-4 top-4 z-40 sm:right-6 sm:top-6">
+        <LoginThemeControl value={theme} onChange={changeLoginTheme} />
       </div>
-    </div>
+      <section className="relative flex min-h-[100dvh] items-center justify-center px-0 py-0 sm:px-8 sm:py-12">
+        {formInner}
+      </section>
+    </main>
   );
 }

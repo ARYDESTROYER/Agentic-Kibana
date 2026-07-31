@@ -62,6 +62,22 @@ beforeEach(() => {
 });
 
 describe('Dashboards page', () => {
+  it('uses the shared blocking state while saved layouts load', async () => {
+    apiMocks.dashboards.list.mockReturnValue(new Promise(() => {}));
+
+    render(
+      <AuthProvider>
+        <Dashboards />
+      </AuthProvider>,
+    );
+
+    expect(
+      await screen.findByRole('status', { name: 'Loading dashboards' }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByTestId('console-loading-glyph')).toHaveLength(1);
+    expect(screen.queryByTestId('widget-grid-view')).toBeNull();
+  });
+
   it('renders the read-only per-role default with zero grid JS', async () => {
     render(
       <AuthProvider>

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import os
 from typing import Any, Literal
@@ -38,7 +40,10 @@ from ..llm.pricing import models_by_provider
 from ..models import (
     Case,
     CaseComment,
+    ChatConversationRenameRequest,
     ChatRequest,
+    ChatResponse,
+    ChatTurn,
     Cluster,
     FeedbackEntry,
     InvestigateRequest,
@@ -56,8 +61,15 @@ from ..playbooks.registry import (
     PlaybookProtectedError,
 )
 from ..state import AppState
+from ..stores.chat_conversations import (
+    ChatConversationMissing,
+    ChatHistoryUnavailable,
+    ChatIdempotencyConflict,
+    ChatRequestCapacityBusy,
+    ChatRequestInProgress,
+)
 from ..tools.enrich import EnrichTool
-from ..utils import iso_now, now_utc, relative_to_millis, to_millis
+from ..utils import iso_now, new_id, now_utc, relative_to_millis, to_millis
 from .deps import (
     _audit_session,
     _bearer,
@@ -155,7 +167,7 @@ async def _state_store_probe(state: AppState) -> tuple[bool, str]:
 def _release_channel(configured: str | None = None) -> str:
     """Return the independently stamped promotion channel.
 
-    Branch promotion and SemVer are orthogonal: the same ``0.1.0`` candidate is
+    Branch promotion and SemVer are orthogonal: the same ``0.1.1`` candidate is
     exercised on Testing before its exact commit reaches main/Stable. Inferring a
     channel from a prerelease suffix would therefore mislabel Testing builds.
     """
@@ -377,8 +389,9 @@ async def setup_complete(
     state: AppState = Depends(get_state),
     _=Depends(require_permission("settings", "manage")),
 ) -> dict[str, Any]:
-    prefs = state.prefs.model_copy(update={"setup_complete": True})
-    await state.update_prefs(prefs)
+    prefs = await state.mutate_prefs(
+        lambda current: current.model_copy(update={"setup_complete": True})
+    )
     if prefs.polling_enabled:
         state.poller.start()
     return {"ok": True, "setup_complete": True}
@@ -1438,21 +1451,29 @@ async def put_settings(
     state: AppState = Depends(get_state),
     _=Depends(require_permission("settings", "manage")),
 ) -> dict[str, Any]:
-    if state.prefs.read_only_settings_mode and body.get("read_only_settings_mode") is not False:
-        raise HTTPException(status_code=403, detail="Settings are in read-only mode")
-    # Snapshot the pre-save prefs so we can diff rule-bearing blocks for versioning (#10).
-    # ``update_prefs`` REPLACES ``state.prefs`` (never mutates in place), so this stays the
-    # old snapshot after the write.
-    old_prefs = state.prefs
-    merged = _deep_update(state.prefs.model_dump(mode="json"), body)
-    # Demo Mode is managed ONLY by the /api/demo/* endpoints — never via the settings
-    # write path. Preserve the live demo block so a settings PUT can't flip/corrupt it.
-    merged["demo"] = state.prefs.demo.model_dump(mode="json")
-    try:
-        prefs = Preferences.model_validate(merged)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=422, detail=f"Invalid settings: {exc}") from exc
-    await state.update_prefs(prefs)
+    # Build the partial deep-merge from the freshest Preferences document while the
+    # application-wide prefs lock is held. This prevents a settings write racing a
+    # source/rule/tuner/branding writer from silently restoring a stale sibling block.
+    old_prefs: Preferences | None = None
+
+    def _apply(current: Preferences) -> Preferences:
+        nonlocal old_prefs
+        if (
+            current.read_only_settings_mode
+            and body.get("read_only_settings_mode") is not False
+        ):
+            raise HTTPException(status_code=403, detail="Settings are in read-only mode")
+        old_prefs = current
+        merged = _deep_update(current.model_dump(mode="json"), body)
+        # Demo Mode is managed ONLY by the /api/demo/* endpoints — never via this path.
+        merged["demo"] = current.demo.model_dump(mode="json")
+        try:
+            return Preferences.model_validate(merged)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=422, detail=f"Invalid settings: {exc}") from exc
+
+    prefs = await state.mutate_prefs(_apply)
+    assert old_prefs is not None
     # P12 (#2 audit / #10 secrets): settings now carry the decision-critical auto-close
     # policy (bug-#1 repointed the flagship toggle to ``prefs.auto_close.<verdict>``, the
     # field ``decide()`` reads), so an operator changing which cases auto-close must leave
@@ -1520,64 +1541,376 @@ async def get_settings_section(
 # --------------------------------------------------------------------------- #
 # Chat (Surface 1 + Surface 2 follow-up — one engine)
 # --------------------------------------------------------------------------- #
+def _chat_history_http(exc: Exception) -> HTTPException:
+    return HTTPException(
+        status_code=503,
+        detail={
+            "code": "chat_history_unavailable",
+            "message": str(exc) or "Chat history is temporarily unavailable.",
+        },
+    )
+
+
+def _chat_conflict_http(code: str, message: str) -> HTTPException:
+    return HTTPException(status_code=409, detail={"code": code, "message": message})
+
+
+def _chat_request_fingerprint(body: ChatRequest) -> str:
+    """Stable identity over caller-controlled inputs (never over generated ids)."""
+    payload = body.model_dump(
+        mode="json", exclude={"idempotency_key", "persist_conversation"}
+    )
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _replayed_chat_response(reservation) -> ChatResponse:
+    conversation = reservation.conversation
+    assistant = reservation.assistant_message
+    if assistant is None:
+        raise _chat_history_http(
+            ChatHistoryUnavailable("The completed chat response could not be restored.")
+        )
+    payload = dict(assistant.response or {})
+    payload.update({
+        "answer": assistant.content,
+        "conversation_id": reservation.conversation_id,
+        "conversation_title": reservation.conversation_title
+        or (conversation.title if conversation else "Conversation"),
+        "idempotency_key": reservation.idempotency_key,
+        "effective_model": assistant.model or (conversation.model if conversation else None),
+        "effective_source_id": assistant.source_id
+        or (conversation.source_id if conversation else None),
+        "effective_source_name": assistant.source_name
+        or (conversation.source_name if conversation else None),
+        "truncated": bool(payload.get("truncated")),
+    })
+    try:
+        return ChatResponse.model_validate(payload)
+    except Exception as exc:  # noqa: BLE001 -- corrupt durable receipt is a store failure
+        raise _chat_history_http(
+            ChatHistoryUnavailable("The completed chat response is invalid.")
+        ) from exc
+
+
+@router.get("/chat/conversations")
+async def list_chat_conversations(
+    request: Request,
+    state: AppState = Depends(get_state),
+    limit: int = Query(default=30, ge=1, le=50),
+    offset: int = Query(default=0, ge=0),
+    _=Depends(require_permission("cases", "read")),
+) -> dict[str, Any]:
+    """Newest-first Workspace conversation summaries owned by this principal.
+
+    Auth-disabled deployments use the same isolated ``default`` profile as user
+    preferences. Case-scoped collaboration chat is intentionally not listed here.
+    """
+    try:
+        page = await state.chat_conversations.list_page(
+            current_username(request), limit=limit, offset=offset,
+        )
+    except ChatHistoryUnavailable as exc:
+        raise _chat_history_http(exc) from exc
+    return {
+        "conversations": [item.model_dump(mode="json") for item in page.conversations],
+        # ``total`` remains the retained/paginatable count for compatibility.
+        "total": page.total,
+        "history_truncated": page.history_truncated,
+        "total_conversation_count": page.total_conversation_count,
+        "oldest_retained_at": page.oldest_retained_at,
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+@router.get("/chat/conversations/{conversation_id}")
+async def get_chat_conversation(
+    conversation_id: str,
+    request: Request,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("cases", "read")),
+) -> dict[str, Any]:
+    """One owned Workspace conversation, including its bounded transcript."""
+    try:
+        conversation = await state.chat_conversations.get(
+            current_username(request), conversation_id,
+        )
+    except ChatHistoryUnavailable as exc:
+        raise _chat_history_http(exc) from exc
+    if conversation is None:
+        # Ownership is intentionally indistinguishable from absence.
+        raise HTTPException(status_code=404, detail="conversation not found")
+    return conversation.model_dump(mode="json")
+
+
+@router.patch("/chat/conversations/{conversation_id}")
+async def rename_chat_conversation(
+    conversation_id: str,
+    body: ChatConversationRenameRequest,
+    request: Request,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("cases", "read")),
+) -> dict[str, Any]:
+    """Rename one owned conversation with bounded, single-line plain text."""
+    user = current_username(request)
+    try:
+        conversation = await state.chat_conversations.rename(
+            user, conversation_id, body.title
+        )
+    except ChatHistoryUnavailable as exc:
+        raise _chat_history_http(exc) from exc
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="conversation not found")
+    await state.audit.record(
+        action_type=ActionType.CONTEXT,
+        surface="chat_history",
+        actor=user,
+        result_summary=f"conversation renamed: {conversation.id}"[:500],
+    )
+    return conversation.model_dump(mode="json")
+
+
+@router.delete("/chat/conversations/{conversation_id}")
+async def delete_chat_conversation(
+    conversation_id: str,
+    request: Request,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("cases", "read")),
+) -> dict[str, Any]:
+    """Delete one owned Workspace transcript; the append-only audit remains."""
+    user = current_username(request)
+    try:
+        removed = await state.chat_conversations.delete(user, conversation_id)
+    except ChatHistoryUnavailable as exc:
+        raise _chat_history_http(exc) from exc
+    if not removed:
+        raise HTTPException(status_code=404, detail="conversation not found")
+    await state.audit.record(
+        action_type=ActionType.CONTEXT,
+        surface="chat_history",
+        actor=user,
+        result_summary=f"conversation deleted: {str(conversation_id)[:100]}",
+    )
+    return {"ok": True, "id": conversation_id}
+
+
 @router.post("/chat")
 async def chat(
     body: ChatRequest, request: Request, state: AppState = Depends(get_state),
     _=Depends(require_permission("cases", "read")),
 ) -> dict[str, Any]:
-    # Attribute any chat-driven memory add to the authenticated user when auth is on
-    # (best-effort; "" when auth is disabled — the default no-auth profile).
-    author = ""
-    try:
-        auth = getattr(state, "auth", None)
-        if auth is not None and auth.is_enabled:
-            token = request.cookies.get("tlsoc_token") or _bearer(request)
-            user = auth.verify(token) if token else None
-            author = user.username if user else ""
-    except Exception:  # noqa: BLE001 — attribution is best-effort
-        author = ""
+    # The auth dependency already verified the principal; the same helper used by
+    # preferences/history defines the auth-off ``default`` partition.
+    author = current_username(request)
+    # Workspace history is opt-in and NEVER duplicates case-scoped turns. Context may
+    # carry a case id even when the top-level field does not, so resolve the effective
+    # case boundary before deciding whether this belongs in personal history.
+    effective_case_id = body.case_id or (body.context.case_id if body.context else None)
+    persist_workspace = bool(body.persist_conversation and not effective_case_id)
+    history = body.history
+    existing_conversation = None
+    if persist_workspace and body.conversation_id:
+        try:
+            existing_conversation = await state.chat_conversations.get(
+                author, body.conversation_id
+            )
+        except ChatHistoryUnavailable as exc:
+            raise _chat_history_http(exc) from exc
+        if existing_conversation is None:
+            raise HTTPException(status_code=404, detail="conversation not found")
+        # The durable transcript is authoritative for a resumed conversation. Ignore
+        # caller-supplied history so a client cannot replace another turn sequence.
+        history = [
+            ChatTurn(role=item.role, content=item.content)
+            for item in existing_conversation.messages
+        ]
+
     # Per-call model override (additive): run THIS chat turn with the chat-role model
     # swapped to body.model via a prefs copy. Unchanged when body.model is None.
-    prefs_eff = _override_models(state.execution_prefs, body.model, ("chat",))
-    # Per-call SOURCE scoping (multi-source): when body.source_id selects a
-    # configured PULL source, build that source's connector (its config+TLS, like
-    # the browse endpoint) and run the chat against it. Absent / push / unbuildable
-    # → the primary source (today's behaviour). Single-source SELECT, NOT cross-
-    # source aggregation.
-    source_conn, owned_client = _chat_source_connector(state, body.source_id)
+    # ``None`` means the CURRENT default. The UI resends a saved non-default
+    # selection while resuming; omitting it is how an analyst resets the thread.
+    selected_model = body.model
+    prefs_eff = _override_models(state.execution_prefs, selected_model, ("chat",))
+    selected_source_id = body.source_id
+    request_key = body.idempotency_key or new_id("chatreq-")
+    request_fingerprint = _chat_request_fingerprint(body)
+    reservation = None
+    source_conn = None
+    owned_client = None
+    effective_source_id = None
+    effective_source_name = None
     try:
+        if persist_workspace:
+            try:
+                reservation = await state.chat_conversations.reserve_exchange(
+                    author,
+                    idempotency_key=request_key,
+                    request_fingerprint=request_fingerprint,
+                    conversation_id=body.conversation_id,
+                )
+            except ChatHistoryUnavailable as exc:
+                raise _chat_history_http(exc) from exc
+            except ChatRequestInProgress as exc:
+                raise _chat_conflict_http("chat_request_in_progress", str(exc)) from exc
+            except ChatRequestCapacityBusy as exc:
+                raise _chat_conflict_http("chat_request_capacity_busy", str(exc)) from exc
+            except ChatIdempotencyConflict as exc:
+                raise _chat_conflict_http("chat_idempotency_conflict", str(exc)) from exc
+            except ChatConversationMissing as exc:
+                raise HTTPException(status_code=404, detail="conversation not found") from exc
+            if reservation.status == "completed":
+                return _replayed_chat_response(reservation).model_dump(mode="json")
+
+        # Resolve a live source only after durable replay had a chance to return.
+        # A historical receipt remains replayable even if its source was later
+        # disabled or removed. New executions reject an unusable explicit source.
+        source_conn, owned_client, effective_source_id, effective_source_name = (
+            _chat_source_connector(state, selected_source_id)
+        )
         resp = await state.chat_engine.chat(
-            body.message, prefs_eff, case_id=body.case_id, history=body.history,
+            body.message, prefs_eff, case_id=body.case_id, history=history,
             context=body.context, author=author, source=source_conn,
         )
+    except HTTPException:
+        if persist_workspace and reservation is not None:
+            try:
+                await state.chat_conversations.abort_exchange(
+                    author,
+                    idempotency_key=request_key,
+                    request_fingerprint=request_fingerprint,
+                    lease_token=reservation.lease_token or "",
+                )
+            except Exception:  # noqa: BLE001 -- preserve the typed HTTP failure
+                pass
+        raise
+    except Exception:
+        if persist_workspace and reservation is not None:
+            try:
+                await state.chat_conversations.abort_exchange(
+                    author,
+                    idempotency_key=request_key,
+                    request_fingerprint=request_fingerprint,
+                    lease_token=reservation.lease_token or "",
+                )
+            except Exception:  # noqa: BLE001 -- never hide the original model failure
+                pass
+        raise
     finally:
         if owned_client is not None:
             try:
                 await owned_client.close()
             except Exception:  # noqa: BLE001
                 pass
+    if persist_workspace:
+        assert reservation is not None
+        response_with_provenance = resp.model_copy(update={
+            "idempotency_key": request_key,
+            "effective_model": resp.effective_model,
+            "effective_source_id": effective_source_id,
+            "effective_source_name": effective_source_name,
+        })
+        try:
+            completed = await state.chat_conversations.complete_exchange(
+                author,
+                idempotency_key=request_key,
+                request_fingerprint=request_fingerprint,
+                conversation_id=reservation.conversation_id,
+                lease_token=reservation.lease_token or "",
+                requested_existing_conversation=body.conversation_id is not None,
+                user_content=body.message,
+                assistant_content=resp.answer,
+                response=response_with_provenance.model_dump(mode="json"),
+                model=resp.effective_model,
+                source_id=effective_source_id,
+                source_name=effective_source_name,
+            )
+        except ChatHistoryUnavailable as exc:
+            raise _chat_history_http(exc) from exc
+        except ChatConversationMissing as exc:
+            raise _chat_conflict_http(
+                "chat_idempotency_conflict",
+                "The conversation changed while the response was being saved.",
+            ) from exc
+        except ChatIdempotencyConflict as exc:
+            raise _chat_conflict_http("chat_idempotency_conflict", str(exc)) from exc
+        except ChatRequestInProgress as exc:
+            raise _chat_conflict_http("chat_request_in_progress", str(exc)) from exc
+        conversation = completed.conversation
+        if conversation is None:
+            raise _chat_history_http(
+                ChatHistoryUnavailable("The saved conversation could not be restored.")
+            )
+        resp = response_with_provenance.model_copy(update={
+            "conversation_id": conversation.id,
+            "conversation_title": conversation.title,
+            "truncated": bool(
+                (completed.assistant_message.response or {}).get("truncated")
+                if completed.assistant_message is not None else False
+            ),
+        })
+    else:
+        resp = resp.model_copy(update={
+            "idempotency_key": body.idempotency_key,
+            "effective_model": resp.effective_model,
+            "effective_source_id": effective_source_id,
+            "effective_source_name": effective_source_name,
+        })
     return resp.model_dump(mode="json")
 
 
 def _chat_source_connector(state: AppState, source_id: str | None):
     """Build the PULL connector for an explicitly-selected chat source.
 
-    Returns ``(connector | None, owned_es_client | None)``. ``None`` connector means
-    "use the chat engine's default primary source" (no source_id, source not found,
-    a push receiver, or a build error). ``owned_es_client`` (when not None) is a
-    per-source ES client the CALLER must close after the turn."""
+    Returns connector/client plus the truthful effective id/name. ``None`` connector
+    means use the engine's configured primary only when no explicit id was supplied.
+    Explicit unknown, disabled, receiver-only or unbuildable sources return 422."""
     if not source_id:
-        return None, None
+        if state.demo_active:
+            from ..engine.demo_sources import DEMO_SOURCE_SPECS
+
+            spec = DEMO_SOURCE_SPECS["splunk"]
+            return None, None, spec.source_id, spec.display_name
+        primary = state.execution_prefs.primary_source()
+        return (
+            None,
+            None,
+            primary.id if primary is not None else None,
+            (primary.display_name or primary.id) if primary is not None else "Primary source",
+        )
     if state.demo_active:
         # Demo push adapters expose the same bounded search contract as a pull
         # connector, so chat source selection remains truthful for all four rows.
-        return state.demo_source_connector(source_id), None
+        connector = state.demo_source_connector(source_id)
+        if connector is None:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "chat_source_unavailable",
+                    "message": "The selected source is unavailable for chat.",
+                },
+            )
+        rows = state.demo_sources_overlay()
+        row = next((item for item in rows if item.get("id") == source_id), {})
+        return connector, None, source_id, str(row.get("display_name") or source_id)
     src = next((s for s in state.prefs.sources if s.id == source_id and s.enabled), None)
     if src is None:
-        return None, None
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "chat_source_unavailable",
+                "message": "The selected source is unknown or disabled.",
+            },
+        )
     reg = get_registry()
     if not reg.is_pull(src.source_type):
-        return None, None  # push sources have no queryable connector for chat
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "chat_source_unavailable",
+                "message": "The selected source does not provide a query surface.",
+            },
+        )
     try:
         from ..connectors.elastic import ElasticConnector
         from ..connectors.opensearch import OpenSearchConnector
@@ -1593,9 +1926,22 @@ def _chat_source_connector(state: AppState, source_id: str | None):
             conn = WazuhConnector(es_client, config=cfg, connector_id=src.id)
         else:
             conn = ElasticConnector(es_client, config=cfg, connector_id=src.id)
-        return conn, (es_client if owned else None)
-    except Exception:  # noqa: BLE001 — fall back to the primary source on any error
-        return None, None
+        return (
+            conn,
+            (es_client if owned else None),
+            src.id,
+            src.display_name or src.id,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "chat_source_unavailable",
+                "message": "The selected source could not be prepared for chat.",
+            },
+        ) from exc
 
 
 # --------------------------------------------------------------------------- #
@@ -1696,26 +2042,6 @@ async def personas(state: AppState = Depends(get_state)) -> dict[str, Any]:
                 "keywords": list(p.keywords),
             }
             for p in all_personas()
-        ],
-    }
-
-
-@router.get("/runbooks")
-async def runbooks(state: AppState = Depends(get_state)) -> dict[str, Any]:
-    from ..engine.runbooks import load_runbooks
-
-    return {
-        "enabled": state.prefs.runbooks.enabled,
-        "runbooks": [
-            {
-                "id": rb.id,
-                "title": rb.title,
-                "summary": rb.summary,
-                "persona": rb.persona,
-                "applies_to_rules": list(rb.applies_to_rules),
-                "applies_to_techniques": list(rb.applies_to_techniques),
-            }
-            for rb in load_runbooks()
         ],
     }
 
@@ -2101,7 +2427,7 @@ async def demo_incident(
     """Trigger one coherent, cooldown-aware attack in the isolated demo stack.
 
     Splunk/QRadar/Wazuh contribute source-native alerts and syslog contributes raw
-    RFC 5424 telemetry that TLSOC detects. The action requires ``demo:manage`` and is
+    RFC 5424 telemetry that Agentic SOC detects. The action requires ``demo:manage`` and is
     recorded in the REAL append-only audit trail; generated data/cases/cost stay demo-only.
     """
     if not state.demo_active:
@@ -4634,7 +4960,7 @@ def _override_models(prefs: Preferences, model: str | None, roles: tuple[str, ..
 
     provider = provider_for(mid)
     if provider not in ("anthropic", "openai", "mock"):
-        provider = "anthropic"  # safe default for an unrecognised id; gateway prices it
+        provider = "openai"  # fresh-install default for an unrecognised override id
     updates: dict[str, Any] = {}
     for role in roles:
         field = f"{role}_model"
@@ -5035,14 +5361,40 @@ def _build_rationale(case_id: str, case: Any, rows: list[Any]) -> dict[str, Any]
     CONTEXT record (knowledge/memory/enrichment), TOOL_CALL records (tools/queries),
     the VERDICT record (reasoning excerpt), the playbook_selector DECISION (playbook
     reason) and the case_manager DECISION (deterministic rationale)."""
+    # Audit rows are OLDEST-first.  A case can be re-investigated many times, so
+    # project only the LATEST run instead of mixing the first run's context/tools
+    # with the current Case fields.  ``playbook_selector`` is the durable run
+    # boundary written before every real investigation (including the cheap path).
+    # Legacy audit histories without that row fall back to their full history.
+    run_start = 0
+    for idx, row in enumerate(rows):
+        if _audit_get(row, "actor") == "playbook_selector":
+            run_start = idx
+    run_rows = rows[run_start:]
+
+    selector_row = next(
+        (row for row in reversed(run_rows) if _audit_get(row, "actor") == "playbook_selector"),
+        None,
+    )
+    context_row = next(
+        (
+            row
+            for row in reversed(run_rows)
+            if _audit_get(row, "action_type") == ActionType.CONTEXT.value
+            and _audit_get(row, "actor") == "context"
+        ),
+        None,
+    )
+
     # --- from the CONTEXT record (investigator-injected context) -------------
     knowledge: list[dict[str, Any]] = []
     memory_used: list[str] = []
     enrichment: dict[str, Any] | None = None
-    for row in rows:
-        if _audit_get(row, "action_type") != ActionType.CONTEXT.value:
-            continue
-        ti = _audit_get(row, "tool_input") or {}
+    playbook_id = ""
+    playbook_version = ""
+    playbook_consulted = False
+    if context_row is not None:
+        ti = _audit_get(context_row, "tool_input") or {}
         if isinstance(ti, dict):
             for k in (ti.get("knowledge") or []):
                 if isinstance(k, dict):
@@ -5060,11 +5412,45 @@ def _build_rationale(case_id: str, case: Any, rows: list[Any]) -> dict[str, Any]
                     "is_malicious": enr.get("is_malicious"),
                     "country": enr.get("country"),
                 }
-        break  # one context record per investigation
+            detail = ti.get("playbook_detail")
+            if isinstance(detail, dict) and str(detail.get("id") or "").strip():
+                playbook_id = str(detail.get("id") or "").strip()
+                playbook_version = str(detail.get("version") or "").strip()
+                playbook_consulted = True
+            elif ti.get("playbook"):
+                # Backward compatibility for pre-structured CONTEXT rows.  The Case
+                # id belongs to the latest run, and a truthy context value proves it
+                # was actually injected (selection alone does not).
+                playbook_id = str(getattr(case, "playbook_id", "") or "").strip()
+                playbook_consulted = bool(playbook_id)
+
+    # --- platform threshold tuning snapshot (run-boundary audit row) ---------
+    platform_tuning_status = "not_recorded"
+    platform_tuning: list[dict[str, Any]] = []
+    if selector_row is not None:
+        selector_input = _audit_get(selector_row, "tool_input") or {}
+        if isinstance(selector_input, dict):
+            raw_tuning = selector_input.get("platform_tuning")
+            if isinstance(raw_tuning, dict):
+                raw_status = str(raw_tuning.get("status") or "not_recorded")
+                if raw_status in {"recorded", "not_recorded", "unavailable"}:
+                    platform_tuning_status = raw_status
+                for item in raw_tuning.get("records") or []:
+                    if not isinstance(item, dict):
+                        continue
+                    platform_tuning.append({
+                        "record_id": str(item.get("record_id") or ""),
+                        "target": str(item.get("target") or ""),
+                        "rule_id": str(item.get("rule_id") or ""),
+                        "before": item.get("before"),
+                        "after": item.get("after"),
+                        "applied_at": str(item.get("applied_at") or ""),
+                        "rationale": str(item.get("rationale") or ""),
+                    })
 
     # --- tools / queries (TOOL_CALL + ES_QUERY rows) -------------------------
     tools: list[dict[str, Any]] = []
-    for row in rows:
+    for row in run_rows:
         at = _audit_get(row, "action_type")
         if at not in (ActionType.TOOL_CALL.value, ActionType.ES_QUERY.value):
             continue
@@ -5078,7 +5464,7 @@ def _build_rationale(case_id: str, case: Any, rows: list[Any]) -> dict[str, Any]
 
     # --- reasoning excerpt (VERDICT record, written after "reasoning=") -------
     reasoning = ""
-    for row in rows:
+    for row in reversed(run_rows):
         if _audit_get(row, "action_type") != ActionType.VERDICT.value:
             continue
         rs = str(_audit_get(row, "result_summary") or "")
@@ -5089,15 +5475,19 @@ def _build_rationale(case_id: str, case: Any, rows: list[Any]) -> dict[str, Any]
 
     # --- playbook reason (playbook_selector DECISION) ------------------------
     playbook_reason = ""
-    for row in rows:
-        if _audit_get(row, "actor") == "playbook_selector":
-            playbook_reason = str(_audit_get(row, "result_summary") or "")
-            break
+    if selector_row is not None:
+        selector_input = _audit_get(selector_row, "tool_input") or {}
+        if isinstance(selector_input, dict):
+            selection = selector_input.get("playbook_selection")
+            if isinstance(selection, dict):
+                playbook_reason = str(selection.get("reason") or "")
+        if not playbook_reason:
+            playbook_reason = str(_audit_get(selector_row, "result_summary") or "")
 
     # --- deterministic decision rationale (case_manager DECISION, then the
     #     case.history "decision" event as a fallback) ------------------------
     decision_rationale = ""
-    for row in rows:
+    for row in reversed(run_rows):
         if (
             _audit_get(row, "actor") == "case_manager"
             and _audit_get(row, "action_type") == ActionType.DECISION.value
@@ -5111,7 +5501,6 @@ def _build_rationale(case_id: str, case: Any, rows: list[Any]) -> dict[str, Any]
     status = ""
     decision_by = None
     persona = ""
-    playbook_id = ""
     mitre: list[str] = []
     evidence: list[dict[str, Any]] = []
     if case is not None:
@@ -5120,7 +5509,6 @@ def _build_rationale(case_id: str, case: Any, rows: list[Any]) -> dict[str, Any]
         status = case.status.value if case.status else ""
         decision_by = case.decision_by.value if case.decision_by else None
         persona = case.agent_persona or ""
-        playbook_id = case.playbook_id or ""
         mitre = list(case.mitre or [])
         evidence = [
             {
@@ -5143,9 +5531,16 @@ def _build_rationale(case_id: str, case: Any, rows: list[Any]) -> dict[str, Any]
         "status": status,
         "decision_by": decision_by,
         "persona": persona,
-        "playbook": {"id": playbook_id, "reason": playbook_reason},
+        "playbook": {
+            "id": playbook_id,
+            "version": playbook_version,
+            "reason": playbook_reason,
+            "consulted": playbook_consulted,
+        },
         "memory_used": memory_used,
         "knowledge": knowledge,
+        "platform_tuning_status": platform_tuning_status,
+        "platform_tuning": platform_tuning,
         "enrichment": enrichment,
         "tools": tools,
         "reasoning": reasoning,

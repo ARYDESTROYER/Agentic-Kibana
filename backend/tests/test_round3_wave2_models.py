@@ -420,6 +420,16 @@ def test_model_catalog_shape():
     assert sample["provider"] == "anthropic"
     assert sample["pricing_source"] == "exact"
 
+    luna = next(r for r in cat if r["id"] == "gpt-5.6-luna")
+    assert luna["provider"] == "openai"
+    assert luna["context_window"] == 1_050_000
+    assert luna["max_output"] == 128_000
+    assert luna["input_per_million"] == pytest.approx(0.20)
+    assert luna["output_per_million"] == pytest.approx(1.20)
+    assert luna["cache_read_per_million"] == pytest.approx(0.02)
+    assert luna["cache_write_per_million"] == pytest.approx(0.25)
+    assert luna["batch_multiplier"] == pytest.approx(0.5)
+
 
 def test_models_by_provider_unions_registry_and_prices():
     grouped = pricing.models_by_provider()

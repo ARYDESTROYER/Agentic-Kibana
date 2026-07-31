@@ -1,10 +1,9 @@
 /**
- * Tuning page — busy-state scoping regression (#36).
+ * Tuning page — rule-scoped apply/busy-state regression.
  *
- * A rule can have MORE THAN ONE recommendation (e.g. a correlation_n bump AND a
- * severity_floor bump share one rule_id). The Apply/Rollback busy state must be keyed on
- * the ROW (`${rule_id}:${kind}` / ledger id), NOT the bare rule_id — otherwise applying
- * one recommendation disables (and spins) every sibling row that shares its rule_id.
+ * The backend apply endpoint recomputes and processes EVERY current proposal for one
+ * rule. The UI must therefore group sibling recommendations under one honest action,
+ * lock that rule while it runs, and leave an unrelated rule available.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
@@ -44,7 +43,7 @@ import { TooltipProvider } from '@/ui/tooltip';
 import Tuning from '../Tuning';
 import type { TuningRecommendationsResponse } from '../Tuning.api';
 
-// Two recommendations for the SAME rule_id but DIFFERENT kinds — independent changes.
+// Two recommendations for the SAME rule_id plus one unrelated rule.
 const RECS: TuningRecommendationsResponse = {
   enabled: true,
   cadence: 'nightly',
@@ -63,8 +62,23 @@ const RECS: TuningRecommendationsResponse = {
       feed_key: 'src-1:feed-1', source_id: 'src-1', feed_id: 'feed-1', fp_rate: 0.62, samples: 40,
       auto_apply: true, shadow_blocked: false, reason: 'auto_apply_candidate',
     },
+    {
+      rule_id: 'mail-volume', kind: 'correlation_n', before: 2, after: 3,
+      feed_key: null, source_id: null, feed_id: null, fp_rate: 0.58, samples: 32,
+      auto_apply: true, shadow_blocked: false, reason: 'auto_apply_candidate',
+    },
   ],
-  applied: [],
+  applied: [
+    {
+      id: 'auth-ledger',
+      rule_id: 'auth-brute',
+      target: 'correlation_n',
+      before: 2,
+      after: 3,
+      active: true,
+      applied_at: '2026-07-30T12:00:00Z',
+    },
+  ],
 };
 
 const CONFIG = {
@@ -74,7 +88,7 @@ const CONFIG = {
   },
 };
 
-describe('Tuning — busy state is scoped to the row, not the rule_id (#36)', () => {
+describe('Tuning — apply is grouped and busy state is scoped to the rule', () => {
   beforeEach(() => {
     recsMock.mockReset();
     getConfigMock.mockReset();
@@ -85,25 +99,36 @@ describe('Tuning — busy state is scoped to the row, not the rule_id (#36)', ()
     applyMock.mockReturnValue(new Promise(() => {}));
   });
 
-  it('applying one recommendation does NOT disable a sibling row sharing the rule_id', async () => {
+  it('uses one action for sibling recommendations and leaves an unrelated rule enabled', async () => {
     render(
       <TooltipProvider>
         <Tuning />
       </TooltipProvider>,
     );
-    await waitFor(() =>
-      expect(screen.getAllByRole('button', { name: /^apply$/i })).toHaveLength(2),
-    );
-    const applyBtns = screen.getAllByRole('button', { name: /^apply$/i });
+    const authAction = await screen.findByRole('button', {
+      name: 'Process all changes for auth-brute',
+    });
+    const mailAction = screen.getByRole('button', {
+      name: 'Process all changes for mail-volume',
+    });
+    expect(screen.getAllByRole('button', { name: /process all changes for/i })).toHaveLength(2);
 
-    fireEvent.click(applyBtns[0]); // apply the correlation_n row only
+    fireEvent.click(authAction);
 
     await waitFor(() => {
-      const btns = screen.getAllByRole('button', { name: /^apply$/i });
-      // The clicked row is busy…
-      expect(btns[0]).toBeDisabled();
-      // …but the sibling (same rule_id, different kind) stays enabled.
-      expect(btns[1]).not.toBeDisabled();
+      expect(authAction).toBeDisabled();
+      expect(mailAction).not.toBeDisabled();
     });
+    expect(applyMock).toHaveBeenCalledTimes(1);
+    expect(applyMock).toHaveBeenCalledWith('auth-brute');
+
+    fireEvent.keyDown(screen.getByRole('tab', { name: 'Policy & history' }), {
+      key: 'Enter',
+    });
+    expect(
+      await screen.findByRole('button', {
+        name: 'Rollback latest change for auth-brute',
+      }),
+    ).toBeDisabled();
   });
 });

@@ -36,7 +36,7 @@ import { cn } from '@/lib/cn';
 import { DASH, humanizeAge, humanizeToken } from '@/lib/format';
 
 import { Badge } from '@/ui/badge';
-import { Skeleton } from '@/ui/skeleton';
+import { LoadingState } from '@/design-system';
 import { EmptyState } from '@/soc/components/EmptyState';
 
 import type { CaseActivityItem } from '@/soc/pages/CaseDetail.api';
@@ -123,11 +123,14 @@ export const CaseActivityFeed: React.FC<CaseActivityFeedProps> = ({
 
   if (loading) {
     return (
-      <div className={cn('space-y-3', className)}>
-        {Array.from({ length: 4 }).map((_, i) => (
-          <Skeleton key={i} className="h-12 w-full rounded-lg" />
-        ))}
-      </div>
+      <LoadingState
+        layout="panel"
+        shape="rows"
+        shapeRows={4}
+        label="Loading case activity"
+        description="Retrieving the authoritative case timeline."
+        className={cn('min-h-[14.25rem]', className)}
+      />
     );
   }
   if (!items.length) {

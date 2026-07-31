@@ -10,9 +10,9 @@
  *
  * Three bars, matched to WCAG + the standard's own methodology:
  *   1. STANDALONE TEXT (body + `*-text` tints) → ≥ 4.5:1 (WCAG AA normal text).
- *      Reference background = the theme's lightest paper the token was tuned on
- *      (DESIGN_STANDARD §1.3 "measured as text on white card"): WHITE in light, `--card`
- *      in dark. This is the exact reference the `-text` triples were tuned against.
+ *      Reference background = the ACTUAL `--card` in each theme. Semantic `*-text`
+ *      tokens are additionally composited over their real 10% semantic wash, which
+ *      is what Badge/Alert consumers paint; checking pure white missed regressions.
  *   2. ON-FILL `*-foreground` (badge/pill/button text ON a solid semantic fill) → ≥ 3:1.
  *      Badge/pill fills carry BOLD short text on a solid graphical fill — WCAG's
  *      3:1 large-text / UI-component bar governs (the primary-button axis is held to the
@@ -30,9 +30,7 @@ import { parseThemeCss, resolveTokenRgb, contrastRatio } from './lib/theme-css.m
 const AA_TEXT = 4.5;
 const AA_NONTEXT = 3.0;
 const AA_ONFILL = 3.0; // bold badge/pill text on a solid fill = large-text/UI-component bar
-const WHITE = [1, 1, 1];
-
-/** Standalone tint/body text tokens — measured on the theme's lightest paper (bar 1). */
+/** Standalone tint/body text tokens — measured on the actual theme card (bar 1). */
 const TEXT_AXES = [
   '--foreground',
   '--card-foreground',
@@ -48,6 +46,10 @@ const TEXT_AXES = [
   '--warning-text',
   '--danger-text',
 ];
+
+/** Semantic axes rendered as small text over a 10% same-axis wash. */
+export const TEXT_WASH_AXES = ['critical', 'high', 'medium', 'low', 'info', 'success', 'warning'];
+const TEXT_WASH_ALPHA = 0.1;
 
 /** On-fill `<axis>-foreground` on `<axis>` fill (bar 2 = 3:1; primary held to 4.5). */
 const ON_FILL_AXES = [
@@ -87,7 +89,12 @@ const NON_TEXT_AXES = [
  * palette.ts SEVERITY_COLOR / STATUS_COLOR / VERDICT_COLOR: severity red→…→blue-grey,
  * status green (success), status/verdict amber (warning).
  */
-export const SEMANTIC_FILL_AXES = ['critical', 'high', 'medium', 'low', 'info', 'success', 'warning'];
+export const SEMANTIC_FILL_AXES = TEXT_WASH_AXES;
+
+/** Alpha-composite a foreground wash over an opaque card (sRGB CSS compositing). */
+function composite(fg, bg, alpha) {
+  return fg.map((channel, i) => channel * alpha + bg[i] * (1 - alpha));
+}
 
 function push(results, theme, name, kind, bar, fg, bg) {
   if (!fg || !bg) {
@@ -106,14 +113,29 @@ function push(results, theme, name, kind, bar, fg, bg) {
 export function checkContrast() {
   const { light, dark } = parseThemeCss();
   const themes = [
-    ['light', light, WHITE], // light standalone-text reference = white paper
-    ['dark', dark, resolveTokenRgb('--card', dark)], // dark reference = card
+    ['light', light],
+    ['dark', dark],
   ];
   const results = [];
-  for (const [theme, map, textPaper] of themes) {
-    // Bar 1 — standalone text on the theme's paper.
+  for (const [theme, map] of themes) {
+    const card = resolveTokenRgb('--card', map);
+    // Bar 1 — standalone text on the actual theme card.
     for (const t of TEXT_AXES) {
-      push(results, theme, `${t.slice(2)} (text)`, 'text', AA_TEXT, resolveTokenRgb(t, map), textPaper);
+      push(results, theme, `${t.slice(2)} (text)`, 'text', AA_TEXT, resolveTokenRgb(t, map), card);
+    }
+    // Bar 1 (cont.) — the real Badge/Alert wash, not an idealised white paper.
+    for (const axis of TEXT_WASH_AXES) {
+      const fill = resolveTokenRgb(`--${axis}`, map);
+      const wash = fill && card ? composite(fill, card, TEXT_WASH_ALPHA) : null;
+      push(
+        results,
+        theme,
+        `${axis}-text on ${axis}/10 wash`,
+        'text-wash',
+        AA_TEXT,
+        resolveTokenRgb(`--${axis}-text`, map),
+        wash,
+      );
     }
     // Bar 2 — on-fill `-foreground` on the fill.
     for (const { axis, bar } of ON_FILL_AXES) {

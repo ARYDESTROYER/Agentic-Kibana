@@ -56,7 +56,7 @@ import {
 } from 'lucide-react';
 
 import { api } from '@/lib/api';
-import type { Case } from '@/lib/types';
+import type { Case, CaseRationale } from '@/lib/types';
 import { DASH, fmtMoney, fmtPercent, formatTimestamp, humanizeAge, humanizeToken } from '@/lib/format';
 import { copyText } from '@/lib/clipboard';
 import { cn } from '@/lib/cn';
@@ -82,6 +82,7 @@ import {
 } from '@/soc/components/badges';
 import { ProvenanceTag, severityProvenance, type Provenance } from '@/soc/components/ProvenanceTag';
 import { DecisionCard } from './DecisionCard';
+import { InvestigationInputs } from './InvestigationInputs';
 import { BaselineSignatureCard } from '@/soc/components/BaselineGauge';
 import type { TriageChips } from '@/soc/pages/CaseDetail.api';
 import { baselineApi, type BaselineSignature } from '@/soc/Baseline.api';
@@ -90,6 +91,7 @@ import type { Navigate } from '@/soc/router';
 import {
   type FpPolicy,
   type ScoreTone,
+  CASE_MANAGER_PANEL_PADDING,
   MetaItem,
   PanelCard,
   SectionHeading,
@@ -216,7 +218,8 @@ const SectionLabel: React.FC<{
   children: React.ReactNode;
   provenance?: React.ReactNode;
   testId?: string;
-}> = ({ children, provenance, testId }) => (
+  quiet?: boolean;
+}> = ({ children, provenance, testId, quiet = false }) => (
   <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
     <span
       data-testid={testId}
@@ -225,7 +228,7 @@ const SectionLabel: React.FC<{
       {children}
     </span>
     {provenance ? <span className="flex items-center gap-1">{provenance}</span> : null}
-    <span aria-hidden="true" className="h-px flex-1 bg-border" />
+    {!quiet ? <span aria-hidden="true" className="h-px flex-1 bg-border" /> : null}
   </div>
 );
 
@@ -238,7 +241,8 @@ const SectionLabel: React.FC<{
 const EMBEDDED_FLAT_SECTION =
   'rounded-none border-x-0 border-b-0 border-t border-border/70 bg-transparent px-0 py-5 shadow-none';
 const EMBEDDED_FLAT_COLUMN =
-  'rounded-none border-x-0 border-t-0 border-b border-border/70 bg-transparent px-0 py-4 shadow-none last:border-b-0 lg:border-b-0 lg:border-l lg:px-4 lg:py-0 lg:first:border-l-0 lg:first:pl-0 lg:last:pr-0';
+  'rounded-none border-0 bg-transparent p-0 shadow-none';
+const EMBEDDED_MAJOR_SECTION = 'border-t border-border/60 pt-6';
 
 /** One compact chip in the DECISION BRIEF strip: a small label over a bold value. */
 const BriefChip: React.FC<{ label: string; value: string }> = ({ label, value }) => (
@@ -536,7 +540,7 @@ const RelatedCrossSource: React.FC<{ c: Case; onNavigate?: Navigate; flat?: bool
   };
 
   return (
-    <div className={cn('grid lg:grid-cols-2', flat ? 'gap-0' : 'gap-6')}>
+    <div className={cn('grid gap-6 lg:grid-cols-2', flat && 'xl:gap-8')}>
       <PanelCard
         data-overview-surface={flat ? 'flat-column' : undefined}
         className={cn(flat && EMBEDDED_FLAT_COLUMN)}
@@ -797,7 +801,7 @@ const RiskFactorProfile: React.FC<{ factors: RiskFactor[] }> = ({ factors }) => 
   return (
     <TooltipProvider delayDuration={0}>
       <div
-        className="border-t border-border/70 pt-3"
+        className="pt-1"
         role="group"
         aria-label="Recorded risk factors"
       >
@@ -915,9 +919,26 @@ export const OverviewPanel: React.FC<{
   fpPolicy: FpPolicy;
   triage: TriageChips | null;
   triageLoading: boolean;
+  rationale?: CaseRationale | null;
+  rationaleLoading?: boolean;
+  rationaleError?: unknown;
+  onRetryRationale?: () => void;
+  onOpenInvestigation?: () => void;
   onNavigate?: Navigate;
   presentation?: CasePanelPresentation;
-}> = ({ c, fpPolicy, triage, triageLoading, onNavigate, presentation = 'default' }) => {
+}> = ({
+  c,
+  fpPolicy,
+  triage,
+  triageLoading,
+  rationale = null,
+  rationaleLoading = false,
+  rationaleError,
+  onRetryRationale,
+  onOpenInvestigation,
+  onNavigate,
+  presentation = 'default',
+}) => {
   const isCaseManager = presentation === 'case-manager';
   const trigger = c.trigger_reason as
     | {
@@ -1133,7 +1154,7 @@ export const OverviewPanel: React.FC<{
   return (
     <div
       className={cn(
-        isCaseManager ? 'space-y-5 px-4 py-5 sm:px-6 lg:px-8 lg:py-6' : 'space-y-6 p-6',
+        isCaseManager ? cn('space-y-4', CASE_MANAGER_PANEL_PADDING) : 'space-y-6 p-6',
       )}
       data-case-panel={isCaseManager ? 'overview' : undefined}
       data-presentation={isCaseManager ? 'case-manager' : undefined}
@@ -1144,7 +1165,7 @@ export const OverviewPanel: React.FC<{
         data-overview-surface={isCaseManager ? 'flat-summary' : undefined}
         className={cn(
           isCaseManager
-            ? 'relative overflow-hidden rounded-none border-x-0 border-b border-t-0 border-border/70 bg-transparent px-0 py-5 shadow-none'
+            ? 'relative overflow-hidden rounded-none border-0 bg-transparent px-0 py-1 shadow-none'
             : 'relative overflow-hidden border-l-2',
           !isCaseManager && {
             'border-l-critical/50': vHead.tone === 'critical',
@@ -1173,7 +1194,9 @@ export const OverviewPanel: React.FC<{
               <div className="mt-4 flex flex-wrap items-center gap-2">
                 <StatusBadge status={c.status} />
                 <DispositionBadge disposition={c.disposition ?? null} />
-                {typeof c.escalation_level === 'number' && c.escalation_level > 0 ? (
+                {typeof c.escalation_level === 'number' &&
+                c.escalation_level > 0 &&
+                String(c.status || '').toLowerCase() !== 'escalated' ? (
                   <Badge variant="critical" className="gap-1">
                     <Bell className="h-3 w-3" />
                     Escalated
@@ -1188,13 +1211,13 @@ export const OverviewPanel: React.FC<{
               </div>
 
               {/* Advisory ordering fields remain visible without repeating route/risk. */}
-              <div className="mt-4 grid max-w-sm grid-cols-2 gap-4 border-t border-border/70 pt-4">
+              <div className="mt-5 grid max-w-sm grid-cols-2 gap-5">
                 <BriefChip label="Impact" value={chipLabel(impactLevel)} />
                 <BriefChip label="Priority" value={chipLabel(priorityLevel)} />
               </div>
 
-              {/* The action is prominent, but uses a flat divider instead of a card-in-card. */}
-              <div className="mt-5 border-t border-border/70 pt-4">
+              {/* The action is prominent without introducing another bordered card. */}
+              <div className="mt-5 border-l-2 border-primary/40 py-1 pl-4">
                 <div className="mb-2 flex items-center gap-2">
                   <Activity className="h-4 w-4 text-primary" aria-hidden />
                   <h3 className="text-sm font-semibold tracking-tight text-foreground">
@@ -1210,7 +1233,7 @@ export const OverviewPanel: React.FC<{
                   escalate decision is always made by code, never by this panel.
                 </p>
                 {autoClose ? (
-                  <div className="mt-3 flex items-start gap-2 border-l-2 border-border/70 pl-3 text-xs text-muted-foreground">
+                  <div className="mt-3 flex items-start gap-2 text-xs text-muted-foreground">
                     <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
                     <span>{autoClose.line}</span>
                   </div>
@@ -1220,7 +1243,7 @@ export const OverviewPanel: React.FC<{
 
             <aside
               aria-label="Case signal profile"
-              className="space-y-4 border-t border-border/70 pt-5 xl:border-l xl:border-t-0 xl:pl-6 xl:pt-0"
+              className="space-y-4 border-t border-border/60 pt-5 xl:border-l xl:border-t-0 xl:pl-6 xl:pt-0"
             >
               <div className="flex items-center gap-2">
                 <Gauge className="h-4 w-4 text-primary" aria-hidden />
@@ -1283,7 +1306,9 @@ export const OverviewPanel: React.FC<{
             <div className="mt-4 flex flex-wrap items-center gap-2">
               <StatusBadge status={c.status} />
               <DispositionBadge disposition={c.disposition ?? null} />
-              {typeof c.escalation_level === 'number' && c.escalation_level > 0 ? (
+              {typeof c.escalation_level === 'number' &&
+              c.escalation_level > 0 &&
+              String(c.status || '').toLowerCase() !== 'escalated' ? (
                 <Badge variant="critical" className="gap-1">
                   <Bell className="h-3 w-3" />
                   Escalated
@@ -1318,9 +1343,24 @@ export const OverviewPanel: React.FC<{
         )}
       </PanelCard>
 
+      {isCaseManager ? (
+        <InvestigationInputs
+          rationale={rationale}
+          loading={rationaleLoading}
+          error={rationaleError}
+          onRetry={onRetryRationale}
+          onReview={onOpenInvestigation}
+        />
+      ) : null}
+
       {/* ============================================== 2. PROVENANCE ROW */}
-      <div className="space-y-3">
-        <SectionLabel testId="overview-section-label">Provenance</SectionLabel>
+      <div
+        className={cn('space-y-4', isCaseManager && EMBEDDED_MAJOR_SECTION)}
+        data-case-manager-section={isCaseManager ? 'provenance' : undefined}
+      >
+        <SectionLabel testId="overview-section-label" quiet={isCaseManager}>
+          Provenance
+        </SectionLabel>
 
         {/* delta cue — source severity vs. our risk band, only when they disagree. */}
         {showSeverityDelta ? (
@@ -1329,7 +1369,7 @@ export const OverviewPanel: React.FC<{
             className={cn(
               'flex flex-wrap items-center gap-x-2 gap-y-1 text-sm',
               isCaseManager
-                ? 'border-y border-primary/30 py-2'
+                ? 'rounded-sm bg-primary/5 px-3 py-2'
                 : 'rounded-md border border-primary/30 bg-primary/5 px-3 py-2',
             )}
           >
@@ -1344,7 +1384,7 @@ export const OverviewPanel: React.FC<{
           </div>
         ) : null}
 
-        <div className={cn('grid lg:grid-cols-3', isCaseManager ? 'gap-0' : 'gap-4')}>
+        <div className={cn('grid lg:grid-cols-3', isCaseManager ? 'gap-6 xl:gap-8' : 'gap-4')}>
           {/* SOURCE SAYS */}
           <ProvenanceColumn
             title="Source says"
@@ -1557,7 +1597,7 @@ export const OverviewPanel: React.FC<{
           >
             {isCaseManager ? (
               <>
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/70 pb-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-sm bg-muted/25 px-3 py-2">
                   <span className="inline-flex items-center gap-1.5 text-xs font-medium text-foreground">
                     <Lock className="h-3.5 w-3.5 text-success" aria-hidden />
                     Deterministic decision authority
@@ -1650,9 +1690,14 @@ export const OverviewPanel: React.FC<{
       </div>
 
       {/* ============================================== 3. ENTITY ROW */}
-      <div className="space-y-3">
-        <SectionLabel testId="overview-section-label">Entity &amp; story</SectionLabel>
-        <div className={cn('grid lg:grid-cols-3', isCaseManager ? 'gap-0' : 'gap-4')}>
+      <div
+        className={cn('space-y-4', isCaseManager && EMBEDDED_MAJOR_SECTION)}
+        data-case-manager-section={isCaseManager ? 'entity-story' : undefined}
+      >
+        <SectionLabel testId="overview-section-label" quiet={isCaseManager}>
+          Entity &amp; story
+        </SectionLabel>
+        <div className={cn('grid lg:grid-cols-3', isCaseManager ? 'gap-6 xl:gap-8' : 'gap-4')}>
           {/* PRIMARY ENTITY */}
           <PanelCard
             data-overview-surface={isCaseManager ? 'flat-column' : undefined}
@@ -1674,7 +1719,7 @@ export const OverviewPanel: React.FC<{
                   </Badge>
                 </div>
                 {entityEnrichRows.length ? (
-                  <dl className="divide-y divide-border">
+                  <dl className={cn(!isCaseManager && 'divide-y divide-border')}>
                     {entityEnrichRows.map((row, i) => (
                       <div
                         key={`${row.k}-${i}`}
@@ -1738,7 +1783,12 @@ export const OverviewPanel: React.FC<{
             <div className="flex flex-col gap-2">
               {relationshipFlow.map((node, i) => (
                 <React.Fragment key={node.label}>
-                  <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
+                  <div
+                    className={cn(
+                      'rounded-md px-3 py-2',
+                      isCaseManager ? 'bg-muted/25' : 'border border-border bg-muted/30',
+                    )}
+                  >
                     <div className="text-2xs font-semibold uppercase tracking-widest text-muted-foreground">
                       {node.label}
                     </div>
@@ -1764,9 +1814,14 @@ export const OverviewPanel: React.FC<{
       <BaselineAdvisory c={c} flat={isCaseManager} />
 
       {/* ============================================== 4. EVIDENCE */}
-      <div className="space-y-3">
-        <SectionLabel testId="overview-section-label">Evidence</SectionLabel>
-        <div className={cn('grid lg:grid-cols-3', isCaseManager ? 'gap-0' : 'gap-4')}>
+      <div
+        className={cn('space-y-4', isCaseManager && EMBEDDED_MAJOR_SECTION)}
+        data-case-manager-section={isCaseManager ? 'evidence' : undefined}
+      >
+        <SectionLabel testId="overview-section-label" quiet={isCaseManager}>
+          Evidence
+        </SectionLabel>
+        <div className={cn('grid lg:grid-cols-3', isCaseManager ? 'gap-6 xl:gap-8' : 'gap-4')}>
           {/* EVIDENCE CHECKLIST */}
           <PanelCard
             data-overview-surface={isCaseManager ? 'flat-column' : undefined}
@@ -1902,7 +1957,7 @@ export const OverviewPanel: React.FC<{
           {c.agent_persona && c.agent_persona !== 'generalist' ? (
             <span>Profile {humanizeToken(c.agent_persona)}</span>
           ) : null}
-          <span>Token cost {fmtMoney(c.token_cost)}</span>
+          <span>Investigation cost {fmtMoney(c.token_cost)}</span>
           {c.decision_by ? <span>Decided by {humanizeToken(c.decision_by)}</span> : null}
         </div>
       </CollapsibleSection>

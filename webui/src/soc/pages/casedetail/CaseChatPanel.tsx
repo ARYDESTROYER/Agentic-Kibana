@@ -21,7 +21,7 @@ import { Button } from '@/ui/button';
 import { ChatPanel } from '@/soc/components/ChatPanel';
 import type { Navigate } from '@/soc/router';
 
-import { PanelCard, SectionHeading } from './shared';
+import { CASE_MANAGER_PANEL_PADDING, PanelCard, SectionHeading } from './shared';
 import type { CasePanelPresentation } from './shared';
 
 /** Case-scoped starter prompts surfaced in the empty state. */
@@ -44,7 +44,7 @@ export const ChatTab: React.FC<{
   if (presentation === 'case-manager') {
     return (
       <div
-        className="flex h-full min-h-0 overflow-hidden px-3 pb-3 pt-4 sm:px-8 sm:pb-4 sm:pt-7"
+        className={`flex h-full min-h-0 overflow-hidden ${CASE_MANAGER_PANEL_PADDING}`}
         data-case-panel="chat"
         data-presentation="case-manager"
       >
@@ -85,7 +85,7 @@ export const ChatTab: React.FC<{
         {/* The shared chat engine, embedded compact + scoped to this case. A definite
             height gives ChatPanel's internal transcript scroll + bottom-pinned composer
             a frame to work in (the transcript lane is the only scrolling region). */}
-        <div className="h-[60vh] min-h-[24rem]">
+        <div className="h-[60dvh] min-h-[24rem]">
           <ChatPanel caseId={c.case_id} compact starters={CASE_CHAT_STARTERS} />
         </div>
       </PanelCard>

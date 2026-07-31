@@ -8,23 +8,29 @@ keywords: [suricata, et scan, scan, nmap, port, recon, probe, sweep, masscan]
 persona: network_recon
 summary: Many connection attempts to distinct ports/hosts from one source IP.
 ---
-## What this looks like
-Suricata "ET SCAN" alerts, or many connections to distinct ports/hosts from one
-source IP in a short window — classic reconnaissance.
+SIGNAL
+One source attempts connections across many ports or hosts within a short period.
 
-## Steps
-1. **Measure breadth.** How many distinct ports and hosts were probed, over what
-   window? A wide, fast sweep is a scanner; a few connections may be benign.
-2. **Did anything respond?** A probe that got a service banner / SYN-ACK / `200` is
-   more interesting than blind SYNs into closed ports.
-3. **Authorised or hostile?** Match the source IP against known internal scanners
-   and their maintenance schedule (see suppression guidance). Internal vuln scans
-   on schedule are expected.
-4. **Enrich the source IP** reputation for external sources.
+EVIDENCE REQUIRED
+Source identity, distinct ports and targets, scan duration, connection outcomes, service responses, and approved scanner schedules.
 
-## Verdict guidance
-- Recon alone (no successful connection, hostile external IP) → usually
-  TRUE_POSITIVE but LOW priority (monitor / block), rarely an incident by itself.
-- Authorised internal scanner on schedule → FALSE_POSITIVE.
-- Recon immediately followed by a successful connection to a sensitive service →
-  TRUE_POSITIVE, escalate.
+INVESTIGATION STEPS
+1. Measure the distinct ports, hosts, connection rate, and total scan window.
+2. Check whether any target returned a service response or accepted a connection.
+3. Compare the source with approved scanner addresses and maintenance schedules.
+4. Enrich an external source and inspect for follow-on access to sensitive services.
+
+TRUE POSITIVE SIGNALS
+Unapproved broad reconnaissance or scanning followed by successful sensitive-service access supports a true positive.
+
+FALSE POSITIVE SIGNALS
+An approved internal scanner operating within its documented scope and schedule supports a false positive.
+
+NEEDS HUMAN WHEN
+Scanner ownership, connection outcomes, or the approved maintenance window cannot be verified.
+
+RECOMMENDED NEXT ACTION
+Escalate successful or targeted reconnaissance; otherwise monitor or block a corroborated hostile external source.
+
+LIMITATIONS
+Connection attempts alone do not prove service access or exploitation.

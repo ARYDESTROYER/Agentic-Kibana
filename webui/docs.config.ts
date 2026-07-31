@@ -14,7 +14,7 @@ export function resolveBundledDocumentationIdentity(
   version: string = packageJson.version,
 ): BundledDocumentationIdentity {
   const match = SEMVER.exec(version.trim());
-  if (!match) throw new Error(`Invalid TLSOC product version for documentation: ${version}`);
+  if (!match) throw new Error(`Invalid Agentic SOC product version for documentation: ${version}`);
   const documentationVersion = `${match[1]}.${match[2]}`;
   return {
     productVersion: version.trim(),

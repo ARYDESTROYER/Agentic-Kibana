@@ -10,7 +10,7 @@
  *   5. timing reads the SERVER posture (honest DASH / "not measured" for missing samples);
  *   6. KPI deltas are wired from the server `posture.compare` (unit-matched tiles only);
  *   7. tiles + snapshot CTAs deep-link to the filtered case list carrying the window;
- *   8. the loading skeleton mirrors the final dense layout.
+ *   8. blocking load uses the shared centered Console loading grammar.
  *
  * Fully offline. `noiseReduction` is intentionally omitted so the funnel band self-omits.
  */
@@ -159,7 +159,7 @@ describe('Overview — Security Command Center (rebuild)', () => {
     usageMock.mockResolvedValue({ total_cost: 1.25, total_tokens: 12000, call_count: 8, currency: 'USD' });
   });
 
-  it('renders a PLAIN header (page-hero testid, no hero card chrome) carrying the title', async () => {
+  it('keeps dashboard controls in the plain title header without a redundant status row', async () => {
     render(<Overview onNavigate={vi.fn()} />);
     const hero = await screen.findByTestId('page-hero');
     expect(hero).not.toHaveClass('hero-display');
@@ -167,17 +167,23 @@ describe('Overview — Security Command Center (rebuild)', () => {
     // Exactly one page-level h1 (the title) lives in the header.
     expect(hero.querySelectorAll('h1')).toHaveLength(1);
     expect(hero).toHaveTextContent(PAGE_TITLE);
-    const range = within(hero).getByRole('button', { name: /Time range: Last 24 hours/i });
+    const controls = within(hero).getByRole('group', { name: 'Dashboard controls' });
+    expect(screen.queryByText('Operational window')).toBeNull();
+    expect(screen.queryByText(/^Last polled /)).toBeNull();
+    const range = within(controls).getByRole('button', { name: /Time range: Last 24 hours/i });
     expect(range).toHaveTextContent('Last 24h');
     expect(range).toHaveClass('rounded-[3px]', 'bg-transparent');
-    expect(within(hero).getByRole('combobox', { name: /Auto-refresh interval: LIVE/i })).toHaveClass(
+    expect(within(controls).getByRole('combobox', { name: /Auto-refresh interval: LIVE/i })).toHaveClass(
       'rounded-[3px]',
       'bg-transparent',
     );
-    expect(within(hero).getByRole('button', { name: 'Refresh dashboard' })).toHaveClass(
+    const manualRefresh = within(controls).getByRole('button', { name: 'Refresh dashboard' });
+    expect(manualRefresh).toHaveClass(
       'rounded-[3px]',
       'bg-transparent',
+      'text-success-text',
     );
+    expect(manualRefresh.querySelector('.lucide-refresh-cw')).toHaveClass('animate-spin');
   });
 
   it('renders the KPI micro-strip: 5 alert/case tiles (LLM spend NOT a hero tile)', async () => {
@@ -552,7 +558,7 @@ describe('Overview — Security Command Center (rebuild)', () => {
     expect(screen.getByTestId('kpi-llm-spend-detail')).toBeInTheDocument();
   });
 
-  it('the loading skeleton mirrors the dense layout: KPI · instruments · operations · fold', () => {
+  it('uses the shared centered Console loading state for the blocking load', () => {
     listCasesMock.mockReturnValue(new Promise(() => {}));
     getMetricsMock.mockReturnValue(new Promise(() => {}));
     usageMock.mockReturnValue(new Promise(() => {}));
@@ -560,11 +566,8 @@ describe('Overview — Security Command Center (rebuild)', () => {
     render(<Overview onNavigate={vi.fn()} />);
     const loading = screen.getByLabelText('Loading dashboard');
     expect(loading).toBeInTheDocument();
-    expect(screen.getByTestId('kpi-strip-skeleton').children).toHaveLength(5);
-    expect(screen.getByTestId('hero-skeleton-row').children).toHaveLength(3);
-    expect(screen.getByTestId('operations-skeleton-row')).toBeInTheDocument();
-    expect(screen.getByTestId('noise-skeleton-row')).toBeInTheDocument();
-    expect(screen.getByTestId('zonec-skeleton-row').children).toHaveLength(2);
-    expect(screen.getByTestId('deeper-analytics-skeleton')).toBeInTheDocument();
+    expect(loading).toHaveAttribute('data-loading-layout', 'page');
+    expect(within(loading).getByTestId('console-loading-glyph')).toBeInTheDocument();
+    expect(loading.querySelector('[data-loading-shape="page"]')).toBeInTheDocument();
   });
 });

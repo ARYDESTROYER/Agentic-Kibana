@@ -9,7 +9,8 @@
  *
  * We mount <Login/> inside the Theme + Tooltip providers, mock branding, the setup
  * status, and the SSO providers, and assert each mode renders WITHOUT crashing:
- *   1. signin: the "Sign in" title + the SSO buttons (google/microsoft icons).
+ *   1. signin: identity-first Username → Continue → Password / Back / Sign in,
+ *      plus the SSO buttons (google/microsoft icons).
  *   2. setup:  the create-admin title + a password-strength meter once typing.
  *   3. mfa:    driving the password form (requires_mfa) reveals the 6-cell OTP.
  *   4. change: driving the password form (must_change_password) reveals the form.
@@ -98,8 +99,28 @@ function renderLogin() {
   );
 }
 
+async function advanceSigninToPassword(username = 'alice') {
+  const usernameInput = await screen.findByLabelText('Username');
+  expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Sign in' })).not.toBeInTheDocument();
+
+  fireEvent.change(usernameInput, { target: { value: username } });
+  const continueButton = await screen.findByRole('button', { name: 'Continue' });
+  expect(continueButton).toBeEnabled();
+  fireEvent.click(continueButton);
+
+  const passwordInput = await screen.findByLabelText('Password');
+  expect(passwordInput).toHaveAttribute('placeholder', 'Enter your password');
+  expect(screen.getByRole('button', { name: 'Back' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Sign in' })).toBeDisabled();
+  expect(screen.queryByRole('button', { name: 'Continue' })).not.toBeInTheDocument();
+  return { usernameInput, passwordInput };
+}
+
 describe('Login — four-mode render', () => {
   beforeEach(() => {
+    window.localStorage.clear();
+    document.documentElement.classList.remove('dark');
     loginMock.mockReset();
     setupStatusMock.mockReset();
     ssoProvidersMock.mockReset();
@@ -117,16 +138,125 @@ describe('Login — four-mode render', () => {
     });
   });
 
-  it('renders the SIGNIN mode with SSO buttons', async () => {
-    renderLogin();
-    // The username + password fields are the signin-mode signature.
-    expect(await screen.findByLabelText('Username')).toBeInTheDocument();
-    expect(screen.getByLabelText('Password')).toBeInTheDocument();
-    // SSO buttons appear once the providers resolve.
-    await waitFor(() =>
-      expect(screen.getByText('Sign in with Google')).toBeInTheDocument(),
+  it('renders identity first, then reveals the password step without losing the surrounding shell', async () => {
+    const { container } = renderLogin();
+    // The first frame asks only who is signing in. The password and final submit
+    // stay out of the DOM until the operator commits an identity.
+    const username = await screen.findByLabelText('Username');
+    expect(username).toHaveAttribute('placeholder', 'Enter your username');
+    expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Continue' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Sign in' })).not.toBeInTheDocument();
+    // The identity surface is one quiet, centred slab with no hero, border,
+    // elevation, or workspace chrome around the credential controls.
+    const panel = container.querySelector('[data-login-panel]');
+    const slab = container.querySelector('[data-login-slab]');
+    const slabFrame = slab?.parentElement;
+    const content = slab?.firstElementChild;
+    const canvas = container.querySelector('[data-login-shell="minimal"]');
+    const ambient = container.querySelector('[data-login-ambient-grid]');
+    expect(canvas).toHaveClass('login-auth-canvas', 'overflow-x-hidden');
+    // Live Mistral geometry: the normal identity state resolves to 480 × 492,
+    // with 48 px top/side padding, 96 px bottom padding, and a 384 px control
+    // measure. It remains a minimum—not a fixed height—so MFA/setup can grow;
+    // narrow screens retain the full-viewport sheet.
+    expect(slabFrame).toHaveClass('sm:w-[30rem]', 'sm:max-w-[30rem]');
+    expect(slab).toHaveClass(
+      'min-h-[100dvh]',
+      'max-h-[100dvh]',
+      'flex-col',
+      'overflow-y-auto',
+      'sm:min-h-[30.75rem]',
+      'sm:w-[30rem]',
+      'sm:px-12',
+      'sm:pb-24',
+      'sm:pt-12',
     );
-    expect(screen.getByText('Sign in with Microsoft')).toBeInTheDocument();
+    expect(slab).not.toHaveClass('sm:h-[30.75rem]');
+    expect(content).toHaveClass('w-full', 'max-w-sm', 'my-auto', 'sm:my-0');
+    expect(slab).toHaveClass('login-auth-slab');
+    expect(slab).not.toHaveClass('sm:border-x', 'rounded', 'shadow-elev2');
+    expect(ambient).toHaveAttribute('aria-hidden', 'true');
+    expect(ambient).toHaveAttribute('data-login-ambient-cadence', 'mistral');
+    expect(ambient).toHaveClass('pointer-events-none', 'hidden', 'sm:block');
+    expect(
+      Array.from(ambient?.querySelectorAll<HTMLElement>('[data-login-guide]') ?? []).map(
+        (guide) => guide.dataset.loginGuide,
+      ).sort(),
+    ).toEqual(['bottom', 'left', 'right', 'top']);
+    const ambientTiles = Array.from(
+      ambient?.querySelectorAll<HTMLElement>('[data-login-ambient-tile]') ?? [],
+    );
+    expect(ambientTiles).toHaveLength(4);
+    expect(ambientTiles.map((tile) => tile.dataset.loginAmbientTile).sort()).toEqual([
+      '0',
+      '1',
+      '2',
+      '3',
+    ]);
+    expect(panel).toHaveAttribute('data-login-surface', 'minimal');
+    expect(panel).toHaveClass('rounded-none', 'border-0', 'shadow-none');
+    expect(panel).not.toHaveClass('shadow-elev2');
+    expect(screen.queryByText('Protected operator access')).not.toBeInTheDocument();
+    expect(screen.queryByText('Identity & access')).not.toBeInTheDocument();
+    expect(screen.queryByText('Trust path')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Welcome back' })).toBeInTheDocument();
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+    expect(username).toHaveClass('h-12', 'px-3.5');
+    expect(username).toHaveClass('text-lg', 'sm:text-base');
+    expect(username).toBeRequired();
+    expect(screen.getByRole('group', { name: 'Appearance' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Appearance' })).not.toHaveClass('border');
+    expect(screen.getByRole('button', { name: 'Use system theme' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Use dark theme' }));
+    expect(window.localStorage.getItem('soc.theme')).toBe('dark');
+    expect(screen.getByRole('button', { name: 'Use dark theme' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(document.querySelector('[data-login-shell]')).toHaveAttribute(
+      'data-login-theme-palette-settling',
+      'true',
+    );
+    // SSO buttons appear once the providers resolve.
+    const googleSso = await screen.findByRole('button', { name: 'Sign in with Google' });
+    const microsoftSso = screen.getByRole('button', { name: 'Sign in with Microsoft' });
+    expect(googleSso).toHaveClass('h-10');
+    expect(microsoftSso).toHaveClass('h-10');
+    expect(screen.queryByText('Session activity is audited')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Help & support/ })).toHaveAttribute(
+      'href',
+      'https://example.com/help',
+    );
+
+    // Mistral-style staged disclosure: Continue appears only after identity input.
+    fireEvent.change(username, { target: { value: 'alice' } });
+    const continueButton = await screen.findByRole('button', { name: 'Continue' });
+    expect(continueButton).toHaveClass('h-10');
+    fireEvent.click(continueButton);
+
+    const password = await screen.findByLabelText('Password');
+    expect(password).toHaveClass('h-12', 'pl-3.5', 'pr-11');
+    expect(password).toHaveClass('text-lg', 'sm:text-base');
+    expect(password).toBeRequired();
+    expect(screen.getByRole('button', { name: 'Back' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Continue' })).not.toBeInTheDocument();
+  });
+
+  it('returns from password to identity with the username preserved and focused', async () => {
+    renderLogin();
+    await advanceSigninToPassword('analyst@example.com');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+
+    const username = await screen.findByLabelText('Username');
+    expect(username).toHaveValue('analyst@example.com');
+    expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
+    await waitFor(() => expect(username).toHaveFocus());
   });
 
   it('renders the SETUP (create-admin) mode and the password-strength meter', async () => {
@@ -140,13 +270,19 @@ describe('Login — four-mode render', () => {
     await waitFor(() => expect(screen.getByText('Strong')).toBeInTheDocument());
   });
 
+  it('omits the external support action when no support URL is configured', async () => {
+    brandingMock.mockResolvedValue({ ...BASE_BRANDING, support_url: '' });
+    renderLogin();
+    await screen.findByLabelText('Username');
+    expect(screen.queryByRole('link', { name: /Help & support/ })).not.toBeInTheDocument();
+  });
+
   it('transitions to MFA mode and renders the segmented OTP input', async () => {
     loginMock.mockResolvedValue({ requires_mfa: true, pending_token: 'pend-123' });
     renderLogin();
-    await screen.findByLabelText('Username');
+    const { passwordInput } = await advanceSigninToPassword('alice');
 
-    fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'alice' } });
-    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'pw' } });
+    fireEvent.change(passwordInput, { target: { value: 'pw' } });
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
 
     expect(await screen.findByText('Two-factor authentication')).toBeInTheDocument();
@@ -160,10 +296,9 @@ describe('Login — four-mode render', () => {
   it('transitions to CHANGE-PASSWORD mode after a must_change login', async () => {
     loginMock.mockResolvedValue({ user: { must_change_password: true } });
     renderLogin();
-    await screen.findByLabelText('Username');
+    const { passwordInput } = await advanceSigninToPassword('bob');
 
-    fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'bob' } });
-    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'oldpw' } });
+    fireEvent.change(passwordInput, { target: { value: 'oldpw' } });
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
 
     expect(await screen.findByText('Set a new password')).toBeInTheDocument();
@@ -173,9 +308,37 @@ describe('Login — four-mode render', () => {
 
   it('shows the seeded-default credential hint when seeded_default is set', async () => {
     setupStatusMock.mockResolvedValue({ setup_complete: true, seeded_default: true });
-    renderLogin();
+    const { container } = renderLogin();
     await screen.findByLabelText('Username');
-    await waitFor(() => expect(screen.getByText(/Default sign-in/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Demo credentials')).toBeInTheDocument());
+    const hint = container.querySelector('[data-login-demo-hint]');
+    expect(hint).not.toHaveClass('border-y');
+    expect(hint).not.toHaveAttribute('role', 'alert');
+    expect(screen.getByText('Admin')).toHaveClass('font-mono');
+    expect(screen.getByText('Admin@123')).toHaveClass('font-mono');
+    fireEvent.click(screen.getByRole('button', { name: 'Use demo credentials' }));
+    expect(loginMock).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText('Username')).not.toBeInTheDocument();
+    expect(await screen.findByLabelText('Password')).toHaveValue('Admin@123');
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeEnabled();
+  });
+
+  it('keeps the username and returns focus to an announced invalid password after failure', async () => {
+    loginMock.mockRejectedValue(new Error('offline'));
+    renderLogin();
+    const { passwordInput: password } = await advanceSigninToPassword('analyst');
+
+    fireEvent.change(password, { target: { value: 'incorrect' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    expect(await screen.findByText('Could not reach the backend. Please try again.')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(password).toHaveValue('');
+      expect(password).toHaveAttribute('aria-invalid', 'true');
+      expect(password).toHaveAttribute('aria-describedby', 'login-error');
+      expect(password).toHaveFocus();
+    });
+    expect(loginMock).toHaveBeenCalledWith('analyst', 'incorrect');
   });
 });
 
@@ -261,7 +424,8 @@ describe('Login — OOBE account-setup (setup/account)', () => {
 });
 
 // --------------------------------------------------------------------------- //
-// Round-4 Wave-5: login white-label — bounded plain-text copy + curated layouts.
+// Round-4 Wave-5: login white-label — bounded plain-text copy plus legacy layout
+// compatibility. Stored layout values all converge on the same minimal shell.
 // --------------------------------------------------------------------------- //
 describe('Login — white-label copy + layouts', () => {
   beforeEach(() => {
@@ -285,7 +449,9 @@ describe('Login — white-label copy + layouts', () => {
     });
     renderLogin();
     await screen.findByLabelText('Username');
-    expect(await screen.findByText('Welcome to Contoso SOC')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Welcome to Contoso SOC' })).toBeInTheDocument();
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+    expect(screen.queryByRole('heading', { level: 1, name: 'Welcome back' })).not.toBeInTheDocument();
     expect(screen.getByText('Investigate faster.')).toBeInTheDocument();
     expect(screen.getByText('Fast')).toBeInTheDocument();
     expect(screen.getByText('Audited')).toBeInTheDocument();
@@ -310,9 +476,15 @@ describe('Login — white-label copy + layouts', () => {
       const { container } = renderLogin();
       // The sign-in form is reachable in every layout (wait for the async branding
       // fetch to settle, then assert against this render's own container).
-      await screen.findByRole('button', { name: 'Sign in' });
+      const username = await screen.findByLabelText('Username');
+      const shell = container.querySelector(`[data-login-layout="${layout}"]`);
+      expect(shell).toHaveAttribute('data-login-shell', 'minimal');
       expect(container.querySelector('#login-username')).not.toBeNull();
-      expect(container.querySelector('#login-password')).not.toBeNull();
+      expect(container.querySelector('#login-password')).toBeNull();
+
+      fireEvent.change(username, { target: { value: 'analyst' } });
+      fireEvent.click(await screen.findByRole('button', { name: 'Continue' }));
+      expect(await screen.findByLabelText('Password')).toBeInTheDocument();
     },
   );
 });

@@ -113,6 +113,7 @@ export default {
         '2xl': ['1.25rem', { lineHeight: '1.625rem', letterSpacing: '-0.01em', fontWeight: '600' }], // 20/26 — H2 page heading
         '3xl': ['1.5rem', { lineHeight: '1.875rem', letterSpacing: '-0.015em', fontWeight: '650' }], // 24/30 — H1
         '4xl': ['1.875rem', { lineHeight: '2.25rem', letterSpacing: '-0.02em', fontWeight: '650' }], // 30/36 — hero/display
+        display: ['2rem', { lineHeight: '2.5rem', letterSpacing: '-0.02em' }], // 32/40 — sparse identity/display headings
       },
       borderRadius: {
         lg: 'var(--radius)',
@@ -187,7 +188,6 @@ export default {
       keyframes: {
         'accordion-down': { from: { height: '0' }, to: { height: 'var(--radix-accordion-content-height)' } },
         'accordion-up': { from: { height: 'var(--radix-accordion-content-height)' }, to: { height: '0' } },
-        shimmer: { '100%': { transform: 'translateX(100%)' } },
         'fade-in': { from: { opacity: '0' }, to: { opacity: '1' } },
         'rise-in': { from: { opacity: '0', transform: 'translateY(8px)' }, to: { opacity: '1', transform: 'translateY(0)' } },
         /* Round-7 W0.1 — a gentle grow-in for cards/gauges/count-up tiles. Opacity +
@@ -233,7 +233,6 @@ export default {
       animation: {
         'accordion-down': 'accordion-down 0.2s ease-out',
         'accordion-up': 'accordion-up 0.2s ease-out',
-        shimmer: 'shimmer 1.8s ease-in-out infinite',
         'fade-in': 'fade-in 0.24s cubic-bezier(0.16,1,0.3,1) both',
         'rise-in': 'rise-in 0.24s cubic-bezier(0.16,1,0.3,1) both',
         'scale-in': 'scale-in 0.2s cubic-bezier(0.16,1,0.3,1) both',

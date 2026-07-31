@@ -50,16 +50,17 @@ async def branding_put(
     state: AppState = Depends(get_state),
     _admin=Depends(require_admin),  # ADMIN-ONLY: org-wide branding is an admin surface
 ) -> dict[str, Any]:
-    if state.prefs.read_only_settings_mode:
-        raise HTTPException(status_code=403, detail="settings are read-only")
-    prefs = state.prefs.model_copy(deep=True)
-    prefs.branding = body
-    await state.update_prefs(prefs)
+    def _apply(current):
+        if current.read_only_settings_mode:
+            raise HTTPException(status_code=403, detail="settings are read-only")
+        return current.model_copy(update={"branding": body})
+
+    prefs = await state.mutate_prefs(_apply)
     # Persist exactly as before, then ADDITIVELY annotate the response with a WCAG-AA
-    # contrast advisory (Wave-4): derived black/white *-foreground per operator accent
-    # (auto_corrected) + plain-text warnings for pairs that still can't reach AA. This
-    # WARNS, it does not block — the save above already succeeded. Operator hex is
-    # already bounded by BrandingConfig (#9); the helper is pure + fail-open.
+    # contrast advisory (Wave-4): the exact higher-contrast black/white *-foreground
+    # derived for each operator accent (auto_corrected) + plain-text warnings only for
+    # pairs that still cannot reach AA. This does not block — the save above already
+    # succeeded. Operator hex is bounded by BrandingConfig; the helper is pure/fail-open.
     from ..engine.contrast import evaluate_branding_contrast
 
     saved = prefs.branding.model_dump(mode="json")
@@ -176,11 +177,12 @@ async def prefs_org_put(
 ) -> dict[str, Any]:
     """Replace the ORG customization defaults (admin-only). Validated/bounded by
     CustomizationConfig. All free-text is plain data (#9)."""
-    if state.prefs.read_only_settings_mode:
-        raise HTTPException(status_code=403, detail="settings are read-only")
-    prefs = state.prefs.model_copy(deep=True)
-    prefs.customization = body
-    await state.update_prefs(prefs)
+    def _apply(current):
+        if current.read_only_settings_mode:
+            raise HTTPException(status_code=403, detail="settings are read-only")
+        return current.model_copy(update={"customization": body})
+
+    prefs = await state.mutate_prefs(_apply)
     await state.control_audit.record(
         action_type=ActionType.USER_MGMT, surface="settings",
         actor=current_username(request) or "admin",
@@ -205,14 +207,21 @@ async def terminology_put(
 ) -> dict[str, Any]:
     """Replace the ORG terminology map (admin-only). Bounded/validated by
     CustomizationConfig. Plain data (#9)."""
-    if state.prefs.read_only_settings_mode:
-        raise HTTPException(status_code=403, detail="settings are read-only")
-    custom = state.prefs.customization.model_copy(update={"terminology": dict(body.terminology)})
-    # Round-trip through the model so the field validator bounds it.
-    custom = CustomizationConfig.model_validate(custom.model_dump())
-    prefs = state.prefs.model_copy(deep=True)
-    prefs.customization = custom
-    await state.update_prefs(prefs)
+    custom: CustomizationConfig | None = None
+
+    def _apply(current):
+        nonlocal custom
+        if current.read_only_settings_mode:
+            raise HTTPException(status_code=403, detail="settings are read-only")
+        custom = current.customization.model_copy(
+            update={"terminology": dict(body.terminology)}
+        )
+        # Round-trip through the model so the field validator bounds it.
+        custom = CustomizationConfig.model_validate(custom.model_dump())
+        return current.model_copy(update={"customization": custom})
+
+    await state.mutate_prefs(_apply)
+    assert custom is not None
     await state.control_audit.record(
         action_type=ActionType.USER_MGMT, surface="settings",
         actor=current_username(request) or "admin",

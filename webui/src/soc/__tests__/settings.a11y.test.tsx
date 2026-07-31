@@ -9,15 +9,12 @@
  *
  * Offline: no network, no #3 / runtime behaviour touched.
  *
- * ── Scoped rules (documented) ────────────────────────────────────────────────────────
- *  - `landmark-unique` is DISABLED — a JSDOM HARNESS ARTIFACT, not a page defect. The
- *    section rail ships TWO responsive copies of `<nav aria-label="Settings sections">`
- *    (a desktop `lg:sticky` rail + a mobile copy) toggled by CSS media queries. In a
- *    real browser exactly ONE is displayed (`lg:hidden` / `hidden lg:block`); jsdom
- *    applies no media queries, so BOTH navs are present and collide on identical
- *    role+name. Verified by dumping landmarks: two identical `NAV[al="Settings
- *    sections"]`. Not something a test-only change should paper over in source.
- *  - `button-name` / `select-name` are ENABLED (H4 fixed): every Field-wrapped Radix
+ * The narrow section chooser now mounts its grouped navigation only while its Sheet is
+ * open, and the desktop category rail has a distinct landmark name from the in-section
+ * anchor navigation. The smoke therefore runs with the complete axe ruleset—there are
+ * no responsive duplicate-landmark exclusions.
+ *
+ * `button-name` / `select-name` are ENABLED (H4 fixed): every Field-wrapped Radix
  *    Select now forwards the Field id + `aria-labelledby` to its `<SelectTrigger>`, and
  *    the non-Field Selects carry an explicit `aria-label`, so every `role="combobox"`
  *    trigger has an accessible name. These rules guard against the regression returning.
@@ -80,15 +77,6 @@ import { RouterProvider } from '../router';
 import { TooltipProvider } from '@/ui/tooltip';
 import Settings from '../pages/Settings';
 
-// See header: `landmark-unique` is a jsdom responsive-duplicate artifact (the ONLY
-// scoped-out rule). `button-name`/`select-name` are ENABLED — H4's Field→SelectTrigger
-// wiring names every combobox, so this smoke now guards that regression too.
-const AXE_OPTS = {
-  rules: {
-    'landmark-unique': { enabled: false },
-  },
-};
-
 function renderWithProviders(node: React.ReactNode) {
   return render(
     <AuthProvider>
@@ -107,6 +95,6 @@ describe('Settings — a11y smoke (jest-axe)', () => {
       () => expect(screen.getByTestId('settings-section-general')).toBeInTheDocument(),
       { timeout: 5000 },
     );
-    expect(await axe(container, AXE_OPTS)).toHaveNoViolations();
+    expect(await axe(container)).toHaveNoViolations();
   });
 });

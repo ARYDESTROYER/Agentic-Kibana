@@ -4,8 +4,9 @@
  * Round-3 extends the legacy white-label editor (wordmark / logo / favicon / accent /
  * default theme / login copy) with the BOUNDED design-token surface:
  *   - a one-click named accent PRESET picker (AA-vetted hues from theme-tokens);
- *   - a bounded ThemeTokens editor (severity hues, radius, display font) applied as a
- *     LIVE PREVIEW via `applyTokens` (allow-listed + sanitised — #9/#10);
+ *   - a bounded ThemeTokens editor (radius + display font) applied as a LIVE PREVIEW
+ *     via `applyTokens` (allow-listed + sanitised — #9/#10); measured semantic axes
+ *     remain system-owned so branding cannot split their fill/text contrast pairs;
  *   - a light / dark / system default theme choice (drives `default_theme`);
  *   - a 'command' MATERIAL pack toggle (denser chrome; colours/contrast unchanged);
  *   - a live WCAG-AA contrast advisory — from the PUT response when the backend
@@ -31,6 +32,7 @@ import {
   Moon,
   RotateCcw,
   Save,
+  Shield,
   ShieldCheck,
   Sun,
   Trash2,
@@ -46,6 +48,7 @@ import {
   ALLOWED_TOKENS,
   applyMaterial,
   applyTokens,
+  resolveAccentPair,
   clearTokens,
   hexToHslTriplet,
   type Material,
@@ -58,17 +61,12 @@ import {
   type BrandingDoc,
 } from './branding.api';
 import {
-  asLoginIllustration,
   asLoginLayout,
-  BrandHero,
-  LOGIN_ILLUSTRATION_LABELS,
-  LOGIN_ILLUSTRATIONS,
-  LOGIN_LAYOUT_LABELS,
-  LOGIN_LAYOUTS,
   type BrandHeroProps,
   type LoginLayout,
 } from './auth/loginParts';
 import { LOGIN_BRANDING_DEFAULTS } from './auth/login.api';
+import { LoginAuthBackdrop } from './auth/LoginAuthBackdrop';
 import { LoadError } from './LoadError';
 
 import { Button } from '@/ui/button';
@@ -77,9 +75,11 @@ import { Label } from '@/ui/label';
 import { Switch } from '@/ui/switch';
 import { Textarea } from '@/ui/textarea';
 import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
-import { Skeleton } from '@/ui/skeleton';
 import { Separator } from '@/ui/separator';
 import { Heading as TypographyHeading, Text } from '@/ui/typography';
+import { LoadingState } from '@/design-system';
+import { useUnsavedChanges } from '@/soc/hooks/useDirtyDraft';
+import { SectionTitle } from '@/soc/pages/settings/primitives';
 import {
   Select,
   SelectContent,
@@ -145,9 +145,10 @@ const THEME_OPTIONS: Array<{ id: ThemeMode; label: string; icon: typeof Sun }> =
 
 /**
  * The BOUNDED design tokens exposed in the editor. Only allow-listed token names
- * appear; the input kind constrains the value (color → #rrggbb, font → enum,
- * radius → a small rem range). Everything still passes `sanitizeTokenValue` before
- * it is written, and only `applyTokens` (allow-list) touches the DOM.
+ * appear; font is an enum and radius uses a small rem range. Everything still passes
+ * `sanitizeTokenValue` before it is written, and only `applyTokens` touches the DOM.
+ * Severity/status/verdict fills are deliberately absent: each belongs to a measured
+ * fill + foreground + standalone-text + CVD pairing that must change as one system.
  */
 type TokenKind = 'color' | 'radius' | 'font';
 interface TokenSpec {
@@ -156,13 +157,6 @@ interface TokenSpec {
   kind: TokenKind;
 }
 const TOKEN_SPECS: TokenSpec[] = [
-  { name: '--critical', label: 'Critical', kind: 'color' },
-  { name: '--high', label: 'High', kind: 'color' },
-  { name: '--medium', label: 'Medium', kind: 'color' },
-  { name: '--low', label: 'Low', kind: 'color' },
-  { name: '--info', label: 'Info', kind: 'color' },
-  { name: '--success', label: 'Success', kind: 'color' },
-  { name: '--warning', label: 'Warning', kind: 'color' },
   { name: '--radius', label: 'Corner radius', kind: 'radius' },
   { name: '--font-display', label: 'Display font', kind: 'font' },
 ];
@@ -240,11 +234,13 @@ function resolvedTokenHex(name: string): string | null {
 function applyAccentPreview(accentHex: string): void {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
-  const triplet = accentHex ? hexToHslTriplet(accentHex) : null;
-  if (triplet) {
-    applyTokens({ '--primary': triplet, '--ring': triplet }, root);
+  const pair = resolveAccentPair(accentHex || null);
+  if (pair) {
+    applyTokens({ '--primary': pair.fill, '--ring': pair.fill }, root);
+    root.style.setProperty('--primary-foreground', pair.foreground);
   } else {
     root.style.removeProperty('--primary');
+    root.style.removeProperty('--primary-foreground');
     root.style.removeProperty('--ring');
   }
 }
@@ -507,29 +503,38 @@ const PREVIEW_DESIGN_H = 700;
 type PreviewHero = Omit<BrandHeroProps, 'variant'>;
 
 /**
- * A small, faithful sign-in card skeleton (logo · title · two fields · button). Uses
- * the LIVE-previewed accent/theme tokens (`bg-primary`/`bg-card`/…) so it reflects the
- * chosen appearance alongside the hero. Purely decorative (the parent hides it from AT).
+ * A small, faithful identity-slab preview. It mirrors the real login's standalone
+ * mark, single title hierarchy, and 48px credential rhythm—there is
+ * intentionally no marketing hero, illustration, floating card, or elevation.
  */
-function LoginPreviewCard() {
+function LoginPreviewCard({ hero }: { hero: PreviewHero }) {
+  const title = hero.headline?.trim() || 'Welcome back';
+  const description = hero.body?.trim() || hero.subtitle?.trim() || `Sign in to continue to ${hero.wordmark}.`;
   return (
-    <div className="w-[400px] rounded-2xl border border-border bg-card p-9 shadow-elev2">
-      <div className="mb-7 space-y-2.5">
-        <div className="h-2.5 w-24 rounded bg-muted-foreground/30" />
-        <div className="h-5 w-40 rounded bg-foreground/80" />
-        <div className="h-3 w-52 rounded bg-muted-foreground/40" />
+    <div data-login-preview-content className="w-[384px]">
+      <div className="mb-5 flex h-14 min-w-0 items-center">
+        <div className="flex h-14 w-14 shrink-0 items-center justify-start">
+          {hero.logoUrl ? (
+            <img src={hero.logoUrl} alt="" className="h-14 w-14 object-contain" />
+          ) : (
+            <Shield className="h-12 w-12 stroke-[1.35] text-primary" aria-hidden />
+          )}
+        </div>
       </div>
-      <div className="space-y-5">
-        <div className="space-y-2">
-          <div className="h-2.5 w-16 rounded bg-muted-foreground/40" />
-          <div className="h-11 rounded-md border border-input bg-background" />
+      <div>
+        <div className="text-left">
+          <p className="break-words text-display font-medium text-foreground">
+            {title}
+          </p>
+          <p className="mt-3 break-words text-base leading-5 text-muted-foreground">
+            {description}
+          </p>
         </div>
-        <div className="space-y-2">
-          <div className="h-2.5 w-16 rounded bg-muted-foreground/40" />
-          <div className="h-11 rounded-md border border-input bg-background" />
-        </div>
-        <div className="flex h-11 items-center justify-center rounded-md bg-primary">
-          <div className="h-2.5 w-20 rounded bg-primary-foreground/80" />
+        <div className="mt-9 space-y-4">
+          <div className="space-y-2">
+            <p className="text-sm font-medium text-foreground">Username</p>
+            <div className="h-12 rounded-md border border-input bg-background" />
+          </div>
         </div>
       </div>
     </div>
@@ -537,45 +542,32 @@ function LoginPreviewCard() {
 }
 
 /**
- * The full-screen login arrangement at DESIGN size, for the CHOSEN layout — mirrors the
- * real login shells (using their designed lg+ look, without the viewport-`lg:` gating
- * that would misbehave inside the small settings column). This is what makes the
- * preview MATCH reality: split → split, centered → centered, full → full.
+ * The full-screen login arrangement at DESIGN size. Legacy layout values remain
+ * visible in Settings for wire compatibility, but all three intentionally preview the
+ * same minimal centered shell used by the real login.
  */
 function LoginPreviewStage({ layout, hero }: { layout: LoginLayout; hero: PreviewHero }) {
-  if (layout === 'split') {
-    return (
-      <div className="absolute inset-0 flex">
-        <div className="relative w-[58%] overflow-hidden">
-          <BrandHero {...hero} variant="full" />
-        </div>
-        <div className="flex w-[42%] items-center justify-center bg-canvas px-8">
-          <LoginPreviewCard />
-        </div>
-      </div>
-    );
-  }
-  if (layout === 'centered') {
-    return (
-      <div className="absolute inset-0 overflow-hidden bg-canvas">
-        <BrandHero {...hero} variant="backdrop" />
-        <div
-          className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-canvas/60 to-canvas"
-          aria-hidden
-        />
-        <div className="absolute inset-0 flex items-center justify-center px-8">
-          <LoginPreviewCard />
-        </div>
-      </div>
-    );
-  }
-  // 'full' — full-bleed hero, form floated to the right.
   return (
-    <div className="absolute inset-0 overflow-hidden">
-      <BrandHero {...hero} variant="full" />
-      <div className="pointer-events-none absolute inset-0 bg-black/30" aria-hidden />
-      <div className="absolute inset-0 flex items-center justify-end px-8 pr-[9%]">
-        <LoginPreviewCard />
+    <div
+      data-login-preview-shell="minimal"
+      data-login-preview-layout={layout}
+      className="login-auth-canvas absolute inset-0 overflow-hidden"
+    >
+      <div className="absolute right-8 top-8 flex gap-0.5">
+        <span className="h-6 w-6 bg-muted" />
+        <span className="h-6 w-6" />
+        <span className="h-6 w-6" />
+      </div>
+      <div className="flex min-h-full items-center justify-center px-12 py-12">
+        <div className="relative isolate w-[480px]">
+          <LoginAuthBackdrop staticFrame />
+          <div
+            data-login-preview-slab
+            className="login-auth-slab relative z-30 min-h-[492px] w-[480px] px-12 pb-24 pt-12"
+          >
+            <LoginPreviewCard hero={hero} />
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -584,8 +576,8 @@ function LoginPreviewStage({ layout, hero }: { layout: LoginLayout; hero: Previe
 /**
  * A faithful, non-clipping miniature of the login screen: the DESIGN-size stage is
  * uniformly `scale()`d down to the box width (transform-origin top-left) inside a box
- * that holds the matching aspect ratio — so the ENTIRE hero (headline + body + chips +
- * footer) fits, and the arrangement matches the selected layout. A ResizeObserver keeps
+ * that holds the matching aspect ratio, so the full identity column fits without
+ * clipping. A ResizeObserver keeps
  * the scale correct as the settings column resizes; jsdom (no RO / zero width) simply
  * keeps the default scale, which is harmless for the non-visual test env.
  */
@@ -613,7 +605,7 @@ function LoginPreview({ layout, hero }: { layout: LoginLayout; hero: PreviewHero
       className="relative w-full overflow-hidden rounded-lg border border-border bg-canvas shadow-elev1"
       style={{ aspectRatio: `${PREVIEW_DESIGN_W} / ${PREVIEW_DESIGN_H}` }}
     >
-      {/* The stage is a visual mock — hide its skeleton + hero text from assistive tech;
+      {/* The stage is a visual mock — hide its skeleton + branding text from assistive tech;
           the editable, labelled controls below are the real interface. */}
       <div
         aria-hidden
@@ -638,7 +630,7 @@ export interface BrandingEditorProps {
 }
 
 export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
-  const { branding: ctxBranding, setTheme, isDark, refreshBranding } = useTheme();
+  const { branding: ctxBranding, isDark, refreshBranding } = useTheme();
 
   // The server-confirmed baseline (for dirty-tracking) and the working draft.
   const seed = React.useMemo<BrandingDoc>(
@@ -684,10 +676,12 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
   // appearance edits never leak globally (switching sections / navigating away).
   const savedRef = React.useRef(saved);
   savedRef.current = saved;
-  // setTheme persists to localStorage, so a previewed "Default theme" would otherwise
-  // leak past unmount; keep a ref so the cleanup can revert the colour mode too.
-  const setThemeRef = React.useRef(setTheme);
-  setThemeRef.current = setTheme;
+  // The organization default is configuration, not the current operator's personal
+  // theme. Never call ThemeProvider.setTheme() from this editor: that setter persists
+  // `soc.theme`, and React StrictMode runs effect cleanup during the initial mount.
+  // Using it here meant merely opening Branding could replace an explicit Light choice
+  // with the organization's Dark default. System-mode operators adopt a newly SAVED org
+  // default through refreshBranding(); explicit Light/Dark operators always keep theirs.
   React.useEffect(() => {
     return () => {
       const s = savedRef.current;
@@ -696,9 +690,6 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
       applyThemeTokensPreview(s.theme_tokens || {});
       applyMaterialPreview((s.material as Material) || 'quiet');
       applyFaviconPreview(s.favicon_data_url || '');
-      // Mirror discard(): revert the previewed colour mode to the saved default so an
-      // unsaved theme click does not persist globally.
-      setThemeRef.current(effectiveDefaultTheme(s));
     };
   }, []);
 
@@ -752,7 +743,6 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
     // Keep BOTH the Round-3 `default_theme` and the legacy `theme` aligned, and clear
     // the legacy `dark_mode_default` override so the explicit choice wins cleanly.
     set({ default_theme: id, theme: id, dark_mode_default: false });
-    setTheme(id); // instant live preview through the ThemeProvider
   };
 
   /* ----------------------------------------------------------- material pack - */
@@ -813,7 +803,6 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
   // (headline/body/chips) or a curated ENUM key (layout/illustration) — never markup
   // or a URL (#6/#9). The BrandHero live preview renders every string as plain text.
   const loginLayout = asLoginLayout(draft.login_layout);
-  const loginIllustration = asLoginIllustration(draft.login_illustration);
   const loginChips: string[] = Array.isArray(draft.login_chips)
     ? draft.login_chips.map((c) => String(c))
     : [];
@@ -842,6 +831,9 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
       return true;
     }
   }, [draft, saved]);
+  // Branding owns an independent save lifecycle and is intentionally excluded from
+  // the parent Settings dirty map. Surface its draft to the shell update guard here.
+  useUnsavedChanges(dirty, !readOnly);
 
   const supportUrlValid =
     !draft.support_url ||
@@ -905,8 +897,6 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
     applyThemeTokensPreview(saved.theme_tokens || {});
     applyMaterialPreview((saved.material as Material) || 'quiet');
     applyFaviconPreview(saved.favicon_data_url || '');
-    const t = effectiveDefaultTheme(saved);
-    setTheme(t);
   };
 
   /* ---------------------------------------------------------------- render -- */
@@ -918,18 +908,13 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
   const gradient = `linear-gradient(135deg, ${a1} 0%, ${a2} 100%)`;
 
   if (loading) {
-    // Skeleton shaped like the form (preview bar + a field grid) — consistent with the
-    // other Settings editors, and avoids the bare-text → full-form pop.
     return (
-      <div className="space-y-6" aria-busy="true" aria-live="polite">
-        <span className="sr-only">Loading branding…</span>
-        <Skeleton className="h-24 w-full rounded-lg" />
-        <div className="grid gap-4 sm:grid-cols-2">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} className="h-16 w-full rounded-md" />
-          ))}
-        </div>
-      </div>
+      <LoadingState
+        label="Loading branding"
+        description="Preparing your organization’s appearance controls."
+        layout="panel"
+        shape="panel"
+      />
     );
   }
   if (error) {
@@ -940,34 +925,33 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
   const correctedNames = Object.keys(autoCorrected);
 
   return (
-    <div className="space-y-6">
-      <div className="space-y-1 border-b border-border pb-4">
-        <h2 className="text-lg font-semibold tracking-tight text-foreground">Branding &amp; theme</h2>
-        <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          White-label the console: wordmark, logo, accent colours, the design-token theme,
-          the material pack, the default colour mode, and login copy.
-        </p>
-      </div>
+    <div className="space-y-6" data-testid="branding-settings-surface">
+      <SectionTitle
+        title="Branding"
+        sub="Set the organization wordmark, logo, accents, bounded design tokens, default theme, and sign-in experience."
+      />
 
       {/* Live preview of the shell header */}
       <div className="space-y-2">
         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Live preview
         </p>
-        <div className="overflow-hidden rounded-lg border border-border shadow-elev1">
+        <div className="overflow-hidden border-y border-border" data-testid="branding-live-preview">
           <div className="h-1" style={{ background: gradient }} />
-          <div className="flex items-center gap-3 px-5 py-4" style={{ background: gradient }}>
+          <div
+            className="flex items-center gap-3 bg-primary px-5 py-4 text-primary-foreground"
+          >
             <span
               className="inline-flex h-11 w-11 items-center justify-center overflow-hidden rounded-md"
-              style={{ background: 'rgba(255,255,255,0.18)' }}
+              style={{ background: 'hsl(var(--primary-foreground) / 0.14)' }}
             >
               {draft.logo_data_url ? (
                 <img src={draft.logo_data_url} alt="" className="h-11 w-11 object-contain" />
               ) : (
-                <ShieldCheck className="h-6 w-6 text-white" aria-hidden />
+                <ShieldCheck className="h-6 w-6" aria-hidden />
               )}
             </span>
-            <div className="leading-tight text-white">
+            <div className="leading-tight">
               <div className="text-lg font-bold">{wordmark}</div>
               <div className="text-xs opacity-90">{tagline}</div>
             </div>
@@ -1157,7 +1141,7 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
       <div className="space-y-3">
         <Heading
           title="Design tokens"
-          sub="Bounded theme tokens — severity hues, corner radius, and the display font. Values are allow-listed and sanitised; previews apply instantly."
+          sub="Bounded layout tokens — corner radius and display font. Semantic severity, status, and verdict colours stay system-owned so their measured text contrast and colour-blind-safe pairings cannot drift."
         />
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {SAFE_TOKEN_SPECS.map((spec) => {
@@ -1221,7 +1205,7 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
             Switch (a <button role="switch">), so it provided no association —
             the Switch is self-labeled via aria-label. A <div> keeps the styling
             and behavior identical while dropping the misleading label semantics. */}
-        <div className="flex w-fit items-center gap-3 rounded-md border border-border bg-surface px-4 py-3 text-sm text-foreground">
+        <div className="flex max-w-xl items-center gap-3 border-y border-border py-3 text-sm text-foreground">
           <Switch
             checked={material === 'command'}
             disabled={readOnly}
@@ -1239,8 +1223,8 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
 
       {/* Theme */}
       <div className="space-y-3">
-        <Heading title="Default theme" sub="The org default colour mode; “System” follows the OS. A user’s own choice always wins." />
-        <div className="inline-flex rounded-lg border border-border bg-muted p-1">
+        <Heading title="Default theme" sub="The org default colour mode; “System” follows the OS. Your personal appearance stays active while you edit." />
+        <div className="inline-flex border border-border bg-muted p-0.5">
           {THEME_OPTIONS.map((o) => {
             const active = currentDefaultTheme === o.id;
             const Icon = o.icon;
@@ -1252,11 +1236,11 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
                 onClick={() => onDefaultTheme(o.id)}
                 aria-pressed={active}
                 className={cn(
-                  'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+                  'inline-flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-sm font-medium transition-colors',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                   'disabled:cursor-not-allowed disabled:opacity-50',
                   active
-                    ? 'bg-card text-foreground shadow-elev1'
+                    ? 'bg-card text-foreground'
                     : 'text-muted-foreground hover:text-foreground',
                 )}
               >
@@ -1267,7 +1251,7 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
           })}
         </div>
         <p className="text-xs text-muted-foreground">
-          Currently showing the <strong className="font-semibold text-foreground">{isDark ? 'dark' : 'light'}</strong> theme.
+          Your Console remains in your personal <strong className="font-semibold text-foreground">{isDark ? 'dark' : 'light'}</strong> theme. System users adopt this default after Save.
         </p>
       </div>
 
@@ -1290,8 +1274,8 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
             onChange={(e) => set({ login_subtitle: e.target.value })}
           />
           <p className="text-xs text-muted-foreground">
-            Shown as the sign-in form description (and used as the hero headline only when
-            no headline is set below).
+            Used as the short sentence beneath the sign-in heading when no custom
+            description is set below.
           </p>
         </div>
         <div className="space-y-1.5">
@@ -1328,15 +1312,14 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
 
       <Separator />
 
-      {/* Login screen — bounded plain-text hero copy + curated layout/illustration. */}
+      {/* Login screen — bounded optional copy inside one minimal sign-in shell. */}
       <div className="space-y-4">
         <Heading
           title="Login screen"
-          sub="The sign-in hero copy, arrangement, and backdrop. All text is plain (no markup); the arrangement and backdrop are picked from a curated set."
+          sub="Keep sign-in quiet and concise. Optional copy is plain text and appears inside the centered identity slab."
         />
 
-        {/* Live preview of the chosen login (uses the SAME BrandHero the login renders,
-            in a faithful, layout-aware, scaled miniature — never clipped). */}
+        {/* Faithful miniature of the same minimal shell used by Login. */}
         <div className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Login preview
@@ -1352,47 +1335,45 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
               chips: previewChips,
               subtitle: draft.login_subtitle || '',
               footerText: draft.footer_text || '',
-              illustration: loginIllustration,
             }}
           />
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="brand-login-headline">Headline</Label>
+          <Label htmlFor="brand-login-headline">Short welcome line</Label>
           <Input
             id="brand-login-headline"
             value={draft.login_headline || ''}
-            placeholder="Triage at machine speed, with a human in the loop."
+            placeholder="Welcome to your security workspace"
             disabled={readOnly}
             maxLength={MAX_LOGIN_HEADLINE_LEN}
             onChange={(e) => set({ login_headline: e.target.value })}
           />
           <p className="text-xs text-muted-foreground">
-            The big line on the hero. Blank uses the built-in headline.
+            Optional. Replaces the default “Welcome back” heading.
           </p>
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="brand-login-body">Body copy</Label>
+          <Label htmlFor="brand-login-body">Sign-in description</Label>
           <Textarea
             id="brand-login-body"
             value={draft.login_body || ''}
-            placeholder="Audited, cost-metered agentic triage — every alert turned into a reviewable, explainable case."
+            placeholder="Use your organization account to continue."
             disabled={readOnly}
             maxLength={MAX_LOGIN_BODY_LEN}
             rows={3}
             onChange={(e) => set({ login_body: e.target.value })}
           />
           <p className="text-xs text-muted-foreground">
-            A short paragraph under the headline. Blank uses the built-in copy.
+            Optional. Replaces the default sentence beneath the heading.
           </p>
         </div>
 
         <div className="space-y-2">
-          <Label>Feature chips</Label>
+          <Label>Footer notes</Label>
           <p className="text-xs text-muted-foreground">
-            Up to {MAX_LOGIN_CHIPS} short bullets shown as pills. Leave empty for the
-            built-in set.
+            Up to {MAX_LOGIN_CHIPS} short notes shown as quiet dot-separated text.
           </p>
           <div className="space-y-2">
             {loginChips.map((chip, i) => (
@@ -1421,53 +1402,15 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
           </div>
           {loginChips.length < MAX_LOGIN_CHIPS ? (
             <Button variant="outline" size="sm" type="button" disabled={readOnly} onClick={addChip}>
-              Add chip
+              Add note
             </Button>
           ) : null}
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label htmlFor="brand-login-layout">Layout</Label>
-            <Select
-              value={loginLayout}
-              disabled={readOnly}
-              onValueChange={(v) => set({ login_layout: asLoginLayout(v) })}
-            >
-              <SelectTrigger id="brand-login-layout" aria-label="Login layout">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {LOGIN_LAYOUTS.map((l) => (
-                  <SelectItem key={l} value={l}>
-                    {LOGIN_LAYOUT_LABELS[l]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="brand-login-illustration">Illustration</Label>
-            <Select
-              value={loginIllustration || '__none__'}
-              disabled={readOnly}
-              onValueChange={(v) =>
-                set({ login_illustration: asLoginIllustration(v === '__none__' ? '' : v) })
-              }
-            >
-              <SelectTrigger id="brand-login-illustration" aria-label="Login illustration">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {LOGIN_ILLUSTRATIONS.map((key) => (
-                  <SelectItem key={key || '__none__'} value={key || '__none__'}>
-                    {LOGIN_ILLUSTRATION_LABELS[key]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
+        <p className="text-xs leading-5 text-muted-foreground">
+          Saved legacy layout and illustration values remain preserved for compatibility;
+          the current Console intentionally uses one minimal sign-in layout.
+        </p>
       </div>
 
       {/* Actions */}

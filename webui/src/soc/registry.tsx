@@ -60,7 +60,9 @@ import {
   SlidersHorizontal,
   Layers,
   Activity,
+  TrendingUp,
   Columns3,
+  BookMarked,
   BookOpenText,
 } from 'lucide-react';
 
@@ -79,10 +81,12 @@ export type PageId =
   | 'chat'
   | 'intelligence'
   | 'metrics'
+  | 'effectiveness'
   | 'models'
   | 'scans'
   | 'standup'
   | 'catalog'
+  | 'runbooks'
   | 'playbooks'
   | 'approvals'
   | 'knowledge'
@@ -288,6 +292,12 @@ export const FEATURES: FeatureNode[] = [
     group: 'intelligence',
     children: [
       { id: 'knowledge', label: 'Knowledge', icon: BookOpen },
+      {
+        id: 'runbooks',
+        label: 'Runbooks',
+        icon: BookMarked,
+        perm: { resource: 'runbooks', action: 'read' },
+      },
       { id: 'memory', label: 'Memory', icon: Brain },
       { id: 'playbooks', label: 'Playbooks', icon: Workflow },
     ],
@@ -307,6 +317,12 @@ export const FEATURES: FeatureNode[] = [
       // /api/llm/models — are auth-only, no per-resource grant, so gating them would
       // hide a page the principal can actually read.)
       { id: 'metrics', label: 'Metrics', icon: BarChart3, perm: { resource: 'metrics', action: 'view' } },
+      {
+        id: 'effectiveness',
+        label: 'Agent effectiveness',
+        icon: TrendingUp,
+        perm: { resource: 'metrics', action: 'view' },
+      },
       { id: 'cost', label: 'Cost', icon: DollarSign },
       { id: 'models', label: 'Models', icon: Cpu },
       {
@@ -374,7 +390,7 @@ export const FEATURES: FeatureNode[] = [
   },
   {
     id: 'docs',
-    label: 'Docs',
+    label: 'Documentation',
     icon: BookOpenText,
     group: 'platform',
     navPlacement: 'footer',
@@ -392,6 +408,14 @@ export const FEATURES: FeatureNode[] = [
   { id: 'models', label: 'Models', icon: Cpu, group: 'analytics', hidden: true },
   { id: 'standup', label: 'Standup', icon: CalendarDays, group: 'overview', hidden: true },
   { id: 'knowledge', label: 'Knowledge', icon: BookOpen, group: 'intelligence', hidden: true },
+  {
+    id: 'runbooks',
+    label: 'Runbooks',
+    icon: BookMarked,
+    group: 'intelligence',
+    hidden: true,
+    perm: { resource: 'runbooks', action: 'read' },
+  },
   { id: 'memory', label: 'Memory', icon: Brain, group: 'intelligence', hidden: true },
   { id: 'catalog', label: 'Catalog', icon: Library, group: 'intelligence', hidden: true },
   { id: 'playbooks', label: 'Playbooks', icon: Workflow, group: 'intelligence', hidden: true },
@@ -509,7 +533,10 @@ export interface RouteDef {
 export const ROUTES: Record<PageId, RouteDef> = {
   /* ---- Round-2 W4 consolidated HOST pages (tabbed) ---- */
   overview: { element: Home, render: (c) => <Home tab={c.opts?.tab} /> },
-  chat: { element: Workspace, render: (c) => <Workspace tab={c.opts?.tab} /> },
+  chat: {
+    element: Workspace,
+    render: (c) => <Workspace tab={c.opts?.tab} caseId={c.opts?.caseId} />,
+  },
   metrics: { element: Analytics, render: (c) => <Analytics tab={c.opts?.tab} /> },
   intelligence: { element: Intelligence, render: (c) => <Intelligence tab={c.opts?.tab} /> },
 
@@ -521,8 +548,8 @@ export const ROUTES: Record<PageId, RouteDef> = {
    * `dashboard`/`playbooks` already resolved; it now covers EVERY host-tab child:
    *   Overview     → dashboard | standup
    *   Workspace    → chat | investigate
-   *   Analytics    → metrics | cost
-   *   Intelligence → knowledge | memory | catalog (a.k.a. playbooks)
+   *   Analytics    → metrics | effectiveness | cost
+   *   Intelligence → knowledge | runbooks | memory | catalog (a.k.a. playbooks)
    * Children that are GENUINELY standalone pages (they are NOT a tab of any host —
    * `dashboards` [custom-dashboard builder], `models`, `baseline`, `batchjobs`, `inbox`)
    * keep a standalone route below. */
@@ -539,7 +566,12 @@ export const ROUTES: Record<PageId, RouteDef> = {
   cases: {
     element: Cases,
     render: (c) => (
-      <Cases initialStatus={c.opts?.status} initialSeverity={c.opts?.severity} />
+      <Cases
+        initialStatus={c.opts?.status}
+        initialSeverity={c.opts?.severity}
+        initialNoiseOutcome={c.opts?.noiseOutcome}
+        initialWindowHours={c.opts?.window}
+      />
     ),
   },
   case_manager: {
@@ -561,8 +593,10 @@ export const ROUTES: Record<PageId, RouteDef> = {
   /* ---- Host-tab leaves: route THROUGH the host with a forced tab (see rule above) --- */
   investigate: { element: Workspace, render: () => <Workspace tab="investigate" /> },
   standup: { element: Home, render: () => <Home tab="standup" /> },
+  effectiveness: { element: Analytics, render: () => <Analytics tab="effectiveness" /> },
   cost: { element: Analytics, render: () => <Analytics tab="cost" /> },
   knowledge: { element: Intelligence, render: () => <Intelligence tab="knowledge" /> },
+  runbooks: { element: Intelligence, render: () => <Intelligence tab="runbooks" /> },
   memory: { element: Intelligence, render: () => <Intelligence tab="memory" /> },
   catalog: { element: Intelligence, render: () => <Intelligence tab="catalog" /> },
 

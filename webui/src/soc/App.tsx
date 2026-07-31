@@ -13,8 +13,9 @@
  * `useNavigateOptional()` from the router context (no prop-drilling).
  */
 import * as React from 'react';
-import { Loader2, AlertTriangle, RefreshCw } from 'lucide-react';
+import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { api } from '@/lib/api';
+import { LoadingState } from '@/design-system/loading';
 import { Button } from '@/ui/button';
 import { TooltipProvider } from '@/ui/tooltip';
 import { ThemeProvider } from './theme';
@@ -33,20 +34,16 @@ import { navLabel } from './nav';
 import Login from './pages/Login';
 import Wizard from './pages/Wizard';
 import { ReauthDialog } from './components/ReauthDialog';
+import { ConfirmProvider } from './components/ConfirmDialog';
 import { PageSkeleton } from './components/PageSkeleton';
 
 const CenterSpinner: React.FC<{ label: string }> = ({ label }) => (
-  // role=status + aria-live so a screen reader is told the console is starting
-  // (mirrors PageSkeleton's aria-busy loading-state convention).
-  <div
-    className="flex h-screen items-center justify-center gap-3 bg-canvas text-muted-foreground"
-    role="status"
-    aria-live="polite"
-    aria-busy="true"
-  >
-    <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
-    <span className="text-sm">{label}</span>
-  </div>
+  <LoadingState
+    label={label}
+    description="Preparing your secure workspace."
+    layout="page"
+    className="min-h-dvh bg-canvas"
+  />
 );
 
 /**
@@ -55,18 +52,24 @@ const CenterSpinner: React.FC<{ label: string }> = ({ label }) => (
  * (a failed load collapses to authEnabled=false → isAuthenticated=true) and strand
  * the user in a half-broken console with no way back to login. Retry re-runs refresh().
  */
-const BootError: React.FC<{ onRetry: () => void }> = ({ onRetry }) => (
+const BootError: React.FC<{
+  onRetry: () => void;
+  title?: string;
+  description?: string;
+}> = ({
+  onRetry,
+  title = 'Can\'t reach the backend',
+  description =
+    'The console couldn\'t load your session. Check your connection or that the service is running, then try again.',
+}) => (
   <div
-    className="flex h-screen flex-col items-center justify-center gap-4 bg-canvas px-6 text-center"
+    className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-canvas px-6 text-center"
     role="alert"
   >
     <AlertTriangle className="h-8 w-8 text-critical-text" aria-hidden />
     <div className="space-y-1">
-      <p className="text-sm font-semibold text-foreground">Can&apos;t reach the backend</p>
-      <p className="max-w-sm text-sm text-muted-foreground">
-        The console couldn&apos;t load your session. Check your connection or that the service
-        is running, then try again.
-      </p>
+      <p className="text-sm font-semibold text-foreground">{title}</p>
+      <p className="max-w-sm text-sm text-muted-foreground">{description}</p>
     </div>
     <Button variant="outline" onClick={onRetry}>
       <RefreshCw aria-hidden />
@@ -88,7 +91,13 @@ const Boot: React.FC = () => {
   } = useAuth();
   const [setupChecked, setSetupChecked] = React.useState(false);
   const [setupComplete, setSetupComplete] = React.useState(true);
+  const [setupError, setSetupError] = React.useState<unknown>(null);
   const [forceWizard, setForceWizard] = React.useState(false);
+  // More than one setup probe can legitimately overlap (the post-auth callback and
+  // the auth-state effect both re-check the gate). Only the newest request is allowed
+  // to publish state; otherwise a slow stale failure can replace a newer successful
+  // result with the fail-closed error screen.
+  const setupRequestGeneration = React.useRef(0);
   const { page, opts, navigate } = useRoute();
 
   // Whether the gate currently shows the login screen: auth on + (no session OR a
@@ -99,13 +108,21 @@ const Boot: React.FC = () => {
   const showLogin = authEnabled && (!isAuthenticated || mustChangePassword);
 
   const checkSetup = React.useCallback(async () => {
+    const generation = ++setupRequestGeneration.current;
+    setSetupChecked(false);
+    setSetupError(null);
     try {
       const st = await api.setupStatus();
+      if (generation !== setupRequestGeneration.current) return;
       setSetupComplete(st.setup_complete);
-    } catch {
-      setSetupComplete(true);
+      setSetupError(null);
+    } catch (error) {
+      if (generation !== setupRequestGeneration.current) return;
+      // Setup state is a boot boundary: an unknown state must never fail open into
+      // the Console. Keep the shell closed and give the operator an explicit retry.
+      setSetupError(error);
     } finally {
-      setSetupChecked(true);
+      if (generation === setupRequestGeneration.current) setSetupChecked(true);
     }
   }, []);
 
@@ -143,6 +160,15 @@ const Boot: React.FC = () => {
   if (loadError) return <BootError onRetry={() => void refresh()} />;
   if (showLogin) return <Login onAuthenticated={onAuthenticated} />;
   if (!setupChecked) return <CenterSpinner label="Starting console…" />;
+  if (setupError) {
+    return (
+      <BootError
+        title="Can’t verify setup state"
+        description="The console couldn’t determine whether first-run setup is complete. Retry before opening the workspace."
+        onRetry={() => void checkSetup()}
+      />
+    );
+  }
 
   if (!setupComplete || forceWizard) {
     return (
@@ -193,15 +219,17 @@ export const App: React.FC = () => (
   // motion must lazy-load it, never the entry.
   <ThemeProvider>
     <TooltipProvider delayDuration={200}>
-      <AuthProvider>
-        <PrefsProvider>
-          <DemoProvider>
-            <RouterProvider>
-              <Boot />
-            </RouterProvider>
-          </DemoProvider>
-        </PrefsProvider>
-      </AuthProvider>
+      <ConfirmProvider>
+        <AuthProvider>
+          <PrefsProvider>
+            <DemoProvider>
+              <RouterProvider>
+                <Boot />
+              </RouterProvider>
+            </DemoProvider>
+          </PrefsProvider>
+        </AuthProvider>
+      </ConfirmProvider>
     </TooltipProvider>
   </ThemeProvider>
 );

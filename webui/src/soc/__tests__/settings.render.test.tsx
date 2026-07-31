@@ -19,6 +19,7 @@
 import type * as React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 // Mock the typed api client BEFORE importing anything that pulls it in.
 vi.mock('@/lib/api', () => {
@@ -88,7 +89,7 @@ vi.mock('@/lib/api', () => {
 });
 
 import { AuthProvider } from '../auth';
-import { RouterProvider } from '../router';
+import { RouterProvider, useNavigate } from '../router';
 import { TooltipProvider } from '@/ui/tooltip';
 import Settings from '../pages/Settings';
 import Overview, { PAGE_TITLE } from '../pages/Overview';
@@ -101,6 +102,11 @@ function renderWithProviders(node: React.ReactNode) {
       </RouterProvider>
     </AuthProvider>,
   );
+}
+
+function LeaveSettingsProbe() {
+  const navigate = useNavigate();
+  return <button onClick={() => navigate('overview')}>Go to Overview</button>;
 }
 
 describe('Settings page — #310 render regression', () => {
@@ -156,8 +162,141 @@ describe('Settings IA consolidation (Round-5 Sett-B: 5 groups, Security promoted
     expect(screen.getByText('Danger zone')).toBeInTheDocument();
     // The FIVE new group labels are present in the rail.
     for (const label of ['Account', 'General', 'Integrations', 'Security & access', 'Organization']) {
-      expect(screen.getByText(label)).toBeInTheDocument();
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0);
     }
+  });
+
+  it('uses one renderer-owned section heading with explicit workspace context', async () => {
+    renderWithProviders(<Settings />);
+    await waitFor(
+      () => expect(screen.getByTestId('settings-section-general')).toBeInTheDocument(),
+      { timeout: 5000 },
+    );
+
+    expect(screen.getByText('Preferences saved')).toBeInTheDocument();
+    expect(screen.getByTestId('settings-active-context')).toHaveTextContent('General');
+    expect(screen.getByTestId('settings-active-context')).toHaveTextContent('Data scope');
+    expect(screen.getAllByRole('heading', { level: 2 })).toHaveLength(1);
+  });
+
+  it('keeps the embedded SSO editor under one section heading and flat subsections', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Settings />);
+    await waitFor(
+      () => expect(screen.getByTestId('settings-section-security')).toBeInTheDocument(),
+      { timeout: 5000 },
+    );
+
+    await user.click(screen.getByTestId('settings-section-security'));
+
+    expect(
+      await screen.findByRole('heading', { name: 'Security & single sign-on', level: 2 }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByRole('heading', { level: 2 })).toHaveLength(1);
+    expect(screen.getByRole('heading', { name: 'Token & session policy', level: 3 })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Single sign-on (OIDC)', level: 3 })).toBeInTheDocument();
+
+    const ssoToggle = screen.getByLabelText('Enable single sign-on');
+    expect(ssoToggle.closest('.bg-transparent')).toHaveClass('border-t');
+  });
+
+  it('contains nested section-rail momentum instead of chaining it into the page', async () => {
+    renderWithProviders(<Settings />);
+    await waitFor(
+      () => expect(screen.getByTestId('settings-desktop-section-scroll')).toBeInTheDocument(),
+      { timeout: 5000 },
+    );
+
+    expect(screen.getByTestId('settings-desktop-section-scroll')).toHaveClass(
+      'overflow-y-auto',
+      'overscroll-y-contain',
+    );
+
+    await userEvent.click(screen.getByTestId('settings-mobile-nav-trigger'));
+    expect(screen.getByTestId('settings-compact-section-scroll')).toHaveClass(
+      'overflow-y-auto',
+      'overscroll-y-contain',
+    );
+  });
+
+  it('opens a grouped compact chooser and preserves section deep-link navigation', async () => {
+    renderWithProviders(<Settings />);
+    await waitFor(
+      () => expect(screen.getByTestId('settings-mobile-nav-trigger')).toBeInTheDocument(),
+      { timeout: 5000 },
+    );
+
+    await userEvent.click(screen.getByTestId('settings-mobile-nav-trigger'));
+    expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId('settings-mobile-section-models'));
+
+    await waitFor(
+      () => expect(screen.getByTestId('settings-section-models')).toHaveAttribute('aria-current', 'page'),
+      { timeout: 5000 },
+    );
+    expect(window.location.hash).toBe('#/settings?s=models');
+    window.location.hash = '';
+  });
+
+  it('searches setting-level anchors and offers a clear action', async () => {
+    renderWithProviders(<Settings />);
+    await waitFor(
+      () => expect(screen.getByTestId('settings-section-general')).toBeInTheDocument(),
+      { timeout: 5000 },
+    );
+
+    await userEvent.type(screen.getByLabelText('Search settings sections'), 'auto-close');
+    expect(screen.getByTestId('settings-anchor-detection-autoclose')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Clear settings search' }));
+    expect(screen.queryByRole('button', { name: 'Clear settings search' })).not.toBeInTheDocument();
+  });
+
+  it('surfaces section and workspace draft state without changing the save contract', async () => {
+    window.location.hash = '#/settings?s=general';
+    renderWithProviders(<Settings />);
+    const indexPattern = await screen.findByLabelText('Log index pattern');
+
+    await userEvent.clear(indexPattern);
+    await userEvent.type(indexPattern, 'security-events-*');
+
+    expect(screen.getByText('1 pending change')).toBeInTheDocument();
+    expect(screen.getByTestId('settings-active-context')).toHaveTextContent('Modified in this section');
+    expect(screen.getByRole('region', { name: 'Unsaved changes' })).toBeInTheDocument();
+
+    const unload = new Event('beforeunload', { cancelable: true });
+    await waitFor(() => {
+      window.dispatchEvent(unload);
+      expect(unload.defaultPrevented).toBe(true);
+    });
+    window.location.hash = '';
+  });
+
+  it('keeps a dirty Settings draft mounted until in-app navigation is confirmed', async () => {
+    window.location.hash = '#/settings?s=general';
+    renderWithProviders(
+      <>
+        <Settings />
+        <LeaveSettingsProbe />
+      </>,
+    );
+    const indexPattern = await screen.findByLabelText('Log index pattern');
+    await userEvent.clear(indexPattern);
+    await userEvent.type(indexPattern, 'security-events-*');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Go to Overview' }));
+    expect(window.location.hash).toBe('#/settings?s=general');
+    expect(
+      screen.getByRole('alertdialog', { name: 'Leave Settings with unsaved changes?' }),
+    ).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
+    expect(window.location.hash).toBe('#/settings?s=general');
+    expect(indexPattern).toHaveValue('security-events-*');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Go to Overview' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Leave Settings' }));
+    await waitFor(() => expect(window.location.hash).toBe('#/overview'));
+    window.location.hash = '';
   });
 
   it('deep-links to an admin section via #/settings?s=admin_users', async () => {
@@ -167,6 +306,9 @@ describe('Settings IA consolidation (Round-5 Sett-B: 5 groups, Security promoted
     await waitFor(() => expect(screen.getByText('Add user')).toBeInTheDocument(), {
       timeout: 5000,
     });
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+    expect(screen.getAllByRole('heading', { level: 2 })).toHaveLength(1);
+    expect(screen.getByRole('heading', { name: 'Users', level: 2 })).toBeInTheDocument();
     window.location.hash = '';
   });
 

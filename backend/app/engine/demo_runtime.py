@@ -16,7 +16,7 @@ Two pieces, both completely SEPARATE from the real state:
   Entra ID sign-in/Identity Protection JSON. Benign EVENT
   traffic is pre-aggregated through the SAME ``event_detection.funnel()`` real EVENT
   feeds use; occasional Splunk/QRadar/Wazuh native alerts enter normal ingest, while a
-  syslog incident is raised by TLSOC's own threshold detection.  A coherent attack is
+  syslog incident is raised by Agentic SOC's own threshold detection. A coherent attack is
   guaranteed on the 20–30 second live-demo boundary, and a cooldown-aware manual trigger
   is exposed for the API. Confirmed candidates are investigated SYNCHRONOUSLY through
   the REAL pipeline against the MOCK LLM + a SANDBOXED AutoClosePolicy copy. Every
@@ -121,6 +121,7 @@ class DemoStack:
         from ..stores.case_activity import CaseActivityStore
         from ..stores.case_tasks import CaseTaskStore
         from ..stores.case_thread import CaseThreadStore
+        from ..stores.chat_conversations import ChatConversationStore
         from ..stores.inbox import InboxStore
         from ..stores.memory import MemoryStore
         from ..stores.proposals import ProposalStore
@@ -133,6 +134,7 @@ class DemoStack:
         self.batch_job_store = BatchJobStore(self.kv)
         self.tuning_store = TuningStore(self.kv)
         self.case_threads = CaseThreadStore(self.kv)
+        self.chat_conversations = ChatConversationStore(self.kv)
         self.case_activity = CaseActivityStore(self.kv)
         self.case_tasks = CaseTaskStore(self.kv)
         self.inbox = InboxStore(self.kv)
@@ -225,6 +227,7 @@ class DemoStack:
         pipeline = InvestigationPipeline(
             self.es, secrets, self._cache, self.gateway, rag, self.cases, self.audit,
             source=source, automation=automation, memory=self.memory,
+            tuning_store=self.tuning_store,
         )
         # Bind the demo's ISOLATED bus so live ``agent.step`` frames never touch the
         # global singleton (isolation boundary). Without this the pipeline's
@@ -332,7 +335,7 @@ class DemoStack:
         prefs = self._demo_prefs()
         # Raw syslog never pretends to be a vendor alert.  During a coherent incident
         # its four same-rule events clear this explicit deterministic threshold and
-        # TLSOC raises its OWN detection through the deterministic event/correlation path.
+        # Agentic SOC raises its OWN detection through the deterministic event/correlation path.
         correlation_rules = dict(prefs.correlation_rules)
         correlation_rules.update({
             rule_id: CorrelationRule(
@@ -633,7 +636,7 @@ class DemoSimulator:
     Each tick gives every source benign traffic through the cheap EVENT funnel.  On a
     deterministic cadence Splunk/QRadar/Wazuh emit their native alert contracts; a
     five-source storyline is guaranteed during the first 20–30 seconds. Syslog remains
-    raw telemetry and clears a TLSOC correlation threshold instead of claiming a vendor
+    raw telemetry and clears an Agentic SOC correlation threshold instead of claiming a vendor
     alert.  All calls are synchronous against the isolated $0 stack, bounded, and cleanly
     cancellable."""
 
@@ -823,7 +826,7 @@ class DemoSimulator:
 
         This is the presentation-safe seam for ``POST /api/demo/incident``.  It never
         reaches a network or real store. Splunk/QRadar/Wazuh/Entra emit native detections;
-        four RFC 5424 syslog records remain events and clear TLSOC's explicit threshold.
+        four RFC 5424 syslog records remain events and clear Agentic SOC's explicit threshold.
         The return value is fully serializable and attributes every count per source.
         """
         prefs = self._get_prefs()

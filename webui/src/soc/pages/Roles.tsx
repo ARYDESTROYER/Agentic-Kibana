@@ -151,7 +151,12 @@ export default function Roles() {
   );
 }
 
-export function RolesInner() {
+export interface RolesInnerProps {
+  /** True when this body is hosted beneath the Settings page header. */
+  embedded?: boolean;
+}
+
+export function RolesInner({ embedded = false }: RolesInnerProps) {
   const canManage = useCan('roles', 'manage');
   const [data, setData] = React.useState<RolesMatrixResponse | null>(null);
   const [customRoles, setCustomRoles] = React.useState<Map<string, CustomRole>>(new Map());
@@ -349,6 +354,7 @@ export function RolesInner() {
   return (
     <div className="space-y-6">
       <PageHeader
+        embedded={embedded}
         icon={ShieldCheck}
         eyebrow="Administration"
         title="Roles & permissions"
@@ -513,7 +519,7 @@ function RoleEditorDialog({
 
   return (
     <Dialog open onOpenChange={(o) => (!o ? onClose() : undefined)}>
-      <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
+      <DialogContent className="max-h-[90dvh] max-w-4xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{mode === 'create' ? 'New custom role' : `Edit ${initial.name}`}</DialogTitle>
           <DialogDescription>

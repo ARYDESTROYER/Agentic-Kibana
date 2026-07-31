@@ -8,47 +8,49 @@
  * left-nav Workspace group already exposes a clickable child for BOTH, so an in-page
  * tab bar duplicating those buttons was clutter). The active sub-view is selected by
  * the `tab` route opt (forced by the `chat` / `investigate` routes and by
- * `navigate('chat', { tab })`); the host owns the single PageHeader (each sub-page
- * renders `embedded`), and the header title/icon reflect the active sub-view so a
- * left-nav "Chat"/"Entity investigation" click lands on a correctly-titled page.
+ * `navigate('chat', { tab })`). Chat is a focused conversational route and owns its
+ * PageHeader/action so the reset control cannot drift into a second band. Entity
+ * investigation keeps the wider operational host below.
  */
-import { MessageSquare, Search } from 'lucide-react';
-import { useNavigateOptional, type Navigate } from '@/soc/router';
-import { PageHeader } from '@/soc/components/PageHeader';
-import { PageContainer } from '@/soc/components/PageContainer';
-import Chat from './Chat';
-import Investigate from './Investigate';
+import { Search } from "lucide-react";
+import { useNavigateOptional, type Navigate } from "@/soc/router";
+import { PageHeader } from "@/soc/components/PageHeader";
+import { PageContainer } from "@/soc/components/PageContainer";
+import Chat from "./Chat";
+import Investigate from "./Investigate";
 
 export interface WorkspaceProps {
   onNavigate?: Navigate;
   /** Active sub-view from the route opts ('chat' | 'investigate'). */
   tab?: string;
+  /** Optional case context preserved by a Case Chat → Workspace deep-link. */
+  caseId?: string;
 }
 
-export default function Workspace({ onNavigate, tab }: WorkspaceProps = {}) {
+export default function Workspace({ onNavigate, tab, caseId }: WorkspaceProps = {}) {
   // Coupling-A: resolve navigate once (an explicit prop wins for tests). Call the hook
   // UNCONDITIONALLY (rules-of-hooks), then let an explicit prop win.
   const contextNavigate = useNavigateOptional();
   const navigate = onNavigate ?? contextNavigate;
-  const isInvestigate = tab === 'investigate';
+  const isInvestigate = tab === "investigate";
+
+  if (!isInvestigate) {
+    return (
+      <PageContainer variant="fixed">
+        <Chat caseId={caseId} />
+      </PageContainer>
+    );
+  }
+
   return (
     <PageContainer variant="wide" className="space-y-6">
       <PageHeader
-        icon={isInvestigate ? Search : MessageSquare}
+        icon={Search}
         eyebrow="Agent workspace"
-        title={isInvestigate ? 'Entity investigation' : 'Chat'}
-        description={
-          isInvestigate
-            ? 'Check one IP, user, or host across the selected log window. Matching evidence is correlated, investigated, and saved as a case.'
-            : 'Talk to the SOC agent — it queries your logs, summarizes findings, and explains its reasoning.'
-        }
+        title="Entity investigation"
+        description="Check one IP, user, or host across the selected log window. Matching evidence is correlated, investigated, and saved as a case."
       />
-      {isInvestigate ? (
-        // Chat never consumes `onNavigate` (it destructures only `embedded`); Investigate does.
-        <Investigate embedded onNavigate={navigate} />
-      ) : (
-        <Chat embedded />
-      )}
+      <Investigate embedded onNavigate={navigate} />
     </PageContainer>
   );
 }

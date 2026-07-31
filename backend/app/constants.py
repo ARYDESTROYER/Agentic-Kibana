@@ -45,6 +45,13 @@ MEMORY_NS = "memory"
 MEMORY_KEY = "entries"
 MEMORY_DOC_ID = "memory"      # ES doc id within CONFIG_INDEX
 
+# Operator-managed RUNBOOK Markdown. Bundled runbooks remain packaged under
+# ``app/runbooks``; additions created in the Console are persisted in the shared
+# backend-agnostic KV store so they survive container/image upgrades without a new
+# index, table, or migration. The stored document is a bounded id -> Markdown map.
+RUNBOOKS_NS = "runbooks"
+RUNBOOKS_KEY = "documents"
+
 # Agent-DRAFTED proposals awaiting human approval (HITL). Stored exactly like the
 # operator MEMORY set — one KV document (a single JSON list) under this namespace/
 # key — so it needs NO new ES index / SQL table / migration. The ES backend stores
@@ -87,6 +94,16 @@ USER_PREFS_KEY = "buckets"
 USER_PREFS_DOC_ID = "user_prefs"   # ES doc id within CONFIG_INDEX
 # The bucket key used when there is no authenticated principal (auth OFF).
 USER_PREFS_DEFAULT_BUCKET = "default"
+
+# Per-USER Workspace chat history.  This is intentionally separate from the
+# per-case collaboration thread: Workspace conversations are owned by one
+# principal, while case chat remains attached to the case thread. Each principal
+# uses a hashed KV partition; the legacy root id now holds the partition registry
+# and supports lazy migration from the former shared document. No new index/table
+# migration is required on either ES or SQL.
+CHAT_CONVERSATIONS_NS = "chat_conversations"
+CHAT_CONVERSATIONS_KEY = "conversations"
+CHAT_CONVERSATIONS_DOC_ID = "chat_conversations"
 
 # --------------------------------------------------------------------------- #
 # Round 3 KV-store namespaces (collaboration / notifications / RBAC / pricing /
@@ -311,6 +328,16 @@ class Role(str, Enum):
     EMBEDDING = "embedding"  # embedding calls also pass through the gateway
 
 
+# Roles whose usage belongs to the deterministic case-investigation pipeline.
+# Case.token_cost historically represents these calls only; case-scoped Chat and
+# overview rows remain visible in the global ledger but must not inflate it.
+CASE_PIPELINE_USAGE_ROLES: tuple[str, ...] = (
+    Role.ROUTER.value,
+    Role.INVESTIGATOR.value,
+    Role.FORMATTER.value,
+)
+
+
 class ActionType(str, Enum):
     """Audit action types (Section 7.2)."""
 
@@ -329,6 +356,7 @@ class ActionType(str, Enum):
     PROPOSAL = "proposal"      # agent drafted / human approved-rejected a HITL proposal
     AUTOMATION = "automation"  # a post-decision threshold-automation action (tag/recommend/notify/run_playbook/request_approval) — NEVER sets status (#3)
     PLAYBOOK = "playbook"        # operator-authored Markdown playbook create/update/reload (recommendation context only, #3)
+    RUNBOOK = "runbook"          # operator-authored RAG runbook knowledge create/update/delete (#3-safe)
     NOTIFICATION = "notification"  # an outbound notification send attempt (email/slack/teams/webhook/...)
     USER_MGMT = "user_mgmt"        # user-management action (create/update/delete/role/password reset)
     AUTH_EVENT = "auth"            # login success/failure, logout, password change (auth events)
@@ -366,7 +394,7 @@ class ToolTier(str, Enum):
     non-negotiable #3 (a TRUE_POSITIVE is never auto-closed; irreversible actions
     need a human).
 
-    Today every TLSOC tool is ``SAFE`` (read-only logs / cached enrichment / RAG),
+    Today every Agentic SOC tool is ``SAFE`` (read-only logs / cached enrichment / RAG),
     but this tier travels with the tool definition so the moment a write/response
     tool is added the investigator can gate it WITHOUT touching agent logic:
 

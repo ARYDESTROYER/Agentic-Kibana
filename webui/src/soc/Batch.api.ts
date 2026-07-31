@@ -60,6 +60,8 @@ export interface BatchJobRow {
   submitted_at: string | null;
   /** ISO last-poll time, or null. */
   polled_at: string | null;
+  /** Bounded operator-visible submission, ledger, or re-entry failure. */
+  last_error?: string | null;
 }
 
 /** GET /api/batch/jobs. */

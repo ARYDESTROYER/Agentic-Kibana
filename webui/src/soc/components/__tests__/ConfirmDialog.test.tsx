@@ -9,6 +9,21 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ConfirmDialog, ConfirmProvider, useConfirm } from '../ConfirmDialog';
 
 describe('ConfirmDialog (controlled)', () => {
+  it('can withhold an unsafe confirm action while retaining an explicit return path', () => {
+    render(
+      <ConfirmDialog
+        open
+        onOpenChange={() => {}}
+        onConfirm={() => {}}
+        title="Save first"
+        cancelLabel="Return to work"
+        hideConfirm
+      />,
+    );
+    expect(screen.getByRole('alertdialog')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Return to work' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument();
+  });
   it('runs onConfirm only when Confirm is clicked', () => {
     const onConfirm = vi.fn();
     const onCancel = vi.fn();

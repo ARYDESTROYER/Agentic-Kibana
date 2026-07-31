@@ -17,7 +17,7 @@
  * pure unit of the sidebar + the persistence hook.
  */
 import * as React from 'react';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { axe, toHaveNoViolations } from 'jest-axe';
 import { TooltipProvider } from '@/ui/tooltip';
@@ -44,7 +44,13 @@ vi.mock('@/lib/api', () => ({
   api: { prefs: { putUser: (...a: unknown[]) => putUser(...a) } },
 }));
 
-import { NavSidebar, useNavPrefs } from '../NavSidebar';
+import {
+  NAV_FLYOUT_CLOSE_DELAY_MS,
+  NAV_FLYOUT_OPEN_DELAY_MS,
+  NavSidebar,
+  placeNavFlyout,
+  useNavPrefs,
+} from '../NavSidebar';
 import { navLabel } from '../../nav';
 
 /* ---- Helpers -------------------------------------------------------------- */
@@ -80,13 +86,17 @@ beforeEach(() => {
   prefsState.misc = {};
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 /* ---- Disclosure semantics ------------------------------------------------- */
 
 describe('NavSidebar — WAI-ARIA disclosure', () => {
   it('keeps Docs pinned below the scrolling groups and navigates in-app', () => {
     const { onNavigate } = renderExpanded();
     const footer = screen.getByTestId('nav-footer');
-    const docs = screen.getByRole('button', { name: 'Docs' });
+    const docs = screen.getByRole('button', { name: 'Documentation' });
     expect(footer).toContainElement(docs);
     fireEvent.click(docs);
     expect(onNavigate).toHaveBeenCalledWith('docs');
@@ -139,11 +149,16 @@ describe('NavSidebar — WAI-ARIA disclosure', () => {
   });
 
   it('renders a childless item as a direct link with no disclosure toggle', () => {
-    renderExpanded();
+    renderExpanded({ page: 'cases' });
     // Cases has no children → a single nav button (testid-anchored), no expand/collapse.
-    expect(screen.getByTestId('nav-cases')).toBeInTheDocument();
+    const cases = screen.getByTestId('nav-cases');
+    expect(cases).toBeInTheDocument();
     expect(screen.getByRole('button', { name: navLabel('cases') })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /expand cases/i })).toBeNull();
+    // Current-page emphasis stays quiet and border-first; the rail is the selected cue,
+    // not a glowing filled tile that competes with case severity.
+    expect(cases).toHaveClass('bg-primary/10', 'text-primary');
+    expect(cases.className).not.toContain('shadow-glow');
   });
 
   // A nav landmark must mark exactly ONE current page. For a host whose OWN id is
@@ -197,56 +212,132 @@ describe('NavSidebar — WAI-ARIA disclosure', () => {
 describe('NavSidebar — collapsed icon rail', () => {
   it('keeps the pinned Docs destination labelled and current in the collapsed rail', () => {
     renderExpanded({ collapsed: true, page: 'docs' });
-    const docs = screen.getByRole('button', { name: 'Docs' });
+    const docs = screen.getByRole('button', { name: 'Documentation' });
     expect(docs).toHaveAttribute('aria-current', 'page');
     expect(screen.getByTestId('nav-footer')).toContainElement(docs);
   });
 
-  it('disables sidebar transitions when reduced motion is requested', () => {
+  it('keeps grouped destinations outside the Tab/accessibility tree until exposed', () => {
+    renderExpanded({ collapsed: true, page: 'standup' });
+    const overview = screen.getByRole('button', { name: 'Overview' });
+    expect(overview).toHaveAttribute('aria-expanded', 'false');
+    expect(overview).toHaveAttribute('aria-current', 'page');
+    expect(screen.queryByRole('group', { name: 'Overview destinations' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Dashboard' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Standup' })).toBeNull();
+  });
+
+  it('opens immediately on focus and moves the sole current marker to the active child', () => {
+    renderExpanded({ collapsed: true, page: 'standup' });
+    const overview = screen.getByRole('button', { name: 'Overview' });
+
+    act(() => overview.focus());
+
+    expect(overview).toHaveAttribute('aria-expanded', 'true');
+    expect(overview).not.toHaveAttribute('aria-current');
+    expect(screen.getByRole('group', { name: 'Overview destinations' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Dashboard' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Standup' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    expect(document.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
+  });
+
+  it('uses pointer-intent delays and keeps the panel open across the trigger gap', () => {
+    vi.useFakeTimers();
+    renderExpanded({ collapsed: true, page: 'standup' });
+    const overview = screen.getByRole('button', { name: 'Overview' });
+    const wrapper = overview.parentElement as HTMLElement;
+
+    fireEvent.pointerEnter(wrapper);
+    act(() => vi.advanceTimersByTime(NAV_FLYOUT_OPEN_DELAY_MS - 1));
+    expect(screen.queryByRole('group', { name: 'Overview destinations' })).toBeNull();
+
+    act(() => vi.advanceTimersByTime(1));
+    const panel = screen.getByRole('group', { name: 'Overview destinations' });
+    expect(panel).toBeInTheDocument();
+
+    fireEvent.pointerLeave(wrapper);
+    act(() => vi.advanceTimersByTime(NAV_FLYOUT_CLOSE_DELAY_MS - 1));
+    expect(panel).toBeInTheDocument();
+
+    fireEvent.pointerEnter(panel);
+    act(() => vi.advanceTimersByTime(NAV_FLYOUT_CLOSE_DELAY_MS));
+    expect(panel).toBeInTheDocument();
+
+    fireEvent.pointerLeave(panel);
+    act(() => vi.advanceTimersByTime(NAV_FLYOUT_CLOSE_DELAY_MS));
+    expect(screen.queryByRole('group', { name: 'Overview destinations' })).toBeNull();
+  });
+
+  it('closes on Escape and restores focus to the grouped trigger', () => {
+    vi.useFakeTimers();
+    renderExpanded({ collapsed: true, page: 'standup' });
+    const overview = screen.getByRole('button', { name: 'Overview' });
+    act(() => overview.focus());
+    const standup = screen.getByRole('button', { name: 'Standup' });
+    act(() => standup.focus());
+
+    fireEvent.keyDown(standup, { key: 'Escape' });
+    act(() => vi.runAllTimers());
+
+    expect(screen.queryByRole('group', { name: 'Overview destinations' })).toBeNull();
+    expect(overview).toHaveFocus();
+  });
+
+  it('keeps only one grouped flyout open at a time', () => {
+    renderExpanded({ collapsed: true, page: 'standup' });
+    const overview = screen.getByRole('button', { name: 'Overview' });
+    act(() => overview.focus());
+    expect(screen.getByRole('group', { name: 'Overview destinations' })).toBeInTheDocument();
+
+    const analytics = screen.getByRole('button', { name: 'Analytics' });
+    act(() => analytics.focus());
+
+    expect(screen.queryByRole('group', { name: 'Overview destinations' })).toBeNull();
+    expect(screen.getByRole('group', { name: 'Analytics destinations' })).toBeInTheDocument();
+  });
+
+  it('clamps a flyout to the viewport edges', () => {
+    expect(
+      placeNavFlyout(
+        { top: 760, right: 980 } as DOMRect,
+        { width: 224, height: 240 },
+        { width: 1024, height: 800 },
+      ),
+    ).toEqual({ top: 552, left: 792 });
+  });
+
+  it('disables sidebar and flyout transitions when reduced motion is requested', () => {
     renderExpanded({ collapsed: true, reducedMotion: true });
     const sidebar = screen.getByLabelText('Primary navigation');
     expect(sidebar).toHaveAttribute('data-reduced-motion', 'true');
     expect(sidebar.className).toContain('transition-none');
     expect(sidebar.className).not.toContain('duration-200');
+    act(() => screen.getByRole('button', { name: 'Overview' }).focus());
+    expect(screen.getByTestId('nav-flyout-overview')).toHaveClass('transition-none');
   });
 
-  it('keeps child destinations reachable via a fly-out (no aria-controls panel inline)', () => {
-    renderExpanded({ collapsed: true, page: 'standup' });
-    // The collapsed parent icon-button is labelled but has no expand/collapse toggle.
-    expect(screen.getByRole('button', { name: 'Overview' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /expand overview/i })).toBeNull();
-  });
-
-  // #8 — WCAG 2.1.1: the collapsed fly-out must be KEYBOARD-reachable. The previous
-  // Radix HoverCard portaled the child links out of the tab order (they only mounted
-  // on pointer hover), so a keyboard user could never reach them. The fly-out is now
-  // rendered INLINE (revealed via CSS group-hover/focus-within), so the child link
-  // buttons are always in the DOM + tab order — real focusable elements.
-  it('renders the collapsed child links inline as focusable buttons (keyboard-reachable)', () => {
-    renderExpanded({ collapsed: true, page: 'standup' });
-    // The Overview host's children (Dashboard, Standup) are present as real buttons
-    // WITHOUT any hover interaction — so Tab from the rail button reaches them.
-    const dashboard = screen.getByRole('button', { name: 'Dashboard' });
-    const standup = screen.getByRole('button', { name: 'Standup' });
-    expect(dashboard).toBeInTheDocument();
-    expect(standup).toBeInTheDocument();
-    // A <button> is natively focusable (not disabled, no tabindex=-1).
-    expect(dashboard).not.toHaveAttribute('disabled');
-    expect(dashboard).not.toHaveAttribute('tabindex', '-1');
-    // The active leaf still carries aria-current=page inside the fly-out.
-    expect(standup).toHaveAttribute('aria-current', 'page');
-  });
-
-  // Regression: the collapsed fly-out lives inside the <nav>, which is a scroll clip
-  // container on BOTH axes (`overflow-y-auto overflow-x-hidden`). An `absolute` fly-out
-  // is clipped to the ~64px rail and becomes invisible/unreachable; a `position: fixed`
-  // one is positioned against the viewport and escapes that clip. jsdom does no layout,
-  // so we assert the load-bearing style directly.
   it('positions the collapsed fly-out with position:fixed so it escapes the nav overflow clip', () => {
     renderExpanded({ collapsed: true, page: 'standup' });
+    act(() => screen.getByRole('button', { name: 'Overview' }).focus());
     const flyout = document.getElementById('nav-fly-overview');
     expect(flyout).not.toBeNull();
     expect((flyout as HTMLElement).style.position).toBe('fixed');
+  });
+
+  it('uses ordinary disclosures without collapsed flyouts while pinned open', () => {
+    renderExpanded({ collapsed: false, openGroups: new Set(['overview']) });
+    expect(screen.getByRole('button', { name: /collapse overview/i })).toBeInTheDocument();
+    expect(screen.queryByTestId('nav-flyout-overview')).toBeNull();
+  });
+
+  it('has no detectable accessibility violations while a collapsed flyout is closed or open', async () => {
+    const { container } = renderExpanded({ collapsed: true, page: 'standup' });
+    expect(await axe(container)).toHaveNoViolations();
+    act(() => screen.getByRole('button', { name: 'Overview' }).focus());
+    expect(await axe(container)).toHaveNoViolations();
   });
 
   it('has no detectable accessibility violations with the footer destination present', async () => {

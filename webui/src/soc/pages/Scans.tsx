@@ -44,7 +44,7 @@ import { Button } from '@/ui/button';
 import { Input } from '@/ui/input';
 import { Badge } from '@/ui/badge';
 import { Card } from '@/ui/card';
-import { Skeleton } from '@/ui/skeleton';
+import { LoadingState } from '@/design-system';
 import {
   Select,
   SelectTrigger,
@@ -380,7 +380,7 @@ export const ScansPage: React.FC<ScansPageProps> = () => {
   /* ------------------------------------------------------------- render --- */
 
   return (
-    <PageContainer variant="wide" className="space-y-6 animate-fade-in">
+    <PageContainer variant="wide" className="space-y-6">
       <PageHeader
         eyebrow="AUTOMATION"
         icon={ScanSearch}
@@ -426,22 +426,26 @@ export const ScansPage: React.FC<ScansPageProps> = () => {
           fallback="Something went wrong loading scans."
           onRetry={() => void load()}
         />
+      ) : loading && cases.length === 0 ? (
+        <LoadingState
+          layout="page"
+          shape="rows"
+          shapeRows={5}
+          label="Loading automated scans"
+          description="Preparing scan results and case status."
+        />
       ) : (
         <>
       {/* ---------------------------------------------------------- KPIs */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {loading ? (
-          Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-[7.5rem] w-full rounded-lg" />
-          ))
-        ) : (
-          <>
+      <div className="grid border-y border-border/70 sm:grid-cols-2 lg:grid-cols-4">
             <KpiTile
               label="Scanned cases"
               value={kpis.total}
               icon={ScanSearch}
               accent="primary"
               sub="from background scans"
+              variant="strip"
+              className="border-b border-border/70 sm:border-r lg:border-b-0"
             />
             <KpiTile
               label="Needs human"
@@ -450,6 +454,8 @@ export const ScansPage: React.FC<ScansPageProps> = () => {
               accent="high"
               sub="awaiting analyst review"
               onClick={() => setStatusTab('needs_human')}
+              variant="strip"
+              className="border-b border-border/70 lg:border-b-0 lg:border-r"
             />
             <KpiTile
               label="Auto-investigated"
@@ -457,6 +463,8 @@ export const ScansPage: React.FC<ScansPageProps> = () => {
               icon={Bot}
               accent="success"
               sub="agent produced a verdict"
+              variant="strip"
+              className="border-b border-border/70 sm:border-b-0 sm:border-r"
             />
             <KpiTile
               label="True-positive candidates"
@@ -464,17 +472,11 @@ export const ScansPage: React.FC<ScansPageProps> = () => {
               icon={AlertTriangle}
               accent="critical"
               sub="never auto-closed"
+              variant="strip"
             />
-          </>
-        )}
       </div>
 
       {/* ----------------------------------------------- controls toolbar */}
-      {loading && cases.length === 0 ? (
-        // Skeleton while the first fetch is in flight — never flash "0 of 0" or
-        // all-zero tab counts next to the KPI/grid skeletons.
-        <Skeleton className="h-[6.5rem] w-full rounded-lg" />
-      ) : (
       <Card className="space-y-4 p-4">
         {/* status tab filter + result count. SegmentedControl (Radix Tabs) gives
             roving arrow-key focus + role=tab/aria-selected for free — the counts
@@ -572,16 +574,9 @@ export const ScansPage: React.FC<ScansPageProps> = () => {
           </div>
         </div>
       </Card>
-      )}
 
       {/* --------------------------------------------------- card grid */}
-      {loading ? (
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} className="h-44 w-full rounded-lg" />
-          ))}
-        </div>
-      ) : cases.length === 0 ? (
+      {cases.length === 0 ? (
         <EmptyState
           icon={ScanSearch}
           title="No scan cases yet"
@@ -673,21 +668,23 @@ const ScanCard: React.FC<{
   };
 
   return (
-    <Card
-      role="button"
-      tabIndex={0}
-      onClick={onOpen}
-      onKeyDown={onKeyDown}
-      aria-label={`Open case ${c.title || c.case_id}`}
-      className={cn(
-        'group relative flex w-full cursor-pointer flex-col gap-3 border-l-4 p-6 text-left transition-colors',
-        'hover:border-primary/40 hover:bg-accent/30',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
-        ACCENT_BORDER[accent],
-      )}
-    >
-      {/* header (entity · age · new) + title — wrapped in the hover preview */}
-      <CaseHoverCard case={c}>
+    // The already-focusable card is the HoverCard trigger. Wrapping only its header
+    // caused CaseHoverCard to add a second tab stop inside this role=button surface.
+    <CaseHoverCard case={c}>
+      <Card
+        role="button"
+        tabIndex={0}
+        onClick={onOpen}
+        onKeyDown={onKeyDown}
+        aria-label={`Open case ${c.title || c.case_id}`}
+        className={cn(
+          'group relative flex w-full cursor-pointer flex-col gap-3 border-l-4 p-6 text-left transition-colors',
+          'hover:border-primary/40 hover:bg-accent/30',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+          ACCENT_BORDER[accent],
+        )}
+      >
+        {/* header (entity · age · new) + title */}
         <div className="flex flex-col gap-2">
           <div className="flex items-baseline justify-between gap-2">
             {/* UNTRUSTED entity — inside InlineCode. */}
@@ -703,56 +700,56 @@ const ScanCard: React.FC<{
           </div>
 
           {/* title — UNTRUSTED plain text */}
-          <h3 className="line-clamp-2 break-words text-sm font-semibold leading-snug text-foreground">
+          <h2 className="line-clamp-2 break-words text-sm font-semibold leading-snug text-foreground">
             {c.title || c.case_id}
-          </h3>
+          </h2>
         </div>
-      </CaseHoverCard>
 
-      {/* verdict / status / risk / confidence */}
-      <div className="flex flex-wrap items-center gap-1.5">
-        <RiskBadge score={c.risk_score} />
-        <VerdictBadge verdict={c.verdict} />
-        <StatusBadge status={c.status} />
-        {typeof c.confidence === 'number' ? (
-          <ConfidenceBadge confidence={c.confidence} />
+        {/* verdict / status / risk / confidence */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <RiskBadge score={c.risk_score} />
+          <VerdictBadge verdict={c.verdict} />
+          <StatusBadge status={c.status} />
+          {typeof c.confidence === 'number' ? (
+            <ConfidenceBadge confidence={c.confidence} />
+          ) : null}
+        </div>
+
+        {/* persona / source */}
+        {persona || hasSource ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {persona ? (
+              <Badge variant="outline" className="gap-1">
+                <Check className="h-3 w-3" />
+                {humanizeToken(persona)}
+              </Badge>
+            ) : null}
+            {hasSource ? (
+              <Badge variant="outline" className="gap-1">
+                <Database className="h-3 w-3" />
+                {/* UNTRUSTED source label — plain text node inside controlled Badge. */}
+                <span className="max-w-[10rem] truncate">{sourceLabel}</span>
+              </Badge>
+            ) : null}
+          </div>
         ) : null}
-      </div>
 
-      {/* persona / source */}
-      {persona || hasSource ? (
-        <div className="flex flex-wrap items-center gap-1.5">
-          {persona ? (
-            <Badge variant="outline" className="gap-1">
-              <Check className="h-3 w-3" />
-              {humanizeToken(persona)}
-            </Badge>
-          ) : null}
-          {hasSource ? (
-            <Badge variant="outline" className="gap-1">
-              <Database className="h-3 w-3" />
-              {/* UNTRUSTED source label — plain text node inside controlled Badge. */}
-              <span className="max-w-[10rem] truncate">{sourceLabel}</span>
-            </Badge>
-          ) : null}
-        </div>
-      ) : null}
-
-      {/* rule chips */}
-      {rules.length ? (
-        <div className="flex flex-wrap items-center gap-1.5">
-          {rules.slice(0, 4).map((r) => (
-            <Badge key={r} variant="secondary" className="gap-1">
-              <Tag className="h-3 w-3" />
-              {/* UNTRUSTED rule id — plain text node. */}
-              <span className="max-w-[10rem] truncate">{r}</span>
-            </Badge>
-          ))}
-          {rules.length > 4 ? (
-            <Badge variant="secondary">+{rules.length - 4}</Badge>
-          ) : null}
-        </div>
-      ) : null}
-    </Card>
+        {/* rule chips */}
+        {rules.length ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {rules.slice(0, 4).map((r) => (
+              <Badge key={r} variant="secondary" className="gap-1">
+                <Tag className="h-3 w-3" />
+                {/* UNTRUSTED rule id — plain text node. */}
+                <span className="max-w-[10rem] truncate">{r}</span>
+              </Badge>
+            ))}
+            {rules.length > 4 ? (
+              <Badge variant="secondary">+{rules.length - 4}</Badge>
+            ) : null}
+          </div>
+        ) : null}
+      </Card>
+    </CaseHoverCard>
   );
 };

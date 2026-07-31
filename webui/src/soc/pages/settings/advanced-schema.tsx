@@ -35,11 +35,8 @@ import type {
 import { humanizeToken } from '@/lib/format';
 
 import { Input } from '@/ui/input';
-import { Label } from '@/ui/label';
 import { Switch } from '@/ui/switch';
 import { Badge } from '@/ui/badge';
-import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
-import { Skeleton } from '@/ui/skeleton';
 import {
   Select,
   SelectContent,
@@ -47,6 +44,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/ui/select';
+import { LoadingState } from '@/design-system';
+import { Field } from '@/soc/components/Field';
+import { FilterBar } from '@/soc/components/FilterBar';
 import { SettingsGrid, SettingsCard } from '@/soc/components/SettingsGrid';
 import { LoadError } from '@/soc/components/LoadError';
 import { EmptyState } from '@/soc/components/EmptyState';
@@ -136,7 +136,7 @@ function BoolField({
 }) {
   const label = humanizeToken(field.name);
   return (
-    <div className="flex items-start justify-between gap-4 rounded-md border border-border bg-surface px-4 py-3">
+    <div className="flex min-h-14 items-start justify-between gap-4 border-l border-border/80 py-1 pl-3">
       <div className="min-w-0 space-y-0.5">
         <p className="text-sm font-medium text-foreground">{label}</p>
         {field.description ? (
@@ -157,48 +157,45 @@ function ScalarField({
   value: unknown;
   onChange: (v: unknown) => void;
 }) {
-  const id = React.useId();
   const label = humanizeToken(field.name);
   const numeric = field.type === 'integer' || field.type === 'number';
   return (
-    <div className="space-y-1.5">
-      <Label htmlFor={id}>{label}</Label>
-      {field.type === 'enum' && field.choices ? (
-        <Select
-          value={value == null ? undefined : String(value)}
-          onValueChange={(v) => onChange(v)}
-        >
-          <SelectTrigger id={id} aria-label={label}>
-            <SelectValue placeholder="— select —" />
-          </SelectTrigger>
-          <SelectContent>
-            {field.choices.map((c) => (
-              <SelectItem key={c} value={c}>
-                {c}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      ) : (
-        <Input
-          id={id}
-          type={numeric ? 'number' : 'text'}
-          step={field.type === 'integer' ? 1 : 'any'}
-          value={value == null ? '' : String(value)}
-          onChange={(e) => {
-            const raw = e.target.value;
-            if (numeric) {
-              onChange(raw === '' ? null : Number(raw));
-            } else {
-              onChange(raw);
-            }
-          }}
-        />
-      )}
-      {field.description ? (
-        <p className="text-xs text-muted-foreground">{field.description}</p>
-      ) : null}
-    </div>
+    <Field label={label} description={field.description}>
+      {({ id, labelledBy, describedBy }) =>
+        field.type === 'enum' && field.choices ? (
+            <Select
+              value={value == null ? undefined : String(value)}
+              onValueChange={(v) => onChange(v)}
+            >
+              <SelectTrigger id={id} aria-labelledby={labelledBy} aria-describedby={describedBy}>
+                <SelectValue placeholder="— select —" />
+              </SelectTrigger>
+              <SelectContent>
+                {field.choices?.map((c) => (
+                  <SelectItem key={c} value={c}>
+                    {c}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <Input
+              id={id}
+              aria-describedby={describedBy}
+              type={numeric ? 'number' : 'text'}
+              step={field.type === 'integer' ? 1 : 'any'}
+              value={value == null ? '' : String(value)}
+              onChange={(e) => {
+                const raw = e.target.value;
+                if (numeric) {
+                  onChange(raw === '' ? null : Number(raw));
+                } else {
+                  onChange(raw);
+                }
+              }}
+            />
+          )}
+    </Field>
   );
 }
 
@@ -207,7 +204,7 @@ function StructuredFieldNote({ field }: { field: SettingsSchemaField }) {
   const label = humanizeToken(field.name);
   const elem = field.element;
   return (
-    <div className="rounded-md border border-dashed border-border bg-surface-sunken px-4 py-3">
+    <div className="border-l border-border/80 py-1 pl-3">
       <div className="flex flex-wrap items-center gap-2">
         <p className="text-sm font-medium text-foreground">{label}</p>
         <Badge variant="outline" className="text-2xs uppercase tracking-wide text-muted-foreground">
@@ -250,17 +247,16 @@ function SchemaSectionCard({
         anchor={`schema-${section.key}`}
         title={section.title || humanizeToken(section.key)}
         icon={Lock}
-        wide
+        wide="full"
       >
-        <Alert variant="default">
-          <Lock className="h-4 w-4" aria-hidden />
-          <AlertTitle>{section.title || humanizeToken(section.key)}</AlertTitle>
-          <AlertDescription>
+        <div className="flex items-start gap-3 border-l border-border/80 py-1 pl-3">
+          <Lock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+          <p className="text-sm leading-relaxed text-muted-foreground">
             Demo mode is managed from Organization › Experimental &amp; Demo (and the
             <code className="mx-1 rounded bg-surface-sunken px-1 py-0.5 text-2xs">/api/demo</code>
             endpoints), not here — a settings save can never flip it.
-          </AlertDescription>
-        </Alert>
+          </p>
+        </div>
       </SettingsCard>
     );
   }
@@ -325,7 +321,7 @@ function SchemaSectionCard({
           </div>
         ) : undefined
       }
-      wide
+      wide="full"
     >
       <div className="space-y-4">
         {/* Engine-feature body is disclosed only when the feature is enabled. */}
@@ -354,15 +350,17 @@ function SchemaSectionCard({
         {special.length > 0 ? (
           <div className="space-y-2">
             {special.map((f) => (
-              <Alert key={f.name} variant="default">
-                <Lock className="h-4 w-4" aria-hidden />
-                <AlertTitle>{humanizeToken(f.name)}</AlertTitle>
-                <AlertDescription>
+              <div key={f.name} className="flex items-start gap-3 border-l border-border/80 py-1 pl-3">
+                <Lock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground">{humanizeToken(f.name)}</p>
+                  <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
                   {f.name === 'demo'
                     ? 'Demo mode is managed from Organization › Experimental & Demo (and the /api/demo endpoints), not here — a settings save can never flip it.'
                     : 'The settings read-only lock is managed from Organization › Advanced › Settings lock. It cannot be self-locked through the generic editor.'}
-                </AlertDescription>
-              </Alert>
+                  </p>
+                </div>
+              </div>
             ))}
           </div>
         ) : null}
@@ -450,26 +448,29 @@ export function AdvancedSchemaSection({ prefs, update }: SecProps) {
       sub="Every preference the engine reads, rendered directly from the backend schema — including knobs without a dedicated section yet. Scalars edit inline and save through the same deep-merge as the rest of Settings; structured rule collections point to their curated editors. Managed knobs (demo mode, the settings lock) are read-only here."
     >
       <div className="space-y-4">
-        <div className="relative max-w-md">
-          <Search
-            className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
-            aria-hidden
-          />
-          <Input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Filter all settings…"
-            aria-label="Filter all settings"
-            className="h-9 pl-8"
-          />
-        </div>
+        <FilterBar aria-label="All-settings controls">
+          <div className="relative w-full sm:w-80">
+            <Search
+              className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <Input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Filter all settings…"
+              aria-label="Filter all settings"
+              className="h-9 pl-8"
+            />
+          </div>
+        </FilterBar>
 
         {loading ? (
-          <SettingsGrid>
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-40 w-full rounded-lg lg:col-span-2" />
-            ))}
-          </SettingsGrid>
+          <LoadingState
+            label="Loading settings schema"
+            description="Reading the editable preference contract from the backend."
+            layout="panel"
+            shape="panel"
+          />
         ) : error ? (
           <LoadError
             error={error}

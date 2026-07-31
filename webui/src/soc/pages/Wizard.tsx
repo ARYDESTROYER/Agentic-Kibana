@@ -1,99 +1,112 @@
 /**
- * Wizard — first-run setup (new "command center" UI).
+ * First-run setup workspace.
  *
- * Shown automatically when GET /api/setup/status reports `setup_complete: false`,
- * and re-runnable from Settings. A focused 4-step flow:
- *
- *   1. Welcome     — name the deployment + non-destructive demo-mode toggle
- *   2. Sources     — pick a connector, fill its dynamic form, test, save (reuses
- *                    the shared new-UI SourceEditor); mark one primary
- *   3. Keys        — Anthropic / OpenAI / embedding provider keys (write-only,
- *                    → POST /api/setup/secrets); per-role model selection lives in
- *                    Settings (kept out of the first-run path to stay focused)
- *   4. Done        — review summary → POST /api/setup/complete → app
- *
- * Reuses the legacy step logic/contract verbatim where it matters:
- * api.setupStatus / listConnectors / listSources / getSettings (boot),
- * api.updateSecrets (keys), api.upsertSource / deleteSource (sources, via
- * SourceEditor's saveSource helper), api.putSettings (deployment name/demo) +
- * api.completeSetup (finish).
- *
- * Security: secrets are write-only and only ever surfaced as a boolean
- * ("configured"); never echoed. Source display names / connector text render as
- * plain text — nothing is interpolated as markup.
+ * The wizard deliberately keeps account bootstrap in Login (POST /setup/account),
+ * then guides an authenticated operator through four optional-but-honest stages:
+ * workspace mode, data sources, AI runtime, and a readiness review. Secrets remain
+ * write-only; all source/provider values render as plain text.
  */
 import * as React from 'react';
 import {
-  ShieldCheck,
-  Database,
-  KeyRound,
-  CheckCircle2,
-  Check,
+  Activity,
   ArrowLeft,
   ArrowRight,
-  X,
-  Loader2,
+  Check,
+  CheckCircle2,
+  Circle,
   ClipboardCheck,
-  Beaker,
-  Info,
-  Plus,
+  Database,
+  FlaskConical,
+  KeyRound,
+  Loader2,
+  LockKeyhole,
   Pencil,
-  Trash2,
-  Star,
+  Plus,
+  RefreshCw,
+  Rocket,
+  ServerCog,
+  ShieldCheck,
   Sparkles,
+  Star,
+  Trash2,
+  TriangleAlert,
+  X,
   type LucideIcon,
 } from 'lucide-react';
 
 import type {
-  ConnectorManifest,
   ConfiguredStatus,
-  Preferences,
+  ConnectorManifest,
   SecretsUpdate,
   SetupStatus,
   SourceInstance,
 } from '@/lib/types';
 import { api } from '@/lib/api';
-import { humanizeToken } from '@/lib/format';
-import { errorMessage } from '@/lib/errorMessage';
 import { cn } from '@/lib/cn';
+import { humanizeToken } from '@/lib/format';
 
-import { Button } from '@/ui/button';
-import { Card, CardContent } from '@/ui/card';
-import { Input } from '@/ui/input';
-import { Label } from '@/ui/label';
-import { Switch } from '@/ui/switch';
+import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
 import { Badge } from '@/ui/badge';
-import { Alert, AlertTitle, AlertDescription } from '@/ui/alert';
+import { Button } from '@/ui/button';
+import { Label } from '@/ui/label';
+import { Progress } from '@/ui/progress';
+import { RadioGroup, RadioGroupItem } from '@/ui/radio-group';
 import { Skeleton } from '@/ui/skeleton';
 
-import { EmptyState } from '@/soc/components/EmptyState';
-import { SourceEditor } from '@/soc/components/SourceEditor';
-import { SecretField } from '@/soc/components/SecretField';
 import { ConfirmDialog } from '@/soc/components/ConfirmDialog';
+import { EmptyState } from '@/soc/components/EmptyState';
+import { LoadError } from '@/soc/components/LoadError';
 import { LoadingBar } from '@/soc/components/LoadingBar';
+import { SecretField } from '@/soc/components/SecretField';
+import { SourceEditor } from '@/soc/components/SourceEditor';
 import { useAuth } from '@/soc/auth';
-import { useDemo, isDemoActive } from '@/soc/demo';
-import { enableRecommendedAutomation } from './automation';
+import { isDemoActive, useDemo } from '@/soc/demo';
 
-/* ----------------------------------------------------------------- helpers - */
+type StepState = 'current' | 'ready' | 'attention' | 'available';
+type PendingNavigation = { kind: 'step'; step: number } | { kind: 'exit' };
 
-const STEPS: Array<{ key: string; title: string; icon: LucideIcon }> = [
-  { key: 'welcome', title: 'Welcome', icon: ShieldCheck },
-  { key: 'sources', title: 'Sources', icon: Database },
-  { key: 'keys', title: 'Provider keys', icon: KeyRound },
-  { key: 'done', title: 'Review & finish', icon: ClipboardCheck },
+const STEPS: Array<{
+  key: string;
+  title: string;
+  shortTitle: string;
+  description: string;
+  icon: LucideIcon;
+}> = [
+  {
+    key: 'workspace',
+    title: 'Choose your workspace',
+    shortTitle: 'Workspace',
+    description: 'Start with isolated sample activity or connect a live environment.',
+    icon: ShieldCheck,
+  },
+  {
+    key: 'sources',
+    title: 'Connect data sources',
+    shortTitle: 'Data sources',
+    description: 'Add the systems that produce the security telemetry you want to triage.',
+    icon: Database,
+  },
+  {
+    key: 'runtime',
+    title: 'Connect an AI runtime',
+    shortTitle: 'AI runtime',
+    description: 'Add a provider credential for live investigations, or use the mock runtime.',
+    icon: KeyRound,
+  },
+  {
+    key: 'review',
+    title: 'Review and launch',
+    shortTitle: 'Review & launch',
+    description: 'See what is ready now and what can be configured after launch.',
+    icon: ClipboardCheck,
+  },
 ];
 
-/* --------------------------------------------------------------- props ----- */
-
 export interface WizardProps {
-  /** Called when setup completes successfully — App routes to the dashboard. */
   onComplete: () => void;
-  /** Re-run mode: render a "Close" affordance back to the app. */
+  /** Present only when Settings re-runs the wizard. */
   onExit?: () => void;
 }
-
-/* ============================================================== component == */
 
 export default function Wizard({ onComplete, onExit }: WizardProps) {
   const [step, setStep] = React.useState(0);
@@ -101,927 +114,1292 @@ export default function Wizard({ onComplete, onExit }: WizardProps) {
   const [bootError, setBootError] = React.useState<unknown>(null);
   const [finishError, setFinishError] = React.useState<unknown>(null);
   const [finishing, setFinishing] = React.useState(false);
+  const [status, setStatus] = React.useState<SetupStatus | null>(null);
+  const [connectors, setConnectors] = React.useState<ConnectorManifest[]>([]);
+  const [sources, setSources] = React.useState<SourceInstance[]>([]);
+  const [sourceEditorOpen, setSourceEditorOpen] = React.useState(false);
+  const [pendingNavigation, setPendingNavigation] = React.useState<PendingNavigation | null>(
+    null,
+  );
+  const [confirmLiveMode, setConfirmLiveMode] = React.useState(false);
+  const [transitionBusy, setTransitionBusy] = React.useState(false);
 
-  // Demo mode is a privileged tenant action (POST /api/demo/enable requires the narrow
-  // demo:manage grant); the toggle is only offered to a principal who can manage it.
-  // Auth off preserves the permissive single-operator profile.
+  const [keyValues, setKeyValues] = React.useState<Record<string, string>>({});
+  const [savingKeys, setSavingKeys] = React.useState(false);
+  const [keysError, setKeysError] = React.useState<unknown>(null);
+  const [keysNotice, setKeysNotice] = React.useState<string | null>(null);
+
   const { authEnabled, hasPermission } = useAuth();
   const { status: demoStatus, refresh: refreshDemo } = useDemo();
   const canManageDemo = !authEnabled || hasPermission('demo', 'manage');
 
-  // Recommended-automation grants (the ReviewStep card + finish()). Tuning needs
-  // `automation:manage`; the admin-gated campaigns PUT needs `cases:read` + `users:manage`
-  // (require_admin === users:manage). Auth off / super_admin holds everything.
-  const canTuneAutomation = !authEnabled || hasPermission('automation', 'manage');
-  const canCampaignAutomation =
-    !authEnabled || (hasPermission('cases', 'read') && hasPermission('users', 'manage'));
-  const canRecommendAutomation = canTuneAutomation || canCampaignAutomation;
-  const [enableAutomation, setEnableAutomation] = React.useState(true);
-
-  // Shared, persisted-between-steps state.
-  const [deploymentName, setDeploymentName] = React.useState('My SOC');
-  // Reflects the LIVE demo tenant state (GET /api/demo/status), not a dead pref flag.
   const [demoMode, setDemoMode] = React.useState(false);
   const [demoBusy, setDemoBusy] = React.useState(false);
-  // Demo toggle gets its OWN error channel so an enable/disable failure on the Welcome
-  // step never masquerades as the finish-only "Could not complete setup" banner.
   const [demoError, setDemoError] = React.useState<unknown>(null);
+  const headingRef = React.useRef<HTMLHeadingElement>(null);
+  const completedRef = React.useRef(false);
+  const transitionLockRef = React.useRef(false);
 
-  // Seed the toggle from the real demo status once it loads (so re-running the wizard
-  // with demo already armed shows it ON).
+  const runTransition = React.useCallback(async (work: () => Promise<void>) => {
+    if (transitionLockRef.current) return;
+    transitionLockRef.current = true;
+    setTransitionBusy(true);
+    try {
+      await work();
+    } finally {
+      transitionLockRef.current = false;
+      setTransitionBusy(false);
+    }
+  }, []);
+
   React.useEffect(() => {
     setDemoMode(isDemoActive(demoStatus));
   }, [demoStatus]);
 
-  /**
-   * Bug #3 fix — actually ARM/disarm demo mode instead of writing a dead `demo_mode`
-   * pref. Turning it ON seeds the isolated, $0, reversible demo tenant via
-   * POST /api/demo/enable; OFF tears it down via POST /api/demo/disable. Either way we
-   * re-fetch the shared demo status so the banner + every surface update. Optimistic UI
-   * (flip immediately) with rollback on failure.
-   */
-  const onDemoMode = React.useCallback(
-    async (nextOn: boolean) => {
-      if (demoBusy || !canManageDemo) return;
-      setDemoBusy(true);
-      setDemoError(null);
-      setDemoMode(nextOn); // optimistic
-      try {
-        const st = nextOn ? await api.demo.enable({ mode: 'live' }) : await api.demo.disable();
-        setDemoMode(isDemoActive(st));
-      } catch (e) {
-        setDemoMode(!nextOn); // rollback
-        setDemoError(e); // demo-specific channel, NOT the finish banner
-      } finally {
-        setDemoBusy(false);
-        void refreshDemo();
-      }
-    },
-    [demoBusy, canManageDemo, refreshDemo],
-  );
+  const loadWizard = React.useCallback(async () => {
+    setLoading(true);
+    setBootError(null);
+    try {
+      const [nextStatus, nextConnectors, nextSources] = await Promise.all([
+        api.setupStatus(),
+        api.listConnectors(),
+        api.listSources(),
+      ]);
+      setStatus(nextStatus);
+      setConnectors(nextConnectors.connectors);
+      setSources(nextSources.sources);
+    } catch (error) {
+      setBootError(error);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const [status, setStatus] = React.useState<SetupStatus | null>(null);
-  const [connectors, setConnectors] = React.useState<ConnectorManifest[]>([]);
-  const [sources, setSources] = React.useState<SourceInstance[]>([]);
+  React.useEffect(() => {
+    void loadWizard();
+  }, [loadWizard]);
 
-  // Provider-key draft is LIFTED to the wizard so it survives the KeysStep unmounting
-  // on step change (the step is conditionally rendered) — otherwise a beginner who
-  // pastes a key and clicks the prominent "Continue" (not "Save") silently loses it.
-  const [keyValues, setKeyValues] = React.useState<Record<string, string>>({});
-  const [savingKeys, setSavingKeys] = React.useState(false);
-  const [keysError, setKeysError] = React.useState<unknown>(null);
-
-  const configured: ConfiguredStatus = status?.configured || {};
+  React.useLayoutEffect(() => {
+    if (loading || bootError) return;
+    headingRef.current?.focus();
+  }, [step, loading, bootError]);
 
   const refreshStatus = React.useCallback(async () => {
-    const [st, src] = await Promise.all([api.setupStatus(), api.listSources()]);
-    setStatus(st);
-    setSources(src.sources);
+    const [nextStatus, nextSources] = await Promise.all([
+      api.setupStatus(),
+      api.listSources(),
+    ]);
+    setStatus(nextStatus);
+    setSources(nextSources.sources);
   }, []);
 
-  const setKeyValue = React.useCallback((k: string, v: string) => {
-    setKeyValues((prev) => ({ ...prev, [k]: v }));
-  }, []);
+  const applyDemoMode = React.useCallback(
+    (nextOn: boolean) => {
+      if (!canManageDemo || nextOn === demoMode) return;
+      void runTransition(async () => {
+        setDemoBusy(true);
+        setDemoError(null);
+        setDemoMode(nextOn);
+        try {
+          const nextStatus = nextOn
+            ? await api.demo.enable({ mode: 'live' })
+            : await api.demo.disable();
+          setDemoMode(isDemoActive(nextStatus));
+        } catch (error) {
+          setDemoMode(!nextOn);
+          setDemoError(error);
+        } finally {
+          setDemoBusy(false);
+          void refreshDemo();
+        }
+      });
+    },
+    [canManageDemo, demoMode, refreshDemo, runTransition],
+  );
 
-  /** Persist any typed provider keys. Returns false on failure so nav can stay put. */
+  const requestDemoMode = React.useCallback(
+    (nextOn: boolean) => {
+      if (transitionLockRef.current || nextOn === demoMode) return;
+      if (!nextOn && demoMode) {
+        if (canManageDemo) setConfirmLiveMode(true);
+        return;
+      }
+      applyDemoMode(nextOn);
+    },
+    [applyDemoMode, canManageDemo, demoMode],
+  );
+
+  const configured: ConfiguredStatus = status?.configured ?? {};
+  const hasProvider =
+    Boolean(configured.anthropic_api_key) || Boolean(configured.openai_api_key);
+  const hasKeyDraft = Object.values(keyValues).some((value) => value.trim());
+  const enabledSources = sources.filter((source) => source.enabled !== false);
+
   const saveKeys = React.useCallback(async (): Promise<boolean> => {
+    const body: SecretsUpdate = {};
+    for (const field of KEY_FIELDS) {
+      const value = (keyValues[field.key] || '').trim();
+      if (value) (body as Record<string, string>)[field.key] = value;
+    }
+    if (!Object.keys(body).length) return true;
+
     setSavingKeys(true);
     setKeysError(null);
+    setKeysNotice(null);
     try {
-      const body: SecretsUpdate = {};
-      for (const f of KEY_FIELDS) {
-        const v = (keyValues[f.key] || '').trim();
-        if (v) (body as Record<string, string>)[f.key] = v;
-      }
-      if (Object.keys(body).length === 0) return true;
-      await api.updateSecrets(body);
-      await refreshStatus();
+      const result = await api.updateSecrets(body);
+      setStatus((previous) =>
+        previous
+          ? {
+              ...previous,
+              configured: { ...previous.configured, ...result.configured },
+            }
+          : { setup_complete: false, configured: result.configured },
+      );
       setKeyValues({});
+      try {
+        await refreshStatus();
+      } catch {
+        setKeysNotice('Keys were saved. Live status will refresh after setup.');
+      }
+      // Preserve the authoritative write response even if the subsequent status read
+      // is eventually consistent and briefly returns the old boolean.
+      setStatus((previous) =>
+        previous
+          ? {
+              ...previous,
+              configured: { ...previous.configured, ...result.configured },
+            }
+          : { setup_complete: false, configured: result.configured },
+      );
       return true;
-    } catch (e) {
-      setKeysError(e);
+    } catch (error) {
+      setKeysError(error);
       return false;
     } finally {
       setSavingKeys(false);
     }
   }, [keyValues, refreshStatus]);
 
-  React.useEffect(() => {
-    let alive = true;
-    (async () => {
+  const finishOnce = React.useCallback(() => {
+    if (completedRef.current) return;
+    completedRef.current = true;
+    onComplete();
+  }, [onComplete]);
+
+  const finish = React.useCallback(() => {
+    void runTransition(async () => {
+      setFinishing(true);
+      setFinishError(null);
       try {
-        const [st, conns, src] = await Promise.all([
-          api.setupStatus(),
-          api.listConnectors(),
-          api.listSources(),
-        ]);
-        if (!alive) return;
-        setStatus(st);
-        setConnectors(conns.connectors);
-        setSources(src.sources);
-        // Seed the deployment name from prefs if present (best-effort).
-        try {
-          const settings = await api.getSettings();
-          const dn = (settings.prefs as Partial<Preferences> & { deployment_name?: string })
-            ?.deployment_name;
-          if (alive && dn) setDeploymentName(dn);
-        } catch {
-          /* deployment name is best-effort; ignore */
+        if (hasKeyDraft) {
+          const saved = await saveKeys();
+          if (!saved) {
+            setStep(2);
+            return;
+          }
         }
-      } catch (e) {
-        if (alive) setBootError(e);
+
+        try {
+          await api.completeSetup();
+          finishOnce();
+        } catch (error) {
+          // A dropped response after a successful write must not strand the operator on
+          // setup. Reconcile once against the authoritative public status endpoint.
+          try {
+            const reconciled = await api.setupStatus();
+            if (reconciled.setup_complete) {
+              setStatus(reconciled);
+              finishOnce();
+              return;
+            }
+          } catch {
+            // Preserve the original completion error below.
+          }
+          setFinishError(error);
+        }
       } finally {
-        if (alive) setLoading(false);
+        setFinishing(false);
       }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, []);
+    });
+  }, [finishOnce, hasKeyDraft, runTransition, saveKeys]);
 
-  const finish = async () => {
-    setFinishing(true);
-    setFinishError(null);
-    try {
-      // Persist the deployment name. Demo mode is NOT a pref flag — it is armed live via
-      // POST /api/demo/enable from the toggle (bug #3), so we no longer write a dead
-      // `demo_mode` key here.
-      await api.putSettings({
-        deployment_name: deploymentName,
-      } as Partial<Preferences>);
-      // Recommended automation: BEST-EFFORT + never blocks completion. The helper
-      // catches its own failures (#3-safe: tuning keeps shadow-eval on & routes
-      // suppression to HITL; campaigns are advisory) so setup always finishes.
-      if (enableAutomation && canRecommendAutomation) {
-        await enableRecommendedAutomation({
-          tuning: canTuneAutomation,
-          campaigns: canCampaignAutomation,
-        });
+  const performNavigation = React.useCallback(
+    (navigation: PendingNavigation) => {
+      void runTransition(async () => {
+        if (step === 2 && hasKeyDraft) {
+          const saved = await saveKeys();
+          if (!saved) return;
+        }
+        if (navigation.kind === 'exit') onExit?.();
+        else setStep(navigation.step);
+      });
+    },
+    [hasKeyDraft, onExit, runTransition, saveKeys, step],
+  );
+
+  const requestNavigation = React.useCallback(
+    (navigation: PendingNavigation) => {
+      if (transitionLockRef.current) return;
+      if (navigation.kind === 'step' && navigation.step === step) return;
+      if (step === 1 && sourceEditorOpen) {
+        setPendingNavigation(navigation);
+        return;
       }
-      await api.completeSetup();
-      onComplete();
-    } catch (e) {
-      setFinishError(e);
-      setFinishing(false);
-    }
-  };
+      performNavigation(navigation);
+    },
+    [performNavigation, sourceEditorOpen, step],
+  );
 
-  const next = React.useCallback(async () => {
-    // Auto-save any typed-but-unsaved provider keys before leaving the Keys step so a
-    // beginner who clicks the prominent "Continue" (not "Save") doesn't silently lose
-    // them. A save failure keeps us on the step; the inline error explains why.
-    if (step === 2 && Object.values(keyValues).some((v) => v.trim())) {
-      const ok = await saveKeys();
-      if (!ok) return;
-    }
-    setStep((s) => Math.min(s + 1, STEPS.length - 1));
-  }, [step, keyValues, saveKeys]);
-  const back = () => setStep((s) => Math.max(s - 1, 0));
+  const stepStates: StepState[] = [
+    step === 0 ? 'current' : 'ready',
+    step === 1 ? 'current' : enabledSources.length > 0 || demoMode ? 'ready' : 'attention',
+    step === 2 ? 'current' : hasProvider || demoMode ? 'ready' : 'attention',
+    step === 3 ? 'current' : 'available',
+  ];
   const isLast = step === STEPS.length - 1;
-
-  /* --------------------------------------------------------------- render -- */
+  const continueLabel =
+    (step === 1 && !enabledSources.length && !demoMode) ||
+    (step === 2 && !hasProvider && !hasKeyDraft)
+      ? 'Skip for now'
+      : 'Continue';
 
   return (
-    // Fixed header + fixed footer, only the body scrolls (a focused single-measure
-    // flow — NN/G wizard best-practice). The heavy marketing hero + the per-step
-    // StepHeading used to compete; now a slim brand/eyebrow bar tops the flow and the
-    // StepHeading inside each step is the single title. `h-dvh` (dynamic viewport height,
-    // not h-screen/100vh) bounds the column so the <main> is the ONLY scroller and the
-    // fixed footer isn't pushed under the mobile browser URL bar.
-    <div className="flex h-dvh flex-col overflow-hidden bg-canvas">
-      {/* ---- fixed header: brand eyebrow + a light numbered progress strip ------- */}
-      <header className="shrink-0 border-b border-border bg-canvas/95 backdrop-blur">
-        <div className="mx-auto w-full max-w-2xl px-4 pt-5 sm:px-6">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <span className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-surface text-primary">
-                <ShieldCheck className="h-4 w-4" aria-hidden />
-              </span>
-              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Agentic SOC · First-run setup
-              </span>
+    <div className="flex h-dvh flex-col overflow-hidden bg-canvas text-foreground">
+      <a
+        href="#setup-main"
+        className="sr-only z-50 rounded-md bg-canvas px-3 py-2 text-sm font-medium text-foreground focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:ring-2 focus:ring-ring"
+      >
+        Skip to setup content
+      </a>
+
+      <header className="shrink-0 border-b border-border bg-canvas">
+        <div className="flex h-16 items-center justify-between gap-4 px-4 sm:px-6">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-primary/25 bg-primary/10 text-primary">
+              <ShieldCheck className="h-5 w-5" aria-hidden />
+            </span>
+            <div className="min-w-0">
+              <div className="truncate text-sm font-semibold">Agentic SOC</div>
+              <div className="text-xs text-muted-foreground">Setup workspace</div>
             </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <Badge variant="outline" className="hidden sm:inline-flex">
+              Step {step + 1} of {STEPS.length}
+            </Badge>
             {onExit ? (
-              <Button variant="ghost" size="sm" onClick={onExit}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => requestNavigation({ kind: 'exit' })}
+                disabled={loading || transitionBusy}
+              >
                 <X className="h-4 w-4" aria-hidden /> Close
               </Button>
             ) : null}
           </div>
-
-          {/* Compact numbered strip: done = check, current = accent (aria-current),
-              upcoming = muted number. Non-colour state signal (number/check + weight);
-              each button is self-labelled via aria-label so the title is announced. */}
-          <nav aria-label="Setup progress" className="mt-4 pb-4">
-            <ol className="flex items-center gap-2 sm:gap-3">
-              {STEPS.map((s, i) => {
-                const state =
-                  i < step ? 'complete' : i === step ? 'current' : 'incomplete';
-                return (
-                  <li key={s.key} className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setStep(i)}
-                      aria-current={state === 'current' ? 'step' : undefined}
-                      aria-label={`Step ${i + 1}: ${s.title}`}
-                      className={cn(
-                        'flex min-w-0 items-center gap-2 rounded-md text-sm transition-colors',
-                        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                        state === 'current'
-                          ? 'text-foreground'
-                          : 'text-muted-foreground hover:text-foreground',
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition-colors',
-                          state === 'complete'
-                            ? 'bg-success/15 text-success'
-                            : state === 'current'
-                              ? 'bg-primary text-primary-foreground'
-                              : 'border border-border text-muted-foreground',
-                        )}
-                      >
-                        {state === 'complete' ? (
-                          <Check className="h-3.5 w-3.5" aria-hidden />
-                        ) : (
-                          i + 1
-                        )}
-                      </span>
-                      <span
-                        className={cn(
-                          'truncate font-medium',
-                          state === 'current' ? 'inline' : 'hidden sm:inline',
-                        )}
-                      >
-                        {s.title}
-                      </span>
-                    </button>
-                    {i < STEPS.length - 1 ? (
-                      <span className="h-px flex-1 bg-border" aria-hidden />
-                    ) : null}
-                  </li>
-                );
-              })}
-            </ol>
-          </nav>
         </div>
       </header>
 
-      {/* ---- scrolling body: one constrained measure, generous whitespace -------- */}
-      <main className="flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-2xl animate-fade-in px-4 py-8 sm:px-6 sm:py-10">
-          {loading ? (
-            <WizardSkeleton />
-          ) : bootError && !status ? (
-            <Alert variant="destructive">
-              <X className="h-4 w-4" aria-hidden />
-              <AlertTitle>Could not load the setup wizard</AlertTitle>
-              <AlertDescription>{errorMessage(bootError)}</AlertDescription>
-            </Alert>
-          ) : (
-            <>
-              {step === 0 && (
-                <WelcomeStep
-                  deploymentName={deploymentName}
-                  onDeploymentName={setDeploymentName}
-                  demoMode={demoMode}
-                  onDemoMode={onDemoMode}
-                  canManageDemo={canManageDemo}
-                  demoBusy={demoBusy}
-                  demoError={demoError}
-                />
-              )}
-              {step === 1 && (
-                <SourcesStep
-                  connectors={connectors}
-                  sources={sources}
-                  onChanged={refreshStatus}
-                  demoMode={demoMode}
-                />
-              )}
-              {step === 2 && (
-                <KeysStep
-                  configured={configured}
-                  values={keyValues}
-                  onChange={setKeyValue}
-                  error={keysError}
-                />
-              )}
-              {step === 3 && (
-                <ReviewStep
-                  deploymentName={deploymentName}
-                  demoMode={demoMode}
-                  sources={sources}
-                  configured={configured}
-                  showAutomation={canRecommendAutomation}
-                  canCampaignAutomation={canCampaignAutomation}
-                  enableAutomation={enableAutomation}
-                  onEnableAutomation={setEnableAutomation}
-                />
-              )}
+      <div className="grid min-h-0 flex-1 lg:grid-cols-[264px_minmax(0,1fr)]">
+        <aside className="hidden min-h-0 border-r border-border bg-surface/30 lg:flex lg:flex-col">
+          <div className="shrink-0 px-6 pb-5 pt-8">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              Get operational
+            </p>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+              Configure the minimum needed to explore or begin live triage. Every choice
+              can be changed later.
+            </p>
+          </div>
+          <nav
+            aria-label="Setup progress"
+            className="min-h-0 flex-1 overflow-y-auto px-3 pb-4"
+          >
+            <ol className="space-y-1">
+              {STEPS.map((item, index) => (
+                <li key={item.key}>
+                  <StepButton
+                    item={item}
+                    index={index}
+                    state={stepStates[index]}
+                    onClick={() => requestNavigation({ kind: 'step', step: index })}
+                    disabled={loading || transitionBusy}
+                  />
+                </li>
+              ))}
+            </ol>
+          </nav>
+          <div className="shrink-0 border-t border-border px-6 py-5">
+            <div className="flex items-start gap-3 text-xs leading-relaxed text-muted-foreground">
+              <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+              <span>
+                Provider and connector secrets are write-only. The Console only reports
+                whether each secret is configured.
+              </span>
+            </div>
+          </div>
+        </aside>
 
-              {finishError ? (
-                <Alert variant="destructive" className="mt-6">
-                  <X className="h-4 w-4" aria-hidden />
-                  <AlertTitle>Could not complete setup</AlertTitle>
-                  <AlertDescription>{errorMessage(finishError)}</AlertDescription>
-                </Alert>
-              ) : null}
-            </>
-          )}
-        </div>
-      </main>
+        <section className="flex min-h-0 min-w-0 flex-col">
+          <div className="shrink-0 border-b border-border px-4 py-4 lg:hidden">
+            <div className="mb-2 flex items-center justify-between gap-3 text-xs">
+              <span className="font-semibold text-foreground">{STEPS[step].shortTitle}</span>
+              <span className="text-muted-foreground">
+                {step + 1} / {STEPS.length}
+              </span>
+            </div>
+            <Progress
+              value={((step + 1) / STEPS.length) * 100}
+              className="h-1"
+              aria-label="Setup progress"
+              aria-valuetext={`Step ${step + 1} of ${STEPS.length}`}
+            />
+          </div>
 
-      {/* ---- fixed footer: Back / Continue|Finish -------------------------------- */}
-      <footer className="shrink-0 border-t border-border bg-canvas/95 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-2xl items-center justify-between gap-3 px-4 py-4 sm:px-6">
-          <Button variant="ghost" onClick={back} disabled={step === 0 || loading}>
-            <ArrowLeft className="h-4 w-4" aria-hidden /> Back
-          </Button>
-          {isLast ? (
-            <Button onClick={finish} disabled={finishing || loading}>
-              {finishing ? (
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          <main id="setup-main" className="min-h-0 flex-1 overflow-y-auto" tabIndex={-1}>
+            <div className="mx-auto w-full max-w-[960px] px-5 py-8 sm:px-8 lg:px-12 lg:py-10">
+              <div className="sr-only" aria-live="polite">
+                {STEPS[step].shortTitle}, step {step + 1} of {STEPS.length}
+              </div>
+
+              {loading ? (
+                <WizardSkeleton />
+              ) : bootError ? (
+                <LoadError
+                  error={bootError}
+                  title="Couldn’t load setup"
+                  fallback="The Console could not load setup state."
+                  onRetry={() => void loadWizard()}
+                />
               ) : (
-                <Check className="h-4 w-4" aria-hidden />
+                <>
+                  {step === 0 ? (
+                    <WorkspaceStep
+                      headingRef={headingRef}
+                      demoMode={demoMode}
+                      demoBusy={demoBusy}
+                      demoError={demoError}
+                      canManageDemo={canManageDemo}
+                      transitionBusy={transitionBusy}
+                      onDemoMode={requestDemoMode}
+                    />
+                  ) : null}
+                  {step === 1 ? (
+                    <SourcesStep
+                      headingRef={headingRef}
+                      connectors={connectors}
+                      sources={sources}
+                      demoMode={demoMode}
+                      onChanged={refreshStatus}
+                      onEditorStateChange={setSourceEditorOpen}
+                      onRetryCatalog={loadWizard}
+                    />
+                  ) : null}
+                  {step === 2 ? (
+                    <KeysStep
+                      headingRef={headingRef}
+                      configured={configured}
+                      values={keyValues}
+                      demoMode={demoMode}
+                      error={keysError}
+                      notice={keysNotice}
+                      onChange={(key, value) =>
+                        setKeyValues((previous) => ({ ...previous, [key]: value }))
+                      }
+                    />
+                  ) : null}
+                  {step === 3 ? (
+                    <ReviewStep
+                      headingRef={headingRef}
+                      demoMode={demoMode}
+                      sources={sources}
+                      configured={configured}
+                    />
+                  ) : null}
+
+                  {finishError ? (
+                    <LoadError
+                      error={finishError}
+                      title="Couldn’t complete setup"
+                      fallback="Setup was not marked complete. Review the connection and try again."
+                      className="mt-8"
+                      onRetry={finish}
+                      retryLabel="Try again"
+                    />
+                  ) : null}
+                </>
               )}
-              Finish setup
-            </Button>
-          ) : (
-            <Button onClick={() => void next()} disabled={loading || savingKeys}>
-              {savingKeys ? (
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-              ) : null}
-              Continue <ArrowRight className="h-4 w-4" aria-hidden />
-            </Button>
-          )}
-        </div>
-      </footer>
+            </div>
+          </main>
+
+          <footer className="shrink-0 border-t border-border bg-canvas">
+            <div className="mx-auto flex w-full max-w-[960px] items-center justify-between gap-3 px-5 py-4 sm:px-8 lg:px-12">
+              <Button
+                variant="ghost"
+                onClick={() => requestNavigation({ kind: 'step', step: Math.max(0, step - 1) })}
+                disabled={loading || step === 0 || transitionBusy}
+              >
+                <ArrowLeft className="h-4 w-4" aria-hidden /> Back
+              </Button>
+              {isLast ? (
+                <Button size="lg" onClick={finish} disabled={loading || transitionBusy}>
+                  {finishing ? (
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                  ) : (
+                    <Rocket className="h-4 w-4" aria-hidden />
+                  )}
+                  {onExit ? 'Apply changes' : 'Launch Agentic SOC'}
+                </Button>
+              ) : (
+                <Button
+                  onClick={() => requestNavigation({ kind: 'step', step: step + 1 })}
+                  disabled={loading || transitionBusy}
+                >
+                  {savingKeys ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
+                  {continueLabel} <ArrowRight className="h-4 w-4" aria-hidden />
+                </Button>
+              )}
+            </div>
+          </footer>
+        </section>
+      </div>
+
+      <ConfirmDialog
+        open={Boolean(pendingNavigation)}
+        onOpenChange={(open) => {
+          if (!open) setPendingNavigation(null);
+        }}
+        title="Discard this source draft?"
+        description="The source editor has unsaved work. Leaving this step will discard the draft."
+        confirmLabel="Discard and continue"
+        destructive
+        onConfirm={() => {
+          const navigation = pendingNavigation;
+          setPendingNavigation(null);
+          setSourceEditorOpen(false);
+          if (navigation) performNavigation(navigation);
+        }}
+      />
+
+      <ConfirmDialog
+        open={confirmLiveMode}
+        onOpenChange={setConfirmLiveMode}
+        title="Switch to a live workspace?"
+        description="This disables Synthetic demo and removes its isolated sample activity. Configured live sources and provider credentials remain in place."
+        confirmLabel="Disable demo and switch"
+        destructive
+        onConfirm={() => {
+          setConfirmLiveMode(false);
+          applyDemoMode(false);
+        }}
+      />
     </div>
   );
 }
 
-/* ============================================================ loading skel = */
+function StepButton({
+  item,
+  index,
+  state,
+  onClick,
+  disabled,
+}: {
+  item: (typeof STEPS)[number];
+  index: number;
+  state: StepState;
+  onClick: () => void;
+  disabled: boolean;
+}) {
+  const Icon = item.icon;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-current={state === 'current' ? 'step' : undefined}
+      aria-label={`Step ${index + 1}: ${item.shortTitle}`}
+      className={cn(
+        'group flex w-full items-start gap-3 rounded-md px-3 py-3 text-left transition-colors',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        'disabled:cursor-wait disabled:opacity-60',
+        state === 'current' ? 'bg-primary/10 text-foreground' : 'hover:bg-muted/70',
+      )}
+    >
+      <span
+        className={cn(
+          'mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border',
+          state === 'current'
+            ? 'border-primary/30 bg-primary/10 text-primary'
+            : state === 'ready'
+              ? 'border-success/25 bg-success/10 text-success-text'
+              : state === 'attention'
+                ? 'border-warning/25 bg-warning/10 text-warning-text'
+                : 'border-border bg-canvas text-muted-foreground',
+        )}
+      >
+        {state === 'ready' ? (
+          <Check className="h-4 w-4" aria-hidden />
+        ) : state === 'attention' ? (
+          <TriangleAlert className="h-4 w-4" aria-hidden />
+        ) : state === 'available' ? (
+          <Circle className="h-3.5 w-3.5" aria-hidden />
+        ) : (
+          <Icon className="h-4 w-4" aria-hidden />
+        )}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-semibold">{item.shortTitle}</span>
+        <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
+          {item.description}
+        </span>
+      </span>
+    </button>
+  );
+}
 
 function WizardSkeleton() {
   return (
-    <div className="space-y-4">
+    <div className="space-y-6" role="status" aria-label="Loading setup" aria-busy="true">
       <LoadingBar />
-      <Skeleton className="h-7 w-64" />
-      <Skeleton className="h-4 w-full max-w-xl" />
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Skeleton className="h-28 w-full" />
-        <Skeleton className="h-28 w-full" />
-        <Skeleton className="h-28 w-full" />
+      <div className="space-y-2">
+        <Skeleton className="h-8 w-72 max-w-full" />
+        <Skeleton className="h-4 w-full max-w-xl" />
       </div>
-      <Skeleton className="h-10 w-full" />
+      <div className="divide-y divide-border border-y border-border">
+        <div className="flex gap-4 py-6">
+          <Skeleton className="h-10 w-10 shrink-0" />
+          <div className="w-full space-y-2">
+            <Skeleton className="h-5 w-48" />
+            <Skeleton className="h-4 w-full max-w-lg" />
+          </div>
+        </div>
+        <div className="flex gap-4 py-6">
+          <Skeleton className="h-10 w-10 shrink-0" />
+          <div className="w-full space-y-2">
+            <Skeleton className="h-5 w-40" />
+            <Skeleton className="h-4 w-full max-w-md" />
+          </div>
+        </div>
+      </div>
+      <span className="sr-only">Loading setup…</span>
     </div>
   );
 }
 
-/* ============================================================ step: welcome */
-
-function StepHeading({ title, description }: { title: string; description: string }) {
+function StepHeading({
+  headingRef,
+  eyebrow,
+  title,
+  description,
+}: {
+  headingRef: React.RefObject<HTMLHeadingElement>;
+  eyebrow: string;
+  title: string;
+  description: string;
+}) {
   return (
-    <div className="mb-6">
-      <h2 className="text-lg font-semibold tracking-tight text-foreground">{title}</h2>
-      <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+    <div className="mb-8 border-b border-border pb-6">
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">{eyebrow}</p>
+      <h1
+        ref={headingRef}
+        tabIndex={-1}
+        className="mt-2 text-2xl font-semibold tracking-tight text-foreground outline-none sm:text-3xl"
+      >
+        {title}
+      </h1>
+      <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground sm:text-base">
         {description}
       </p>
     </div>
   );
 }
 
-function WelcomeStep({
-  deploymentName,
-  onDeploymentName,
+function WorkspaceStep({
+  headingRef,
   demoMode,
-  onDemoMode,
-  canManageDemo,
   demoBusy,
   demoError,
+  canManageDemo,
+  transitionBusy,
+  onDemoMode,
 }: {
-  deploymentName: string;
-  onDeploymentName: (v: string) => void;
+  headingRef: React.RefObject<HTMLHeadingElement>;
   demoMode: boolean;
-  onDemoMode: (v: boolean) => void;
-  /** Only an admin (or auth-off) may arm demo mode — hide the toggle otherwise. */
-  canManageDemo: boolean;
-  /** True while an enable/disable call is in flight (disables the switch). */
   demoBusy: boolean;
-  /** A demo enable/disable failure — shown INLINE here, never as the finish banner. */
   demoError: unknown;
+  canManageDemo: boolean;
+  transitionBusy: boolean;
+  onDemoMode: (next: boolean) => void;
 }) {
+  const mode = demoMode ? 'demo' : 'live';
   return (
-    <div className="space-y-6">
+    <div>
       <StepHeading
-        title="Welcome to Agentic SOC"
-        description="This console turns raw alert volume into audited, cost-metered, human-reviewable cases. Let's get it connected to your data and models."
+        headingRef={headingRef}
+        eyebrow="Workspace"
+        title="How do you want to start?"
+        description="Use realistic synthetic activity to learn the Console, or connect your own systems for live triage. Demo data stays isolated and can be removed at any time."
       />
 
-      <div className="space-y-1.5">
-        <Label htmlFor="wz-deployment">Deployment name</Label>
-        <Input
-          id="wz-deployment"
-          value={deploymentName}
-          onChange={(e) => onDeploymentName(e.target.value)}
-          placeholder="e.g. Acme Production SOC"
+      <RadioGroup
+        value={mode}
+        onValueChange={(value) => void onDemoMode(value === 'demo')}
+        disabled={transitionBusy}
+        className="divide-y divide-border border-y border-border"
+        aria-label="Workspace mode"
+      >
+        <WorkspaceChoice
+          id="workspace-live"
+          value="live"
+          title="Live environment"
+          description="Connect your security data and an AI provider. The Console starts processing once setup is launched."
+          icon={ServerCog}
+          selected={!demoMode}
+          busy={demoBusy}
+          disabled={demoMode && !canManageDemo}
+          detail={
+            demoMode && !canManageDemo
+              ? 'Requires demo management permission to disable the active demo'
+              : 'Best for production and integration testing'
+          }
         />
-        <p className="text-xs text-muted-foreground">
-          A label for this SOC deployment, shown across the console.
+        <WorkspaceChoice
+          id="workspace-demo"
+          value="demo"
+          title="Synthetic demo"
+          description="Seed sample cases, metrics, and activity without touching a real SIEM or incurring model cost."
+          icon={FlaskConical}
+          selected={demoMode}
+          busy={demoBusy}
+          disabled={!canManageDemo}
+          detail={canManageDemo ? 'Isolated · reversible · $0 inference' : 'Requires demo management permission'}
+        />
+      </RadioGroup>
+
+      <div className="mt-6 flex items-start gap-3 text-sm leading-relaxed text-muted-foreground">
+        <Activity className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
+        <p>
+          {demoMode
+            ? 'Demo is active. The next two steps are optional; sample activity and the mock AI runtime are already available.'
+            : 'Live mode is selected. Add at least one source and provider key for full triage capability.'}
         </p>
       </div>
 
-      {/* Demo mode is an ADMIN action — the toggle is hidden entirely for a principal
-          who can't manage it (bug #3). The ONE demo affordance: the toggle, its
-          explanation, an inline "it's on" confirmation, and any error, all here. */}
-      {canManageDemo ? (
-        <Card className="bg-muted/40">
-          <CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-start">
-            <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-surface text-info">
-              <Beaker className="h-5 w-5" aria-hidden />
-            </span>
-            <div className="flex-1 space-y-1">
-              <div className="flex items-center gap-2">
-                <Switch
-                  id="wz-demo"
-                  checked={demoMode}
-                  disabled={demoBusy}
-                  onCheckedChange={(v) => void onDemoMode(v)}
-                />
-                <Label htmlFor="wz-demo" className="cursor-pointer">
-                  Demo mode (explore with realistic sample data, no real SIEM required)
-                </Label>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Seeds an isolated, $0, fully reversible synthetic tenant so you can explore
-                the console immediately — it touches no real data and can be switched off
-                (and wiped) any time from Settings › Experimental. You can still add a real
-                source on the next step.
-              </p>
-              {demoMode ? (
-                <p className="inline-flex items-center gap-1.5 pt-1 text-xs font-medium text-info">
-                  <Info className="h-3.5 w-3.5" aria-hidden />
-                  On — the console is populated with isolated sample cases and activity.
-                </p>
-              ) : null}
-              {demoError ? (
-                <Alert variant="destructive" className="mt-2">
-                  <X className="h-4 w-4" aria-hidden />
-                  <AlertTitle>Couldn&apos;t switch demo mode</AlertTitle>
-                  <AlertDescription>{errorMessage(demoError)}</AlertDescription>
-                </Alert>
-              ) : null}
-            </div>
-          </CardContent>
-        </Card>
+      {demoError ? (
+        <LoadError
+          error={demoError}
+          title="Couldn’t switch workspace mode"
+          fallback="The workspace mode was not changed."
+          className="mt-6"
+        />
       ) : null}
     </div>
   );
 }
 
-/* ============================================================ step: sources */
+function WorkspaceChoice({
+  id,
+  value,
+  title,
+  description,
+  detail,
+  icon: Icon,
+  selected,
+  busy,
+  disabled,
+}: {
+  id: string;
+  value: string;
+  title: string;
+  description: string;
+  detail: string;
+  icon: LucideIcon;
+  selected: boolean;
+  busy: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <Label
+      htmlFor={id}
+      className={cn(
+        'flex cursor-pointer items-start gap-4 px-1 py-6 text-left transition-colors sm:px-3',
+        'hover:bg-muted/30',
+        selected && 'bg-primary/[0.04]',
+        disabled && 'cursor-not-allowed opacity-55',
+      )}
+    >
+      <span
+        className={cn(
+          'inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border',
+          selected
+            ? 'border-primary/30 bg-primary/10 text-primary'
+            : 'border-border bg-surface text-muted-foreground',
+        )}
+      >
+        {busy && selected ? (
+          <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+        ) : (
+          <Icon className="h-5 w-5" aria-hidden />
+        )}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex flex-wrap items-center gap-2">
+          <span className="text-base font-semibold text-foreground">{title}</span>
+          {selected ? <Badge variant="info">Selected</Badge> : null}
+        </span>
+        <span className="mt-1 block max-w-2xl text-sm leading-relaxed text-muted-foreground">
+          {description}
+        </span>
+        <span className="mt-2 block text-xs font-medium text-muted-foreground">{detail}</span>
+      </span>
+      <RadioGroupItem id={id} value={value} disabled={disabled || busy} className="mt-1" />
+    </Label>
+  );
+}
 
 function SourcesStep({
+  headingRef,
   connectors,
   sources,
-  onChanged,
   demoMode,
+  onChanged,
+  onEditorStateChange,
+  onRetryCatalog,
 }: {
+  headingRef: React.RefObject<HTMLHeadingElement>;
   connectors: ConnectorManifest[];
   sources: SourceInstance[];
-  onChanged: () => Promise<void> | void;
   demoMode: boolean;
+  onChanged: () => Promise<void> | void;
+  onEditorStateChange: (open: boolean) => void;
+  onRetryCatalog: () => Promise<void> | void;
 }) {
-  const [adding, setAdding] = React.useState(sources.length === 0);
+  const [adding, setAdding] = React.useState(false);
   const [editing, setEditing] = React.useState<SourceInstance | null>(null);
   const [error, setError] = React.useState<unknown>(null);
   const [busyId, setBusyId] = React.useState<string | null>(null);
-  // Destructive removal is gated behind the shared ConfirmDialog (matching the hardened
-  // Sources page) so a single misclick can't wipe a configured source + its secrets.
   const [pendingDelete, setPendingDelete] = React.useState<SourceInstance | null>(null);
+  const editorOpen = adding || Boolean(editing);
+  const enabledSourceCount = sources.filter((source) => source.enabled !== false).length;
+  const disabledSourceCount = sources.length - enabledSourceCount;
+
+  React.useEffect(() => {
+    onEditorStateChange(editorOpen);
+    return () => onEditorStateChange(false);
+  }, [editorOpen, onEditorStateChange]);
 
   const reload = async () => {
     setAdding(false);
     setEditing(null);
     setError(null);
-    await onChanged();
+    try {
+      await onChanged();
+    } catch (nextError) {
+      setError(nextError);
+    }
   };
 
-  const setPrimary = async (s: SourceInstance) => {
-    setBusyId(s.id);
+  const setPrimary = async (source: SourceInstance) => {
+    setBusyId(source.id);
     setError(null);
     try {
       await api.upsertSource({
-        id: s.id,
-        source_type: s.source_type,
-        display_name: s.display_name,
-        enabled: s.enabled,
+        id: source.id,
+        source_type: source.source_type,
+        display_name: source.display_name,
+        enabled: source.enabled,
         is_primary: true,
-        ingest_mode: s.ingest_mode ?? null,
-        config: (s.config as Record<string, unknown>) || {},
+        ingest_mode: source.ingest_mode ?? null,
+        config: (source.config as Record<string, unknown>) || {},
       });
       await onChanged();
-    } catch (e) {
-      setError(e);
+    } catch (nextError) {
+      setError(nextError);
     } finally {
       setBusyId(null);
     }
   };
 
-  const remove = async (s: SourceInstance) => {
-    setBusyId(s.id);
+  const remove = async (source: SourceInstance) => {
+    setBusyId(source.id);
     setError(null);
     try {
-      await api.deleteSource(s.id);
+      await api.deleteSource(source.id);
       await onChanged();
-    } catch (e) {
-      setError(e);
+    } catch (nextError) {
+      setError(nextError);
     } finally {
       setBusyId(null);
     }
   };
-
-  const showList = sources.length > 0 && !adding && !editing;
 
   return (
     <div>
       <StepHeading
-        title="Connect your log sources"
-        description={
-          demoMode
-            ? 'Adding a source is optional in demo mode — you can skip ahead. Otherwise add at least one (Elasticsearch, Splunk, a webhook receiver…) and mark one primary.'
-            : 'Add at least one source so the agent has events to triage. You can add several (an Elasticsearch, a Splunk, a webhook receiver…) and mark one as primary.'
-        }
+        headingRef={headingRef}
+        eyebrow="Data sources"
+        title="Connect the systems you already use"
+        description="Add pull, push, queue, or object-store sources. Agentic SOC normalizes each record into the same internal event model before correlation and triage."
       />
 
-      {error ? (
-        <Alert variant="destructive" className="mb-4">
-          <X className="h-4 w-4" aria-hidden />
-          <AlertTitle>Something went wrong</AlertTitle>
-          <AlertDescription>{errorMessage(error)}</AlertDescription>
+      {demoMode ? (
+        <Alert variant="info" className="mb-6">
+          <FlaskConical className="h-4 w-4" aria-hidden />
+          <AlertTitle>Optional in demo</AlertTitle>
+          <AlertDescription>
+            Sample activity is already seeded. Add a real source only when you are ready to
+            test an integration.
+          </AlertDescription>
         </Alert>
       ) : null}
 
-      {showList ? (
-        <div className="space-y-3">
-          {sources.map((s) => {
-            const meta = connectors.find((c) => c.source_type === s.source_type);
-            const secretCount = s.configured_secrets?.length || 0;
-            return (
-              <Card key={s.id}>
-                <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:p-5">
-                  <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-surface text-primary">
-                    <Database className="h-5 w-5" aria-hidden />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      {/* display name is operator input → plain text */}
-                      <span className="truncate font-semibold text-foreground">
-                        {s.display_name || meta?.display_name || s.source_type}
-                      </span>
-                      {s.is_primary ? (
-                        <Badge variant="info">Primary</Badge>
-                      ) : null}
-                      {s.enabled === false ? (
-                        <Badge variant="outline">Disabled</Badge>
-                      ) : null}
-                    </div>
-                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                      {humanizeToken(s.source_type)}
-                      {s.ingest_mode ? ` · ${humanizeToken(s.ingest_mode)}` : ''}
-                      {secretCount ? ` · ${secretCount} secret(s) set` : ''}
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 flex-wrap items-center gap-1">
-                    {!s.is_primary ? (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setPrimary(s)}
-                        disabled={busyId === s.id}
-                      >
-                        {busyId === s.id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                        ) : (
-                          <Star className="h-4 w-4" aria-hidden />
-                        )}
-                        Make primary
-                      </Button>
-                    ) : null}
-                    <Button variant="ghost" size="sm" onClick={() => setEditing(s)}>
-                      <Pencil className="h-4 w-4" aria-hidden /> Edit
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-critical-text"
-                      onClick={() => setPendingDelete(s)}
-                      disabled={busyId === s.id}
-                    >
-                      <Trash2 className="h-4 w-4" aria-hidden /> Remove
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-          <Button variant="outline" onClick={() => setAdding(true)}>
-            <Plus className="h-4 w-4" aria-hidden /> Add another source
-          </Button>
-        </div>
+      {error ? (
+        <LoadError
+          error={error}
+          title="Couldn’t update data sources"
+          fallback="The source change was not applied."
+          className="mb-6"
+          onRetry={() => void onChanged()}
+        />
       ) : null}
 
-      {sources.length === 0 && !adding ? (
+      {!connectors.length ? (
         <EmptyState
           icon={Database}
-          title="No sources yet"
-          description="Add your first source to give the agent events to triage."
+          title="Connector catalog unavailable"
+          description="No connector definitions were returned. Retry the catalog before adding a source."
           action={
-            <Button onClick={() => setAdding(true)}>
-              <Plus className="h-4 w-4" aria-hidden /> Add a source
+            <Button variant="outline" onClick={() => void onRetryCatalog()}>
+              <RefreshCw className="h-4 w-4" aria-hidden /> Retry catalog
             </Button>
           }
         />
       ) : null}
 
-      {adding || editing ? (
-        <Card className="p-4 sm:p-6">
+      {connectors.length && !editorOpen ? (
+        <div>
+          <div className="flex flex-wrap items-center justify-between gap-3 pb-4">
+            <div>
+              <h2 className="text-base font-semibold text-foreground">
+                {sources.length
+                  ? `${enabledSourceCount} enabled${
+                      disabledSourceCount ? ` · ${disabledSourceCount} disabled` : ''
+                    }`
+                  : 'No sources configured'}
+              </h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Secrets stay write-only and are never returned to this screen.
+              </p>
+            </div>
+            <Button onClick={() => setAdding(true)}>
+              <Plus className="h-4 w-4" aria-hidden /> Add source
+            </Button>
+          </div>
+
+          {sources.length ? (
+            <div className="divide-y divide-border border-y border-border">
+              {sources.map((source) => {
+                const manifest = connectors.find(
+                  (connector) => connector.source_type === source.source_type,
+                );
+                const secretCount = source.configured_secrets?.length || 0;
+                const canBePrimary =
+                  source.ingest_mode === 'pull' ||
+                  source.ingest_mode?.startsWith('pull_') ||
+                  manifest?.ingest_modes?.includes('pull');
+                return (
+                  <div
+                    key={source.id}
+                    className="flex flex-col gap-4 py-5 sm:flex-row sm:items-center"
+                  >
+                    <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-surface text-primary">
+                      <Database className="h-5 w-5" aria-hidden />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="truncate font-semibold text-foreground">
+                          {source.display_name || manifest?.display_name || source.source_type}
+                        </span>
+                        {source.is_primary ? <Badge variant="info">Primary</Badge> : null}
+                        {source.enabled === false ? <Badge variant="outline">Disabled</Badge> : null}
+                      </div>
+                      <p className="mt-1 truncate text-xs text-muted-foreground">
+                        {humanizeToken(source.source_type)}
+                        {source.ingest_mode ? ` · ${humanizeToken(source.ingest_mode)}` : ''}
+                        {secretCount ? ` · ${secretCount} secret${secretCount === 1 ? '' : 's'} configured` : ''}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap items-center gap-1">
+                      {!source.is_primary && canBePrimary ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => void setPrimary(source)}
+                          disabled={busyId === source.id}
+                        >
+                          {busyId === source.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                          ) : (
+                            <Star className="h-4 w-4" aria-hidden />
+                          )}
+                          Make primary
+                        </Button>
+                      ) : null}
+                      <Button variant="ghost" size="sm" onClick={() => setEditing(source)}>
+                        <Pencil className="h-4 w-4" aria-hidden /> Edit
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-critical-text"
+                        onClick={() => setPendingDelete(source)}
+                        disabled={busyId === source.id}
+                      >
+                        <Trash2 className="h-4 w-4" aria-hidden /> Remove
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="border-y border-border py-10">
+              <EmptyState
+                compact
+                icon={Database}
+                title="Start with one data source"
+                description="Choose from the connector catalog, test the draft, then save it. You can add more later."
+                action={
+                  <Button onClick={() => setAdding(true)}>
+                    <Plus className="h-4 w-4" aria-hidden /> Add your first source
+                  </Button>
+                }
+              />
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {connectors.length && editorOpen ? (
+        <section className="border-t border-border pt-6" aria-label="Source editor">
+          <div className="mb-6">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              {editing ? 'Edit source' : 'New source'}
+            </p>
+            <h2 className="mt-1 text-lg font-semibold text-foreground">
+              {editing
+                ? editing.display_name || humanizeToken(editing.source_type)
+                : 'Choose and configure a connector'}
+            </h2>
+          </div>
           <SourceEditor
             connectors={connectors}
             existing={editing || undefined}
             defaultPrimary={sources.length === 0}
-            onSaved={reload}
-            onCancel={sources.length > 0 ? () => reload() : undefined}
+            onSaved={() => void reload()}
+            onCancel={() => void reload()}
           />
-        </Card>
+        </section>
       ) : null}
 
       <ConfirmDialog
-        open={!!pendingDelete}
-        onOpenChange={(o) => {
-          if (!o) setPendingDelete(null);
+        open={Boolean(pendingDelete)}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null);
         }}
         title="Remove this source?"
-        // display name is operator input → rendered as plain text by ConfirmDialog (#9)
         description={
           pendingDelete
-            ? `"${pendingDelete.display_name || pendingDelete.source_type}" and its configuration${
-                pendingDelete.configured_secrets?.length ? ' (including its stored secrets)' : ''
-              } will be deleted. This can't be undone.`
+            ? `“${pendingDelete.display_name || pendingDelete.source_type}” and its configuration${
+                pendingDelete.configured_secrets?.length ? ', including stored secrets,' : ''
+              } will be deleted. This can’t be undone.`
             : ''
         }
         destructive
         confirmLabel="Remove source"
         onConfirm={() => {
-          const s = pendingDelete;
+          const source = pendingDelete;
           setPendingDelete(null);
-          if (s) void remove(s);
+          if (source) void remove(source);
         }}
       />
     </div>
   );
 }
 
-/* =============================================================== step: keys */
-
 interface KeyField {
   key: keyof SecretsUpdate;
   label: string;
-  help: string;
+  description: string;
 }
 
 const KEY_FIELDS: KeyField[] = [
   {
-    key: 'anthropic_api_key',
-    label: 'Anthropic API key',
-    help: 'Used for Claude models (router / investigator / etc.).',
-  },
-  {
     key: 'openai_api_key',
     label: 'OpenAI API key',
-    help: 'Used for GPT models and (by default) embeddings.',
+    description: 'Default runtime for GPT-5.6 Luna completion roles and vector embeddings.',
+  },
+  {
+    key: 'anthropic_api_key',
+    label: 'Anthropic API key',
+    description: 'Optional alternate runtime for Claude models.',
   },
   {
     key: 'embedding_api_key',
-    label: 'Embedding API key (optional)',
-    help: 'Leave blank to reuse the OpenAI key for RAG embeddings.',
+    label: 'Embedding API key',
+    description: 'Optional. Leave blank to reuse the OpenAI key for knowledge retrieval.',
   },
 ];
 
 function KeysStep({
+  headingRef,
   configured,
   values,
-  onChange,
+  demoMode,
   error,
+  notice,
+  onChange,
 }: {
+  headingRef: React.RefObject<HTMLHeadingElement>;
   configured: ConfiguredStatus;
-  /** The lifted key draft (survives step changes). */
   values: Record<string, string>;
-  onChange: (key: string, value: string) => void;
+  demoMode: boolean;
   error: unknown;
+  notice: string | null;
+  onChange: (key: string, value: string) => void;
 }) {
   const anyConfigured =
     Boolean(configured.anthropic_api_key) || Boolean(configured.openai_api_key);
-
   return (
     <div>
       <StepHeading
-        title="LLM provider keys"
-        description="Add at least one provider key (Anthropic or OpenAI) so the agent can reason. Per-role model selection lives in Settings."
+        headingRef={headingRef}
+        eyebrow="AI runtime"
+        title="Connect the models that investigate cases"
+        description="Add at least one provider for live reasoning. Model selection, budgets, and routing stay configurable in Settings after launch."
       />
 
-      {!anyConfigured ? (
-        <Alert variant="warning" className="mb-4">
-          <Info className="h-4 w-4" aria-hidden />
-          <AlertTitle>At least one provider key is recommended</AlertTitle>
-          <AlertDescription>
-            Without a key, investigations fall back to a mock model. You can add a key
-            now or later from Settings.
-          </AlertDescription>
-        </Alert>
-      ) : null}
+      <Alert variant={demoMode ? 'info' : anyConfigured ? 'success' : 'warning'} className="mb-6">
+        {demoMode ? (
+          <FlaskConical className="h-4 w-4" aria-hidden />
+        ) : anyConfigured ? (
+          <CheckCircle2 className="h-4 w-4" aria-hidden />
+        ) : (
+          <TriangleAlert className="h-4 w-4" aria-hidden />
+        )}
+        <AlertTitle>
+          {demoMode
+            ? 'Mock runtime available'
+            : anyConfigured
+              ? 'Live provider configured'
+              : 'A live provider is recommended'}
+        </AlertTitle>
+        <AlertDescription>
+          {demoMode
+            ? 'Demo investigations run against the deterministic mock runtime at no inference cost. A live key is optional.'
+            : anyConfigured
+              ? 'New credentials replace only the provider you update; existing secret values are never shown.'
+              : 'You can continue without a key, but live investigations will use the limited mock runtime until a provider is added.'}
+        </AlertDescription>
+      </Alert>
 
-      {/* Uses the SHARED SecretField primitive (Field + IconButton a11y wiring,
-          autoComplete="new-password", boolean-only status) — no re-rolled input (#10). */}
-      <div className="space-y-4">
-        {KEY_FIELDS.map((f) => (
-          <SecretField
-            key={f.key}
-            label={f.label}
-            description={`${f.help} Stored in the secret store; only ever shown as configured.`}
-            configured={Boolean(configured[f.key])}
-            value={values[f.key] || ''}
-            onChange={(v) => onChange(f.key, v)}
-          />
+      <div className="divide-y divide-border border-y border-border">
+        {KEY_FIELDS.map((field) => (
+          <div key={field.key} className="py-5">
+            <SecretField
+              label={field.label}
+              description={`${field.description} Stored write-only; the Console reports only whether it is configured.`}
+              configured={Boolean(configured[field.key])}
+              value={values[field.key] || ''}
+              onChange={(value) => onChange(field.key, value)}
+            />
+          </div>
         ))}
       </div>
 
-      <p className="mt-3 text-xs text-muted-foreground">
-        Keys are saved automatically when you continue — you never lose a key you&apos;ve
-        entered here.
-      </p>
+      <div className="mt-4 flex items-start gap-2 text-xs leading-relaxed text-muted-foreground">
+        <LockKeyhole className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+        <p>Typed keys save automatically whenever you leave this step.</p>
+      </div>
 
-      {error ? (
-        <Alert variant="destructive" className="mt-4">
-          <X className="h-4 w-4" aria-hidden />
-          <AlertTitle>Could not save keys</AlertTitle>
-          <AlertDescription>{errorMessage(error)}</AlertDescription>
+      {notice ? (
+        <Alert variant="success" className="mt-6">
+          <CheckCircle2 className="h-4 w-4" aria-hidden />
+          <AlertTitle>Keys saved</AlertTitle>
+          <AlertDescription>{notice}</AlertDescription>
         </Alert>
+      ) : null}
+      {error ? (
+        <LoadError
+          error={error}
+          title="Couldn’t save provider keys"
+          fallback="The keys were not saved. Check the connection and try again."
+          className="mt-6"
+        />
       ) : null}
     </div>
   );
 }
 
-/* ============================================================= step: review */
+type ReadinessState = 'ready' | 'warning' | 'optional';
 
-function ReviewRow({
-  label,
-  ok,
-  value,
+function ReviewStep({
+  headingRef,
+  demoMode,
+  sources,
+  configured,
 }: {
-  label: string;
-  ok: boolean;
-  value: React.ReactNode;
+  headingRef: React.RefObject<HTMLHeadingElement>;
+  demoMode: boolean;
+  sources: SourceInstance[];
+  configured: ConfiguredStatus;
 }) {
+  const hasProvider =
+    Boolean(configured.anthropic_api_key) || Boolean(configured.openai_api_key);
+  const enabledSources = sources.filter((source) => source.enabled !== false);
+  const disabledSourceCount = sources.length - enabledSources.length;
+  const primary = enabledSources.find((source) => source.is_primary);
+  const fullLive = !demoMode && enabledSources.length > 0 && hasProvider;
+  const heading = demoMode
+    ? 'Demo workspace is ready'
+    : fullLive
+      ? 'Ready for live triage'
+      : 'Ready with limited capabilities';
+  const description = demoMode
+    ? 'Sample cases and the mock runtime are available as soon as you launch.'
+    : fullLive
+      ? 'Your source and AI runtime are connected. Polling and triage can begin after launch.'
+      : 'You can launch now, but the Console will remain partially configured until the warnings below are resolved.';
+
   return (
-    <div className="flex items-start gap-3 py-2">
-      <span
-        className={cn(
-          'mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full',
-          ok ? 'bg-success/15 text-success' : 'bg-muted text-muted-foreground',
-        )}
-      >
-        {ok ? <Check className="h-3.5 w-3.5" aria-hidden /> : <X className="h-3.5 w-3.5" aria-hidden />}
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="text-sm font-medium text-foreground">{label}</div>
-        <div className="text-sm text-muted-foreground">{value}</div>
+    <div>
+      <StepHeading
+        headingRef={headingRef}
+        eyebrow="Review & launch"
+        title={heading}
+        description={description}
+      />
+
+      <div className="divide-y divide-border border-y border-border">
+        <ReadinessRow
+          icon={demoMode ? FlaskConical : ServerCog}
+          title="Workspace"
+          state="ready"
+          detail={demoMode ? 'Synthetic demo · isolated sample activity' : 'Live environment'}
+        />
+        <ReadinessRow
+          icon={Database}
+          title="Data sources"
+          state={enabledSources.length ? 'ready' : demoMode ? 'optional' : 'warning'}
+          detail={
+            enabledSources.length
+              ? `${enabledSources.length} enabled source${
+                  enabledSources.length === 1 ? '' : 's'
+                }${disabledSourceCount ? ` · ${disabledSourceCount} disabled` : ''}${
+                  primary ? ` · primary: ${primary.display_name || primary.source_type}` : ''
+                }`
+              : demoMode
+                ? `${
+                    disabledSourceCount
+                      ? `No enabled sources · ${disabledSourceCount} configured but disabled · `
+                      : ''
+                  }Optional in demo · sample activity is already seeded`
+                : disabledSourceCount
+                  ? `No enabled sources · ${disabledSourceCount} configured but disabled`
+                  : 'No source configured · live telemetry will not be ingested'
+          }
+        />
+        <ReadinessRow
+          icon={KeyRound}
+          title="AI runtime"
+          state={hasProvider ? 'ready' : demoMode ? 'optional' : 'warning'}
+          detail={
+            hasProvider
+              ? `Configured: ${[
+                  configured.anthropic_api_key ? 'Anthropic' : null,
+                  configured.openai_api_key ? 'OpenAI' : null,
+                ]
+                  .filter(Boolean)
+                  .join(', ')}`
+              : demoMode
+                ? 'Deterministic mock runtime · no inference cost'
+                : 'No provider configured · mock runtime only'
+          }
+        />
+        <div className="flex items-start gap-4 py-6">
+          <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-surface text-primary">
+            <Sparkles className="h-5 w-5" aria-hidden />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold text-foreground">Automation posture</h2>
+                <p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+                  Enabled by default. Tunes investigation routing and groups related cases.
+                  Close and escalation decisions remain deterministic. Setup does not change
+                  an existing automation policy.
+                </p>
+              </div>
+              <Badge variant="success">
+                <Check className="h-3 w-3" aria-hidden /> On by default
+              </Badge>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-6 flex items-start gap-3 rounded-md border border-border bg-surface/50 px-4 py-4">
+        <Rocket className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
+        <div>
+          <p className="text-sm font-medium text-foreground">Launch is non-destructive</p>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            Re-run this setup from Settings at any time. Existing sources and credentials
+            remain in place unless you explicitly change or remove them.
+          </p>
+        </div>
       </div>
     </div>
   );
 }
 
-function ReviewStep({
-  deploymentName,
-  demoMode,
-  sources,
-  configured,
-  showAutomation,
-  canCampaignAutomation,
-  enableAutomation,
-  onEnableAutomation,
+function ReadinessRow({
+  icon: Icon,
+  title,
+  detail,
+  state,
 }: {
-  deploymentName: string;
-  demoMode: boolean;
-  sources: SourceInstance[];
-  configured: ConfiguredStatus;
-  /** Show the recommended-automation card only when the principal can enable ≥1 engine. */
-  showAutomation: boolean;
-  /** Whether the admin-gated campaigns line is also offered. */
-  canCampaignAutomation: boolean;
-  enableAutomation: boolean;
-  onEnableAutomation: (v: boolean) => void;
+  icon: LucideIcon;
+  title: string;
+  detail: React.ReactNode;
+  state: ReadinessState;
 }) {
-  const primary = sources.find((s) => s.is_primary);
-  const hasKey =
-    Boolean(configured.anthropic_api_key) || Boolean(configured.openai_api_key);
-
+  const status =
+    state === 'ready' ? 'Ready' : state === 'warning' ? 'Needs attention' : 'Optional';
   return (
-    <div>
-      <StepHeading
-        title="Review & finish"
-        description="Confirm your setup. You can change any of this later from Settings or by re-running the wizard."
-      />
-
-      <Card>
-        <CardContent className="divide-y divide-border p-5">
-          <ReviewRow
-            label="Deployment"
-            ok={Boolean(deploymentName.trim())}
-            // operator-supplied name → plain text
-            value={deploymentName.trim() || 'Unnamed deployment'}
-          />
-          <ReviewRow
-            label="Sources"
-            ok={sources.length > 0 || demoMode}
-            value={
-              sources.length > 0 ? (
-                <span>
-                  {sources.length} source{sources.length === 1 ? '' : 's'} configured
-                  {primary
-                    ? ` · primary: ${primary.display_name || primary.source_type}`
-                    : ' · no primary set'}
-                </span>
-              ) : demoMode ? (
-                'None (demo mode — analytics will show empty states)'
-              ) : (
-                'No sources yet — add one before the agent can triage'
-              )
-            }
-          />
-          <ReviewRow
-            label="Provider key"
-            ok={hasKey}
-            value={
-              hasKey
-                ? `Configured (${[
-                    configured.anthropic_api_key ? 'Anthropic' : null,
-                    configured.openai_api_key ? 'OpenAI' : null,
-                  ]
-                    .filter(Boolean)
-                    .join(', ')})`
-                : 'None set — the agent will fall back to a mock model'
-            }
-          />
-          <ReviewRow
-            label="Demo mode"
-            ok
-            value={demoMode ? 'On — explore with defaults' : 'Off — live triage'}
-          />
-        </CardContent>
-      </Card>
-
-      {/* Recommended automation — the one-click beginner self-improvement journey. On
-          Finish, when checked, we enable the #3-safe engines (FP-noise tuning + advisory
-          campaign grouping). Default-on; hidden when the principal can't enable any.
-          Simplified to a single toggle line + one short, honest note. */}
-      {showAutomation ? (
-        <Card className="mt-4 bg-muted/40">
-          <CardContent className="flex items-start gap-3 p-5">
-            <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-surface text-primary">
-              <Sparkles className="h-5 w-5" aria-hidden />
-            </span>
-            <div className="flex-1 space-y-1.5">
-              <div className="flex items-center gap-2">
-                <Switch
-                  id="wz-automation"
-                  checked={enableAutomation}
-                  onCheckedChange={onEnableAutomation}
-                />
-                <Label htmlFor="wz-automation" className="cursor-pointer">
-                  Let this SOC improve itself over time (recommended)
-                </Label>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Nightly, shadow-checked false-positive-noise tuning
-                {canCampaignAutomation ? ' plus advisory campaign grouping' : ''}. It only
-                adjusts what gets investigated — never how a case is closed or escalated
-                (that stays deterministic, #3). Change it any time in Settings.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      ) : null}
-
-      <Alert className="mt-4">
-        <CheckCircle2 className="h-4 w-4 text-success" aria-hidden />
-        <AlertTitle>Ready when you are</AlertTitle>
-        <AlertDescription>
-          Click <strong>Finish setup</strong> to open the console. Polling and triage
-          start automatically once a primary source and a provider key are in place.
-        </AlertDescription>
-      </Alert>
+    <div className="flex items-start gap-4 py-5">
+      <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-surface text-muted-foreground">
+        <Icon className="h-5 w-5" aria-hidden />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+          <Badge
+            variant={state === 'ready' ? 'success' : state === 'warning' ? 'warning' : 'outline'}
+          >
+            {state === 'ready' ? (
+              <Check className="h-3 w-3" aria-hidden />
+            ) : state === 'warning' ? (
+              <TriangleAlert className="h-3 w-3" aria-hidden />
+            ) : (
+              <Circle className="h-2.5 w-2.5" aria-hidden />
+            )}
+            {status}
+          </Badge>
+        </div>
+        <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{detail}</p>
+      </div>
     </div>
   );
 }

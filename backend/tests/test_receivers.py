@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import ssl
 
 import pytest
 
@@ -471,6 +472,78 @@ def test_syslog_idless_identity_is_stable_and_source_isolated(prefs):
     assert first.id
     assert retry.id == first.id
     assert source_b.id != first.id
+
+
+def test_syslog_tls_manifest_is_truthful_and_requires_mounted_material():
+    manifest = SyslogReceiver.manifest()
+    protocol = next(field for field in manifest.config_fields if field.key == "protocol")
+    assert "tls" in (protocol.options or [])
+    assert "planned" not in manifest.description.lower()
+    assert {field.key for field in manifest.config_fields} >= {
+        "tls_cert_file", "tls_key_file", "tls_client_ca_file", "tls_require_client_cert",
+    }
+    assert any(field.key == "tls_key_password" and field.secret for field in manifest.auth_fields)
+
+    with pytest.raises(ValueError, match="certificate"):
+        SyslogReceiver(config={"protocol": "tls"})._build_tls_context()
+
+
+def test_syslog_tls_context_loads_cert_chain_and_optional_mtls(tmp_path, monkeypatch):
+    cert = tmp_path / "server.crt"
+    key = tmp_path / "server.key"
+    ca = tmp_path / "clients.crt"
+    cert.write_text("cert", encoding="utf-8")
+    key.write_text("key", encoding="utf-8")
+    ca.write_text("ca", encoding="utf-8")
+
+    captured: dict[str, object] = {}
+
+    class FakeContext:
+        minimum_version = None
+        verify_mode = None
+
+        def __init__(self, protocol):
+            captured["protocol"] = protocol
+
+        def load_cert_chain(self, **kwargs):
+            captured["chain"] = kwargs
+
+        def load_verify_locations(self, **kwargs):
+            captured["ca"] = kwargs
+
+    monkeypatch.setattr(ssl, "SSLContext", FakeContext)
+    receiver = SyslogReceiver(config={
+        "protocol": "tls",
+        "tls_cert_file": str(cert),
+        "tls_key_file": str(key),
+        "tls_key_password": "write-only",
+        "tls_client_ca_file": str(ca),
+        "tls_require_client_cert": "true",
+    })
+
+    context = receiver._build_tls_context()
+    assert captured["protocol"] == ssl.PROTOCOL_TLS_SERVER
+    assert captured["chain"] == {
+        "certfile": str(cert), "keyfile": str(key), "password": "write-only",
+    }
+    assert captured["ca"] == {"cafile": str(ca)}
+    assert context.minimum_version == ssl.TLSVersion.TLSv1_2
+    assert context.verify_mode == ssl.CERT_REQUIRED
+
+
+def test_syslog_mtls_requires_client_ca(tmp_path):
+    cert = tmp_path / "server.crt"
+    key = tmp_path / "server.key"
+    cert.write_text("cert", encoding="utf-8")
+    key.write_text("key", encoding="utf-8")
+    receiver = SyslogReceiver(config={
+        "protocol": "tls",
+        "tls_cert_file": str(cert),
+        "tls_key_file": str(key),
+        "tls_require_client_cert": True,
+    })
+    with pytest.raises(ValueError, match="client_ca_file"):
+        receiver._build_tls_context()
 
 
 def test_score_to_severity_id_is_scale_aware():

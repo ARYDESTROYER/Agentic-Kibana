@@ -38,7 +38,10 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build
 ```
 
 On first load the UI checks `GET /api/setup/status`; if `setup_complete` is
-`false` it shows the **first-run wizard** instead of the console. After setup, the
+`false` it shows the **first-run wizard** instead of the console. If that check
+fails, the app shows a fail-closed **Can't verify setup state** recovery screen with
+**Retry**; it never opens the operational console while setup state is unknown.
+After setup, the
 left rail (`webui/src/soc/registry.tsx`, the single `FEATURES[]` table that derives
 the nav, the routes, and the Cmd-K command palette from one place) groups every
 surface into **six top-level nav groups**:
@@ -48,7 +51,7 @@ surface into **six top-level nav groups**:
 | **Overview** | Dashboard (the Security Command Center), Dashboards (custom, §21), Standup (§7) — each a full page |
 | **Triage** | Cases (§3), **Case Manager** (§3), Campaigns (§16), Logs (a unified cross-source log browser, §2a), Workspace → **Chat** (§5) and **Entity investigation** (§4) as left-nav children, Approvals |
 | **Intelligence** | Knowledge (§9), Memory (§10), Playbooks |
-| **Analytics** | Metrics, Cost (§8), Models (§22), Baseline (§17), Batch jobs (§22) |
+| **Analytics** | Metrics, **Agent effectiveness** (§7a), Cost (§8), Models (§22), Baseline (§17), Batch jobs (§22) |
 | **Notifications** | Inbox (the in-app notification inbox, §23) |
 | **Platform** | Sources (§2, standalone — not inside Settings), Audit log (§32), Auto-tuning (§15), Settings (§25, with Users and Roles as children) |
 
@@ -80,9 +83,12 @@ changing the selection. Open/Resolved controls drill into their lifecycle scopes
 the combined Critical/High tile opens the selected-window case list without applying
 one misleading single-severity filter.
 
-The **Noise Reduction** ribbon follows alerts ingested → after clustering → cases
-opened → auto-cleared by AI → escalated → closed by human, with the six text labels
-and values aligned below the larger flow. Burndown and the compact MTTD / first-human-
+The **Noise Reduction** ribbon presents alerts ingested → after clustering → cases
+opened → {auto-cleared by AI | escalated | closed by human}, with the six text labels
+and values aligned below the larger flow. The labels are authoritative: Auto-cleared
+and Escalated partition opened cases, while Closed by human is an analyst-owned subset
+of Escalated and must not be added as a third partition. Selecting an outcome applies the matching selected-window Cases filter;
+earlier stages open the selected-window Cases context. Burndown and the compact MTTD / first-human-
 response summary live below; full MTTA, MTTR, dwell, and other detail live under
 **Deeper analytics**. The page opens at **Last 24 hours** with visibility-aware
 **LIVE** refresh every five seconds; choose Off, 5 seconds, 30 seconds, 1 minute, or
@@ -91,21 +97,34 @@ near-fullscreen, horizontally scrollable view: the aggregate funnel remains the 
 volume view, and a lazy bounded section shows the newest persisted redacted alert →
 deterministic cluster → opened case → current/terminal-outcome lineages. Coverage, store-
 page, and sample truncation notices remain visible. Raw alert identifiers and payloads are
-not exposed; alerts that never formed a case remain aggregate counts only.
+not exposed; alerts that never formed a case remain aggregate counts only. The Cases
+page loads a bounded record window, so its filtered rows may be a lower bound even when
+the aggregate outcome count is complete.
 
 ---
 
-## 1. First-run wizard (4 steps)
+## 1. First-run wizard (4 stages)
 
-The wizard (`webui/src/soc/pages/Wizard.tsx`) is a focused four-step flow. It
-shows automatically when `GET /api/setup/status` reports `setup_complete: false`,
-and is re-runnable from **Settings**.
+The wizard (`webui/src/soc/pages/Wizard.tsx`) is a focused four-stage setup
+workspace. It shows automatically when `GET /api/setup/status` reports
+`setup_complete: false`, and administrators can re-run it from **Settings**. The
+desktop progress rail and compact mobile progress bar use the same sequence:
+**Workspace → Data sources → AI runtime → Review & launch**. Each stage heading
+receives focus after navigation, and the sticky action bar remains available while
+long source forms scroll.
 
-### Step 1 — Welcome
+### Stage 1 — Workspace
 
-Name the deployment and optionally toggle a non-destructive **Demo Mode** (§29).
+Choose **Live environment** or **Synthetic demo**:
 
-### Step 2 — Sources
+- Live connects operator-owned telemetry and a live model provider. Full live
+  triage requires at least one source and an OpenAI key for the default Luna roles,
+  or another supported provider key plus explicit role reassignment.
+- Synthetic demo seeds isolated sample activity and forces the deterministic `$0`
+  mock runtime. It never calls a configured live provider. Sources and a live key
+  are therefore optional in this mode (§29).
+
+### Stage 2 — Data sources
 
 This is the heart of the vendor-agnostic design. The step embeds the same
 manifest-driven **`SourceEditor`** the standalone Sources page uses (§2) — no
@@ -124,30 +143,61 @@ editor renders a validated form from that connector's `auth_fields` +
   the transport's auth + config (e.g. a webhook `auth_mode` + `token`, or a
   syslog `bind_host` / `port` / `protocol`).
 
-**Test the connection** (`POST /api/connectors/test`) before saving. Saving sends
-secret fields to the secret tier (`POST /api/setup/secrets` for the primary
-source's keys, or `POST /api/sources/{id}/secrets` per-source) and the
-non-secret config to `POST /api/sources`. You can add multiple sources and mark
-one **primary** (the agent's main read surface).
+For encrypted Syslog, choose `protocol: tls`, mount the server certificate and key
+inside the backend container, and enter those container paths as `tls_cert_file` and
+`tls_key_file`. `tls_key_password` is a write-only secret. Optional mTLS uses
+`tls_client_ca_file` plus `tls_require_client_cert: true`. TLS requires version 1.2
+or newer and is fail-closed: missing/unreadable material stops that receiver instead
+of silently accepting plaintext TCP. UDP and plain TCP remain unauthenticated
+plaintext transports and should be used only on a separately trusted network.
 
-### Step 3 — Provider keys
+**Test connection** (`POST /api/connectors/test`) evaluates the current draft
+without saving it. Saving sends per-source secret fields to
+`POST /api/sources/{id}/secrets` and non-secret configuration to
+`POST /api/sources`. You can add multiple sources and mark one pull source
+**primary** (the agent's main read surface). Secret values are never returned; the
+source record exposes only configured field names.
 
-Paste an **Anthropic** and/or **OpenAI** key (or point at a self-hosted
-OpenAI-compatible endpoint — see §22's local/LiteLLM provider) and pick the
-per-role models (router / investigator / formatter / standup / chat / overview /
-embedding) from `GET /api/models`. Defaults: investigator `claude-sonnet-4-6`,
-router/formatter/standup/chat/overview `claude-haiku-4-5-20251001`, embeddings
-OpenAI `text-embedding-3-small` (falls back to local hashing embeddings if no
-embedding key is set).
+An open source editor is a guarded draft. Back, a progress-stage link, or Close on
+a setup re-run first asks whether to discard it; cancel keeps the draft in place.
 
-### Step 4 — Review & finish
+### Stage 3 — AI runtime
 
-A summary, then **Finish** → `POST /api/setup/complete`. That flips
-`setup_complete=true`, starts the poller (if `polling_enabled`), and starts any
-background push receivers for enabled sources. The console replaces the wizard.
-(Correlation defaults, risk weights, the auto-forward allowlist, the kill switch,
-and enrichment keys are all editable afterward in **Settings** — see §25 — rather
-than as a dedicated wizard step.)
+Paste an **OpenAI** key for the default GPT-5.6 Luna runtime, and/or another
+supported provider key if you plan to change role assignments. Keys remain write-only and the UI
+shows only their configured state. Blank values leave an existing provider
+unchanged. A newly typed key saves through `POST /api/setup/secrets` whenever the
+operator leaves this stage—Back, Continue, a progress-stage link, launch, or Close
+on a re-run all use the same guarded transition. A failed save keeps the operator
+on AI runtime with a retryable error.
+
+Register a self-hosted OpenAI-compatible endpoint and choose per-role models under
+**Settings → Models** after launch (§22). The setup workflow does not pretend to
+configure model assignments.
+
+### Stage 4 — Review & launch
+
+The readiness list uses **Ready**, **Needs attention**, and **Optional** states and
+names the overall outcome truthfully:
+
+- **Demo workspace is ready** for Synthetic demo;
+- **Ready for live triage** when a live source and provider are configured; or
+- **Ready with limited capabilities** when live telemetry or a provider is missing.
+
+The **Automation posture** row states that adaptive investigation routing and
+related-case grouping are on by default. Detailed controls live in **Settings**;
+the posture never changes the deterministic close/escalate policy.
+
+On first run, **Launch Agentic SOC** calls `POST /api/setup/complete`. That flips
+`setup_complete=true`, starts the poller (if `polling_enabled`), and reconciles
+enabled background receivers. A lost completion response is checked against
+`GET /api/setup/status` before a failure is shown, and completion hands off to the
+console once only.
+
+On a Settings re-run, the final label is **Apply changes** and **Close** exits the
+workflow. Existing sources and configured secrets stay in place unless explicitly
+changed or removed. Correlation, risk, model routing, cost controls, the kill
+switch, and enrichment remain editable under **Settings** (§25).
 
 ---
 
@@ -303,6 +353,14 @@ At tablet/mobile widths the selected case replaces the queue and a **Cases** bac
 returns to the list. Counts explicitly distinguish the loaded 200-case window from the
 backend total when those differ.
 
+For an opened record, **Overview** conditionally adds a flat **Investigation inputs**
+summary when the latest investigation run recorded applicable context: approved
+operator **memory consulted**, indexed **RAG knowledge retrieved**, **runbook references
+retrieved**, a **playbook actually consulted**, or a deterministic platform threshold
+tuning snapshot. **Review inputs** opens the detailed Investigation evidence. The
+section stays absent when no inputs were recorded; an unavailable provenance lookup is
+reported as unavailable rather than as an empty successful run.
+
 At desktop width, drag the divider between queue and detail. It defaults to 400 px,
 stays between 320 and 680 px, and preserves at least 560 px for detail. Focus the
 divider and use Left/Right Arrow in 24-pixel steps (48 with Shift), Home/End for the
@@ -339,9 +397,10 @@ leave the selection; failed cases stay selected with their error for retry.
 Opening a case loads the **stored** case by id (`GET /api/cases/{id}`) — it does
 **not** re-investigate. `CaseDetail` renders **six tabs**: **Overview** (a compact
 decision brief, signal profile, persisted risk-factor values, source/agent/code
-provenance, entities, attack story, ownership, and history), **Timeline** (the
+provenance, conditional latest-run Investigation inputs, entities, attack story,
+ownership, and history), **Timeline** (the
 "what happened" narrative with Risk Assigned and Decision — see §11), **Investigation** (the AI assessment,
-the pinned deterministic `DecisionCard`, and the full agent trace — see §11),
+input evidence, pinned deterministic `DecisionCard`, and full agent trace — see §11),
 **Threat** (§12's threat-context panel), **Collab** (§18's threads/tasks), and
 **Chat** (a case-scoped chat follow-up, §5).
 
@@ -414,7 +473,7 @@ the job: scope telemetry → analyze evidence → create a case. This POSTs `/ap
 `{ "entity": { "type": "ip", "value": "10.10.1.152" }, "source_surface": "investigate" }`.
 The backend pulls in-scope events for that entity (same scope + suppression
 filters the poller uses), correlates them into a cluster, and runs the full
-pipeline → enrich → deterministic risk → cheap-router triage → strong investigator
+pipeline → enrich → deterministic risk → router role → investigator role
 (only if uncertain/serious) → deterministic Case Manager decision. It returns a
 **case**, rendered as a **verdict card**.
 
@@ -456,11 +515,74 @@ for the analysis you read. If the second turn is unavailable, chat degrades
 gracefully (it never hard-fails). Both turns are metered through the single
 gateway.
 
+Workspace Chat keeps a bounded, per-user history on the application's selected state
+backend. On desktop, the newest conversations appear first in the searchable history
+rail; on a narrow screen, **History** opens the same list in a Sheet. Select a row to
+restore its authoritative saved transcript. A conversation can be renamed or deleted
+from its row menu. **New chat** starts an unsaved draft: it enters history only after the
+first successful assistant response has also been verified in the state backend, so
+cancelled questions, provider failures, and failed history writes do not create records
+that only look durable. The first saved exchange supplies a deterministic title that the
+operator can rename later.
+
+The workspace preserves unsent input separately for each visited conversation and for
+the new-chat draft. You can inspect an earlier thread and return without losing a query
+you were composing. These drafts stay in the current browser and are not part of server
+history until sent. Same-browser tabs announce history mutations, and summaries also
+refresh when Chat opens or its tab regains focus, so changes made in another tab or
+device appear without requiring a route reload. A history-store outage is shown as a
+retryable error, never as an empty account.
+
+The active thread has one title, one **Agent ready / Agent working** indicator, and one
+composer docked at the bottom. Use the sliders button beside the input to choose a
+queryable source or model; the current choices remain visible in the quiet composer
+footer. While a saved conversation is restoring, or while the agent is working, the
+composer and thread switching stay disabled so a reply cannot land in the wrong thread.
+If restore fails, use **Retry** or **Start new chat** without losing the surrounding
+history workspace.
+
+An explicit source selection is strict. If that source is disabled, removed,
+non-queryable, or unavailable when the turn runs, Chat reports the scoped failure instead
+of silently querying Primary. Primary is used only when no source was selected. Each
+saved assistant turn records the effective source and model that actually served it, so
+changing the composer controls later does not rewrite the provenance of earlier answers.
+
+Each assistant answer keeps supporting detail in one collapsed **Evidence & execution**
+row. Open it to inspect the read-only query, tools, knowledge, citations, reasoning,
+effective source/model, and metered cost that are available for that turn. A saved
+snapshot that was compacted explicitly notes that larger evidence structures may be
+omitted. The transcript follows new
+messages only when you are already near the bottom; if you scroll up to read earlier
+evidence, **Jump to latest** appears instead of moving you unexpectedly.
+
+This history begins with the version that introduced saved Workspace conversations.
+Earlier Chat turns lived only in the browser component and cannot be recovered or
+backfilled. The current navigation history retains up to **50 conversations per user**
+and **100 messages per conversation**. When that boundary removes older material, Chat
+marks the retained history as incomplete instead of presenting it as the whole thread.
+The bounded history is a navigation aid, not an audit substitute; use the usage and audit
+surfaces for metering and governed activity records.
+
 Add `case_id` to seed a case follow-up (the engine already knows the case's
 entity, verdict, confidence, risk, rules, and top evidence). Add a `context`
 object (`app` / `data_view` / `time_range` / `query` / `selection`) to supply
 es_query defaults — server-side it is fenced **UNTRUSTED** and never becomes
 instructions.
+
+Case-scoped chat remains separate. The **Chat** tab inside Case Manager uses the same
+chat engine but stays with the selected case and is never written into the operator's
+personal Workspace history—even if a caller supplies the Workspace persistence flag.
+Resume a Workspace conversation by sending its `conversation_id` with
+`persist_conversation: true`; the server-owned transcript, not caller-supplied history,
+is authoritative for that resumed turn. Workspace sends also carry an 8–128 character
+`idempotency_key`. If a connection drops after submission, retry the same turn with the
+same key: the backend returns the committed result or commits it once instead of creating
+a second billed turn. A still-running turn returns `409 chat_request_in_progress`;
+conflicting reuse returns `409 chat_idempotency_conflict`. If all 256 per-user live request
+leases are occupied, a new turn returns retryable `409 chat_request_capacity_busy` before
+the model is invoked. An unavailable explicit source
+returns `422 chat_source_unavailable`, and an unverifiable history read/write returns
+`503 chat_history_unavailable`.
 
 If no LLM provider is configured, chat replies *"The assistant is unavailable (no
 model configured). Configure an LLM provider key in Settings."* — it never
@@ -505,7 +627,7 @@ risk floor / daily budget / per-tick cap together in one step.
 Aggregate-then-summarise (`GET /api/standup/report?window_hours=24`, the legacy
 `GET /api/standup?window_hours=24` alias still works). The backend runs near-free
 aggregations over the window (events from the log source, case stats from the
-state store), then sends ONLY the compact JSON aggregate to the cheap model for
+state store), then sends ONLY the compact JSON aggregate to the configured router model for
 prose — **raw logs are never sent to a model**. You get a prose **Summary**, stat
 tiles (total events · unique IPs · cases opened), the case breakdown by-verdict
 and by-status, and top rules / source IPs / users / hosts.
@@ -536,9 +658,96 @@ aggregate-derived, never fed raw logs, and never touching `decide()` (non-negoti
 
 ---
 
+## 7a. Agent effectiveness (Surface)
+
+Open **Analytics → Agent effectiveness** (the **Effectiveness** analytics tab; the
+stable `#/effectiveness` deep link opens the same tab). Access follows the backend's
+`metrics:view` permission. The page reads
+`GET /api/metrics/agent-improvement` and compares the last **7 complete UTC days**
+with the preceding **28 complete UTC days**. It is read-only: loading it makes no
+model call, writes no case or feedback, and cannot influence risk scoring or
+`decide()`.
+
+The three displayed measurements are observed outcomes, not a model-training score:
+
+- **Analyst-reported verdict agreement** and **material analyst correction rate**
+  are two views of the same comparable analyst-grade cohort. They form one quality
+  domain and are never counted as two independent votes.
+- **Human review turnaround** is the separate domain. It measures median elapsed
+  time from first human acknowledgement in the final live episode to the final human
+  terminal transition; it is not active analyst touch time.
+- The headline can say improving only when both independent domains improve and the
+  safety guardrails are evaluable and unbreached. Otherwise it says stable, mixed,
+  safety review, or insufficient evidence as supported by the data.
+
+Comparisons are adjusted to a shared **source × severity** mix. The page exposes
+current/baseline samples, comparable coverage, suppressed strata, exclusions, the
+daily series, and whether the bounded case read was truncated. Its guardrails are
+confirmed false-negative rate and human reopen rate within a complete 24-hour window
+after an explicit agent terminal decision. Missing, undersized, mix-shifted,
+truncated, or guardrail-unevaluable evidence remains visibly **Collecting evidence**,
+**Insufficient**, **Unavailable**, or **Not applicable**; it is never rendered as a
+zero or converted into a synthetic composite. No raw evidence, case/source
+identifiers, or causal claim that the model is "learning" leaves this aggregate
+report.
+
+Below that established headline, the page presents an additive **Outcome evidence**
+layer. Read each result on its own terms:
+
+- **Confirmed-positive case rate** is confirmed-positive outcome-graded cases divided
+  by all outcome-graded cases. It describes the reviewed case cohort; it is not
+  precision over every source alert and is unavailable until both windows contain
+  enough recorded outcomes. Rising or falling is descriptive rather than inherently
+  better: review source mix, feedback coverage, and the false-negative guardrail.
+- **Observed closure elapsed difference** compares case-open-to-terminal elapsed time
+  for agent-terminal cases with the observed human-terminal cohort. It is an elapsed
+  workflow comparison, not active analyst touch time, payroll savings, or a portable
+  benchmark for how long a person "should" take. If there is no eligible human cohort,
+  the Console says so instead of substituting a default duration. A negative signed
+  aggregate difference is labelled as slower elapsed handling; it is never turned
+  into a positive time-saved value.
+- **Recorded AI processing cost** totals usage-ledger cost only where the model call is
+  linked to a case in the reporting window. It is AI inference cost, not staff overtime
+  and not a provider-invoice reconciliation. Unlinked usage remains outside this
+  outcome measurement rather than being allocated by assumption.
+- **Alert-volume movement** compares durable raw-ingest counters with the durable
+  after-clustering count. These volumes show whether downstream workload changed;
+  they do not establish why it changed. Validate source health before interpreting a
+  lower raw-ingest count as improvement.
+
+Two trend summaries accompany the outcome layer: **week over week** is the latest
+seven complete UTC days versus the immediately preceding seven, and **rolling 28** is
+the latest 28 complete UTC days versus the preceding 28. Rolling 28 is not labelled
+calendar month over month. Selecting a period recomputes the operational cost,
+closure-time, case-mix, durable volume, and tuning blocks over those exact windows;
+it does not leave them on the default 7-versus-28 comparison. Trend states remain
+better, worse, no material change, insufficient, or unavailable where the metric has
+a good direction; neutral measures such as positive-case mix report only up, down,
+or stable.
+
+The product deliberately does **not** divide confirmed-positive cases by raw alerts and
+call the result a true-positive yield: clustering means those are different units.
+That measurement is explicitly unavailable until durable alert-to-case lineage can
+support a like-for-like denominator. Likewise, semantic recommendations such as
+"add outgoing DNS logs for this investigation class" remain a long-term objective;
+the current release does not invent a source recommendation from missing telemetry.
+The outcome map explains which supported observation concerns decision quality,
+closure speed, processing cost, or downstream volume without claiming that the AI
+caused the change.
+
+**Platform → Auto-tuning → Outcomes** shows a focused summary of the same report. It
+adds the durable volume comparison and applied-change chronology, always marked
+`causal_claim=false`. Auto-tuning changes downstream correlation/promotion thresholds;
+it may change clustered or opened work, but it cannot reduce the number of alerts the
+source emitted. It does not calculate another score or claim that a tuning change
+caused an observed shift; return to **Analytics → Agent effectiveness** for complete
+windows, cohort coverage, exclusions, daily evidence, definitions, and guardrails.
+
+---
+
 ## 8. Cost (Surface)
 
-A tab under **Analytics → Metrics**. `GET /api/usage/summary?window_hours=24`.
+Open **Analytics → Cost**. `GET /api/usage/summary?window_hours=24`.
 Because **100% of LLM calls go through the single gateway**, every token is
 metered. Top tiles: today's spend, total tokens, call count, total cost (window).
 Breakdown tables: **by model**, **by role** (`router` / `investigator` /
@@ -546,10 +755,20 @@ Breakdown tables: **by model**, **by role** (`router` / `investigator` /
 (`investigate` / `automated_scan` / `chat` / …). Scope to one case with
 `&case_id=...`.
 
+The **Execution tiers** band is observation, not policy inference. It always uses
+four fixed buckets from the usage ledger: **Standard**, **Flex**, **Batch**, and
+**Unconfirmed**, each with calls, tokens, and recorded spend. Flex + Batch make up
+the displayed discounted call/token/spend coverage; every ledger row, including
+Unconfirmed, remains in the denominator so old or unknown data cannot inflate the
+discounted share. A Standard row proves standard execution, but the current ledger
+does not prove whether it was intentionally requested or was a fallback from Flex;
+the Console therefore does not invent a fallback count. Missing, legacy, and future
+unknown tier values stay Unconfirmed.
+
 ### 8a. Per-log AI overview
 
 `POST /api/overview` returns a one-click AI summary of a **single event** (no
-full investigation, no case) on the cheap `overview_model`, cost-ledgered like any
+full investigation, no case) on the configured `overview_model`, cost-ledgered like any
 other call:
 
 ```json
@@ -669,16 +888,27 @@ Every case can explain itself, right where you're already looking: `CaseDetail`'
 - **A "why" / rationale panel**, backed by `GET /api/cases/{id}/rationale`. The
   investigator records a **CONTEXT audit entry** (`ActionType.CONTEXT`) capturing
   everything it was handed; the rationale object — assembled defensively from the
-  case + audit trail — surfaces: the investigator's **reasoning** excerpt; **RAG /
-  runbook knowledge** used (each with its source + snippet); **memory applied**
-  (§10); the exact **tool calls / ES queries** run; **enrichment** pulled; and the
-  routed **persona**, selected **playbook** (+ why), **MITRE** techniques, and
-  evidence list.
+  case + audit trail — surfaces: the investigator's **reasoning** excerpt; **RAG
+  knowledge retrieved** and separately labelled **runbook references retrieved**
+  (each with its source + snippet); approved operator **memory consulted** (§10);
+  the exact **tool calls / ES queries** run; **enrichment** pulled; and the routed
+  **persona**, **playbook actually injected and consulted** (+ version/why), **MITRE**
+  techniques, and evidence list. When the case traversed a threshold previously
+  changed by Agentic SOC, it also shows the immutable platform tuning snapshot
+  (scope, before/after values, rationale, and applied time). This is deterministic
+  correlation/severity-threshold tuning, **not model fine-tuning**.
 - **A collapsible `TraceTimeline`** — the step-by-step agent trace
   (`GET /api/cases/{id}/trace`), projecting the append-only audit index into an
   ordered timeline (router → investigator → tool calls → verdict → formatter →
   case-manager decision). Raw prompt excerpts are included only when
   `trace.include_prompts` is true (default on).
+
+The rationale projection is scoped to the **latest investigation run**. An earlier
+run's memory, retrievals, playbook, tools, or tuning snapshot cannot leak into a later
+re-investigation. A playbook being selected for a case is not enough to display it:
+the Console shows it only when that run actually injected it into investigator
+context. These inputs may inform preprocessing or the model assessment; deterministic
+case policy remains the final close/escalate route authority.
 
 The separate **Timeline** tab is deliberately narrower: it is ONLY the "what
 happened" narrative — a 6-stage story (input → correlate → **Risk Assigned** → triage →
@@ -845,8 +1075,50 @@ to a rule's correlation `n` or a feed's `severity_floor`. A cold tenant under th
 |---|---|
 | Recommendations (current noise + the proposed change + the ledger) | `GET /api/tuning/recommendations` |
 | Read / update the tuner config | `GET`/`PUT /api/tuning/config` |
-| Apply a proposed change for one rule | `POST /api/tuning/{rule_id}/apply` |
+| Process every current proposal for one rule | `POST /api/tuning/{rule_id}/apply` |
 | Roll back the latest applied change | `POST /api/tuning/{rule_id}/rollback` |
+
+The page separates work into **Operations**, **Outcomes**, and **Policy & history**.
+Operations is the default rule/recommendation workflow. Outcomes reads the
+reporting-only `GET /api/metrics/agent-improvement` aggregate for operators with
+`metrics:view`; a missing metrics grant does not block the separately authorised
+tuning controls. Policy & history holds the append-only ledger and tuner policy.
+
+Operations separates rules into **Collecting**, **Within target**, and **Needs
+attention**. Collecting means the rule has fewer than `min_samples`; Within target and
+Needs attention are assigned only after that sample threshold is met, using the Wilson
+lower-bound rate against policy. The UI names both measurements: the **observed FP
+ratio** is the raw `fp / verdict-bearing closed cases` context, while the
+**conservative FP estimate** is the Wilson lower bound that gates policy. A gap from
+the policy target is shown in **percentage points**, not as percentage change.
+
+The Review queue is grouped by rule because Apply is rule-scoped, not
+recommendation-kind-scoped. One request recomputes every current proposal for that
+rule, applies eligible bounded changes, and queues suppression or replay-blocked changes
+for human review. Each queued row and the selected-rule inspector answer, in order:
+**why it needs attention**, **recommended action**, **expected operational effect**,
+and **safety replay**. **Eligible after replay** means the evidence and safeguards will
+be recomputed before any write; it is not a guarantee that the change will apply. The
+All monitored rules list supports search and state filtering; selecting a rule opens an
+in-context inspector at 1536px+ or a focus-managed Sheet below that width. Policy &
+history presents the editable tuner policy first and the append-only ledger after it;
+rollback is offered only for the newest active reversible change for a rule.
+
+In Outcomes, agreement and correction remain one analyst-grade quality domain; human
+review turnaround is the independent second domain, and evaluable safety guardrails
+qualify any favorable headline. A selector shows one daily trajectory at a time so
+the evidence remains readable without mixing units. Missing evidence stays collecting,
+insufficient, unavailable, or not applicable—never zero—and the page never produces a
+composite improvement score. Use **Analytics → Agent effectiveness** for the full
+evidence detail. This summary performs no model call or write and does not prove that
+tuning caused an outcome shift.
+
+The same workspace can show durable **ingested** and **after clustering** counts plus
+applied tuning events inside the comparison horizon. Those rows are observational and
+carry `causal_claim=false`: a tune can change correlation or downstream promotion, not
+raw source emission. A lower clustered/opened workload after a change is therefore
+useful review context, not a causal result. True-positive/raw-alert yield and semantic
+"add this log source" guidance remain explicitly unavailable in this release.
 
 The tuner **never imports `case_manager`/`decide()`, risk weights, or
 signatures** — it only moves detection-*volume* knobs the pipeline already reads
@@ -1032,6 +1304,13 @@ before you save it. Per-model price overrides live in a price overlay
 (`PUT`/`DELETE /api/llm/models/{model_id}/pricing`) for when you need to correct a
 list price.
 
+Fresh workspaces assign official OpenAI `gpt-5.6-luna` to router, investigator,
+formatter, standup, chat, and overview. The embedding role remains
+`text-embedding-3-small`. Existing stored assignments are preserved, and all other
+providers/models remain selectable. Luna uses the existing Chat Completions adapter
+with `reasoning_effort: none` to preserve the earlier non-reasoning latency/cost
+baseline and function-tool compatibility.
+
 ### A self-hosted / local model provider (LiteLLM, vLLM, Ollama, LM Studio, …)
 
 Beyond the five hosted providers, `openai_compatible` is a generic path for any
@@ -1067,12 +1346,17 @@ same prompt, verdict, one-ledger-row rule, and deterministic case decision.
 
 **Live Flex preference (default on).** Compatible alert/case inference on the
 `automated_scan` and `investigate` surfaces prefers the official OpenAI Flex service
-tier. Eligibility is deliberately narrow: the provider allow-list must contain
-`openai`, the selected provider must be OpenAI without a custom/Azure-compatible
-base URL, and the model family must be GPT-5, o3, or o4-mini. Chat, standup,
-embeddings, and provider/model tests stay interactive standard service. Unsupported
+tier. Eligibility is deliberately narrow: the selected provider must be OpenAI
+without a custom/Azure-compatible base URL, and the model family must be GPT-5, o3,
+or o4-mini. Chat, standup, per-log overview, embeddings, and provider/model tests
+stay interactive standard service. Unsupported
 providers, endpoints, and model families use standard service before a provider call
 and are never labelled or priced as discounted.
+
+Fresh installations assign official OpenAI `gpt-5.6-luna` to completion roles, so
+eligible alert/case calls can use Flex immediately. Existing stored model assignments
+remain authoritative and unsupported/provider-alternate combinations continue on
+standard service.
 
 Flex is best-effort capacity. With **Standard fallback** enabled (the default), an
 OpenAI 429 or a Flex/service-tier-specific 400 is retried once without
@@ -1335,7 +1619,7 @@ Large subtrees can be fetched section-by-section with `GET
 /api/settings/{section}`, and `GET /api/settings/schema` returns the
 form-generation schema.
 
-**Layout: five Settings groups, 26 sections** (`webui/src/soc/pages/settings/
+**Layout: five Settings groups, 28 sections** (`webui/src/soc/pages/settings/
 settings-sections-meta.ts`, the single source of truth the rail, the deep-link
 router, and the Cmd-K "jump to a setting" search all derive from):
 
@@ -1345,12 +1629,16 @@ router, and the Cmd-K "jump to a setting" search all derive from):
 | **General** | Data scope · Models · Detection · Detection & rules (§14) · Cases (case-ID format, below) · SLA, priority & suppression · Automation (master switch, §14) · Standup |
 | **Integrations** | Alerting & notifications (§23) · Enrichment (§19) · Knowledge & threat context (§9, §12) |
 | **Security & access** | Users · Roles & permissions (§24's custom roles) · Single sign-on & policy (§24) · Active sessions (§27) · Secret keys |
-| **Organization** | Branding · Advanced (caps, kill switch, background-scan/auto-forward allowlist, the autopilot dial + risk floor + budget backstop, §33, read-only lock) · All settings (a schema-generated long tail) · Experimental & Demo (§28) · Data export · Danger zone (§28's tiered reset) |
+| **Organization** | Branding · Updates & releases (public repository plus Stable/Testing source observations; never deployment) · Advanced (caps, kill switch, background-scan/auto-forward allowlist, the autopilot dial + risk floor + budget backstop, §33, read-only lock) · All settings (a schema-generated long tail) · Experimental & Demo (§28) · Storage & retention · Data export · Danger zone (§28's tiered reset) |
 
 The page uses one searchable section rail, one active-section heading, and flat
 divider-led setting groups. It deliberately avoids a card around the whole page and
 then more cards around every field group; dialogs and contained editors keep their
-own boundary where one is functionally useful.
+own boundary where one is functionally useful. On a narrow screen the full section
+inventory moves into a searchable Sheet opened from one compact section trigger. The
+current `#/settings?s=<id>&a=<anchor>` location remains deep-linkable. Modified sections
+carry a visible dirty indicator, while one sticky **Save changes / Discard** bar owns
+buffered preference writes; a renderer must not introduce a competing save path.
 
 RBAC hides a section a role can't reach (and auto-jumps off a hidden active
 section); with auth/RBAC off, everything shows. Every section still round-trips
@@ -1425,7 +1713,7 @@ and **Organization → Advanced** (the rest, incl. the Round-10 autopilot knobs,
 | Max tool calls | `caps.max_tool_calls` | 8 |
 | Max tokens | `caps.max_tokens` | 20000 |
 | Max concurrent investigations | `caps.max_concurrent` | see schema |
-| Max auto-investigations / tick, **per source** (§33) | `caps.max_auto_investigations_per_tick` | **25** (Round 10) |
+| Max auto-investigations / tick, **shared across concurrently polled sources** (§33) | `caps.max_auto_investigations_per_tick` | **25** (Round 10) |
 | Kill switch | `caps.kill_switch` | false |
 
 The **kill switch** is a global emergency stop: when on, the poller does not run
@@ -1879,7 +2167,7 @@ the same paths work under the SPA origin (e.g. `http://localhost:8080/api/...`).
 ```bash
 # Health
 curl -s localhost:8088/api/health
-# -> {"status":"ok","version":"0.1.0","es_connected":true,"store_type":"...","setup_complete":true}
+# -> {"status":"ok","version":"0.1.1","es_connected":true,"store_type":"...","setup_complete":true}
 # NOTE: "store_type" is the log-surface ES CLIENT CLASS ("RealESClient" /
 # "InMemoryESClient") — it never reports your STATE_BACKEND (elasticsearch /
 # postgres / sqlite). "InMemoryESClient" with no pull source wired is expected,
@@ -2030,10 +2318,18 @@ curl -s -X POST localhost:8088/api/investigate \
   -H 'content-type: application/json' \
   -d '{"entity":{"type":"ip","value":"10.10.1.152"},"source_surface":"investigate"}'
 
-# Chat (add "case_id" / "context" for follow-ups + screen context)
+# Chat (add "case_id" / "context" for follow-ups; add a real queryable
+# "source_id" to scope strictly instead of using Primary)
 curl -s -X POST localhost:8088/api/chat \
   -H 'content-type: application/json' \
-  -d '{"message":"list all logs from 10.10.1.152 today","history":[]}'
+  -d '{"message":"list all logs from 10.10.1.152 today","history":[],"persist_conversation":true,"idempotency_key":"chat-turn-20260727-0001"}'
+
+# Per-user Workspace history (newest first); open, rename, or delete one saved chat
+curl -s 'localhost:8088/api/chat/conversations?limit=50&offset=0'
+curl -s localhost:8088/api/chat/conversations/chat-example
+curl -s -X PATCH localhost:8088/api/chat/conversations/chat-example \
+  -H 'content-type: application/json' -d '{"title":"Failed-login review"}'
+curl -s -X DELETE localhost:8088/api/chat/conversations/chat-example
 
 # Per-log AI overview
 curl -s -X POST localhost:8088/api/overview \
@@ -2068,8 +2364,9 @@ curl -s -X DELETE localhost:8088/api/memory/mem-abc123
 curl -s "localhost:8088/api/scans?limit=20"
 curl -s "localhost:8088/api/scans/notifications?since=now-24h"
 
-# Standup, cost
+# Standup, aggregate agent-effectiveness evidence, and cost
 curl -s "localhost:8088/api/standup/report?window_hours=24"
+curl -s "localhost:8088/api/metrics/agent-improvement"
 curl -s "localhost:8088/api/usage/summary?window_hours=24"
 
 # Detection & Rules (§14): CRUD + preview + version ledger
@@ -2099,7 +2396,7 @@ curl -s "localhost:8088/api/enrichment/lookup?indicator=10.10.1.152"
 # Budget gate + cost estimate (§22)
 curl -s localhost:8088/api/budget/status
 curl -s -X POST localhost:8088/api/cost/estimate \
-  -H 'content-type: application/json' -d '{"model":"claude-sonnet-4-6","prompt":"...","max_tokens":1000}'
+  -H 'content-type: application/json' -d '{"model":"gpt-5.6-luna","prompt":"...","max_tokens":1000}'
 
 # Settings get / patch (+ section / schema / case-id preview)
 curl -s localhost:8088/api/settings
@@ -2188,7 +2485,7 @@ routing, cost-governance, or presentation.
 
 `background_scan_enabled` now defaults **`true`** (§6, §25): every correlated cluster
 from every source is risk-scored (0–100) and made visible, whether or not it is
-auto-forwarded to the strong-LLM investigation.
+auto-forwarded to the configured investigator role.
 
 - **`alerts`-role feeds** (§29 — SIEM-generated detections) bypass the gate entirely
   and correlate in **`EVERY`** mode: every alert becomes exactly one case
@@ -2198,14 +2495,14 @@ auto-forwarded to the strong-LLM investigation.
   "High" severity-band floor). Below-floor clusters stay **`$0` OPEN candidates** —
   risk-scored and visible in Cases, never dropped (#4). The `auto_forward_allowlist`
   (§25) still works exactly as before and forwards a listed rule regardless of risk.
-- A **per-source, per-poll-tick cap** (`caps.max_auto_investigations_per_tick`,
-  default **25**) bounds how many clusters one source can forward to the strong LLM
-  in a single tick; cap-deferred candidates **drain** to investigation on a later
-  tick once headroom frees, and investigations run **sequentially** (never a burst
-  fan-out) so provider load stays predictable. The push-ingest path applies the
-  exact same gate as the pull poller. The **daily USD budget is the one GLOBAL
-  bound** across every source — the per-tick cap only smooths *when* spend happens,
-  not the ceiling.
+- A **shared per-poll-tick cap** (`caps.max_auto_investigations_per_tick`, default
+  **25**) bounds how many clusters the entire concurrent source fan-out can forward
+  to the investigator role in one manager tick. A concurrency-safe budget prevents several
+  busy sources from each consuming the full allowance. Cap-deferred candidates
+  **drain** on a later tick once headroom frees, and investigations run sequentially
+  so provider load stays predictable. Direct push-ingest uses the same configured
+  gate for its own request. The **daily USD budget is the one GLOBAL bound** across
+  every source — the per-tick cap only smooths *when* spend happens, not the ceiling.
 
 ### The autopilot dial
 

@@ -174,7 +174,7 @@ class PagerDutyChannel(_HttpChannel):
             "dedup_key": str(meta.get("case_id") or "")[:255] or None,
             "payload": {
                 "summary": event.subject[:1024],
-                "source": str(meta.get("source_name") or "tlsoc")[:255] or "tlsoc",
+                "source": str(meta.get("source_name") or "Agentic SOC")[:255] or "Agentic SOC",
                 "severity": self._SEVERITY_MAP.get(sev_label, "warning"),
                 "custom_details": {
                     "trigger": event.trigger,

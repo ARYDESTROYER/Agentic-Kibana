@@ -25,9 +25,16 @@ changing any case or detection policy.
    entire open queue; the Open and Resolved composition rings show severity mix;
    Latest Cases shows exactly four recent records and reveals bounded detail on
    hover or keyboard focus.
-4. **Inspect Noise Reduction** — follow the ribbon from alerts ingested through
-   clustering, cases opened, AI auto-clear, escalation, and human closure. Each
-   stage retains its count and percentage without decorative icon noise. Choose
+4. **Inspect Noise Reduction** — follow the horizontal ribbon from alerts ingested
+   through clustering and cases opened. Opened cases then split into
+   AI auto-cleared and escalated work; human closure is an overlapping analyst-owned
+   subset of escalated work, not newly created volume. The restored fan places those
+   operational views beside one another for scanability; the aligned labels carry the
+   authoritative relationship. Each stage
+   retains its count and percentage without decorative icon noise; those labels are
+   authoritative when the curves are visually compressed. Hover or focus a stage to
+   inspect severity detail. Selecting an outcome opens the matching selected-window
+   Cases cohort; earlier stages open the selected-window Cases context. Choose
    **Expand** for a near-fullscreen, horizontally scrollable view. Beneath the aggregate
    flow, inspect a lazy bounded sample of newest case-forming paths from one-way alert
    references through the persisted deterministic cluster and opened case to its current
@@ -46,7 +53,10 @@ opened from Latest Cases retains its full provenance and deterministic decision.
 The dashboard shows an explicit empty or degraded state when there is not enough
 data. A zero is not substituted for a timing metric that has no eligible samples.
 Noise Reduction does not expose raw alert identifiers or payloads. Alerts that never formed
-a case remain represented only by aggregate counters. For the full context around one
+a case remain represented only by aggregate counters. The Cases destination loads a
+bounded case window, so its filtered list can be a lower bound when the backend reports
+more records than the loaded set; the aggregate stage count and its coverage notice remain
+authoritative. For the full context around one
 sampled case, follow its Case Manager link and open **Threat context → How this case was
 clustered**.
 

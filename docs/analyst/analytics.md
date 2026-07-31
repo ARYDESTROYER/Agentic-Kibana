@@ -35,12 +35,130 @@ rates together with graded-case and feedback counts.
 SLA targets and impact × urgency priority are operator-configured advisory policies.
 They rank work and measure response; they do not authorize automatic closure.
 
+## Agent-improvement evidence
+
+The additive `GET /api/metrics/agent-improvement` rollup provides neutral evidence
+for evaluating whether agent-assisted triage outcomes are changing. Its default
+comparison is the last **seven complete UTC days** against the immediately preceding,
+non-overlapping **28 complete UTC days**. It never mixes the partial current day into
+either cohort.
+
+The established headline continues to read these three measurements separately:
+
+- **Analyst-reported verdict agreement** weights an analyst's Agree grade as 1 and
+  Partial as 0.5, then divides by unique cases carrying one latest valid grade. The
+  name is deliberate: v0.1 does not persist an independently verified reviewer
+  identity on every historical feedback record.
+- **Material analyst correction rate** counts explicit Disagree grades and narrowly
+  defined conflicts between the recorded outcome and the AI verdict. Partial is not
+  automatically treated as a correction.
+- **Human review turnaround** is the median elapsed time from the first human
+  acknowledgement to the final human terminal transition in the final live episode.
+  Known automation actor labels are excluded. Actor values remain operational labels,
+  not independently authenticated identity provenance, and this is not active analyst
+  touch time because pause/resume work sessions are not recorded.
+
+Every result includes current and baseline sample counts, minimum-sample status,
+daily points, exclusions, and the metric definition. Agreement and correction need
+30 eligible cases in both cohorts; turnaround needs 20. A daily point needs five
+eligible samples. Missing or undersized evidence remains unavailable or insufficient,
+not zero.
+
+Agreement and correction are standardized over the same source-by-severity strata in
+both windows; a stratum needs at least five grades in each window. The response
+discloses coverage for **both** cohorts without returning their source identifiers. A
+headline direction requires at least 80% coverage in each cohort, sufficient samples,
+and complete retrieval. Safety guardrails must also be evaluable: false-negative rate
+needs 20 confirmed positives per cohort, while reopen rate needs 20 eligible agent
+closures per cohort whenever such closures exist. Reopen comparisons use one fixed
+24-hour follow-up window. An unavailable guardrail stays unknown rather than silently
+passing; a material regression prevents a favorable efficiency shift from promotion.
+Agreement and correction are two views over the same graded-case cohort, so the
+headline treats them as one quality domain. A favorable headline requires both that
+quality domain and the independent review-turnaround domain to improve; correlated
+grade movement alone cannot produce an improvement claim. Exclusion counts are scoped
+to the same 35-day reporting horizon.
+
+There is intentionally no synthetic improvement score. The aggregate returns no case
+IDs, entities, raw evidence, prompts, or model calls, performs no billed model call,
+and never participates in deterministic case decisions. It describes observed shifts
+and does not prove causation or claim that a model has learned.
+
+### Outcome evidence
+
+The additive outcome layer does not alter that headline. It answers narrower operator
+questions with separate measures and explicit evidence states:
+
+| Measure | Definition | What it is not |
+|---|---|---|
+| Confirmed-positive case rate | confirmed-positive outcome-graded cases / all outcome-graded cases | not true positives / raw alerts, not deployment-wide precision |
+| Observed closure elapsed difference | signed case-open-to-terminal elapsed difference for agent-terminal cases compared with the observed human-terminal cohort | not active labor saved, payroll saved, or a universal manual-triage benchmark |
+| Recorded case-linked AI processing cost | usage-ledger cost for calls carrying a case link inside the cohort | not employee overtime, unlinked usage, or a provider invoice |
+| Ingested versus after clustering | durable raw-ingest and post-clustering counter volumes | not proof that tuning or AI caused the change |
+
+The closure comparison needs eligible agent-terminal and human-terminal cases. When
+no human terminal cohort exists, the result is unavailable with that reason; no
+placeholder duration is used. A negative aggregate difference is shown as slower
+elapsed handling rather than being converted into positive “time saved.” Cost includes
+only case-linked usage because allocating
+chat, standup, or other unlinked calls to cases would invent a relationship. The
+confirmed-positive rate is computed only over recorded case outcomes. Its direction is
+descriptive, not inherently good or bad: a lower share could reflect less malicious
+activity, a changed source mix, missing review, or worse detection. Read it with
+feedback coverage and the false-negative guardrail. Likewise, falling ingress can be a
+source outage; validate source health before calling lower downstream volume an
+improvement.
+
+The endpoint also returns two complete-period trend views: **week over week** compares
+the latest seven complete UTC days with the prior seven, and **rolling 28** compares
+the latest 28 complete UTC days with the prior 28. The latter is not a calendar-month
+comparison. The cost, closure-time, case-mix, alert-volume, and tuning outcome blocks
+are recomputed for the selected equal-length windows rather than reusing the default
+7-versus-28 comparison. Each trend can be improving, regressing, stable/no material
+change, insufficient, or unavailable independently of the established headline.
+
+True-positive/raw-alert yield is deliberately unavailable: correlation turns many
+alerts into fewer cases, so dividing case outcomes by alert counts mixes units. A
+future yield needs durable like-for-like alert→case→outcome lineage. Semantic telemetry
+coverage recommendations (for example, suggesting outgoing DNS logs for a specific
+investigation class) are also a long-term objective. The current release has no
+deterministic coverage-gap model and therefore returns no invented recommendation.
+
+Applied tuning rows are reported as context with `causal_claim=false`. Threshold tuning
+can affect downstream clustered, promoted, or opened work; it cannot reduce the alerts
+emitted by an upstream source. Compare durable volume and safety evidence around a
+change, then investigate other policy, source, and workload changes before attributing
+an outcome. This is detection-threshold tuning, not model fine-tuning. Quality metrics
+describe the agent's case assessment; volume metrics describe the alert-to-case funnel.
+Neither proves the upstream alert generator itself is getting better.
+
+Open **Analytics → Agent effectiveness** for the detailed operator surface. Auto-tuning
+reuses this same read-only aggregate beside rule-health and recommendation review. It
+adds synchronized daily lanes, durable volume, an evidence/guardrail rail, and
+applied-tuning chronology. The daily lanes are raw eligible UTC-day cohorts, while the
+period comparisons are source-by-severity mix adjusted; null daily values remain gaps.
+Tuning chronology is context only and does not attribute a shift to a change. The
+Analytics view remains authoritative for the complete definitions and cohort tables.
+The shared `ComparisonMetric` and `MetricDefinition` components keep values and
+evidence states consistent between the two surfaces.
+
 ## Noise reduction
 
 The noise-reduction view combines durable ingest counts with case outcomes. Its
-stages distinguish received alerts, clusters/candidates, cases requiring attention,
-automatic clears, escalations, and human closures. Inspect the per-stage definition
-and source before comparing percentages.
+stages distinguish received alerts, clusters, optional review candidates, cases
+requiring attention, automatic clears, escalations, and human closures. Candidates
+appear as a side cohort from Clustered rather than as a required step before case
+creation. Inspect the per-stage definition and source before comparing percentages.
+
+The aligned count/share rail is authoritative; read the ribbon as directional
+lifecycle context rather than deriving an exact value from curve thickness alone.
+Auto-cleared and escalated cases partition opened cases; human-closed cases are an
+overlapping analyst-owned subset of the escalated cohort even when the restored fan
+places all three operational views beside one another. A human closure requires
+explicit analyst decision provenance; unknown or agent-owned terminal records are not
+credited to people. Outcome drill-downs apply these same definitions to the loaded
+selected-window Cases set; when that list is bounded, the aggregate and its coverage
+notice remain the complete source of truth.
 
 The funnel is not evidence that every raw event received a model call. Deterministic
 processing intentionally handles the broad event stream before a smaller set is

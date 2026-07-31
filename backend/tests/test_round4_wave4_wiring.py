@@ -49,6 +49,7 @@ from app.config import (
 from app.constants import CorrelationMode, EntityType, SourceType
 from app.es.fake import InMemoryESClient
 from app.llm.providers import MockProvider
+from app.models import BatchJob
 from app.state import AppState
 from app.utils import now_utc, to_millis
 from tests.conftest import make_log_event
@@ -95,10 +96,14 @@ async def _configure(state: AppState, sources: list[SourceInstance], **prefs_ove
     state.rebuild_log_source()
 
 
-def _seed(state: AppState, index: str, ip: str, n: int = 4) -> None:
+def _seed(
+    state: AppState, index: str, ip: str, n: int = 4, *, severity: float = 7.0
+) -> None:
     base = to_millis(now_utc()) - 60_000
     for i in range(n):
-        state.es.add_log(index, make_log_event(ip=ip, ts_millis=base + i * 1000),
+        state.es.add_log(index, make_log_event(
+            ip=ip, ts_millis=base + i * 1000, severity=severity
+        ),
                          doc_id=f"{index}-{ip}-{i}")
 
 
@@ -212,7 +217,7 @@ async def test_events_feed_routes_to_funnel_when_enabled(app_state: AppState):
     """batch + baseline enabled → an ``events``-role feed routes to the funnel hook and
     the realtime correlate read is SKIPPED for that feed (no case from it)."""
     await _set_threshold(app_state, 3)
-    _seed(app_state, "ev-logs", "10.8.0.1", n=5)
+    _seed(app_state, "ev-logs", "10.8.0.1", n=5, severity=5.0)
     await _configure(
         app_state,
         [_fed_source("s1", [{"pattern": "ev-logs*", "role": "events"}], primary=True)],
@@ -239,6 +244,114 @@ async def test_events_feed_routes_to_funnel_when_enabled(app_state: AppState):
     # #4: the feed's durable cursor STILL advanced (never re-read on the next poll).
     stats2 = await app_state.poller.poll_once(app_state.prefs)
     assert stats2["funnel_routed"] == 0  # nothing new to route
+
+
+@asyncio_mark
+async def test_event_funnel_failure_preserves_cursor_and_retries(app_state: AppState):
+    """A rejected async handoff cannot advance the contributing feed cursor."""
+    _seed(app_state, "retry-events", "10.8.0.8", n=4, severity=5.0)
+    await _configure(
+        app_state,
+        [_fed_source("s1", [{"pattern": "retry-events*", "role": "events"}], primary=True)],
+        batch=BatchConfig(enabled=True, severity_floor=3),
+        baseline=BaselineConfig(enabled=True, seasonality="none", warmup_multiplier=1),
+    )
+    calls = 0
+
+    async def _flaky(events, prefs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("outbox unavailable")
+        return True
+
+    app_state.poller._primary._event_funnel = _flaky
+    first = await app_state.poller.poll_once(app_state.prefs)
+    assert first["funnel_routed"] == 4
+    # Cursor stayed put, so the exact same work is retried and then accepted.
+    second = await app_state.poller.poll_once(app_state.prefs)
+    assert second["funnel_routed"] == 4
+    assert calls == 2
+    third = await app_state.poller.poll_once(app_state.prefs)
+    assert third["funnel_routed"] == 0
+
+
+@asyncio_mark
+async def test_outbox_save_failure_replays_against_unconsumed_baseline(
+    app_state: AppState, monkeypatch: pytest.MonkeyPatch
+):
+    """Failed durable acceptance must not mutate the live baseline before replay."""
+    await _set_threshold(app_state, 3)
+    _seed(app_state, "staged-events", "10.8.0.11", n=4, severity=5.0)
+    await _configure(
+        app_state,
+        [_fed_source("s1", [{"pattern": "staged-events*", "role": "events"}], primary=True)],
+        batch=BatchConfig(enabled=True, severity_floor=3),
+        baseline=BaselineConfig(enabled=True, seasonality="none", warmup_multiplier=1),
+    )
+    attempts: list[set[str]] = []
+
+    async def _flaky_submit(provider, model, requests, *, candidates=None):
+        attempts.append(set((candidates or {}).keys()))
+        if len(attempts) == 1:
+            raise RuntimeError("local outbox save failed")
+        return BatchJob(id="accepted", provider=provider, model=model)
+
+    monkeypatch.setattr(app_state.batch_service, "submit", _flaky_submit)
+    first = await app_state.poller.poll_once(app_state.prefs)
+    assert first["funnel_routed"] == 4
+    second = await app_state.poller.poll_once(app_state.prefs)
+    assert second["funnel_routed"] == 4
+    # The candidate survived replay with its stable id because the failed attempt's
+    # staged baseline was discarded rather than published.
+    assert len(attempts) == 2
+    assert attempts[0] and attempts[1] == attempts[0]
+    third = await app_state.poller.poll_once(app_state.prefs)
+    assert third["funnel_routed"] == 0
+
+
+@asyncio_mark
+async def test_high_event_feed_stays_synchronous_above_batch_floor(app_state: AppState):
+    """``severity_floor`` governs eligibility; high EVENT records remain realtime."""
+    await _set_threshold(app_state, 3)
+    _seed(app_state, "high-events", "10.8.0.9", n=4, severity=7.0)
+    await _configure(
+        app_state,
+        [_fed_source("s1", [{"pattern": "high-events*", "role": "events"}], primary=True)],
+        batch=BatchConfig(enabled=True, severity_floor=3),
+        baseline=BaselineConfig(enabled=True, seasonality="none", warmup_multiplier=1),
+    )
+    routed: list[int] = []
+
+    async def _spy(events, prefs):
+        routed.append(len(events))
+
+    app_state.poller._primary._event_funnel = _spy
+    stats = await app_state.poller.poll_once(app_state.prefs)
+    assert routed == []
+    assert stats["funnel_routed"] == 0
+    assert stats["clusters"] == 1
+
+
+@asyncio_mark
+async def test_no_candidate_funnel_outcome_advances_cursor(app_state: AppState):
+    """A deterministic no-candidate outcome is handled, not retried forever."""
+    prefs = app_state.prefs.model_copy(deep=True)
+    prefs.default_correlation = CorrelationRule(
+        mode=CorrelationMode.NEVER, n=3, window_seconds=3600, group_by=EntityType.IP
+    )
+    await app_state.update_prefs(prefs)
+    _seed(app_state, "quiet-events", "10.8.0.10", n=2, severity=5.0)
+    await _configure(
+        app_state,
+        [_fed_source("s1", [{"pattern": "quiet-events*", "role": "events"}], primary=True)],
+        batch=BatchConfig(enabled=True, severity_floor=3),
+        baseline=BaselineConfig(enabled=True, seasonality="none", warmup_multiplier=100),
+    )
+    first = await app_state.poller.poll_once(app_state.prefs)
+    assert first["funnel_routed"] == 2
+    second = await app_state.poller.poll_once(app_state.prefs)
+    assert second["funnel_routed"] == 0
 
 
 @asyncio_mark
@@ -273,7 +386,7 @@ async def test_mixed_feeds_split_events_to_funnel_alerts_to_realtime(app_state: 
     """A source with BOTH an events feed and an alerts feed splits: events → funnel,
     alerts → realtime, in the SAME poll tick."""
     await _set_threshold(app_state, 3)
-    _seed(app_state, "mix-events", "10.6.0.1", n=4)
+    _seed(app_state, "mix-events", "10.6.0.1", n=4, severity=5.0)
     _seed(app_state, "mix-alerts", "10.6.0.2", n=4)
     await _configure(
         app_state,

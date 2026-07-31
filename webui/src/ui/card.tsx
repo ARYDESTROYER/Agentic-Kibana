@@ -1,8 +1,7 @@
 /**
  * Card — the ONE card grammar (DESIGN_STANDARD §3.2 / §5.2).
  *
- * Additive props (all default to the pre-Round-5 look so existing consumers are
- * byte-identical until they opt in):
+ * Additive props follow the Console's border-first surface contract:
  *  - `padding`  'sm' | 'md' | 'lg'  → the sanctioned 8px rhythm (p-4 / p-6 / p-8).
  *               `sm` (16) for dense/nested cards; `md` (24) for top-level page /
  *               KPI cards. When set on <Card>, it cascades to CardHeader/CardContent/
@@ -11,8 +10,8 @@
  *               `px-5` (20) the overhaul set out to kill (§3.2).
  *  - `density`  'default' | 'compact'  → compact tightens header/content/footer for
  *               dense surfaces (only meaningful together with `padding`).
- *  - `elevation` 'none' | 'sm'  → 'none' drops the resting shadow (border-first,
- *               DESIGN_STANDARD §3.3); 'sm' keeps `shadow-elev1` (the default look).
+ *  - `elevation` 'none' | 'sm'  → 'none' is the default command-surface treatment;
+ *               'sm' is an explicit opt-in for a genuinely detached surface.
  *  - `variant`  'default' | 'flat'  → 'flat' = no border + transparent surface
  *               (filter bars / toolbars that sit on the page, not a raised tile).
  *
@@ -42,13 +41,13 @@ export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
 }
 
 const Card = React.forwardRef<HTMLDivElement, CardProps>(
-  ({ className, padding, density = 'default', elevation = 'sm', variant = 'default', ...props }, ref) => (
+  ({ className, padding, density = 'default', elevation = 'none', variant = 'default', ...props }, ref) => (
     <CardContext.Provider value={{ padding, density }}>
       <div
         ref={ref}
         className={cn(
-          'rounded-lg text-card-foreground transition-colors',
-          variant === 'flat' ? 'border-0 bg-transparent' : 'border border-border bg-card',
+          'rounded-md text-card-foreground transition-colors',
+          variant === 'flat' ? 'border-0 bg-transparent' : 'border border-border/80 bg-card',
           variant === 'default' && elevation === 'sm' && 'shadow-elev1',
           className,
         )}

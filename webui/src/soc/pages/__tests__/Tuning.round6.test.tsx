@@ -8,7 +8,7 @@
  *    reverses the most-recent active record, and the FE only sends the rule_id).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 const { recsMock, getConfigMock, putConfigMock, applyMock, rollbackMock } = vi.hoisted(() => ({
   recsMock: vi.fn(),
@@ -106,6 +106,11 @@ describe('Tuning — rollback targets the newest active row only (bug #13)', () 
       </TooltipProvider>,
     );
     await waitFor(() => expect(recsMock).toHaveBeenCalled());
+    // The API call begins before the Promise.all result commits the loaded workspace.
+    // Wait for the actual interactive tab instead of racing the loading transition.
+    fireEvent.keyDown(await screen.findByRole('tab', { name: 'Policy & history' }), {
+      key: 'Enter',
+    });
     await screen.findByText('Audit history');
     // Both rows are active.
     expect(screen.getAllByText('Active')).toHaveLength(2);

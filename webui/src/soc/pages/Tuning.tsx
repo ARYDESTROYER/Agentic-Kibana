@@ -1,67 +1,55 @@
 /**
- * Auto-tuning — the adaptive-threshold auto-TUNING admin surface (Round 4, restyled to
- * the "Auto-tuning" command-center mockup).
+ * Auto-tuning — the operator surface for deterministic, bounded threshold tuning.
  *
- * Surfaces the deterministic, no-LLM tuner (`backend/app/engine/threshold_tuner.py`):
- *   - a HEALTH SUMMARY (rules monitored / healthy / needs review / human proposals),
- *   - a RULES table (per-rule Wilson-LB FP rate + samples + the tuner's proposed bounded
- *     change + shadow result + last-tuned + health state) with a selectable row that
- *     opens a read-only rule-detail panel,
- *   - PROPOSED CHANGES (safe, auto-appliable recommendations) with per-row Apply,
- *   - PENDING HUMAN PROPOSALS (suppression / shadow-blocked → routed to Approvals),
- *   - a global AUDIT HISTORY ledger with per-rule Rollback,
- *   - and the tuning-policy config panel.
+ * The page intentionally reads like a SOC workbench rather than a settings dashboard:
+ * current authority/status, one rule-scoped review queue, a searchable evidence view,
+ * observed outcomes, and an auditable policy/history workspace.
  *
- * RBAC: the whole page is gated behind <ProtectedRoute resource="automation"
- * action="read">. Mutations (Apply / Rollback / Save config) are wrapped in <Can
- * resource="automation" action="manage">; the server is authoritative.
- *
- * ⛔ HONEST FRAMING (#3): copy makes it explicit that tuning ONLY changes WHICH
- * candidates get investigated (a correlation rule's `n`, a feed's `severity_floor`) — it
- * NEVER closes/escalates a case or feeds the deterministic `decide()`. A suppression
- * DROP is NEVER auto-applied; it is routed to the Approvals / Proposals queue.
- *
- * REAL DATA ONLY: every metric/column below is bound to the backend
- * `GET /api/tuning/recommendations` contract — nothing is fabricated. Knob changes are
- * INTEGER before→after (never decimal). Shadow result is a boolean-derived chip (the
- * backend returns only a boolean, never an estimated %).
- *
- * SECURITY (#9): every rule_id / feed key / rationale / error is operator-/log-derived
- * PLAIN data, rendered as plain text / <InlineCode> — never HTML, never into a prompt.
+ * Honest framing (#3): tuning changes which candidates are investigated. It never sets
+ * verdicts or closes/escalates cases. Suppression and shadow-blocked proposals always
+ * require human approval. Apply is RULE-scoped because the backend recomputes and
+ * processes every current proposal for the selected rule in one request.
  */
 import * as React from 'react';
 import {
-  SlidersHorizontal,
-  RefreshCw,
+  Activity,
+  AlertTriangle,
+  ArrowRight,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Clock3,
+  History,
+  Info,
   Loader2,
   Play,
-  Undo2,
-  ArrowRight,
-  ShieldAlert,
-  ShieldCheck,
-  AlertTriangle,
   Radar,
-  CheckCircle2,
+  RefreshCw,
+  Search,
+  ShieldCheck,
+  SlidersHorizontal,
+  Undo2,
   X,
-  Info,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import {
-  humanizeToken,
-  fmtPercent,
-  fmtNumber,
-  humanizeAge,
   DASH,
+  fmtNumber,
+  fmtPercent,
+  humanizeAge,
+  humanizeToken,
 } from '@/lib/format';
 import { errorMessage } from '@/lib/errorMessage';
+import { cn } from '@/lib/cn';
 import { useNavigateOptional, type Navigate } from '@/soc/router';
 
-import { Button } from '@/ui/button';
 import { Badge } from '@/ui/badge';
+import { Button } from '@/ui/button';
+import { Input } from '@/ui/input';
 import { Label } from '@/ui/label';
 import { Switch } from '@/ui/switch';
-import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/ui/tabs';
 import {
   Select,
   SelectContent,
@@ -69,53 +57,79 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/ui/select';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/ui/sheet';
 
-import { PageHeader } from '@/soc/components/PageHeader';
+import { AgentEffectivenessSummary } from './AgentEffectiveness';
 import { PageContainer } from '@/soc/components/PageContainer';
+import { PageHeader } from '@/soc/components/PageHeader';
+import { LoadingState } from '@/design-system';
+import { LoadingBar } from '@/soc/components/LoadingBar';
 import { KpiTile, type KpiAccent } from '@/soc/components/KpiTile';
 import { DataTable, type DataTableColumn } from '@/soc/components/DataTable';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
 import { InlineCode } from '@/soc/components/CodeBlock';
 import { HelpTip } from '@/soc/components/HelpTip';
-import { ProtectedRoute, Can, useCan } from '@/soc/components/Can';
+import { Can, ProtectedRoute, useCan } from '@/soc/components/Can';
 import { Field } from '@/soc/components/Field';
 import { NumberField } from '@/soc/components/NumberField';
 import { LabeledSlider } from '@/soc/components/LabeledSlider';
+import { SegmentedControl } from '@/soc/components/SegmentedControl';
 import { EffectiveConfigPreview } from '@/soc/components/rules/EffectiveConfigPreview';
-import {
-  SettingsGrid,
-  SettingsCard,
-  StickySaveBar,
-} from '@/soc/components/SettingsGrid';
+import { StickySaveBar } from '@/soc/components/SettingsGrid';
+import { useMediaQuery } from '@/soc/hooks/useMediaQuery';
+import { useUnsavedChanges } from '@/soc/hooks/useDirtyDraft';
 
 import {
-  tuningApi,
   DEFAULT_TUNING_CONFIG,
   KIND_LABELS,
-  REASON_LABELS,
-  tuneValue,
-  tuneDelta,
-  observedFpRate,
   isLedgerRowActive,
-  type TuningConfig,
-  type TuningCadence,
-  type TuningRecommendationsResponse,
-  type TuningRecommendation,
-  type TuningLedgerRow,
+  observedFpRate,
+  tuneDelta,
+  tuneValue,
+  tuningApi,
   type RuleNoise,
+  type TuningCadence,
+  type TuningConfig,
+  type TuningLedgerRow,
+  type TuningRecommendation,
+  type TuningRecommendationsResponse,
 } from './Tuning.api';
 
 const CADENCES: TuningCadence[] = ['hourly', 'nightly', 'weekly', 'manual'];
 
-const CADENCE_LABEL: Record<TuningCadence, string> = {
+const CADENCE_COPY: Record<TuningCadence, string> = {
   hourly: 'every hour',
   nightly: 'every night',
   weekly: 'every week',
   manual: 'only when run manually',
 };
 
-/** Format an ISO instant as an explicit UTC wall-clock (the ledger stores UTC). */
+type RuleState = 'attention' | 'collecting' | 'within';
+type RuleFilter = 'all' | RuleState;
+
+interface RecommendationGroup {
+  ruleId: string;
+  recommendations: TuningRecommendation[];
+}
+
+const RULE_FILTERS: Array<{ value: RuleFilter; label: string }> = [
+  { value: 'all', label: 'All' },
+  { value: 'attention', label: 'Needs attention' },
+  { value: 'collecting', label: 'Collecting' },
+  { value: 'within', label: 'Within target' },
+];
+
+function ruleTriggerId(ruleId: string): string {
+  return `tuning-rule-trigger-${encodeURIComponent(ruleId)}`;
+}
+
 function fmtUtc(iso?: string | null): string {
   if (!iso) return DASH;
   const ms = Date.parse(iso);
@@ -128,24 +142,195 @@ function fmtUtc(iso?: string | null): string {
   );
 }
 
-/** A before→after arrow of two PLAIN-text knob values (UNTRUSTED-safe, #9). */
 function ChangeArrow({ before, after }: { before: unknown; after: unknown }) {
   return (
-    <span className="inline-flex items-center gap-1.5 tabular-nums">
+    <span className="inline-flex min-w-0 items-center gap-1.5 tabular-nums">
       <InlineCode>{tuneValue(before)}</InlineCode>
-      <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+      <ArrowRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
       <InlineCode>{tuneValue(after)}</InlineCode>
     </span>
   );
 }
 
-/** The boolean-derived shadow-eval chip (never a fabricated %). */
-function ShadowChip({ blocked }: { blocked: boolean }) {
-  return blocked ? (
-    <Badge variant="warning">Blocked — needs review</Badge>
-  ) : (
-    <Badge variant="success">Within bounds</Badge>
+function ruleState(rule: RuleNoise, minSamples: number): RuleState {
+  if (rule.total < minSamples) return 'collecting';
+  return rule.over_target ? 'attention' : 'within';
+}
+
+function RuleStateBadge({ state }: { state: RuleState }) {
+  if (state === 'attention') {
+    return (
+      <Badge variant="high">
+        <AlertTriangle className="size-3" aria-hidden />
+        Needs attention
+      </Badge>
+    );
+  }
+  if (state === 'collecting') {
+    return (
+      <Badge variant="secondary">
+        <Clock3 className="size-3" aria-hidden />
+        Collecting
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="success">
+      <ShieldCheck className="size-3" aria-hidden />
+      Within target
+    </Badge>
   );
+}
+
+interface RuleExplanation {
+  heading: string;
+  lead: string;
+  support: string;
+}
+
+interface RecommendationExplanation {
+  title: string;
+  instruction: string;
+  effect: string;
+  safety: string;
+}
+
+function verdictCaseLabel(count: number): string {
+  return `${fmtNumber(count)} verdict-bearing closed ${count === 1 ? 'case' : 'cases'}`;
+}
+
+function percentagePointLabel(rate: number): string {
+  const rounded = Math.round(Math.abs(rate) * 1_000) / 10;
+  return `${rounded.toLocaleString()} percentage ${rounded === 1 ? 'point' : 'points'}`;
+}
+
+function explainRuleState(
+  rule: RuleNoise,
+  minSamples: number,
+  target: number,
+): RuleExplanation {
+  const state = ruleState(rule, minSamples);
+  const observed = observedFpRate(rule.total, rule.fp);
+
+  if (state === 'attention') {
+    const gap = Math.max(0, rule.fp_rate - target);
+    return {
+      heading: 'Why this rule needs attention',
+      lead:
+        `${verdictCaseLabel(rule.total)} meet the ${fmtNumber(minSamples)}-case evidence minimum. ` +
+        `The conservative false-positive estimate is ${fmtPercent(rule.fp_rate)} — ` +
+        `${percentagePointLabel(gap)} above the ${fmtPercent(target)} policy target.`,
+      support:
+        `Observed false-positive ratio: ${fmtPercent(observed)} ` +
+        `(${fmtNumber(rule.fp)} marked false positive or benign).`,
+    };
+  }
+
+  if (state === 'collecting') {
+    const remaining = Math.max(0, minSamples - rule.total);
+    return {
+      heading: 'Why this rule is still collecting evidence',
+      lead:
+        `${fmtNumber(rule.total)} of ${fmtNumber(minSamples)} verdict-bearing closed cases ` +
+        `have been collected. ${fmtNumber(remaining)} more ${remaining === 1 ? 'is' : 'are'} ` +
+        'required before tuning can recommend a change.',
+      support:
+        `Current observed ratio ${fmtPercent(observed)} and conservative estimate ` +
+        `${fmtPercent(rule.fp_rate)} are context only until the evidence minimum is met.`,
+    };
+  }
+
+  return {
+    heading: 'Why this rule is within target',
+    lead:
+      `The conservative false-positive estimate is ${fmtPercent(rule.fp_rate)}, at or below ` +
+      `the ${fmtPercent(target)} policy target across ${verdictCaseLabel(rule.total)}.`,
+    support: 'No tuning action is indicated by the current evidence.',
+  };
+}
+
+function explainRecommendation(
+  recommendation: TuningRecommendation,
+  shadowEvalEnabled: boolean,
+): RecommendationExplanation {
+  const before = tuneValue(recommendation.before);
+  const after = tuneValue(recommendation.after);
+
+  let title = 'Review the proposed tuning change';
+  let instruction = `Change ${before} to ${after}.`;
+  let effect = 'This changes which future candidates enter automatic investigation.';
+
+  if (recommendation.kind === 'correlation_n') {
+    title = 'Raise the correlation threshold';
+    instruction = `Raise the threshold from ${before} to ${after}.`;
+    effect =
+      `Future threshold-mode clusters will require ${after} matching members before ` +
+      'automatic investigation. Source events remain available.';
+  } else if (recommendation.kind === 'severity_floor') {
+    title = 'Raise the minimum forwarded severity';
+    instruction = `Raise the selected feed’s OCSF severity floor from ${before} to ${after}.`;
+    effect =
+      'Lower-severity candidates remain recorded but will no longer auto-forward from that feed.';
+  } else if (recommendation.kind === 'suppression') {
+    title = 'Review a suppression proposal';
+    instruction = 'Draft this suppression for a human decision in Approvals.';
+    effect = 'Nothing is suppressed from this page.';
+  }
+
+  let safety = shadowEvalEnabled
+    ? 'Eligible after retrospective replay. Evidence and safeguards are recomputed before any write.'
+    : 'Eligible under the current policy. Retrospective replay is disabled and the evidence is recomputed before any write.';
+
+  if (recommendation.reason === 'suppression_drop') {
+    safety = 'Human approval is mandatory; suppression is never auto-applied.';
+  } else if (recommendation.shadow_blocked) {
+    safety =
+      'Retrospective replay could not prove this change safe. It requires a human decision in Approvals.';
+  }
+
+  return { title, instruction, effect, safety };
+}
+
+function explainNoRecommendation(
+  state: RuleState,
+  rule: RuleNoise,
+  minSamples: number,
+): RecommendationExplanation {
+  if (state === 'collecting') {
+    const remaining = Math.max(0, minSamples - rule.total);
+    return {
+      title: 'Keep collecting feedback',
+      instruction: `${fmtNumber(remaining)} more verdict-bearing closed ${remaining === 1 ? 'case is' : 'cases are'} needed.`,
+      effect: 'No threshold change is proposed before the evidence minimum is met.',
+      safety: 'The rule remains unchanged.',
+    };
+  }
+
+  if (state === 'within') {
+    return {
+      title: 'No change recommended',
+      instruction: 'The rule is operating within the configured false-positive target.',
+      effect: 'Continue monitoring new verdict feedback.',
+      safety: 'The rule remains unchanged.',
+    };
+  }
+
+  return {
+    title: 'Review the rule configuration',
+    instruction: 'This rule exceeds policy, but no bounded tuning target is currently available.',
+    effect: 'Review its correlation and feed configuration before making a manual change.',
+    safety: 'No automatic change is available from this view.',
+  };
+}
+
+function groupRecommendations(rows: TuningRecommendation[]): RecommendationGroup[] {
+  const grouped = new Map<string, TuningRecommendation[]>();
+  for (const row of rows) {
+    const current = grouped.get(row.rule_id) ?? [];
+    current.push(row);
+    grouped.set(row.rule_id, current);
+  }
+  return Array.from(grouped, ([ruleId, recommendations]) => ({ ruleId, recommendations }));
 }
 
 export interface TuningProps {
@@ -163,47 +348,41 @@ export default function Tuning({ onNavigate }: TuningProps) {
 }
 
 export function TuningInner({ onNavigate }: TuningProps) {
-  // Coupling-A: prop wins (host/test); else resolve navigate from the router context.
-  // Call the hook UNCONDITIONALLY (rules-of-hooks), then let an explicit prop win.
   const contextNavigate = useNavigateOptional();
   const navigate = onNavigate ?? contextNavigate;
   const canManage = useCan('automation', 'manage');
+  const hasWideRuleInspector = useMediaQuery('(min-width: 1536px)');
 
   const [data, setData] = React.useState<TuningRecommendationsResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
-  // True once a load has SUCCESSFULLY populated the policy. The config editor + save bar
-  // only render after this, so a load FAILURE never leaves an editable DEFAULT policy
-  // form (a Save there would clobber the real, never-loaded policy wholesale).
   const [loadedOnce, setLoadedOnce] = React.useState(false);
   const [error, setError] = React.useState<unknown>(null);
-  // Busy key is the ROW id (recommendation `${rule_id}:${kind}` / ledger `id`), NOT the
-  // bare rule_id — otherwise applying/rolling back one row disables every sibling row that
-  // shares the same rule_id (a rule can have both a correlation_n and severity_floor rec).
-  const [busyRow, setBusyRow] = React.useState<string | null>(null);
-
-  // The Rules-table row the operator is inspecting (opens the read-only detail panel).
+  const [busyKeys, setBusyKeys] = React.useState<Set<string>>(() => new Set());
+  const busyKeysRef = React.useRef<Set<string>>(new Set());
   const [selectedRuleId, setSelectedRuleId] = React.useState<string | null>(null);
-  // The last successful rollback → the transient green "rolled back" confirmation.
+  const lastInspectorRuleRef = React.useRef<string | null>(null);
   const [lastRollback, setLastRollback] = React.useState<{
     ruleId: string;
     recordId: string;
   } | null>(null);
-  // Client-side pagination for the Rules table.
+  const [ruleQuery, setRuleQuery] = React.useState('');
+  const [ruleFilter, setRuleFilter] = React.useState<RuleFilter>('all');
   const [page, setPage] = React.useState(1);
   const [pageSize, setPageSize] = React.useState(10);
 
-  // Config panel: `saved` is the persisted policy; `draft` is the editing copy.
   const [saved, setSaved] = React.useState<TuningConfig>(DEFAULT_TUNING_CONFIG);
   const [draft, setDraft] = React.useState<TuningConfig>(DEFAULT_TUNING_CONFIG);
   const [savingCfg, setSavingCfg] = React.useState(false);
+  const [effectivenessRefreshKey, setEffectivenessRefreshKey] = React.useState(0);
+  const [workspaceTab, setWorkspaceTab] = React.useState<
+    'operations' | 'outcomes' | 'policy'
+  >('operations');
 
   const dirty = React.useMemo(
     () => JSON.stringify(draft) !== JSON.stringify(saved),
     [draft, saved],
   );
-
-  // Latest draft/saved snapshots so a BACKGROUND reload (Refresh, after Apply/Rollback)
-  // can preserve unsaved policy edits instead of silently discarding them.
+  useUnsavedChanges(dirty, canManage);
   const draftRef = React.useRef(draft);
   const savedRef = React.useRef(saved);
   React.useEffect(() => {
@@ -217,20 +396,19 @@ export function TuningInner({ onNavigate }: TuningProps) {
     setLoading(true);
     setError(null);
     try {
-      const [recs, cfg] = await Promise.all([
+      const [recommendations, config] = await Promise.all([
         tuningApi.recommendations(),
         tuningApi.getConfig(),
       ]);
-      setData(recs);
-      const c = { ...DEFAULT_TUNING_CONFIG, ...(cfg.config ?? {}) };
-      setSaved(c);
-      // Only overwrite the editing draft when it has NO unsaved edits — a reload must
-      // not wipe in-progress policy changes the operator hasn't saved (#16).
-      const wasDirty = JSON.stringify(draftRef.current) !== JSON.stringify(savedRef.current);
-      if (!wasDirty) setDraft(c);
+      setData(recommendations);
+      const next = { ...DEFAULT_TUNING_CONFIG, ...(config.config ?? {}) };
+      setSaved(next);
+      const wasDirty =
+        JSON.stringify(draftRef.current) !== JSON.stringify(savedRef.current);
+      if (!wasDirty) setDraft(next);
       setLoadedOnce(true);
-    } catch (e) {
-      setError(e);
+    } catch (nextError) {
+      setError(nextError);
     } finally {
       setLoading(false);
     }
@@ -240,446 +418,271 @@ export function TuningInner({ onNavigate }: TuningProps) {
     void load();
   }, [load]);
 
+  const refreshPage = React.useCallback(() => {
+    setEffectivenessRefreshKey((key) => key + 1);
+    void load();
+  }, [load]);
+
   const saveConfig = React.useCallback(async () => {
     setSavingCfg(true);
     try {
-      const res = await tuningApi.putConfig(draft);
-      const c = { ...DEFAULT_TUNING_CONFIG, ...(res.config ?? draft) };
-      setSaved(c);
-      setDraft(c);
+      const result = await tuningApi.putConfig(draft);
+      const next = { ...DEFAULT_TUNING_CONFIG, ...(result.config ?? draft) };
+      setSaved(next);
+      setDraft(next);
       toast.success('Tuning policy saved.');
-    } catch (e) {
-      toast.error(errorMessage(e, 'Could not save the tuning policy.'));
+    } catch (nextError) {
+      toast.error(errorMessage(nextError, 'Could not save the tuning policy.'));
     } finally {
       setSavingCfg(false);
     }
   }, [draft]);
 
   const applyRule = React.useCallback(
-    async (rec: TuningRecommendation) => {
-      setBusyRow(`${rec.rule_id}:${rec.kind}`);
+    async (ruleId: string) => {
+      const key = `rule:${ruleId}`;
+      if (busyKeysRef.current.has(key)) return;
+      busyKeysRef.current.add(key);
+      setBusyKeys((current) => new Set(current).add(key));
       try {
-        const res = await tuningApi.apply(rec.rule_id);
-        const applied = res.applied?.length ?? 0;
-        const queued = res.queued_proposals?.length ?? 0;
-        if (applied) {
-          toast.success(`Applied change for ${rec.rule_id}.`);
-        } else if (queued) {
-          toast.info(
-            `Routed to the Approvals queue for review (${queued} proposal${queued === 1 ? '' : 's'}).`,
-          );
-        } else if (res.shadow_blocked?.length) {
-          toast.warning('Shadow-eval blocked this change (it would hide a true positive).');
+        const result = await tuningApi.apply(ruleId);
+        const applied = result.applied?.length ?? 0;
+        const queued = result.queued_proposals?.length ?? 0;
+        const blocked = result.shadow_blocked?.length ?? 0;
+        const outcomes = [
+          applied ? `${applied} applied` : null,
+          queued ? `${queued} sent to Approvals` : null,
+          blocked ? `${blocked} shadow-blocked` : null,
+        ].filter(Boolean);
+        if (outcomes.length) {
+          const message = `${ruleId}: ${outcomes.join(' · ')}.`;
+          if (applied) toast.success(message);
+          else if (blocked) toast.warning(message);
+          else toast.info(message);
         } else {
-          toast.info('No change was applied.');
+          toast.info(`No current change was applied for ${ruleId}.`);
         }
         await load();
-      } catch (e) {
-        toast.error(errorMessage(e, 'Could not apply this recommendation.'));
+      } catch (nextError) {
+        toast.error(errorMessage(nextError, 'Could not process this rule.'));
       } finally {
-        setBusyRow(null);
+        busyKeysRef.current.delete(key);
+        setBusyKeys((current) => {
+          const next = new Set(current);
+          next.delete(key);
+          return next;
+        });
       }
     },
     [load],
   );
 
   const rollbackRule = React.useCallback(
-    // `rowId` scopes the busy/spinner to THIS ledger row; the backend rollback still
-    // takes only the rule_id (it reverses the newest active record, #13).
-    async (ruleId: string, rowId: string) => {
-      setBusyRow(rowId);
+    async (ruleId: string) => {
+      const key = `rule:${ruleId}`;
+      if (busyKeysRef.current.has(key)) return;
+      busyKeysRef.current.add(key);
+      setBusyKeys((current) => new Set(current).add(key));
       try {
-        const res = await tuningApi.rollback(ruleId);
-        // Honest transient confirmation — the REAL rule_id + record_id the backend reversed.
-        setLastRollback({ ruleId: res.rule_id ?? ruleId, recordId: res.record_id ?? '' });
+        const result = await tuningApi.rollback(ruleId);
+        setLastRollback({
+          ruleId: result.rule_id ?? ruleId,
+          recordId: result.record_id ?? '',
+        });
         toast.success(`Rolled back ${ruleId}.`);
         await load();
-      } catch (e) {
-        toast.error(errorMessage(e, 'Could not roll back this change.'));
+      } catch (nextError) {
+        toast.error(errorMessage(nextError, 'Could not roll back this change.'));
       } finally {
-        setBusyRow(null);
+        busyKeysRef.current.delete(key);
+        setBusyKeys((current) => {
+          const next = new Set(current);
+          next.delete(key);
+          return next;
+        });
       }
     },
     [load],
   );
 
-  // Stable identities so the downstream useMemos below don't re-run every render.
   const recommendations = React.useMemo(() => data?.recommendations ?? [], [data]);
   const ruleNoise = React.useMemo(() => data?.rule_noise ?? [], [data]);
   const ledger = React.useMemo(() => data?.applied ?? [], [data]);
-
-  // Partition recommendations: SAFE (auto-appliable here) vs HITL (suppression DROP or a
-  // shadow-blocked raise — both need a human decision → routed to Approvals, never
-  // auto-applied, #3).
-  const isHitl = React.useCallback(
-    (r: TuningRecommendation) => r.kind === 'suppression' || r.shadow_blocked,
-    [],
+  const recommendationGroups = React.useMemo(
+    () => groupRecommendations(recommendations),
+    [recommendations],
   );
-  const safeRecs = React.useMemo(
-    () => recommendations.filter((r) => !isHitl(r)),
-    [recommendations, isHitl],
-  );
-  const proposals = React.useMemo(
-    () => recommendations.filter((r) => isHitl(r)),
-    [recommendations, isHitl],
-  );
-
-  // Join maps for the Rules table (by rule_id).
-  const recByRule = React.useMemo(() => {
-    const m = new Map<string, TuningRecommendation>();
-    for (const r of recommendations) if (!m.has(r.rule_id)) m.set(r.rule_id, r);
-    return m;
-  }, [recommendations]);
+  const recommendationsByRule = React.useMemo(() => {
+    const grouped = new Map<string, TuningRecommendation[]>();
+    for (const group of recommendationGroups) {
+      grouped.set(group.ruleId, group.recommendations);
+    }
+    return grouped;
+  }, [recommendationGroups]);
 
   const lastTunedByRule = React.useMemo(() => {
-    const m = new Map<string, string>();
-    for (const r of ledger) {
-      const when = r.applied_at ?? '';
-      if (!when) continue;
-      if (!m.has(r.rule_id) || when > (m.get(r.rule_id) ?? '')) m.set(r.rule_id, when);
+    const latest = new Map<string, string>();
+    for (const row of ledger) {
+      const when = row.applied_at ?? '';
+      if (when && when > (latest.get(row.rule_id) ?? '')) latest.set(row.rule_id, when);
     }
-    return m;
+    return latest;
   }, [ledger]);
 
-  // BUG #13: the backend rollback reverses the MOST-RECENT active record for a rule_id
-  // (it takes `active[0]`), and the FE only sends the rule_id — never a record id. So
-  // clicking Rollback on an OLDER active row of a rule with several un-rolled-back
-  // changes reverses the NEWER one. Restrict the Rollback affordance to the single
-  // newest active row per rule_id (newest by `applied_at`) so the button matches what
-  // the backend actually reverses.
   const newestActiveRowByRule = React.useMemo(() => {
-    const newest = new Map<string, string>(); // rule_id -> row id
-    const at = new Map<string, string>(); // rule_id -> applied_at of the current newest
-    for (const r of ledger) {
-      if (!isLedgerRowActive(r)) continue;
-      const when = r.applied_at ?? '';
-      if (!newest.has(r.rule_id) || when > (at.get(r.rule_id) ?? '')) {
-        newest.set(r.rule_id, r.id);
-        at.set(r.rule_id, when);
+    const newest = new Map<string, string>();
+    const newestAt = new Map<string, string>();
+    for (const row of ledger) {
+      if (!isLedgerRowActive(row)) continue;
+      const when = row.applied_at ?? '';
+      if (!newest.has(row.rule_id) || when > (newestAt.get(row.rule_id) ?? '')) {
+        newest.set(row.rule_id, row.id);
+        newestAt.set(row.rule_id, when);
       }
     }
     return newest;
   }, [ledger]);
 
-  // KPI health summary — every value bound to real backend data.
-  const rulesMonitored = ruleNoise.length;
-  const healthy = ruleNoise.filter((r) => !r.over_target).length;
-  const needsReview = ruleNoise.filter((r) => r.over_target).length;
-  const humanProposals = proposals.length;
+  const outcomeChanges = React.useMemo(
+    () =>
+      ledger.map((row) => ({
+        id: row.id,
+        at: row.applied_at,
+        label: row.rule_id,
+        detail: `${KIND_LABELS[row.target] ?? humanizeToken(row.target)} ${tuneValue(row.before)} → ${tuneValue(row.after)}`,
+        state: isLedgerRowActive(row) ? ('active' as const) : ('rolled_back' as const),
+      })),
+    [ledger],
+  );
+
+  const collecting = ruleNoise.filter((rule) => ruleState(rule, data?.min_samples ?? 0) === 'collecting').length;
+  const withinTarget = ruleNoise.filter((rule) => ruleState(rule, data?.min_samples ?? 0) === 'within').length;
+  const needsAttention = ruleNoise.filter((rule) => ruleState(rule, data?.min_samples ?? 0) === 'attention').length;
+  const safeChangeCount = recommendations.filter((row) => row.auto_apply).length;
+  const humanReviewCount = recommendations.filter((row) => !row.auto_apply).length;
+
+  const filteredRules = React.useMemo(() => {
+    const query = ruleQuery.trim().toLowerCase();
+    return ruleNoise.filter((rule) => {
+      const matchesQuery = !query || rule.rule_id.toLowerCase().includes(query);
+      const state = ruleState(rule, data?.min_samples ?? 0);
+      return matchesQuery && (ruleFilter === 'all' || state === ruleFilter);
+    });
+  }, [data?.min_samples, ruleFilter, ruleNoise, ruleQuery]);
+
+  React.useEffect(() => {
+    setPage(1);
+  }, [ruleFilter, ruleQuery]);
+
+  const pageCount = Math.max(1, Math.ceil(filteredRules.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pageRows = React.useMemo(
+    () =>
+      filteredRules.slice(
+        (currentPage - 1) * pageSize,
+        currentPage * pageSize,
+      ),
+    [currentPage, filteredRules, pageSize],
+  );
+
+  React.useEffect(() => {
+    if (selectedRuleId && !pageRows.some((rule) => rule.rule_id === selectedRuleId)) {
+      setSelectedRuleId(null);
+    }
+  }, [pageRows, selectedRuleId]);
 
   const selectedRule = selectedRuleId
-    ? ruleNoise.find((r) => r.rule_id === selectedRuleId) ?? null
+    ? ruleNoise.find((rule) => rule.rule_id === selectedRuleId) ?? null
     : null;
 
-  // --- Rules table columns (bound to rule_noise[]) --------------------------- //
-  const ruleColumns = React.useMemo<DataTableColumn<RuleNoise>[]>(
-    () => [
-      {
-        id: 'rule_id',
-        header: 'Rule ID',
-        lockVisible: true,
-        width: '15rem',
-        headerClassName: 'min-w-[15rem]',
-        className: 'min-w-[15rem] max-w-[18rem]',
-        cell: (r) => (
-          <InlineCode className="inline-block max-w-full whitespace-normal break-words leading-relaxed">
-            {r.rule_id}
-          </InlineCode>
-        ),
-      },
-      {
-        id: 'samples',
-        header: 'Samples',
-        align: 'right',
-        width: '7rem',
-        className: 'min-w-[7rem]',
-        cell: (r) => <span className="tabular-nums">{fmtNumber(r.total)}</span>,
-      },
-      {
-        id: 'observed',
-        header: 'Observed FP rate',
-        align: 'right',
-        width: '9rem',
-        className: 'min-w-[9rem]',
-        cell: (r) => (
-          <span className="tabular-nums">{fmtPercent(observedFpRate(r.total, r.fp))}</span>
-        ),
-      },
-      {
-        id: 'wilson',
-        header: 'Wilson lower bound (95%)',
-        align: 'right',
-        width: '12rem',
-        className: 'min-w-[12rem]',
-        cell: (r) => (
-          <span className="font-medium tabular-nums">{fmtPercent(r.fp_rate)}</span>
-        ),
-      },
-      {
-        id: 'knob',
-        header: 'Current threshold / knob',
-        width: '13rem',
-        className: 'min-w-[13rem]',
-        cell: (r) => {
-          const rec = recByRule.get(r.rule_id);
-          if (!rec) return <span className="text-muted-foreground">{DASH}</span>;
-          return (
-            <div className="flex flex-col gap-0.5">
-              <span className="text-sm">{KIND_LABELS[rec.kind] ?? humanizeToken(rec.kind)}</span>
-              <span className="text-xs text-muted-foreground tabular-nums">
-                now {tuneValue(rec.before)}
-              </span>
-            </div>
-          );
-        },
-      },
-      {
-        id: 'change',
-        header: 'Proposed change (Δ)',
-        width: '12rem',
-        className: 'min-w-[12rem]',
-        cell: (r) => {
-          const rec = recByRule.get(r.rule_id);
-          if (!rec) return <span className="text-muted-foreground">{DASH}</span>;
-          const delta = tuneDelta(rec.before, rec.after);
-          return (
-            <div className="flex items-center gap-2">
-              <ChangeArrow before={rec.before} after={rec.after} />
-              {delta ? (
-                <span className="text-xs font-medium tabular-nums text-muted-foreground">
-                  {delta}
-                </span>
-              ) : null}
-            </div>
-          );
-        },
-      },
-      {
-        id: 'shadow',
-        header: 'Shadow result',
-        width: '11rem',
-        className: 'min-w-[11rem]',
-        cell: (r) => {
-          const rec = recByRule.get(r.rule_id);
-          if (!rec) return <span className="text-muted-foreground">{DASH}</span>;
-          return <ShadowChip blocked={rec.shadow_blocked} />;
-        },
-      },
-      {
-        id: 'last_tuned',
-        header: 'Last tuned (UTC)',
-        align: 'right',
-        width: '12rem',
-        className: 'min-w-[12rem]',
-        cell: (r) => (
-          <span className="text-xs text-muted-foreground tabular-nums">
-            {fmtUtc(lastTunedByRule.get(r.rule_id))}
-          </span>
-        ),
-      },
-      {
-        id: 'state',
-        header: 'State',
-        width: '10rem',
-        className: 'min-w-[10rem]',
-        cell: (r) =>
-          r.over_target ? (
-            <Badge variant="high">
-              <AlertTriangle className="h-3 w-3" aria-hidden />
-              Needs review
-            </Badge>
-          ) : (
-            <Badge variant="success">
-              <ShieldCheck className="h-3 w-3" aria-hidden />
-              Healthy
-            </Badge>
-          ),
-      },
-    ],
-    [recByRule, lastTunedByRule],
-  );
+  const restoreInspectorTriggerFocus = React.useCallback(() => {
+    const ruleId = lastInspectorRuleRef.current;
+    if (!ruleId) return;
+    window.requestAnimationFrame(() => {
+      document.getElementById(ruleTriggerId(ruleId))?.focus();
+    });
+  }, []);
 
-  // --- Proposed-changes columns (SAFE recommendations, per-row Apply) -------- //
-  const safeRecColumns = React.useMemo<DataTableColumn<TuningRecommendation>[]>(
-    () => [
-      {
-        id: 'rule_id',
-        header: 'Rule',
-        lockVisible: true,
-        width: '18rem',
-        headerClassName: 'min-w-[18rem]',
-        className: 'min-w-[18rem] max-w-[22rem]',
-        cell: (r) => (
-          <div className="flex flex-col gap-0.5">
-            <InlineCode className="inline-block max-w-full whitespace-normal break-words leading-relaxed">
-              {r.rule_id}
-            </InlineCode>
-            <span className="text-xs text-muted-foreground">
-              {KIND_LABELS[r.kind] ?? humanizeToken(r.kind)}
-            </span>
-          </div>
-        ),
-      },
-      {
-        id: 'change',
-        header: 'Proposed change (Δ)',
-        cell: (r) => {
-          const delta = tuneDelta(r.before, r.after);
-          return (
-            <div className="flex items-center gap-2">
-              <ChangeArrow before={r.before} after={r.after} />
-              {delta ? (
-                <span className="text-xs font-medium tabular-nums text-muted-foreground">
-                  {delta}
-                </span>
-              ) : null}
-            </div>
-          );
-        },
-      },
-      {
-        id: 'noise',
-        header: 'FP rate / samples',
-        align: 'right',
-        cell: (r) => (
-          <div className="flex flex-col items-end tabular-nums">
-            <span className="font-medium">{fmtPercent(r.fp_rate)}</span>
-            <span className="text-xs text-muted-foreground">{fmtNumber(r.samples)} samples</span>
-          </div>
-        ),
-      },
-      {
-        id: 'reason',
-        header: 'Why',
-        cell: (r) => (
-          <span className="text-xs text-muted-foreground">
-            {REASON_LABELS[r.reason] ?? humanizeToken(r.reason)}
-          </span>
-        ),
-      },
-      {
-        id: 'actions',
-        header: '',
-        align: 'right',
-        cell: (r) => {
-          const rowBusy = busyRow === `${r.rule_id}:${r.kind}`;
-          return (
-            <Can resource="automation" action="manage">
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={rowBusy}
-                onClick={() => applyRule(r)}
-              >
-                {rowBusy ? (
-                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" aria-hidden />
-                ) : (
-                  <Play className="mr-1 h-3.5 w-3.5" aria-hidden />
-                )}
-                Apply
-              </Button>
-            </Can>
-          );
-        },
-      },
-    ],
-    [applyRule, busyRow],
-  );
+  const closeRuleInspector = React.useCallback(() => {
+    setSelectedRuleId(null);
+    restoreInspectorTriggerFocus();
+  }, [restoreInspectorTriggerFocus]);
 
-  // --- Audit-history (ledger) columns ---------------------------------------- //
   const ledgerColumns = React.useMemo<DataTableColumn<TuningLedgerRow>[]>(
     () => [
       {
-        id: 'rule_id',
-        header: 'Rule',
+        id: 'rule',
+        header: 'Rule / knob',
         lockVisible: true,
-        width: '15rem',
-        headerClassName: 'min-w-[15rem]',
-        className: 'min-w-[15rem] max-w-[18rem]',
-        cell: (r) => (
-          <InlineCode className="inline-block max-w-full whitespace-normal break-words leading-relaxed">
-            {r.rule_id}
-          </InlineCode>
-        ),
-      },
-      {
-        id: 'target',
-        header: 'Knob',
-        cell: (r) => (
-          <span className="text-xs text-muted-foreground">
-            {KIND_LABELS[r.target] ?? humanizeToken(r.target)}
-          </span>
+        className: 'min-w-[14rem] max-w-[22rem]',
+        cell: (row) => (
+          <div className="min-w-0 space-y-0.5">
+            <span className="block truncate font-mono text-xs text-foreground" title={row.rule_id}>
+              {row.rule_id}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              {KIND_LABELS[row.target] ?? humanizeToken(row.target)}
+            </span>
+          </div>
         ),
       },
       {
         id: 'change',
-        header: 'From → To',
-        cell: (r) => <ChangeArrow before={r.before} after={r.after} />,
-      },
-      {
-        id: 'delta',
-        header: 'Δ',
-        align: 'right',
-        cell: (r) => {
-          const delta = tuneDelta(r.before, r.after);
-          return (
-            <span className="text-xs font-medium tabular-nums text-muted-foreground">
-              {delta ?? DASH}
-            </span>
-          );
-        },
+        header: 'Change',
+        cell: (row) => (
+          <div className="flex flex-wrap items-center gap-2">
+            <ChangeArrow before={row.before} after={row.after} />
+            {tuneDelta(row.before, row.after) ? (
+              <span className="text-xs tabular-nums text-muted-foreground">
+                {tuneDelta(row.before, row.after)}
+              </span>
+            ) : null}
+          </div>
+        ),
       },
       {
         id: 'reason',
         header: 'Reason',
-        cell: (r) =>
-          r.rationale ? (
-            <span className="text-xs text-muted-foreground">{r.rationale}</span>
-          ) : (
-            <span className="text-muted-foreground">{DASH}</span>
-          ),
-      },
-      {
-        id: 'when',
-        header: 'Applied',
-        align: 'right',
-        cell: (r) => (
-          <span className="text-xs text-muted-foreground">
-            {humanizeAge(r.applied_at ?? null)}
+        cell: (row) => (
+          <span className="line-clamp-2 text-xs text-muted-foreground">
+            {row.rationale || row.reason || DASH}
           </span>
         ),
       },
       {
-        id: 'state',
-        // BUG #12: derive the REAL per-row state from the ledger record
-        // (`rolled_back`/`rolled_back_at`) — the backend never emits an `active` field.
-        header: 'Result',
-        cell: (r) =>
-          isLedgerRowActive(r) ? (
-            <Badge variant="info">Active</Badge>
-          ) : (
-            <Badge variant="secondary">Rolled back</Badge>
-          ),
+        id: 'applied',
+        header: 'Applied / result',
+        cell: (row) => (
+          <div className="space-y-1">
+            <span className="block text-xs tabular-nums text-muted-foreground">
+              {humanizeAge(row.applied_at ?? null)}
+            </span>
+            {isLedgerRowActive(row) ? (
+              <Badge variant="info">Active</Badge>
+            ) : (
+              <Badge variant="secondary">Rolled back</Badge>
+            )}
+          </div>
+        ),
       },
       {
-        id: 'actions',
+        id: 'action',
         header: '',
         align: 'right',
-        // Only the NEWEST ACTIVE (not-yet-rolled-back) row per rule offers a rollback —
-        // the backend reverses the most-recent active record for the rule_id (#12/#13).
-        cell: (r) =>
-          isLedgerRowActive(r) && newestActiveRowByRule.get(r.rule_id) === r.id ? (
+        cell: (row) =>
+          isLedgerRowActive(row) && newestActiveRowByRule.get(row.rule_id) === row.id ? (
             <Can resource="automation" action="manage">
               <Button
                 size="sm"
                 variant="ghost"
-                disabled={busyRow === r.id}
-                onClick={() => rollbackRule(r.rule_id, r.id)}
+                aria-label={`Rollback latest change for ${row.rule_id}`}
+                disabled={busyKeys.has(`rule:${row.rule_id}`)}
+                onClick={() => rollbackRule(row.rule_id)}
               >
-                {busyRow === r.id ? (
-                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" aria-hidden />
+                {busyKeys.has(`rule:${row.rule_id}`) ? (
+                  <Loader2 className="mr-1 size-3.5 animate-spin" aria-hidden />
                 ) : (
-                  <Undo2 className="mr-1 h-3.5 w-3.5" aria-hidden />
+                  <Undo2 className="mr-1 size-3.5" aria-hidden />
                 )}
                 Rollback
               </Button>
@@ -687,7 +690,7 @@ export function TuningInner({ onNavigate }: TuningProps) {
           ) : null,
       },
     ],
-    [busyRow, rollbackRule, newestActiveRowByRule],
+    [busyKeys, newestActiveRowByRule, rollbackRule],
   );
 
   const kpis: Array<{
@@ -699,50 +702,43 @@ export function TuningInner({ onNavigate }: TuningProps) {
   }> = [
     {
       label: 'Rules monitored',
-      value: rulesMonitored,
+      value: ruleNoise.length,
       sub: 'With closed-case feedback',
       icon: Radar,
       accent: 'primary',
     },
     {
-      label: 'Healthy',
-      value: healthy,
-      sub: 'Within the FP-rate target',
+      label: 'Within target',
+      value: withinTarget,
+      sub: 'Enough evidence · below target',
       icon: ShieldCheck,
       accent: 'success',
     },
     {
-      label: 'Needs review',
-      value: needsReview,
-      sub: 'Above the FP-rate target',
-      icon: AlertTriangle,
-      accent: 'high',
+      label: 'Collecting evidence',
+      value: collecting,
+      sub: `Below ${fmtNumber(data?.min_samples ?? 0)} samples`,
+      icon: Clock3,
+      accent: 'info',
     },
     {
-      label: 'Human proposals',
-      value: humanProposals,
-      sub: 'Routed to Approvals',
-      icon: ShieldAlert,
+      label: 'Needs attention',
+      value: needsAttention,
+      sub: `${fmtNumber(safeChangeCount)} eligible · ${fmtNumber(humanReviewCount)} approval changes`,
+      icon: AlertTriangle,
       accent: 'high',
     },
   ];
 
-  // Page-clamped slice of the rules table.
-  const pageCount = Math.max(1, Math.ceil(ruleNoise.length / pageSize));
-  const curPage = Math.min(page, pageCount);
-  const pageRows = ruleNoise.slice((curPage - 1) * pageSize, curPage * pageSize);
-
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <PageHeader
-        icon={SlidersHorizontal}
-        eyebrow="Automation"
         title="Auto-tuning"
-        description="Safe, human-reviewed adjustments to detection rules."
+        description="Reduce noisy detections with bounded, auditable rule changes and explicit human review."
         actions={
-          <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
+          <Button variant="outline" size="sm" onClick={refreshPage} disabled={loading}>
             <RefreshCw
-              className={loading ? 'mr-1.5 h-4 w-4 animate-spin' : 'mr-1.5 h-4 w-4'}
+              className={cn('mr-1.5 size-4', loading && 'animate-spin')}
               aria-hidden
             />
             Refresh
@@ -750,152 +746,329 @@ export function TuningInner({ onNavigate }: TuningProps) {
         }
       />
 
-      {/* HONEST FRAMING (#3) — tuning never closes a case. */}
-      <Alert>
-        <Info className="h-4 w-4" aria-hidden />
-        <AlertTitle>
-          Tuning only changes what gets investigated — never how a case is decided.
-        </AlertTitle>
-        <AlertDescription>
-          The tuner adjusts detection volume (a correlation rule&apos;s threshold, a feed&apos;s
-          severity floor) so noisy rules surface fewer false positives. It never closes,
-          escalates, or changes the verdict of a case — that decision stays deterministic. A
-          suppression (drop) proposal is never auto-applied; it is routed to the Approvals
-          queue for a human to review.
-        </AlertDescription>
-      </Alert>
+      <LoadingBar
+        active={loading && Boolean(data)}
+        size="sm"
+        label="Refreshing auto-tuning"
+      />
 
-      {error ? (
+      {loading && !data ? (
+        <LoadingState
+          label="Loading auto-tuning"
+          description="Reading rule feedback, bounded recommendations, and policy state."
+          layout="page"
+          shape="page"
+        />
+      ) : null}
+
+      {error && !data ? (
         <LoadError
           error={error}
           title="Could not load tuning data"
           fallback="Could not load tuning data."
           onRetry={() => void load()}
         />
-      ) : (
+      ) : null}
+
+      {data ? (
         <>
-          {/* Health summary */}
-          <section aria-label="Health summary" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {kpis.map((k) => (
-              <KpiTile
-                key={k.label}
-                label={k.label}
-                value={loading ? DASH : fmtNumber(k.value)}
-                sub={k.sub}
-                icon={k.icon}
-                accent={k.accent}
-              />
-            ))}
+          {error ? (
+            <LoadError
+              error={error}
+              title="Refresh failed"
+              fallback="The previous tuning evidence remains visible."
+              onRetry={() => void load()}
+            />
+          ) : null}
+
+          <section
+            aria-label="Tuning operating status"
+            className="grid gap-4 border-y border-border/70 py-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center"
+          >
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md border border-primary/20 bg-primary/10 text-primary">
+                <Info className="size-4" aria-hidden />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-foreground">
+                  Decision authority stays protected
+                </p>
+                <p className="mt-0.5 max-w-4xl text-xs leading-relaxed text-muted-foreground">
+                  Tuning only changes what gets investigated — never how a case is decided.
+                  Suppression and changes that do not pass safety replay always require approval.
+                </p>
+              </div>
+            </div>
+            <dl className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs">
+              <div className="flex items-center gap-2">
+                <dt className="text-muted-foreground">Policy</dt>
+                <dd>
+                  <Badge variant={data.enabled ? 'success' : 'secondary'}>
+                    {data.enabled ? 'Active' : 'Paused'}
+                  </Badge>
+                </dd>
+              </div>
+              <div className="flex items-center gap-2">
+                <dt className="text-muted-foreground">Cadence</dt>
+                <dd className="font-medium text-foreground">
+                  {humanizeToken(data.cadence)}
+                </dd>
+              </div>
+              <div className="flex items-center gap-2">
+                <dt className="text-muted-foreground">Evidence</dt>
+                <dd className="font-medium tabular-nums text-foreground">
+                  {fmtNumber(data.window_cases)} closed cases
+                </dd>
+              </div>
+            </dl>
           </section>
 
-          <div className="grid items-start gap-4 2xl:grid-cols-[minmax(0,1fr)_22rem]">
-            {/* Left: rules + detail */}
-            <div className="min-w-0 space-y-4">
-              {/* Proposed changes (SAFE recommendations, per-row Apply) */}
-              <section className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <h2 className="text-sm font-semibold tracking-tight text-foreground">
-                    Proposed changes
-                  </h2>
-                  <HelpTip
-                    label="How proposed changes are computed"
-                    text={
-                      'Each proposed change is a pure dry-run: the tuner accumulates a Wilson lower-bound false-positive rate over the trailing window of closed cases and proposes a bounded integer change to a correlation threshold or a feed severity floor. Nothing is written until you Apply. Shadow-eval re-checks a change against recent data and blocks it if it would have hidden a true positive.'
-                    }
-                  />
-                  {data ? (
-                    <span className="text-xs text-muted-foreground">
-                      over {fmtNumber(data.window_cases)} closed cases
-                    </span>
-                  ) : null}
-                </div>
-                <DataTable
-                  columns={safeRecColumns}
-                  rows={safeRecs}
-                  getRowId={(r) => `${r.rule_id}:${r.kind}`}
-                  loading={loading}
-                  ariaLabel="Proposed tuning changes"
-                  empty={
-                    <EmptyState
-                      icon={SlidersHorizontal}
-                      title="No proposed changes"
-                      description="No rule currently clears the noise bar for a bounded auto-appliable change. Rules with enough closed-case samples appear here when their false-positive rate exceeds the target."
-                      compact
-                    />
-                  }
-                />
-              </section>
-
-              {/* Rules health table */}
-              <section className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <h2 className="text-sm font-semibold tracking-tight text-foreground">Rules</h2>
-                  <span className="text-xs text-muted-foreground">
-                    Select a rule to inspect its noise picture and history.
-                  </span>
-                </div>
-                <DataTable
-                  columns={ruleColumns}
-                  rows={pageRows}
-                  getRowId={(r) => r.rule_id}
-                  loading={loading}
-                  ariaLabel="Monitored rules"
-                  selected={selectedRuleId ? [selectedRuleId] : []}
-                  onRowClick={(r) =>
-                    setSelectedRuleId((cur) => (cur === r.rule_id ? null : r.rule_id))
-                  }
-                  page={curPage}
-                  pageSize={pageSize}
-                  total={ruleNoise.length}
-                  onPageChange={setPage}
-                  onPageSizeChange={(n) => {
-                    setPageSize(n);
-                    setPage(1);
-                  }}
-                  empty={
-                    <EmptyState
-                      icon={Radar}
-                      title="No rules monitored yet"
-                      description="Rules appear here once they have accumulated closed-case feedback. A cold tenant with too few closed cases simply shows nothing until the tuner has data."
-                      compact
-                    />
-                  }
-                />
-              </section>
-
-              {/* Rule detail panel (read-only inspection of the selected rule) */}
-              {selectedRule ? (
-                <RuleDetailPanel
-                  rule={selectedRule}
-                  rec={recByRule.get(selectedRule.rule_id)}
-                  history={ledger.filter((l) => l.rule_id === selectedRule.rule_id)}
-                  onClose={() => setSelectedRuleId(null)}
-                />
-              ) : null}
+          <Tabs
+            value={workspaceTab}
+            onValueChange={(value) =>
+              setWorkspaceTab(value as 'operations' | 'outcomes' | 'policy')
+            }
+          >
+            <div className="overflow-x-auto border-b border-border/70 pb-2">
+              <TabsList
+                aria-label="Auto-tuning workspace"
+                className="min-w-max"
+                data-testid="tuning-workspace-tabs"
+              >
+                <TabsTrigger value="operations" className="gap-1 px-2.5 sm:gap-2 sm:px-3">
+                  <SlidersHorizontal className="hidden size-4 sm:block" aria-hidden />
+                  Operations
+                </TabsTrigger>
+                <Can resource="metrics" action="view">
+                  <TabsTrigger value="outcomes" className="gap-1 px-2.5 sm:gap-2 sm:px-3">
+                    <Activity className="hidden size-4 sm:block" aria-hidden />
+                    Outcomes
+                  </TabsTrigger>
+                </Can>
+                <TabsTrigger value="policy" className="gap-1 px-2.5 sm:gap-2 sm:px-3">
+                  <History className="hidden size-4 sm:block" aria-hidden />
+                  Policy &amp; history
+                </TabsTrigger>
+              </TabsList>
             </div>
 
-            {/* Right: pending proposals + rollback confirmation */}
-            <div className="space-y-4">
-              <PendingProposals proposals={proposals} onOpenApprovals={() => navigate('approvals')} />
+            <TabsContent value="operations" className="mt-5 space-y-7">
+              <section
+                aria-label="Health summary"
+                data-testid="tuning-health-strip"
+                className="grid grid-cols-1 border-y border-border/70 sm:grid-cols-2 xl:grid-cols-4"
+              >
+                {kpis.map((kpi, index) => (
+                  <div
+                    key={kpi.label}
+                    className={cn(
+                      index > 0 && 'border-t border-border/70',
+                      index === 1 && 'sm:border-l sm:border-t-0',
+                      index === 2 && 'xl:border-l xl:border-t-0',
+                      index === 3 && 'sm:border-l xl:border-t-0',
+                    )}
+                  >
+                    <KpiTile
+                      label={kpi.label}
+                      value={fmtNumber(kpi.value)}
+                      sub={kpi.sub}
+                      icon={kpi.icon}
+                      accent={kpi.accent}
+                      variant="strip"
+                      density="compact"
+                    />
+                  </div>
+                ))}
+              </section>
+
+              <div
+                className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted-foreground"
+                aria-label="Rule state guide"
+              >
+                <span>
+                  <strong className="font-medium text-foreground">Needs attention</strong>{' '}
+                  clears the evidence minimum and exceeds policy.
+                </span>
+                <span>
+                  <strong className="font-medium text-foreground">Collecting</strong>{' '}
+                  needs more verdict feedback.
+                </span>
+                <span>
+                  <strong className="font-medium text-foreground">Within target</strong>{' '}
+                  needs no change now.
+                </span>
+              </div>
+
+              <ReviewQueue
+                groups={recommendationGroups}
+                rules={ruleNoise}
+                busyKeys={busyKeys}
+                windowCases={data.window_cases}
+                minSamples={data.min_samples}
+                target={data.fp_rate_target}
+                shadowEvalEnabled={saved.shadow_eval}
+                onApplyRule={(ruleId) => void applyRule(ruleId)}
+                onOpenApprovals={() => navigate('approvals')}
+              />
+
+              <section className="space-y-3" aria-label="All monitored rules">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-base font-semibold tracking-tight text-foreground">
+                        All monitored rules
+                      </h2>
+                      <HelpTip
+                        label="How rule state is determined"
+                        text="A rule needs attention only after it meets the evidence minimum and its conservative Wilson estimate exceeds policy. Observed rate is supporting context; under-sampled rules remain Collecting."
+                      />
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Read the reason for each state, then open a rule for supporting measurements.
+                    </p>
+                  </div>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <div className="relative min-w-0 sm:w-64">
+                      <Search
+                        className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                        aria-hidden
+                      />
+                      <Input
+                        value={ruleQuery}
+                        onChange={(event) => setRuleQuery(event.target.value)}
+                        placeholder="Search rules"
+                        aria-label="Search monitored rules"
+                        className="pl-9"
+                      />
+                    </div>
+                    <SegmentedControl
+                      aria-label="Filter rules by state"
+                      size="sm"
+                      value={ruleFilter}
+                      onValueChange={setRuleFilter}
+                      options={RULE_FILTERS}
+                      className="max-w-full overflow-x-auto"
+                    />
+                  </div>
+                </div>
+
+                <div
+                  className={cn(
+                    'grid min-w-0 gap-5',
+                    selectedRule && '2xl:grid-cols-[minmax(0,1fr)_24rem]',
+                  )}
+                >
+                  <RuleList
+                    rules={pageRows}
+                    total={filteredRules.length}
+                    minSamples={data.min_samples}
+                    target={data.fp_rate_target}
+                    selectedRuleId={selectedRuleId}
+                    recommendationsByRule={recommendationsByRule}
+                    shadowEvalEnabled={saved.shadow_eval}
+                    lastTunedByRule={lastTunedByRule}
+                    onSelect={(ruleId) => {
+                      lastInspectorRuleRef.current = ruleId;
+                      setSelectedRuleId((current) => (current === ruleId ? null : ruleId));
+                    }}
+                    emptyQuery={Boolean(ruleQuery.trim()) || ruleFilter !== 'all'}
+                    page={currentPage}
+                    pageCount={pageCount}
+                    pageSize={pageSize}
+                    onPageChange={setPage}
+                    onPageSizeChange={(next) => {
+                      setPageSize(next);
+                      setPage(1);
+                    }}
+                  />
+
+                  {selectedRule && hasWideRuleInspector ? (
+                    <RuleDetailPanel
+                      id="tuning-rule-detail"
+                      rule={selectedRule}
+                      recommendations={recommendationsByRule.get(selectedRule.rule_id) ?? []}
+                      history={ledger.filter((row) => row.rule_id === selectedRule.rule_id)}
+                      minSamples={data.min_samples}
+                      target={data.fp_rate_target}
+                      shadowEvalEnabled={saved.shadow_eval}
+                      processing={busyKeys.has(`rule:${selectedRule.rule_id}`)}
+                      onApplyRule={(ruleId) => void applyRule(ruleId)}
+                      onOpenApprovals={() => navigate('approvals')}
+                      onClose={closeRuleInspector}
+                    />
+                  ) : null}
+                </div>
+
+                <Sheet
+                  open={Boolean(selectedRule && !hasWideRuleInspector)}
+                  onOpenChange={(open) => !open && setSelectedRuleId(null)}
+                >
+                  <SheetContent
+                    id="tuning-rule-detail"
+                    side="right"
+                    size="default"
+                    className="gap-0 p-0"
+                    aria-describedby={undefined}
+                    onOpenAutoFocus={(event) => {
+                      event.preventDefault();
+                      (event.currentTarget as HTMLElement)
+                        .querySelector<HTMLButtonElement>('button[aria-label="Close"]')
+                        ?.focus();
+                    }}
+                    onCloseAutoFocus={(event) => {
+                      event.preventDefault();
+                      restoreInspectorTriggerFocus();
+                    }}
+                  >
+                    <SheetHeader className="sr-only">
+                      <SheetTitle>
+                        {selectedRule ? `Rule evidence for ${selectedRule.rule_id}` : 'Rule evidence'}
+                      </SheetTitle>
+                      <SheetDescription>
+                        Evidence, recommendations, thresholds, and recent tuning history.
+                      </SheetDescription>
+                    </SheetHeader>
+                    {selectedRule ? (
+                      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6">
+                        <RuleDetailPanel
+                          variant="sheet"
+                          rule={selectedRule}
+                          recommendations={recommendationsByRule.get(selectedRule.rule_id) ?? []}
+                          history={ledger.filter((row) => row.rule_id === selectedRule.rule_id)}
+                          minSamples={data.min_samples}
+                          target={data.fp_rate_target}
+                          shadowEvalEnabled={saved.shadow_eval}
+                          processing={busyKeys.has(`rule:${selectedRule.rule_id}`)}
+                          onApplyRule={(ruleId) => void applyRule(ruleId)}
+                          onOpenApprovals={() => navigate('approvals')}
+                          onClose={closeRuleInspector}
+                        />
+                      </div>
+                    ) : null}
+                  </SheetContent>
+                </Sheet>
+              </section>
 
               {lastRollback ? (
                 <section
-                  className="rounded-lg border border-success/30 bg-success/5 p-4"
+                  className="border-l-2 border-success/50 py-1 pl-4"
                   aria-label="Rollback confirmation"
                 >
                   <div className="flex items-start gap-3">
-                    <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-success" aria-hidden />
+                    <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-success" aria-hidden />
                     <div className="min-w-0 flex-1 space-y-1">
-                      <p className="text-sm font-semibold text-success-text">Rollback successful</p>
+                      <p className="text-sm font-semibold text-success-text">
+                        Rollback successful
+                      </p>
                       <p className="text-xs text-muted-foreground">
-                        Reversed the latest change for <InlineCode>{lastRollback.ruleId}</InlineCode>
+                        Reversed the latest change for{' '}
+                        <InlineCode>{lastRollback.ruleId}</InlineCode>
                         {lastRollback.recordId ? (
                           <>
-                            {' '}
-                            (record <InlineCode>{lastRollback.recordId}</InlineCode>)
+                            {' '}(<InlineCode>{lastRollback.recordId}</InlineCode>)
                           </>
                         ) : null}
-                        . The knob is back to its prior value.
+                        .
                       </p>
                     </div>
                     <Button
@@ -904,196 +1077,56 @@ export function TuningInner({ onNavigate }: TuningProps) {
                       aria-label="Dismiss rollback confirmation"
                       onClick={() => setLastRollback(null)}
                     >
-                      <X className="h-4 w-4" aria-hidden />
+                      <X className="size-4" aria-hidden />
                     </Button>
                   </div>
                 </section>
               ) : null}
-            </div>
-          </div>
+            </TabsContent>
 
-          {/* Audit history (global ledger + per-rule rollback) */}
-          {ledger.length ? (
-            <section className="space-y-3">
-              <div className="flex items-center gap-2">
-                <h2 className="text-sm font-semibold tracking-tight text-foreground">
-                  Audit history
-                </h2>
-                <span className="text-xs text-muted-foreground">
-                  Every applied change is append-only; rollback reverses the newest active
-                  change for a rule.
-                </span>
-              </div>
-              <DataTable
-                columns={ledgerColumns}
-                rows={ledger}
-                getRowId={(r) => r.id}
-                ariaLabel="Applied tuning changes"
-              />
-            </section>
-          ) : null}
+            <Can resource="metrics" action="view">
+              <TabsContent value="outcomes" className="mt-5">
+                <AgentEffectivenessSummary
+                  refreshKey={effectivenessRefreshKey}
+                  changes={outcomeChanges}
+                  onOpenFull={() => navigate('metrics', { tab: 'effectiveness' })}
+                />
+              </TabsContent>
+            </Can>
 
-          {/* The editable config renders ONLY after a successful load, so a load FAILURE
-              never leaves a DEFAULT policy form whose Save would clobber the real,
-              never-loaded policy (#14). */}
-          {loadedOnce ? (
-            <>
-              <SettingsGrid>
-                <SettingsCard
-                  anchor="tuning-policy"
-                  icon={SlidersHorizontal}
-                  title="Tuning policy"
-                  description="Controls when the tuner runs and how conservative it is. On by default — it only proposes safe, bounded, shadow-checked changes and never closes a case (#3)."
-                  wide="full"
-                >
-                  <fieldset disabled={!canManage} className="space-y-6">
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="space-y-0.5">
-                        <Label htmlFor="tuning-enabled" className="text-sm font-medium">
-                          Enable auto-tuning
-                        </Label>
-                        <p className="text-xs text-muted-foreground">
-                          When on, the tuner runs on its cadence and applies safe, bounded changes.
-                          Suppression drops always route to Approvals.
-                        </p>
-                      </div>
-                      <Switch
-                        id="tuning-enabled"
-                        checked={draft.enabled}
-                        onCheckedChange={(v) => setDraft((d) => ({ ...d, enabled: v }))}
-                      />
-                    </div>
+            <TabsContent value="policy" className="mt-5 space-y-8">
+              {loadedOnce ? (
+                <TuningPolicy
+                  draft={draft}
+                  canManage={canManage}
+                  onChange={setDraft}
+                />
+              ) : null}
 
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <NumberField
-                        label="Minimum samples"
-                        description="Observations required before a rule is eligible for a change."
-                        value={draft.min_samples}
-                        min={1}
-                        max={100000}
-                        step={1}
-                        defaultValue={DEFAULT_TUNING_CONFIG.min_samples}
-                        disabled={!canManage}
-                        onChange={(v) => setDraft((d) => ({ ...d, min_samples: v }))}
-                      />
-
-                      <LabeledSlider
-                        label="Target false-positive rate"
-                        description="A rule whose Wilson-LB FP rate exceeds this becomes a tuning candidate."
-                        value={Math.round(draft.fp_rate_target * 100)}
-                        min={0}
-                        max={100}
-                        step={1}
-                        disabled={!canManage}
-                        formatValue={(v) => `${v}%`}
-                        onChange={(v) => setDraft((d) => ({ ...d, fp_rate_target: v / 100 }))}
-                      />
-
-                      <NumberField
-                        label="Max correlation-n step"
-                        description="Caps how far a correlation threshold (n) may move per cadence. 1 keeps every change to a single, bounded +1."
-                        value={draft.max_n_step}
-                        min={0}
-                        max={10}
-                        step={1}
-                        defaultValue={DEFAULT_TUNING_CONFIG.max_n_step}
-                        disabled={!canManage}
-                        onChange={(v) => setDraft((d) => ({ ...d, max_n_step: v }))}
-                      />
-
-                      <NumberField
-                        label="Wilson z-score"
-                        description="Confidence z for the Wilson lower-bound on the observed FP rate. Higher is more conservative (1.96 ≈ 95%)."
-                        value={draft.wilson_z}
-                        min={0}
-                        max={5}
-                        step={0.01}
-                        defaultValue={DEFAULT_TUNING_CONFIG.wilson_z}
-                        disabled={!canManage}
-                        onChange={(v) => setDraft((d) => ({ ...d, wilson_z: v }))}
-                      />
-
-                      <LabeledSlider
-                        label="EWMA smoothing (alpha)"
-                        description="Smoothing factor for the running FP-rate estimate. Lower reacts slower; higher reacts faster."
-                        value={draft.ewma_alpha}
-                        min={0.01}
-                        max={1}
-                        step={0.01}
-                        disabled={!canManage}
-                        formatValue={(v) => v.toFixed(2)}
-                        onChange={(v) => setDraft((d) => ({ ...d, ewma_alpha: v }))}
-                      />
-
-                      <Field label="Cadence" description="How often the tuner runs.">
-                        {({ id, describedBy }) => (
-                          <Select
-                            value={draft.cadence}
-                            disabled={!canManage}
-                            onValueChange={(v) =>
-                              setDraft((d) => ({ ...d, cadence: v as TuningCadence }))
-                            }
-                          >
-                            <SelectTrigger id={id} aria-describedby={describedBy}>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {CADENCES.map((c) => (
-                                <SelectItem key={c} value={c}>
-                                  {humanizeToken(c)}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        )}
-                      </Field>
-
-                      <div className="flex items-start justify-between gap-4 sm:col-span-2">
-                        <div className="space-y-0.5">
-                          <Label htmlFor="tuning-shadow" className="text-sm">
-                            Shadow-evaluate first
-                          </Label>
-                          <p className="text-xs text-muted-foreground">
-                            Re-check a change against recent data; block it if it would hide a true
-                            positive.
-                          </p>
-                        </div>
-                        <Switch
-                          id="tuning-shadow"
-                          checked={draft.shadow_eval}
-                          onCheckedChange={(v) => setDraft((d) => ({ ...d, shadow_eval: v }))}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Live "effective config" preview. Advisory presentation only — never
-                        calls decide(), never bills an LLM. */}
-                    <EffectiveConfigPreview
-                      summary={
-                        draft.enabled
-                          ? `Auto-tune noisy rules ${CADENCE_LABEL[draft.cadence]}: any rule above a ${Math.round(draft.fp_rate_target * 100)}% false-positive rate (≥ ${fmtNumber(draft.min_samples)} samples) gets a bounded +${fmtNumber(draft.max_n_step)} threshold nudge${draft.shadow_eval ? ', shadow-checked first' : ''}.`
-                          : 'Auto-tuning is off — proposed changes above are dry-run only until you enable it or Apply one manually.'
-                      }
-                      lines={[
-                        { label: 'FP-rate target', value: `${Math.round(draft.fp_rate_target * 100)}%` },
-                        { label: 'Min samples', value: fmtNumber(draft.min_samples) },
-                        { label: 'Max n step', value: `+${fmtNumber(draft.max_n_step)}` },
-                        { label: 'Wilson z', value: draft.wilson_z.toFixed(2) },
-                        { label: 'EWMA alpha', value: draft.ewma_alpha.toFixed(2) },
-                      ]}
-                      belowFloorNote
-                      noteText="A suppression (drop) proposal is never auto-applied — it routes to Approvals. A severity-floor change blocks auto-forward but never drops the candidate (#4)."
-                    />
-
-                    {!canManage ? (
-                      <p className="text-xs text-muted-foreground">
-                        You have read-only access to tuning. Ask a SOC administrator to change the
-                        policy.
-                      </p>
-                    ) : null}
-                  </fieldset>
-                </SettingsCard>
-              </SettingsGrid>
+              <section className="space-y-3" aria-label="Tuning audit history">
+                <div>
+                  <h2 className="text-base font-semibold tracking-tight text-foreground">
+                    Audit history
+                  </h2>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Applied changes are append-only. Rollback is offered only for the newest
+                    active change the API can reverse for a rule.
+                  </p>
+                </div>
+                {ledger.length ? (
+                  <DataTable
+                    columns={ledgerColumns}
+                    rows={ledger}
+                    getRowId={(row) => row.id}
+                    density="compact"
+                    ariaLabel="Applied tuning changes"
+                  />
+                ) : (
+                  <div className="border-y border-border/70 py-4 text-sm text-muted-foreground">
+                    No applied tuning changes were returned for this view.
+                  </div>
+                )}
+              </section>
 
               <Can resource="automation" action="manage">
                 <StickySaveBar
@@ -1104,199 +1137,858 @@ export function TuningInner({ onNavigate }: TuningProps) {
                   onDiscard={() => setDraft(saved)}
                 />
               </Can>
-            </>
-          ) : null}
+            </TabsContent>
+          </Tabs>
         </>
-      )}
+      ) : null}
     </div>
   );
 }
 
-/* ------------------------------------------------------------------------- */
-/* Rule detail panel — read-only drill-down on the selected rule.            */
-/* ------------------------------------------------------------------------- */
-
-function RuleDetailPanel({
-  rule,
-  rec,
-  history,
-  onClose,
+function ReviewQueue({
+  groups,
+  rules,
+  busyKeys,
+  windowCases,
+  minSamples,
+  target,
+  shadowEvalEnabled,
+  onApplyRule,
+  onOpenApprovals,
 }: {
-  rule: RuleNoise;
-  rec?: TuningRecommendation;
-  history: TuningLedgerRow[];
-  onClose: () => void;
+  groups: RecommendationGroup[];
+  rules: RuleNoise[];
+  busyKeys: Set<string>;
+  windowCases: number;
+  minSamples: number;
+  target: number;
+  shadowEvalEnabled: boolean;
+  onApplyRule: (ruleId: string) => void;
+  onOpenApprovals: () => void;
 }) {
-  const stats: Array<{ label: string; value: React.ReactNode }> = [
-    { label: 'Samples', value: fmtNumber(rule.total) },
-    { label: 'Observed FP rate', value: fmtPercent(observedFpRate(rule.total, rule.fp)) },
-    { label: 'Wilson LB (95%)', value: fmtPercent(rule.fp_rate) },
-    {
-      label: 'State',
-      value: rule.over_target ? (
-        <Badge variant="high">
-          <AlertTriangle className="h-3 w-3" aria-hidden />
-          Needs review
-        </Badge>
-      ) : (
-        <Badge variant="success">
-          <ShieldCheck className="h-3 w-3" aria-hidden />
-          Healthy
-        </Badge>
-      ),
-    },
-  ];
+  const safeRules = groups.filter((group) =>
+    group.recommendations.some((row) => row.auto_apply),
+  ).length;
+  const humanChanges = groups.reduce(
+    (total, group) => total + group.recommendations.filter((row) => !row.auto_apply).length,
+    0,
+  );
 
   return (
-    <section
-      className="space-y-4 rounded-lg border border-border bg-card p-4"
-      aria-label={`Detail for rule ${rule.rule_id}`}
-    >
-      <header className="flex items-start justify-between gap-3">
-        <div className="min-w-0 space-y-1">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Rule detail
+    <section className="space-y-3" aria-label="Review queue">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <h2 className="text-base font-semibold tracking-tight text-foreground">
+              Review queue
+            </h2>
+            <HelpTip
+              label="How recommendations are processed"
+              text="Recommendations are processed per rule. One action rechecks every eligible bounded change for that rule and routes restricted changes to Approvals. Safety replay runs again before a write."
+            />
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Clear diagnoses and bounded next steps from {fmtNumber(windowCases)} closed cases.
           </p>
-          <InlineCode>{rule.rule_id}</InlineCode>
         </div>
-        <Button size="sm" variant="ghost" aria-label="Close rule detail" onClick={onClose}>
-          <X className="h-4 w-4" aria-hidden />
-        </Button>
-      </header>
+        <div className="flex flex-wrap gap-2">
+          <Badge variant={safeRules ? 'info' : 'secondary'}>
+            {fmtNumber(safeRules)} eligible to process
+          </Badge>
+          <Badge variant={humanChanges ? 'warning' : 'secondary'}>
+            {fmtNumber(humanChanges)} human review
+          </Badge>
+        </div>
+      </div>
 
-      <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {stats.map((s) => (
-          <div key={s.label} className="rounded-md border border-border bg-surface-sunken px-3 py-2">
-            <dt className="text-xs text-muted-foreground">{s.label}</dt>
-            <dd className="mt-1 text-sm font-medium tabular-nums text-foreground">{s.value}</dd>
-          </div>
-        ))}
-      </dl>
+      {groups.length ? (
+        <div className="divide-y divide-border/70 border-y border-border/70">
+          {groups.map((group) => {
+            const safe = group.recommendations.filter((row) => row.auto_apply);
+            const restricted = group.recommendations.filter((row) => !row.auto_apply);
+            const rule = rules.find((candidate) => candidate.rule_id === group.ruleId);
+            const explanation = rule
+              ? explainRuleState(rule, minSamples, target)
+              : null;
+            const processing = busyKeys.has(`rule:${group.ruleId}`);
+            return (
+              <article
+                key={group.ruleId}
+                className="grid min-w-0 gap-5 py-5 lg:grid-cols-[minmax(11rem,0.62fr)_minmax(18rem,1.18fr)_minmax(20rem,1.32fr)_auto] lg:items-start"
+              >
+                <div className="min-w-0">
+                  <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Rule
+                  </p>
+                  <p
+                    className="mt-1.5 truncate font-mono text-sm font-semibold text-foreground"
+                    title={group.ruleId}
+                  >
+                    {group.ruleId}
+                  </p>
+                  <div className="mt-2">
+                    <RuleStateBadge state="attention" />
+                  </div>
+                </div>
 
-      {rec ? (
-        <div className="space-y-2 rounded-md border border-border bg-surface-sunken px-3 py-3">
-          <div className="flex flex-wrap items-center gap-2 text-sm">
-            <span className="font-medium">{KIND_LABELS[rec.kind] ?? humanizeToken(rec.kind)}</span>
-            <ChangeArrow before={rec.before} after={rec.after} />
-          </div>
-          <p className="text-xs text-muted-foreground">
-            {REASON_LABELS[rec.reason] ?? humanizeToken(rec.reason)}
-          </p>
+                <div className="min-w-0">
+                  <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Why it needs attention
+                  </p>
+                  <p className="mt-1.5 text-sm leading-relaxed text-foreground">
+                    {explanation?.lead ?? 'This rule cleared the evidence bar and exceeds policy.'}
+                  </p>
+                  {explanation?.support ? (
+                    <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+                      {explanation.support}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className="min-w-0">
+                  <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Recommended action
+                  </p>
+                  <ul
+                    className="mt-1.5 divide-y divide-border/60"
+                    aria-label={`Changes for ${group.ruleId}`}
+                  >
+                    {group.recommendations.map((recommendation) => {
+                      const action = explainRecommendation(
+                        recommendation,
+                        shadowEvalEnabled,
+                      );
+                      return (
+                        <li
+                          key={`${recommendation.rule_id}:${recommendation.kind}`}
+                          className="py-2 first:pt-0 last:pb-0"
+                        >
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm font-semibold text-foreground">
+                              {action.title}
+                            </span>
+                            <Badge variant={recommendation.auto_apply ? 'info' : 'warning'}>
+                              {recommendation.auto_apply
+                                ? 'Eligible after replay'
+                                : 'Human decision'}
+                            </Badge>
+                          </div>
+                          <p className="mt-1 text-xs font-medium text-foreground">
+                            {action.instruction}
+                          </p>
+                          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                            {action.effect}
+                          </p>
+                          <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+                            {action.safety}
+                          </p>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+
+                <div className="flex justify-start lg:justify-end lg:pt-5">
+                  {safe.length ? (
+                    <Can resource="automation" action="manage">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={processing}
+                        aria-label={`Process all changes for ${group.ruleId}`}
+                        onClick={() => onApplyRule(group.ruleId)}
+                      >
+                        {processing ? (
+                          <Loader2 className="mr-1 size-3.5 animate-spin" aria-hidden />
+                        ) : (
+                          <Play className="mr-1 size-3.5" aria-hidden />
+                        )}
+                        Apply after recheck
+                      </Button>
+                    </Can>
+                  ) : restricted.length ? (
+                    <Can
+                      resource="proposals"
+                      action="read"
+                      fallback={(
+                        <span className="text-xs text-muted-foreground">
+                          Requires Approvals access
+                        </span>
+                      )}
+                    >
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        aria-label={`Open Approvals for ${group.ruleId}`}
+                        onClick={onOpenApprovals}
+                      >
+                        Open Approvals
+                        <ArrowRight className="ml-1 size-3.5" aria-hidden />
+                      </Button>
+                    </Can>
+                  ) : null}
+                </div>
+              </article>
+            );
+          })}
         </div>
       ) : (
-        <p className="text-xs text-muted-foreground">
-          No proposed change for this rule right now — it is within the noise bar.
-        </p>
+        <div className="flex items-center gap-3 border-y border-border/70 py-4 text-sm text-muted-foreground">
+          <ShieldCheck className="size-4 text-success-text" aria-hidden />
+          No rule currently clears the evidence bar for a bounded change.
+        </div>
       )}
 
-      {history.length ? (
-        <div className="space-y-2">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Audit history
-          </h3>
-          <ul className="space-y-1.5">
-            {history.map((h) => (
-              <li
-                key={h.id}
-                className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border px-3 py-2 text-xs"
-              >
-                <span className="text-muted-foreground tabular-nums">{fmtUtc(h.applied_at ?? null)}</span>
-                <ChangeArrow before={h.before} after={h.after} />
-                {isLedgerRowActive(h) ? (
-                  <Badge variant="info">Active</Badge>
-                ) : (
-                  <Badge variant="secondary">Rolled back</Badge>
-                )}
-                {h.rationale ? (
-                  <span className="min-w-0 flex-1 truncate text-muted-foreground">{h.rationale}</span>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        </div>
+      {humanChanges ? (
+        <section
+          className="flex flex-col gap-2 border-l-2 border-warning/40 py-1 pl-4 sm:flex-row sm:items-center sm:justify-between"
+          aria-label="Pending human proposals"
+        >
+          <p className="text-xs text-muted-foreground">
+            {fmtNumber(humanChanges)} restricted {humanChanges === 1 ? 'change needs' : 'changes need'}
+            {' '}a human decision. Nothing restricted is auto-applied.
+          </p>
+          <Can resource="proposals" action="read">
+            <Button size="sm" variant="ghost" onClick={onOpenApprovals}>
+              Review in Approvals
+              <ArrowRight className="ml-1 size-3.5" aria-hidden />
+            </Button>
+          </Can>
+        </section>
       ) : null}
     </section>
   );
 }
 
-/* ------------------------------------------------------------------------- */
-/* Pending human proposals — HITL (suppression / shadow-blocked) → Approvals.*/
-/* ------------------------------------------------------------------------- */
-
-function PendingProposals({
-  proposals,
-  onOpenApprovals,
+function RuleList({
+  rules,
+  total,
+  minSamples,
+  target,
+  selectedRuleId,
+  recommendationsByRule,
+  shadowEvalEnabled,
+  lastTunedByRule,
+  onSelect,
+  emptyQuery,
+  page,
+  pageCount,
+  pageSize,
+  onPageChange,
+  onPageSizeChange,
 }: {
-  proposals: TuningRecommendation[];
-  onOpenApprovals: () => void;
+  rules: RuleNoise[];
+  total: number;
+  minSamples: number;
+  target: number;
+  selectedRuleId: string | null;
+  recommendationsByRule: Map<string, TuningRecommendation[]>;
+  shadowEvalEnabled: boolean;
+  lastTunedByRule: Map<string, string>;
+  onSelect: (ruleId: string) => void;
+  emptyQuery: boolean;
+  page: number;
+  pageCount: number;
+  pageSize: number;
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (size: number) => void;
 }) {
-  if (!proposals.length) {
+  if (!rules.length && total === 0) {
     return (
-      <section
-        className="rounded-lg border border-border bg-card p-4"
-        aria-label="Pending human proposals"
-      >
-        <div className="flex items-center gap-2">
-          <ShieldAlert className="h-4 w-4 text-muted-foreground" aria-hidden />
-          <h2 className="text-sm font-semibold tracking-tight text-foreground">
-            Pending human proposals
-          </h2>
-        </div>
-        <p className="mt-2 text-xs text-muted-foreground">
-          No proposals awaiting a human decision. Suppression and shadow-blocked changes route
-          here for review.
-        </p>
-      </section>
+      <div className="border-y border-border/70">
+        <EmptyState
+          icon={Radar}
+          title={emptyQuery ? 'No matching rules' : 'No rules monitored yet'}
+          description={
+            emptyQuery
+              ? 'Try a different search or state filter.'
+              : 'Rules appear after closed-case feedback has been accumulated.'
+          }
+          compact
+        />
+      </div>
     );
   }
 
   return (
-    <section
-      className="space-y-3 rounded-lg border border-warning/30 bg-warning/5 p-4"
-      aria-label="Pending human proposals"
-    >
-      <div className="flex items-center gap-2">
-        <ShieldAlert className="h-4 w-4 text-warning-text" aria-hidden />
-        <h2 className="text-sm font-semibold tracking-tight text-warning-text">
-          Pending human proposals
-        </h2>
+    <div className="min-w-0 border-y border-border/70" aria-label="Monitored rules">
+      <div className="hidden grid-cols-[minmax(12rem,0.68fr)_minmax(22rem,1.45fr)_minmax(17rem,0.9fr)_auto] gap-5 border-b border-border/70 px-3 py-2 text-2xs font-semibold uppercase tracking-wider text-muted-foreground md:grid">
+        <span>Rule</span>
+        <span>Why this state</span>
+        <span>Recommended action</span>
+        <span className="sr-only">Open detail</span>
       </div>
-      <p className="text-xs text-muted-foreground">
-        Suppression and shadow-blocked changes route here for a human decision — they are never
-        auto-applied.
-      </p>
+      <div role="list" className="divide-y divide-border/70">
+        {rules.map((rule) => {
+          const state = ruleState(rule, minSamples);
+          const recs = recommendationsByRule.get(rule.rule_id) ?? [];
+          const explanation = explainRuleState(rule, minSamples, target);
+          const action = recs.length
+            ? explainRecommendation(recs[0], shadowEvalEnabled)
+            : explainNoRecommendation(state, rule, minSamples);
+          const selected = selectedRuleId === rule.rule_id;
+          const descriptionId = `${ruleTriggerId(rule.rule_id)}-description`;
+          return (
+            <div key={rule.rule_id} role="listitem">
+              <button
+                id={ruleTriggerId(rule.rule_id)}
+                type="button"
+                aria-label={`Inspect rule ${rule.rule_id}`}
+                aria-describedby={descriptionId}
+                aria-expanded={selected}
+                aria-controls={selected ? 'tuning-rule-detail' : undefined}
+                onClick={() => onSelect(rule.rule_id)}
+                className={cn(
+                  'grid w-full min-w-0 gap-4 border-l-2 border-l-transparent px-3 py-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+                  'hover:bg-accent/20 md:grid-cols-[minmax(12rem,0.68fr)_minmax(22rem,1.45fr)_minmax(17rem,0.9fr)_auto] md:items-start md:gap-5',
+                  selected && 'border-l-primary/70 bg-accent/25',
+                )}
+              >
+                <span id={descriptionId} className="sr-only">
+                  {explanation.lead} {action.title}. {action.instruction}
+                </span>
 
-      <ul className="space-y-2">
-        {proposals.map((p) => (
-          <li
-            key={`${p.rule_id}:${p.kind}`}
-            className="space-y-2 rounded-md border border-border bg-card px-3 py-2.5"
+                <span className="min-w-0">
+                  <span
+                    className="block truncate font-mono text-xs font-semibold text-foreground"
+                    title={rule.rule_id}
+                  >
+                    {rule.rule_id}
+                  </span>
+                  <span className="mt-1 block text-xs tabular-nums text-muted-foreground">
+                    {fmtNumber(rule.total)} feedback cases
+                    {lastTunedByRule.get(rule.rule_id)
+                      ? ` · tuned ${humanizeAge(lastTunedByRule.get(rule.rule_id))}`
+                      : ''}
+                  </span>
+                  <span className="mt-2 inline-flex">
+                    <RuleStateBadge state={state} />
+                  </span>
+                </span>
+
+                <span className="min-w-0">
+                  <span className="mb-1 block text-2xs font-semibold uppercase tracking-wider text-muted-foreground md:hidden">
+                    Why this state
+                  </span>
+                  <span className="block text-sm leading-relaxed text-foreground">
+                    {explanation.lead}
+                  </span>
+                  <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
+                    {explanation.support}
+                  </span>
+                </span>
+
+                <span className="min-w-0">
+                  <span className="mb-1 block text-2xs font-semibold uppercase tracking-wider text-muted-foreground md:hidden">
+                    Recommended action
+                  </span>
+                  <span className="block text-sm font-semibold text-foreground">
+                    {action.title}
+                  </span>
+                  <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
+                    {action.instruction}
+                  </span>
+                </span>
+
+                <span className="flex items-center justify-end self-center">
+                  <ChevronRight
+                    className={cn(
+                      'size-4 shrink-0 text-muted-foreground transition-transform',
+                      selected && 'rotate-90',
+                    )}
+                    aria-hidden
+                  />
+                </span>
+              </button>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="flex flex-col gap-3 border-t border-border/70 px-3 py-3 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+        <span className="tabular-nums">
+          {fmtNumber(total)} matching {total === 1 ? 'rule' : 'rules'} · Page {page} of{' '}
+          {pageCount}
+        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <Label htmlFor="tuning-page-size" className="text-xs text-muted-foreground">
+            Rows
+          </Label>
+          <Select
+            value={String(pageSize)}
+            onValueChange={(value) => onPageSizeChange(Number(value))}
           >
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <InlineCode>{p.rule_id}</InlineCode>
-              <Badge variant="warning">Needs approval</Badge>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {REASON_LABELS[p.reason] ?? humanizeToken(p.reason)}
-            </p>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-              <span>{KIND_LABELS[p.kind] ?? humanizeToken(p.kind)}</span>
-              <ChangeArrow before={p.before} after={p.after} />
-              <span className="tabular-nums">
-                {fmtPercent(p.fp_rate)} · {fmtNumber(p.samples)} samples
-              </span>
-            </div>
-          </li>
-        ))}
-      </ul>
+            <SelectTrigger id="tuning-page-size" className="h-8 w-[4.5rem]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {[10, 25, 50].map((size) => (
+                <SelectItem key={size} value={String(size)}>
+                  {size}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            size="sm"
+            variant="outline"
+            aria-label="Previous rules page"
+            disabled={page <= 1}
+            onClick={() => onPageChange(Math.max(1, page - 1))}
+          >
+            <ChevronLeft className="size-4" aria-hidden />
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            aria-label="Next rules page"
+            disabled={page >= pageCount}
+            onClick={() => onPageChange(Math.min(pageCount, page + 1))}
+          >
+            <ChevronRight className="size-4" aria-hidden />
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
-      {/* Navigation only — routes to the Approvals queue where the actual approve/reject
-          happens (that surface is itself RBAC-gated). Not manage-gated here so a
-          read-only analyst can still open the queue to view it. */}
-      <Button size="sm" variant="outline" className="w-full" onClick={onOpenApprovals}>
-        Open Approvals
-        <ArrowRight className="ml-1 h-3.5 w-3.5" aria-hidden />
-      </Button>
+function RuleDetailPanel({
+  id,
+  variant = 'aside',
+  rule,
+  recommendations,
+  history,
+  minSamples,
+  target,
+  shadowEvalEnabled,
+  processing,
+  onApplyRule,
+  onOpenApprovals,
+  onClose,
+}: {
+  id?: string;
+  variant?: 'aside' | 'sheet';
+  rule: RuleNoise;
+  recommendations: TuningRecommendation[];
+  history: TuningLedgerRow[];
+  minSamples: number;
+  target: number;
+  shadowEvalEnabled: boolean;
+  processing: boolean;
+  onApplyRule: (ruleId: string) => void;
+  onOpenApprovals: () => void;
+  onClose: () => void;
+}) {
+  const state = ruleState(rule, minSamples);
+  const Root = variant === 'aside' ? 'aside' : 'div';
+  const explanation = explainRuleState(rule, minSamples, target);
+  const actionExplanations = recommendations.length
+    ? recommendations.map((recommendation) => ({
+        recommendation,
+        copy: explainRecommendation(recommendation, shadowEvalEnabled),
+      }))
+    : [{ recommendation: null, copy: explainNoRecommendation(state, rule, minSamples) }];
+  const hasEligibleChange = recommendations.some((recommendation) => recommendation.auto_apply);
+  const hasRestrictedChange = recommendations.some((recommendation) => !recommendation.auto_apply);
+  const stats = [
+    { label: 'Verdict feedback', value: fmtNumber(rule.total) },
+    { label: 'Observed FP ratio', value: fmtPercent(observedFpRate(rule.total, rule.fp)) },
+    { label: 'Conservative estimate', value: fmtPercent(rule.fp_rate) },
+    { label: 'Policy target', value: fmtPercent(target) },
+  ];
+
+  return (
+    <Root
+      id={id}
+      className={cn(
+        'min-w-0 space-y-5',
+        variant === 'aside' &&
+          'border-y border-border/70 py-4 xl:sticky xl:top-4 xl:self-start xl:border-l xl:border-y-0 xl:py-1 xl:pl-5',
+      )}
+      aria-label={`Detail for rule ${rule.rule_id}`}
+    >
+      <header className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Rule evidence
+          </p>
+          <p className="mt-1 break-all font-mono text-sm font-semibold text-foreground">
+            {rule.rule_id}
+          </p>
+          <div className="mt-2">
+            <RuleStateBadge state={state} />
+          </div>
+        </div>
+        {variant === 'aside' ? (
+          <Button size="sm" variant="ghost" aria-label="Close rule detail" onClick={onClose}>
+            <X className="size-4" aria-hidden />
+          </Button>
+        ) : null}
+      </header>
+
+      <section
+        className={cn(
+          'border-l-2 py-0.5 pl-4',
+          state === 'attention'
+            ? 'border-high/60'
+            : state === 'collecting'
+              ? 'border-info/60'
+              : 'border-success/60',
+        )}
+        aria-labelledby="tuning-rule-why-heading"
+      >
+        <h3
+          id="tuning-rule-why-heading"
+          className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+        >
+          {explanation.heading}
+        </h3>
+        <p className="mt-2 text-sm leading-relaxed text-foreground">{explanation.lead}</p>
+        <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+          {explanation.support}
+        </p>
+      </section>
+
+      <section className="space-y-3" aria-labelledby="tuning-rule-action-heading">
+        <h3
+          id="tuning-rule-action-heading"
+          className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+        >
+          Recommended action
+        </h3>
+        <ul className="divide-y divide-border/70 border-y border-border/70">
+          {actionExplanations.map(({ recommendation, copy }, index) => (
+            <li key={recommendation?.kind ?? `none-${index}`} className="space-y-4 py-4">
+              <div>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-foreground">{copy.title}</p>
+                  {recommendation ? (
+                    <Badge variant={recommendation.auto_apply ? 'info' : 'warning'}>
+                      {recommendation.auto_apply ? 'Eligible after replay' : 'Human decision'}
+                    </Badge>
+                  ) : null}
+                </div>
+                <p className="mt-1.5 text-sm leading-relaxed text-foreground">
+                  {copy.instruction}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Expected operational effect
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                  {copy.effect}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Safety replay
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                  {copy.safety}
+                </p>
+              </div>
+            </li>
+          ))}
+        </ul>
+
+        {hasEligibleChange ? (
+          <Can resource="automation" action="manage">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={processing}
+              onClick={() => onApplyRule(rule.rule_id)}
+              aria-label={`Apply recommended change for ${rule.rule_id} after recheck`}
+            >
+              {processing ? (
+                <Loader2 className="mr-1 size-3.5 animate-spin" aria-hidden />
+              ) : (
+                <Play className="mr-1 size-3.5" aria-hidden />
+              )}
+              Apply after recheck
+            </Button>
+          </Can>
+        ) : hasRestrictedChange ? (
+          <Can resource="proposals" action="read">
+            <Button size="sm" variant="outline" onClick={onOpenApprovals}>
+              Review in Approvals
+              <ArrowRight className="ml-1 size-3.5" aria-hidden />
+            </Button>
+          </Can>
+        ) : null}
+      </section>
+
+      <section className="space-y-3" aria-labelledby="tuning-rule-measurements-heading">
+        <div>
+          <h3
+            id="tuning-rule-measurements-heading"
+            className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+          >
+            Supporting measurements
+          </h3>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            Policy compares the conservative estimate after at least{' '}
+            {fmtNumber(minSamples)} verdict-bearing closed cases. The observed ratio is
+            context, not the gate by itself.
+          </p>
+        </div>
+        <dl className="grid grid-cols-2 border-y border-border/70">
+          {stats.map((stat, index) => (
+            <div
+              key={stat.label}
+              className={cn(
+                'px-3 py-3',
+                index % 2 === 1 && 'border-l border-border/70',
+                index >= 2 && 'border-t border-border/70',
+              )}
+            >
+              <dt className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+                {stat.label}
+              </dt>
+              <dd className="mt-1.5 text-sm font-semibold tabular-nums text-foreground">
+                {stat.value}
+              </dd>
+            </div>
+          ))}
+        </dl>
+        <details className="text-xs text-muted-foreground">
+          <summary className="cursor-pointer font-medium text-foreground">
+            Technical context
+          </summary>
+          <p className="mt-2 leading-relaxed">
+            Recent average closed-case volume:{' '}
+            <span className="font-medium tabular-nums text-foreground">
+              {rule.volume_ewma == null ? DASH : rule.volume_ewma.toFixed(1)}
+            </span>
+            . This advisory EWMA uses dated verdict-bearing closed-case activity and never
+            controls a recommendation.
+          </p>
+        </details>
+      </section>
+
+      <div className="space-y-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Recent history
+        </h3>
+        {history.length ? (
+          <ul className="divide-y divide-border/70 border-y border-border/70">
+            {history.slice(0, 5).map((row) => (
+              <li key={row.id} className="space-y-1.5 py-2.5 text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="tabular-nums text-muted-foreground">
+                    {fmtUtc(row.applied_at ?? null)}
+                  </span>
+                  <Badge variant={isLedgerRowActive(row) ? 'info' : 'secondary'}>
+                    {isLedgerRowActive(row) ? 'Active' : 'Rolled back'}
+                  </Badge>
+                </div>
+                <ChangeArrow before={row.before} after={row.after} />
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-xs text-muted-foreground">No applied changes returned for this rule.</p>
+        )}
+      </div>
+    </Root>
+  );
+}
+
+function TuningPolicy({
+  draft,
+  canManage,
+  onChange,
+}: {
+  draft: TuningConfig;
+  canManage: boolean;
+  onChange: React.Dispatch<React.SetStateAction<TuningConfig>>;
+}) {
+  return (
+    <section className="space-y-4" aria-label="Tuning policy">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="text-base font-semibold tracking-tight text-foreground">
+            Tuning policy
+          </h2>
+          <p className="mt-1 max-w-3xl text-xs leading-relaxed text-muted-foreground">
+            Define when enough evidence exists and how far an automatic adjustment may move.
+            Restricted changes still route to Approvals.
+          </p>
+        </div>
+        <Badge variant={draft.enabled ? 'success' : 'secondary'}>
+          {draft.enabled ? 'Automation active' : 'Automation paused'}
+        </Badge>
+      </div>
+
+      <fieldset disabled={!canManage} className="border-y border-border/70">
+        <div className="grid gap-5 py-5 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.75fr)]">
+          <div className="space-y-5">
+            <div className="flex items-start justify-between gap-4 border-b border-border/70 pb-5">
+              <div>
+                <Label htmlFor="tuning-enabled" className="text-sm font-medium">
+                  Enable auto-tuning
+                </Label>
+                <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground">
+                  Run on the selected cadence. Only bounded changes that pass the latest
+                  evidence and safety checks can be applied automatically.
+                </p>
+              </div>
+              <Switch
+                id="tuning-enabled"
+                checked={draft.enabled}
+                onCheckedChange={(enabled) => onChange((current) => ({ ...current, enabled }))}
+              />
+            </div>
+
+            <div className="grid gap-5 sm:grid-cols-2">
+              <Field label="Cadence" description="How often the tuner evaluates feedback.">
+                {({ id, labelledBy, describedBy }) => (
+                  <Select
+                    value={draft.cadence}
+                    disabled={!canManage}
+                    onValueChange={(cadence) =>
+                      onChange((current) => ({ ...current, cadence: cadence as TuningCadence }))
+                    }
+                  >
+                    <SelectTrigger id={id} aria-labelledby={labelledBy} aria-describedby={describedBy}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CADENCES.map((cadence) => (
+                        <SelectItem key={cadence} value={cadence}>
+                          {humanizeToken(cadence)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </Field>
+
+              <NumberField
+                label="Minimum samples"
+                description="Closed-case observations required before a rule is eligible."
+                value={draft.min_samples}
+                min={1}
+                max={100000}
+                step={1}
+                defaultValue={DEFAULT_TUNING_CONFIG.min_samples}
+                disabled={!canManage}
+                onChange={(min_samples) =>
+                  onChange((current) => ({ ...current, min_samples }))
+                }
+              />
+
+              <LabeledSlider
+                label="Target false-positive rate"
+                description="A rule becomes actionable only when its conservative rate clears this target."
+                value={Math.round(draft.fp_rate_target * 100)}
+                min={0}
+                max={100}
+                step={1}
+                disabled={!canManage}
+                formatValue={(value) => `${value}%`}
+                onChange={(value) =>
+                  onChange((current) => ({ ...current, fp_rate_target: value / 100 }))
+                }
+              />
+
+              <div className="flex items-start justify-between gap-4 pt-1">
+                <div>
+                  <Label htmlFor="tuning-shadow" className="text-sm">
+                    Shadow-evaluate first
+                  </Label>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    Block any change that would have hidden a recent true positive.
+                  </p>
+                </div>
+                <Switch
+                  id="tuning-shadow"
+                  checked={draft.shadow_eval}
+                  onCheckedChange={(shadow_eval) =>
+                    onChange((current) => ({ ...current, shadow_eval }))
+                  }
+                />
+              </div>
+            </div>
+
+            <details className="border-t border-border/70 pt-4">
+              <summary className="cursor-pointer text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                Advanced statistical controls
+              </summary>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Conservative defaults are recommended unless you are calibrating against a known baseline.
+              </p>
+              <div className="mt-5 grid gap-5 sm:grid-cols-2">
+                <NumberField
+                  label="Max correlation-n step"
+                  description="Maximum integer movement in one cadence."
+                  value={draft.max_n_step}
+                  min={0}
+                  max={10}
+                  step={1}
+                  defaultValue={DEFAULT_TUNING_CONFIG.max_n_step}
+                  disabled={!canManage}
+                  onChange={(max_n_step) =>
+                    onChange((current) => ({ ...current, max_n_step }))
+                  }
+                />
+                <NumberField
+                  label="Wilson z-score"
+                  description="Confidence used for the conservative FP estimate."
+                  value={draft.wilson_z}
+                  min={0}
+                  max={5}
+                  step={0.01}
+                  defaultValue={DEFAULT_TUNING_CONFIG.wilson_z}
+                  disabled={!canManage}
+                  onChange={(wilson_z) =>
+                    onChange((current) => ({ ...current, wilson_z }))
+                  }
+                />
+                <LabeledSlider
+                  label="EWMA smoothing"
+                  description="Lower values react slowly; higher values react quickly."
+                  value={draft.ewma_alpha}
+                  min={0.01}
+                  max={1}
+                  step={0.01}
+                  disabled={!canManage}
+                  formatValue={(value) => value.toFixed(2)}
+                  onChange={(ewma_alpha) =>
+                    onChange((current) => ({ ...current, ewma_alpha }))
+                  }
+                />
+              </div>
+            </details>
+          </div>
+
+          <EffectiveConfigPreview
+            className="self-start rounded-none border-x-0 bg-transparent"
+            summary={
+              draft.enabled
+                ? `Evaluate noisy rules ${CADENCE_COPY[draft.cadence]}; require ${fmtNumber(draft.min_samples)} samples and a conservative FP rate above ${Math.round(draft.fp_rate_target * 100)}%.`
+                : 'Auto-tuning is paused. Recommendations remain visible, but no scheduled change is applied.'
+            }
+            lines={[
+              { label: 'FP target', value: `${Math.round(draft.fp_rate_target * 100)}%` },
+              { label: 'Minimum evidence', value: fmtNumber(draft.min_samples) },
+              { label: 'Maximum step', value: `+${fmtNumber(draft.max_n_step)}` },
+              { label: 'Shadow check', value: draft.shadow_eval ? 'Required' : 'Disabled' },
+            ]}
+            noteText="Suppression is never auto-applied. A severity floor affects forwarding only; it never discards a candidate."
+          />
+        </div>
+      </fieldset>
+
+      {!canManage ? (
+        <p className="text-xs text-muted-foreground">
+          You have read-only access. Ask an administrator with automation management access to edit this policy.
+        </p>
+      ) : null}
     </section>
   );
 }

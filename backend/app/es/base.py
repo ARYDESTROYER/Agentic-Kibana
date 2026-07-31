@@ -12,6 +12,11 @@ from typing import Any
 
 
 class BaseESClient(ABC):
+    # Effective lifecycle provider. A local in-memory fallback must never be
+    # reported as a persistent Elasticsearch cluster merely because
+    # ``Secrets.state_backend`` still carries its configured value.
+    storage_lifecycle_backend = "unsupported"
+
     # --- health ---
     @abstractmethod
     async def ping(self) -> bool: ...
@@ -84,6 +89,40 @@ class BaseESClient(ABC):
     @abstractmethod
     async def get_doc(self, index: str, doc_id: str) -> dict[str, Any] | None: ...
 
+    async def get_doc_strict(self, index: str, doc_id: str) -> dict[str, Any] | None:
+        """Read owned state while preserving backend failures for strict callers.
+
+        Compatible clients may inherit the ordinary read. The bundled real client
+        overrides this because its legacy ``get_doc`` intentionally fails soft.
+        """
+        return await self.get_doc(index, doc_id)
+
+    async def compare_and_set_doc(
+        self,
+        index: str,
+        doc_id: str,
+        doc: dict[str, Any],
+        expected_rev: int,
+        refresh: bool = False,
+    ) -> bool:
+        """Conditionally replace one owned-state document by its embedded revision.
+
+        This compatibility implementation is a read/check/write sequence and is only
+        safe under a caller-owned in-process lock.  The bundled Elasticsearch and
+        in-memory clients override it with an atomic implementation; older third-party
+        clients can continue to function without implementing a new abstract method.
+        Backend failures propagate.  ``False`` means another writer moved the document.
+        """
+        current = await self.get_doc_strict(index, doc_id)
+        try:
+            current_rev = int((current or {}).get("_rev", 0) or 0)
+        except (TypeError, ValueError):
+            current_rev = 0
+        if current_rev != int(expected_rev):
+            return False
+        await self.index_doc(index, doc, doc_id=doc_id, refresh=refresh)
+        return True
+
     @abstractmethod
     async def update_doc(
         self,
@@ -101,6 +140,63 @@ class BaseESClient(ABC):
 
     @abstractmethod
     async def count(self, index: str, body: dict[str, Any]) -> int: ...
+
+    # --- OPTIONAL OWN-index lifecycle management -------------------------
+    # Narrow, typed methods only: callers may manage Agentic SOC's allow-listed
+    # append-only indices, never issue arbitrary requests against source logs.
+    async def index_lifecycle_capabilities(self) -> dict[str, Any]:
+        """Return ILM privilege/tier readiness without mutating cluster state."""
+        return {
+            "supported": False,
+            "can_manage": False,
+            "privileged": False,
+            "index_privileged": False,
+            "hot_ready": False,
+            "warm_ready": False,
+            "roles": [],
+            "reason": "Index lifecycle management is unavailable for this client.",
+        }
+
+    async def supports_index_lifecycle(self) -> bool:
+        caps = await self.index_lifecycle_capabilities()
+        return bool(caps.get("supported"))
+
+    async def put_index_lifecycle_policy(self, name: str, body: dict[str, Any]) -> None:
+        raise RuntimeError("Index lifecycle management is unavailable for this client.")
+
+    async def get_index_lifecycle_policy(self, name: str) -> dict[str, Any] | None:
+        return None
+
+    async def get_owned_index_lifecycle_attachment(
+        self, base: str, policy_name: str
+    ) -> dict[str, Any]:
+        """Read one allow-listed owned-index template/attachment state.
+
+        Concrete clients must reject arbitrary bases.  The default is explicitly
+        unverified so status callers can never infer active lifecycle from a policy
+        document alone.
+        """
+        return {
+            "verified": False,
+            "template_attached": False,
+            "indices_total": 0,
+            "indices_attached": 0,
+            "all_existing_indices_attached": False,
+            "attached": False,
+            "reason": "Lifecycle attachment inspection is unavailable for this client.",
+        }
+
+    async def index_lifecycle_policy_exists(self, name: str) -> bool:
+        return await self.get_index_lifecycle_policy(name) is not None
+
+    async def delete_index_lifecycle_policy(self, name: str) -> None:
+        raise RuntimeError("Index lifecycle management is unavailable for this client.")
+
+    async def put_index_settings(self, index: str, settings: dict[str, Any]) -> None:
+        raise RuntimeError("Index lifecycle management is unavailable for this client.")
+
+    async def remove_index_lifecycle(self, index: str) -> None:
+        raise RuntimeError("Index lifecycle management is unavailable for this client.")
 
     @abstractmethod
     async def close(self) -> None: ...

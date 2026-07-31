@@ -1,5 +1,5 @@
 /**
- * Settings layout primitives — for the Round-3 Settings refactor.
+ * Settings layout primitives — the shared flat Console composition contract.
  *
  * - `SettingsGrid`   — a responsive settings-section grid (1 → 2 → 3 cols).
  * - `SettingsCard`   — a flat, divider-led section with an anchor id (for the TOC),
@@ -10,10 +10,12 @@
  *                      matching `SettingsCard` and highlights the active section.
  *
  * All copy is caller-supplied UI text (plain). Tokenised + AA + reduced-motion via
- * the global rules. No new deps.
+ * the global rules. Routine settings surfaces stay divider-led: no gradients,
+ * nested cards, floating shadows, or pill navigation. No new deps.
  */
 import * as React from 'react';
 import { cn } from '@/lib/cn';
+import { LoadingGlyph } from '@/design-system';
 import { Button } from '@/ui/button';
 import type { LucideIcon } from 'lucide-react';
 import { Check, RotateCcw } from 'lucide-react';
@@ -38,7 +40,7 @@ export const SettingsGrid = React.forwardRef<HTMLDivElement, SettingsGridProps>(
   ({ className, children, ...rest }, ref) => (
     <div
       ref={ref}
-      className={cn('grid grid-cols-1 gap-x-8 gap-y-6 lg:grid-cols-2 2xl:grid-cols-3', className)}
+      className={cn('grid grid-cols-1 gap-x-10 gap-y-8 lg:grid-cols-2 2xl:grid-cols-3', className)}
       {...rest}
     >
       {children}
@@ -75,37 +77,58 @@ export interface SettingsCardProps extends Omit<React.HTMLAttributes<HTMLDivElem
  * command-center dashboard and avoids card-inside-card visual weight.
  */
 export const SettingsCard = React.forwardRef<HTMLDivElement, SettingsCardProps>(
-  ({ title, anchor, description, icon: Icon, actions, footer, wide, className, children, ...rest }, ref) => (
-    <section
-      ref={ref}
-      id={anchor}
-      className={cn(
-        'flex scroll-mt-24 flex-col overflow-hidden border-y border-border bg-transparent',
-        wide === 'full' ? 'lg:col-span-2 2xl:col-span-3' : wide ? 'lg:col-span-2' : '',
-        className,
-      )}
-      {...rest}
-    >
-      <header className="flex items-start justify-between gap-3 border-b border-border/70 px-1 py-4">
-        <div className="flex min-w-0 items-start gap-3">
-          {Icon ? (
-            <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center border border-border bg-surface text-primary">
-              <Icon className="h-4 w-4" aria-hidden />
-            </span>
-          ) : null}
-          <div className="min-w-0 flex-1">
-            <h3 className="text-sm font-semibold tracking-tight text-foreground">{title}</h3>
-            {description ? (
-              <p className="mt-1 break-words text-xs leading-relaxed text-muted-foreground">{description}</p>
+  function SettingsCard(
+    { title, anchor, description, icon: Icon, actions, footer, wide, className, children, ...rest },
+    ref,
+  ) {
+    const generatedId = React.useId();
+    const titleId = anchor ? `${anchor}-title` : `${generatedId}-title`;
+
+    return (
+      <section
+        ref={ref}
+        id={anchor}
+        aria-labelledby={titleId}
+        className={cn(
+          'flex scroll-mt-24 flex-col border-t border-border/80 bg-transparent',
+          wide === 'full' ? 'lg:col-span-2 2xl:col-span-3' : wide ? 'lg:col-span-2' : '',
+          className,
+        )}
+        {...rest}
+      >
+        <header className="flex flex-wrap items-start gap-x-4 gap-y-3 px-1 pb-3 pt-5">
+          <div className="flex min-w-0 basis-64 flex-1 items-start gap-3">
+            {Icon ? (
+              <span className="mt-0.5 inline-flex size-8 shrink-0 items-center justify-center border border-border/80 bg-surface text-primary">
+                <Icon className="size-4" aria-hidden />
+              </span>
             ) : null}
+            <div className="min-w-0 flex-1">
+              <h3 id={titleId} className="text-base font-semibold tracking-tight text-foreground">
+                {title}
+              </h3>
+              {description ? (
+                <p className="mt-1 max-w-3xl break-words text-sm leading-relaxed text-muted-foreground">
+                  {description}
+                </p>
+              ) : null}
+            </div>
           </div>
-        </div>
-        {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
-      </header>
-      <div className="flex-1 px-1 py-4">{children}</div>
-      {footer ? <footer className="border-t border-border/70 px-1 py-3 text-xs text-muted-foreground">{footer}</footer> : null}
-    </section>
-  ),
+          {actions ? (
+            <div className="ml-auto flex max-w-full shrink-0 flex-wrap items-center justify-end gap-2">
+              {actions}
+            </div>
+          ) : null}
+        </header>
+        <div className="min-w-0 flex-1 px-1 pb-5 pt-2">{children}</div>
+        {footer ? (
+          <footer className="border-t border-border/70 px-1 py-3 text-xs leading-relaxed text-muted-foreground">
+            {footer}
+          </footer>
+        ) : null}
+      </section>
+    );
+  },
 );
 SettingsCard.displayName = 'SettingsCard';
 
@@ -167,28 +190,28 @@ export function StickySaveBar({
         <div
           role="region"
           aria-label="Unsaved changes"
+          aria-busy={busy || undefined}
           className={cn(
-            'sticky bottom-0 z-20 -mx-1 mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card/95 px-4 py-3 shadow-elev2 backdrop-blur supports-[backdrop-filter]:bg-card/80',
-            // Honour prefers-reduced-transparency: `.glass-surface` drops the backdrop-filter
-            // (global guard in theme.css) and the media variant forces a fully-opaque bg so
-            // scrolling content never bleeds through behind the muted text (WCAG-AA).
-            'glass-surface [@media(prefers-reduced-transparency:reduce)]:!bg-card',
-            'animate-rise-in',
+            'sticky bottom-0 z-20 -mx-1 mt-6 flex flex-wrap items-center gap-3 border-y border-border/90 bg-background px-4 py-3',
             className,
           )}
         >
-          <span className="min-w-0 flex-1 text-sm text-muted-foreground">
+          <span className="min-w-0 flex-1 text-sm font-medium text-foreground">
             {message ?? 'You have unsaved changes.'}
           </span>
           <div className="flex items-center gap-2">
-            <Button type="button" variant="ghost" size="sm" onClick={onDiscard} disabled={busy}>
+            <Button type="button" variant="outline" size="sm" onClick={onDiscard} disabled={busy}>
               {/* No size override: the shared Button's `[&_svg]:size-4` wins on specificity,
                   so an `h-3.5 w-3.5` here would be dead — rely on the uniform 16px icon. */}
               <RotateCcw aria-hidden />
               {discardLabel}
             </Button>
             <Button type="button" size="sm" onClick={onSave} disabled={busy || saveDisabled}>
-              <Check aria-hidden />
+              {busy ? (
+                <LoadingGlyph size="sm" className="size-4" />
+              ) : (
+                <Check aria-hidden />
+              )}
               {busy ? 'Saving…' : saveLabel}
             </Button>
           </div>
@@ -220,9 +243,10 @@ export interface SettingsTOCProps {
   /**
    * Active-item accent orientation. `vertical` (default) draws a left rail — correct for
    * the stacked rail; `horizontal` draws a bottom underline — correct when the TOC is laid
-   * out as a `flex-row` tab strip (otherwise the left rail reads as a stray vertical bar).
+   * out as a `flex-row` tab strip. `responsive` uses that compact horizontal strip below
+   * `md`, then becomes the full vertical rail once the editor has enough width.
    */
-  orientation?: 'vertical' | 'horizontal';
+  orientation?: 'vertical' | 'horizontal' | 'responsive';
   className?: string;
 }
 
@@ -233,6 +257,7 @@ export interface SettingsTOCProps {
  */
 export function SettingsTOC({ items, active, onSelect, orientation = 'vertical', className }: SettingsTOCProps) {
   const horizontal = orientation === 'horizontal';
+  const responsive = orientation === 'responsive';
   const go = React.useCallback(
     (anchor: string) => {
       onSelect?.(anchor);
@@ -249,7 +274,14 @@ export function SettingsTOC({ items, active, onSelect, orientation = 'vertical',
     [onSelect],
   );
   return (
-    <nav aria-label="Settings sections" className={cn('flex flex-col gap-0.5', className)}>
+    <nav
+      aria-label="Settings sections"
+      className={cn(
+        'flex gap-0.5',
+        horizontal ? 'flex-row' : responsive ? 'flex-row md:flex-col' : 'flex-col',
+        className,
+      )}
+    >
       {items.map((it) => {
         const isActive = active === it.anchor;
         const Icon = it.icon;
@@ -260,13 +292,17 @@ export function SettingsTOC({ items, active, onSelect, orientation = 'vertical',
             onClick={() => go(it.anchor)}
             aria-current={isActive ? 'true' : undefined}
             className={cn(
-              'flex items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm transition-colors',
+              'flex min-h-9 items-center gap-2 px-3 py-2 text-left text-sm transition-colors',
               // Left rail for the vertical rail; bottom underline for the horizontal tab strip.
-              horizontal ? 'border-b-2' : 'border-l-2',
+              horizontal
+                ? 'border-b-2'
+                : responsive
+                  ? 'border-b-2 md:border-b-0 md:border-l-2'
+                  : 'border-l-2',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               isActive
-                ? 'border-primary bg-accent/40 font-medium text-foreground'
-                : 'border-transparent text-muted-foreground hover:bg-accent/30 hover:text-foreground',
+                ? 'border-primary bg-muted/60 font-medium text-foreground'
+                : 'border-transparent text-muted-foreground hover:bg-muted/40 hover:text-foreground',
             )}
           >
             {Icon ? <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden /> : null}

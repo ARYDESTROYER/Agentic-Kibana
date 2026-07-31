@@ -71,14 +71,9 @@ export const ALLOWED_TOKENS: ReadonlySet<string> = new Set([
   '--primary',
   '--ring',
   '--accent2',
-  // Semantic SOC scale (operator may re-key severity hues within reason)
-  '--critical',
-  '--high',
-  '--medium',
-  '--low',
-  '--info',
-  '--success',
-  '--warning',
+  // The semantic SOC axes are deliberately NOT operator-writable. Their base,
+  // foreground and standalone-text tokens are one measured contrast/CVD system;
+  // changing only the fill invalidates that pairing throughout the Console.
   // Canvas / surface tints (backdrop nudges)
   '--canvas-tint',
   '--surface-tint',
@@ -112,6 +107,18 @@ const FONT_ALLOWLIST: Record<string, string> = {
 };
 
 /**
+ * Brand colour tokens are consumed as `hsl(var(--token))` throughout the Console.
+ * Older branding documents may still carry the hex examples accepted by the wire
+ * contract, so normalise those values at the single DOM-write boundary instead of
+ * allowing a syntactically safe but unusable `hsl(#rrggbb)` declaration.
+ */
+const BRAND_COLOR_TOKENS: ReadonlySet<string> = new Set([
+  '--primary',
+  '--ring',
+  '--accent2',
+]);
+
+/**
  * Sanitise a single token VALUE before it is written. Rejects anything that could
  * escape a single CSS declaration value: braces, semicolons, `url(`, `expression(`,
  * `@`, comment markers, angle brackets, backslashes, or excessive length. Returns
@@ -136,6 +143,9 @@ export function sanitizeTokenValue(name: string, value: unknown): string | null 
     // Allow an exact match against a known stack (idempotent re-apply), else drop.
     const known = Object.values(FONT_ALLOWLIST).some((s) => s === v);
     return known ? v : null;
+  }
+  if (BRAND_COLOR_TOKENS.has(name) && /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(v)) {
+    return hexToHslTriplet(v);
   }
   return v;
 }
@@ -238,9 +248,9 @@ export interface AccentPreset {
 }
 
 /**
- * Named accent presets — each vetted to keep `--primary-foreground` (white) text
- * at WCAG-AA contrast on the accent fill in BOTH themes. Exported so the branding
- * editor can offer them as one-click choices.
+ * Named accent presets. Runtime derives the higher-contrast black/white
+ * `--primary-foreground` from each effective fill, so the same preset remains AA in
+ * both themes. Exported so the branding editor can offer one-click choices.
  */
 export const ACCENT_PRESETS: AccentPreset[] = [
   { key: 'azure', label: 'Azure', hex: '#1f6feb', hex2: '#6366f1' },
@@ -299,8 +309,8 @@ export function hexToHslTriplet(hex: string): string | null {
 
 /* ------------------------------------------------------------------------- */
 /* Runtime AA guard for the operator accent (W0-A A7 / DESIGN_STANDARD §11).   */
-/* The accent fill (`--primary`) always carries WHITE (`--primary-foreground`) */
-/* text across buttons/badges, so white-on-accent must clear WCAG AA. This is  */
+/* A custom accent is shared by both themes, so its trusted foreground must be  */
+/* derived from the fill rather than inherited from either theme's default.     */
 /* self-contained (mirrors branding.api.ts contrastRatio) so the design-system */
 /* layer stays free of the api/types import graph + any circular import.       */
 /* ------------------------------------------------------------------------- */
@@ -348,6 +358,45 @@ function whiteOnHslContrast(triplet: string): number | null {
   const lFill = relLuminance(r, g, b);
   const lWhite = 1; // white luminance
   return (Math.max(lFill, lWhite) + 0.05) / (Math.min(lFill, lWhite) + 0.05);
+}
+
+export interface AccentPair {
+  fill: string;
+  foreground: '0 0% 0%' | '0 0% 100%';
+  ratio: number;
+}
+
+/**
+ * Resolve an operator accent (hex or `H S% L%`) to the higher-contrast black/white
+ * foreground. Hex values are evaluated before their HSL serialisation so the browser
+ * and backend make the same choice even at the narrow black/white crossover. For every
+ * valid solid colour one candidate clears WCAG AA; the foreground is INTERNAL.
+ */
+export function resolveAccentPair(value: string | null): AccentPair | null {
+  if (!value) return null;
+  let fill = value;
+  let rgb: [number, number, number] | null = null;
+  const hex = value.trim().match(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/)?.[1];
+  if (hex) {
+    const expanded = hex.length === 3 ? hex.split('').map((c) => c + c).join('') : hex;
+    rgb = [
+      parseInt(expanded.slice(0, 2), 16) / 255,
+      parseInt(expanded.slice(2, 4), 16) / 255,
+      parseInt(expanded.slice(4, 6), 16) / 255,
+    ];
+    fill = hexToHslTriplet(value) ?? '';
+  } else {
+    const hsl = parseHslTriplet(value);
+    if (hsl) rgb = hslToRgb(hsl.h, hsl.s, hsl.l);
+  }
+  if (!rgb || !fill) return null;
+  const lFill = relLuminance(...rgb);
+  const whiteRatio = 1.05 / (lFill + 0.05);
+  const blackRatio = (lFill + 0.05) / 0.05;
+  if (whiteRatio >= blackRatio) {
+    return { fill, foreground: '0 0% 100%', ratio: whiteRatio };
+  }
+  return { fill, foreground: '0 0% 0%', ratio: blackRatio };
 }
 
 /**
@@ -430,15 +479,15 @@ export function effectiveBrandingTheme(branding: BrandingLike): ThemeMode | '' {
 /* applyBranding — the full appearance application (accent + material + tokens). */
 /* ------------------------------------------------------------------------- */
 
-/** The token names applyBranding may set, so it can clear them cleanly first. */
-const BRANDING_MANAGED_TOKENS = [
-  '--primary',
-  '--ring',
-  '--accent2',
-  '--glass-opacity',
-  '--glow-strength',
-  '--grid-opacity',
-] as const;
+/**
+ * Every token Branding can set, including the trusted derived primary foreground.
+ * Clear the complete set before each application so a smaller/newer branding doc
+ * cannot leave an old inline colour, font, radius, density or material override.
+ */
+const BRANDING_MANAGED_TOKENS: ReadonlySet<string> = new Set([
+  ...ALLOWED_TOKENS,
+  '--primary-foreground',
+]);
 
 /**
  * Apply ALL branding-driven appearance to <html> (or `target`), idempotently:
@@ -465,14 +514,14 @@ export function applyBranding(
   // the stylesheet default (rather than leaving a stale inline override).
   for (const name of BRANDING_MANAGED_TOKENS) root.style.removeProperty(name);
 
-  // 1. Accent. Guard it so WHITE (`--primary-foreground`) on the accent fill clears
-  //    WCAG AA (auto-darken, or reject → keep the vetted stylesheet default). The
-  //    accent drives BOTH `--primary` and the `--ring`; `--ring` reuses the same
-  //    guarded value (its own ≥3:1 bar is looser, so the AA-guarded value is safe).
-  const rawAccent = branding?.accent_color ? hexToHslTriplet(branding.accent_color) : null;
-  const accentTriplet = guardAccentTriplet(rawAccent);
-  if (accentTriplet) {
-    applyTokens({ '--primary': accentTriplet, '--ring': accentTriplet }, root);
+  // 1. Accent. Derive one trusted black/white foreground from the effective fill.
+  //    The custom fill is inline (shared by Light/Dark), therefore inheriting the
+  //    themes' opposite default foregrounds would make one mode fail contrast.
+  const rawAccent = branding?.accent_color || null;
+  const accentPair = resolveAccentPair(rawAccent);
+  if (accentPair) {
+    applyTokens({ '--primary': accentPair.fill, '--ring': accentPair.fill }, root);
+    root.style.setProperty('--primary-foreground', accentPair.foreground);
   }
   const accent2Triplet = branding?.accent_color2 ? hexToHslTriplet(branding.accent_color2) : null;
   if (accent2Triplet) {
@@ -482,8 +531,17 @@ export function applyBranding(
   // 2. Material pack chrome.
   applyMaterial(material, root);
 
-  // 3. Operator token overrides (last → highest precedence).
-  if (branding?.theme_tokens) applyTokens(branding.theme_tokens, root);
+  // 3. Operator token overrides (last → highest precedence). A low-level
+  //    allow-listed --primary override still receives the same trusted companion.
+  if (branding?.theme_tokens) {
+    const written = applyTokens(branding.theme_tokens, root);
+    if (written.includes('--primary')) {
+      const rawPrimary = branding.theme_tokens['--primary'] ?? branding.theme_tokens.primary;
+      const finalPrimary = root.style.getPropertyValue('--primary').trim();
+      const finalPair = resolveAccentPair(rawPrimary || finalPrimary);
+      if (finalPair) root.style.setProperty('--primary-foreground', finalPair.foreground);
+    }
+  }
 
   return material;
 }

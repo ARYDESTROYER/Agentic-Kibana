@@ -34,9 +34,9 @@ const sheetVariants = cva(
         top: 'inset-x-0 top-0 border-b data-[state=open]:slide-in-from-top data-[state=closed]:slide-out-to-top',
         bottom:
           'inset-x-0 bottom-0 border-t data-[state=open]:slide-in-from-bottom data-[state=closed]:slide-out-to-bottom',
-        left: 'inset-y-0 left-0 h-full border-r data-[state=open]:slide-in-from-left data-[state=closed]:slide-out-to-left',
+        left: 'inset-y-0 left-0 h-dvh border-r data-[state=open]:slide-in-from-left data-[state=closed]:slide-out-to-left',
         right:
-          'inset-y-0 right-0 h-full border-l data-[state=open]:slide-in-from-right data-[state=closed]:slide-out-to-right',
+          'inset-y-0 right-0 h-dvh border-l data-[state=open]:slide-in-from-right data-[state=closed]:slide-out-to-right',
       },
       size: {
         sm: '',
@@ -59,16 +59,16 @@ const sheetVariants = cva(
       { side: 'left', size: 'xl', class: 'w-full max-w-[56rem]' },
       { side: 'left', size: 'full', class: 'w-full max-w-full' },
       // vertical panels (top/bottom) → height-bound
-      { side: 'top', size: 'sm', class: 'max-h-[25vh]' },
-      { side: 'top', size: 'default', class: 'max-h-[40vh]' },
-      { side: 'top', size: 'lg', class: 'max-h-[60vh]' },
-      { side: 'top', size: 'xl', class: 'max-h-[80vh]' },
-      { side: 'top', size: 'full', class: 'max-h-full h-full' },
-      { side: 'bottom', size: 'sm', class: 'max-h-[25vh]' },
-      { side: 'bottom', size: 'default', class: 'max-h-[40vh]' },
-      { side: 'bottom', size: 'lg', class: 'max-h-[60vh]' },
-      { side: 'bottom', size: 'xl', class: 'max-h-[80vh]' },
-      { side: 'bottom', size: 'full', class: 'max-h-full h-full' },
+      { side: 'top', size: 'sm', class: 'max-h-[25dvh]' },
+      { side: 'top', size: 'default', class: 'max-h-[40dvh]' },
+      { side: 'top', size: 'lg', class: 'max-h-[60dvh]' },
+      { side: 'top', size: 'xl', class: 'max-h-[80dvh]' },
+      { side: 'top', size: 'full', class: 'h-dvh max-h-dvh' },
+      { side: 'bottom', size: 'sm', class: 'max-h-[25dvh]' },
+      { side: 'bottom', size: 'default', class: 'max-h-[40dvh]' },
+      { side: 'bottom', size: 'lg', class: 'max-h-[60dvh]' },
+      { side: 'bottom', size: 'xl', class: 'max-h-[80dvh]' },
+      { side: 'bottom', size: 'full', class: 'h-dvh max-h-dvh' },
     ],
     defaultVariants: {
       side: 'right',
@@ -94,6 +94,7 @@ const SheetContent = React.forwardRef<
     >
       {children}
       <SheetPrimitive.Close
+        aria-label="Close"
         className={cn(
           'absolute right-4 top-4 inline-flex h-7 w-7 items-center justify-center rounded-md',
           'text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',

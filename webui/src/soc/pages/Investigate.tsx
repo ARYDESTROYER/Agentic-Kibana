@@ -49,7 +49,7 @@ import {
   SelectValue,
 } from '@/ui/select';
 import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
-import { Skeleton } from '@/ui/skeleton';
+import { LoadingState } from '@/design-system';
 
 import { PageHeader } from '@/soc/components/PageHeader';
 import { EmptyState } from '@/soc/components/EmptyState';
@@ -323,7 +323,7 @@ const ResultCard: React.FC<{ c: Case; onOpen?: (caseId: string) => void }> = ({
             </dd>
           </div>
           <div className="flex items-baseline justify-between gap-3">
-            <dt className="text-muted-foreground">Token cost</dt>
+            <dt className="text-muted-foreground">Investigation cost</dt>
             <dd className="text-right font-mono tabular-nums text-foreground">
               {fmtMoney(c.token_cost)}
             </dd>
@@ -494,7 +494,7 @@ export default function Investigate({ onNavigate, embedded = false }: Investigat
   );
 
   return (
-    <div className="animate-fade-in space-y-7">
+    <div className="space-y-7">
       {embedded ? (
         <div className="flex flex-wrap items-center justify-end gap-2">{viewCasesAction}</div>
       ) : (
@@ -627,22 +627,12 @@ export default function Investigate({ onNavigate, embedded = false }: Investigat
 
       {/* Loading */}
       {loading ? (
-        <Card>
-          <CardContent className="space-y-4 p-6">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Search className="h-4 w-4 animate-pulse" aria-hidden />
-              Investigating{' '}
-              <span className="font-medium text-foreground">
-                {runningEntity?.value ?? selected.label}
-              </span>{' '}
-              … correlating events, enriching, reasoning
-            </div>
-            <Skeleton className="h-6 w-2/3" />
-            <Skeleton className="h-4 w-full" />
-            <Skeleton className="h-4 w-5/6" />
-            <Skeleton className="h-24 w-full" />
-          </CardContent>
-        </Card>
+        <LoadingState
+          layout="panel"
+          shape="panel"
+          label={`Investigating ${runningEntity?.value ?? selected.label}`}
+          description="Correlating events, enriching indicators, and assembling evidence."
+        />
       ) : null}
 
       {/* Hard error */}
@@ -652,7 +642,7 @@ export default function Investigate({ onNavigate, embedded = false }: Investigat
 
       {/* Neutral no-events empty state */}
       {!loading && noEvents ? (
-        <Card>
+        <section className="border-b border-border pb-4">
           <EmptyState
             icon={Search}
             title={`No in-scope events for ${noEvents.entity.type}:${noEvents.entity.value}`}
@@ -668,7 +658,7 @@ export default function Investigate({ onNavigate, embedded = false }: Investigat
               ) : undefined
             }
           />
-        </Card>
+        </section>
       ) : null}
 
       {/* Result */}

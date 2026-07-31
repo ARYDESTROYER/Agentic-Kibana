@@ -14,9 +14,61 @@
  * `@media (prefers-reduced-motion: reduce)` rule in styles/theme.css.
  */
 import * as React from 'react';
-import { ShieldCheck, LockKeyhole, Eye, EyeOff } from 'lucide-react';
+import {
+  ShieldCheck,
+  Eye,
+  EyeOff,
+  type LucideIcon,
+} from 'lucide-react';
 import { cn } from '@/lib/cn';
-import { Input } from '@/ui/input';
+import { Input, type InputProps } from '@/ui/input';
+
+// --------------------------------------------------------------------------- //
+// Login controls — one local grammar for every credential field.
+//
+// These are deliberately login-specific rather than another global Input variant:
+// the 48px target and quieter fill belong to the identity surface,
+// while the Console's dense tables and filters continue to use the 36px base Input.
+// --------------------------------------------------------------------------- //
+
+const LOGIN_CONTROL_CLASS = cn(
+  'login-auth-control h-12 rounded-md border-input bg-background text-lg shadow-none sm:text-base',
+  'transition-[border-color,background-color,box-shadow] duration-150',
+  'placeholder:text-muted-foreground/70 hover:border-border-strong',
+  'focus-visible:bg-background focus-visible:ring-2 focus-visible:ring-ring',
+);
+
+export interface LoginTextInputProps extends InputProps {
+  /** Optional context glyph. Ordinary sign-in fields stay icon-free and editorial. */
+  icon?: LucideIcon;
+}
+
+/**
+ * A calm text field for the identity surface. Optional context glyphs are reserved
+ * for setup/recovery states; ordinary sign-in stays icon-free and editorial. The
+ * native input remains the only focusable control and retains base keyboard semantics.
+ */
+export const LoginTextInput = React.forwardRef<HTMLInputElement, LoginTextInputProps>(
+  ({ icon: Icon, className, ...props }, ref) => (
+    <div className="group relative">
+      {Icon ? (
+        <Icon
+          className={cn(
+            'pointer-events-none absolute left-3.5 top-1/2 z-10 h-4 w-4 -translate-y-1/2',
+            'text-muted-foreground transition-colors group-focus-within:text-primary',
+          )}
+          aria-hidden
+        />
+      ) : null}
+      <Input
+        ref={ref}
+        className={cn(LOGIN_CONTROL_CLASS, Icon ? 'pl-10' : 'px-3.5', className)}
+        {...props}
+      />
+    </div>
+  ),
+);
+LoginTextInput.displayName = 'LoginTextInput';
 
 // --------------------------------------------------------------------------- //
 // Password strength — a tiny, dependency-free zxcvbn-style heuristic.
@@ -127,8 +179,8 @@ export const PasswordStrengthMeter: React.FC<{ password: string; className?: str
 };
 
 // --------------------------------------------------------------------------- //
-// PasswordInput — a masked credential field with a left lock glyph + a reveal
-// (eye) toggle. The toggle only ever reveals what the user is CURRENTLY typing;
+// PasswordInput — a masked credential field with a functional reveal (eye) toggle.
+// The toggle only ever reveals what the user is CURRENTLY typing;
 // there is no persisted secret to echo. Used by every password field on the login
 // surface (sign-in / create-admin / change-password). The reveal state is local so
 // each field toggles independently. `autoComplete` is caller-set (never defaulted)
@@ -143,12 +195,15 @@ export interface PasswordInputProps {
   name?: string;
   placeholder?: string;
   disabled?: boolean;
+  required?: boolean;
   autoFocus?: boolean;
   /** Forwarded to the input for a11y wiring (e.g. a policy-hint paragraph). */
   ariaDescribedBy?: string;
+  /** Forwarded when a credential failure belongs to this field. */
+  ariaInvalid?: React.AriaAttributes['aria-invalid'];
 }
 
-export const PasswordInput: React.FC<PasswordInputProps> = ({
+export const PasswordInput = React.forwardRef<HTMLInputElement, PasswordInputProps>(({
   id,
   value,
   onChange,
@@ -156,27 +211,28 @@ export const PasswordInput: React.FC<PasswordInputProps> = ({
   name,
   placeholder,
   disabled,
+  required,
   autoFocus,
   ariaDescribedBy,
-}) => {
+  ariaInvalid,
+}, ref) => {
   const [reveal, setReveal] = React.useState(false);
   return (
-    <div className="relative">
-      <LockKeyhole
-        className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-        aria-hidden
-      />
+    <div className="group relative">
       <Input
+        ref={ref}
         id={id}
         type={reveal ? 'text' : 'password'}
-        className="pl-9 pr-10"
+        className={cn(LOGIN_CONTROL_CLASS, 'pl-3.5 pr-11')}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         autoComplete={autoComplete}
         name={name}
         placeholder={placeholder}
         aria-describedby={ariaDescribedBy}
+        aria-invalid={ariaInvalid}
         disabled={disabled}
+        required={required}
         /* eslint-disable-next-line jsx-a11y/no-autofocus -- deliberate focus placement on the primary field of a focused login flow; behavior-preserving */
         autoFocus={autoFocus}
       />
@@ -187,8 +243,8 @@ export const PasswordInput: React.FC<PasswordInputProps> = ({
         aria-label={reveal ? 'Hide password' : 'Show password'}
         aria-pressed={reveal}
         className={cn(
-          'absolute right-1 top-1/2 flex h-7 w-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground',
-          'transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          'absolute right-1 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground',
+          'transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           'disabled:pointer-events-none disabled:opacity-50',
         )}
       >
@@ -196,7 +252,8 @@ export const PasswordInput: React.FC<PasswordInputProps> = ({
       </button>
     </div>
   );
-};
+});
+PasswordInput.displayName = 'PasswordInput';
 
 // --------------------------------------------------------------------------- //
 // SSO brand icons — small inline SVGs so we don't pull in an icon-brand pack.
@@ -372,9 +429,9 @@ export const OtpInput: React.FC<OtpInputProps> = ({
           autoFocus={autoFocus && i === 0}
           aria-label={`${ariaLabel} digit ${i + 1}`}
           className={cn(
-            'h-12 w-full min-w-0 rounded-lg border border-input bg-background text-center text-lg font-semibold text-foreground',
-            'transition-colors hover:border-border-strong',
-            'focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+            LOGIN_CONTROL_CLASS,
+            'w-full min-w-0 px-0 text-center font-mono text-lg font-semibold',
+            'focus-visible:outline-none',
             'disabled:cursor-not-allowed disabled:opacity-50',
             d ? 'border-ring/60' : '',
           )}
@@ -401,7 +458,7 @@ export const LOGIN_LAYOUTS: readonly LoginLayout[] = ['split', 'centered', 'full
 
 /**
  * The curated login-illustration keys (mirror `login_illustration` +
- * `_LOGIN_ILLUSTRATIONS` on the backend). `''` selects the default aurora glow.
+ * `_LOGIN_ILLUSTRATIONS` on the backend). `''` selects the default signal field.
  * Each key maps to a code-defined, PURE-CSS/SVG decorative backdrop below — never a
  * URL or operator-supplied asset.
  */
@@ -419,7 +476,7 @@ export type LoginIllustration = (typeof LOGIN_ILLUSTRATIONS)[number];
 
 /** Human labels for the illustration picker (BrandingEditor consumes this). */
 export const LOGIN_ILLUSTRATION_LABELS: Record<LoginIllustration, string> = {
-  '': 'Aurora (default)',
+  '': 'Signal field (default)',
   shield: 'Shield',
   radar: 'Radar sweep',
   grid: 'Grid',
@@ -431,9 +488,9 @@ export const LOGIN_ILLUSTRATION_LABELS: Record<LoginIllustration, string> = {
 
 /** Human labels for the layout picker (BrandingEditor consumes this). */
 export const LOGIN_LAYOUT_LABELS: Record<LoginLayout, string> = {
-  split: 'Split (brand hero + form)',
-  centered: 'Centered card',
-  full: 'Full-bleed hero',
+  split: 'Split workspace',
+  centered: 'Centered',
+  full: 'Wide workspace',
 };
 
 /** Coerce an arbitrary string to a known layout (defensive; unknown → 'split'). */
@@ -449,35 +506,20 @@ export function asLoginIllustration(v: string | undefined | null): LoginIllustra
 }
 
 /**
- * One drifting aurora blob (pure CSS). The drift loop runs via the `animationClass`
- * keyframe; the global reduced-motion rule freezes it for users who ask for less
- * motion. No JS animation library is pulled in.
- */
-const AuroraBlob: React.FC<{
-  className: string;
-  color: string;
-  animationClass: string;
-}> = ({ className, color, animationClass }) => (
-  <div
-    aria-hidden
-    className={cn('pointer-events-none absolute rounded-full blur-3xl', animationClass, className)}
-    style={{ backgroundColor: color }}
-  />
-);
-
-/**
  * The curated decorative backdrop for a login-illustration key. PURE code-authored
  * CSS/SVG — no operator input reaches these (the branding doc only carries the KEY).
  * All layers are `aria-hidden` and pointer-events:none; every one tints from the
- * `--primary` / `--accent2` brand vars so it still tracks the org accent. The `''`
- * (default) key renders the two-blob aurora glow the login has always used.
+ * `--primary` brand var so it still tracks the org accent. Every variant now belongs
+ * to the same quiet signal-diagram grammar: static hairlines, nodes and topology. The
+ * wire keys stay compatible, but no variant depends on blur, gradients, or perpetual
+ * decorative motion.
  */
 export const LoginIllustration: React.FC<{ variant?: LoginIllustration }> = ({
   variant = '',
 }) => {
   const key = asLoginIllustration(variant);
 
-  // A faint square grid + top-vignette mask, shared by several variants.
+  // A faint square grid shared by several variants.
   const gridLayer = (size = 40, opacity = 0.18) => (
     <div
       aria-hidden
@@ -485,45 +527,46 @@ export const LoginIllustration: React.FC<{ variant?: LoginIllustration }> = ({
       style={{
         opacity,
         backgroundImage:
-          'linear-gradient(hsl(0 0% 100% / 0.06) 1px, transparent 1px), linear-gradient(90deg, hsl(0 0% 100% / 0.06) 1px, transparent 1px)',
+          'linear-gradient(hsl(var(--foreground) / 0.055) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--foreground) / 0.055) 1px, transparent 1px)',
         backgroundSize: `${size}px ${size}px`,
-        maskImage: 'radial-gradient(120% 100% at 50% 0%, #000 30%, transparent 85%)',
-        WebkitMaskImage: 'radial-gradient(120% 100% at 50% 0%, #000 30%, transparent 85%)',
       }}
     />
   );
 
-  // The default aurora — two brand-tinted drifting blobs + grid + vignette.
-  const auroraLayers = (
+  const signalField = (
     <>
-      <AuroraBlob
-        className="-left-24 -top-24 h-[28rem] w-[28rem] opacity-50"
-        color="hsl(var(--primary) / 0.55)"
-        animationClass="animate-aurora-a"
-      />
-      <AuroraBlob
-        className="-bottom-32 right-[-6rem] h-[30rem] w-[30rem] opacity-45"
-        color="hsl(var(--accent2, var(--primary)) / 0.5)"
-        animationClass="animate-aurora-b"
-      />
-      {gridLayer(40, 0.18)}
-      <div
+      {gridLayer(36, 0.5)}
+      <svg
+        className="absolute -right-24 bottom-8 h-[34rem] w-[44rem] text-foreground/[0.08]"
+        viewBox="0 0 720 520"
+        fill="none"
         aria-hidden
-        className="absolute inset-0"
-        style={{
-          background:
-            'radial-gradient(80% 60% at 50% -10%, hsl(var(--primary) / 0.16) 0%, transparent 60%)',
-        }}
-      />
+      >
+        <path d="M20 406 C164 406 190 320 310 320 S466 214 700 214" stroke="currentColor" />
+        <path d="M20 448 C194 448 230 376 360 376 S520 302 700 302" stroke="currentColor" />
+        <path d="M112 96 H288 L364 170 H612" stroke="currentColor" />
+        <path d="M176 148 H262 L336 222 H558" stroke="currentColor" />
+        {[['112', '96'], ['288', '96'], ['364', '170'], ['612', '170'], ['310', '320'], ['466', '214'], ['360', '376'], ['520', '302']].map(
+          ([cx, cy], index) => (
+            <circle
+              key={`${cx}-${cy}`}
+              cx={cx}
+              cy={cy}
+              r={index === 3 || index === 5 ? 5 : 3}
+              fill={index === 3 || index === 5 ? 'hsl(var(--primary))' : 'currentColor'}
+            />
+          ),
+        )}
+      </svg>
     </>
   );
 
   if (key === 'shield') {
     return (
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-        {auroraLayers}
+        {signalField}
         <ShieldCheck
-          className="absolute right-[-3rem] top-1/2 h-[36rem] w-[36rem] -translate-y-1/2 animate-aurora-a text-white/[0.05]"
+          className="absolute right-[-3rem] top-1/2 h-[34rem] w-[34rem] -translate-y-1/2 text-foreground/[0.035]"
           aria-hidden
         />
       </div>
@@ -535,7 +578,7 @@ export const LoginIllustration: React.FC<{ variant?: LoginIllustration }> = ({
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
         {gridLayer(48, 0.14)}
         <svg
-          className="absolute left-1/2 top-1/2 h-[42rem] w-[42rem] -translate-x-1/2 -translate-y-1/2 text-white/10"
+          className="absolute left-1/2 top-1/2 h-[42rem] w-[42rem] -translate-x-1/2 -translate-y-1/2 text-foreground/10"
           viewBox="0 0 200 200"
           fill="none"
           aria-hidden
@@ -545,18 +588,9 @@ export const LoginIllustration: React.FC<{ variant?: LoginIllustration }> = ({
           ))}
           <line x1="100" y1="100" x2="100" y2="20" stroke="currentColor" strokeWidth="0.5" />
           <line x1="100" y1="100" x2="180" y2="100" stroke="currentColor" strokeWidth="0.5" />
+          <path d="M100 100 L146 34 A80 80 0 0 1 178 118 Z" fill="hsl(var(--primary) / 0.08)" />
+          <circle cx="146" cy="58" r="2.5" fill="hsl(var(--primary))" />
         </svg>
-        <div
-          aria-hidden
-          className="absolute left-1/2 top-1/2 h-[42rem] w-[42rem] origin-center -translate-x-1/2 -translate-y-1/2 animate-aurora-a"
-          style={{
-            background:
-              'conic-gradient(from 200deg, hsl(var(--primary) / 0.28) 0deg, transparent 60deg)',
-            borderRadius: '9999px',
-            maskImage: 'radial-gradient(circle, #000 0%, #000 40%, transparent 41%)',
-            WebkitMaskImage: 'radial-gradient(circle, #000 0%, #000 40%, transparent 41%)',
-          }}
-        />
       </div>
     );
   }
@@ -565,14 +599,8 @@ export const LoginIllustration: React.FC<{ variant?: LoginIllustration }> = ({
     return (
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
         {gridLayer(32, 0.28)}
-        <div
-          aria-hidden
-          className="absolute inset-0"
-          style={{
-            background:
-              'radial-gradient(70% 55% at 50% 0%, hsl(var(--primary) / 0.22) 0%, transparent 60%)',
-          }}
-        />
+        <div className="absolute left-[18%] top-[22%] h-1.5 w-1.5 rounded-full bg-primary" />
+        <div className="absolute bottom-[25%] right-[20%] h-1.5 w-1.5 rounded-full bg-primary" />
       </div>
     );
   }
@@ -581,7 +609,7 @@ export const LoginIllustration: React.FC<{ variant?: LoginIllustration }> = ({
     return (
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
         <svg
-          className="absolute inset-x-0 bottom-0 h-2/3 w-full text-white/[0.07]"
+          className="absolute inset-x-0 bottom-0 h-2/3 w-full text-foreground/[0.08]"
           viewBox="0 0 400 200"
           preserveAspectRatio="none"
           fill="none"
@@ -596,14 +624,6 @@ export const LoginIllustration: React.FC<{ variant?: LoginIllustration }> = ({
             />
           ))}
         </svg>
-        <div
-          aria-hidden
-          className="absolute inset-0"
-          style={{
-            background:
-              'radial-gradient(90% 60% at 50% 110%, hsl(var(--accent2, var(--primary)) / 0.28) 0%, transparent 60%)',
-          }}
-        />
       </div>
     );
   }
@@ -621,7 +641,7 @@ export const LoginIllustration: React.FC<{ variant?: LoginIllustration }> = ({
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
         {gridLayer(48, 0.1)}
         <svg
-          className="absolute left-1/2 top-1/2 h-[40rem] w-[40rem] -translate-x-1/2 -translate-y-1/2 text-white/12"
+          className="absolute left-1/2 top-1/2 h-[40rem] w-[40rem] -translate-x-1/2 -translate-y-1/2 text-foreground/12"
           viewBox="0 0 210 190"
           fill="none"
           aria-hidden
@@ -648,29 +668,23 @@ export const LoginIllustration: React.FC<{ variant?: LoginIllustration }> = ({
   if (key === 'mesh') {
     return (
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-        <AuroraBlob
-          className="left-[10%] top-[-6rem] h-[24rem] w-[24rem] opacity-40"
-          color="hsl(var(--primary) / 0.5)"
-          animationClass="animate-aurora-a"
-        />
-        <AuroraBlob
-          className="right-[-4rem] top-[30%] h-[22rem] w-[22rem] opacity-35"
-          color="hsl(var(--accent2, var(--primary)) / 0.45)"
-          animationClass="animate-aurora-b"
-        />
-        <AuroraBlob
-          className="bottom-[-8rem] left-[20%] h-[26rem] w-[26rem] opacity-30"
-          color="hsl(var(--primary) / 0.4)"
-          animationClass="animate-aurora-a"
-        />
+        {gridLayer(56, 0.14)}
+        <svg className="absolute inset-0 h-full w-full text-foreground/10" viewBox="0 0 800 600" fill="none" aria-hidden>
+          <path d="M0 490 L160 350 L300 430 L470 240 L630 330 L800 170" stroke="currentColor" />
+          <path d="M0 390 L180 250 L330 320 L490 150 L670 240 L800 110" stroke="currentColor" />
+          {[['160', '350'], ['300', '430'], ['470', '240'], ['630', '330'], ['180', '250'], ['490', '150']].map(([cx, cy], index) => (
+            <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r="4" fill={index === 2 || index === 5 ? 'hsl(var(--primary))' : 'currentColor'} />
+          ))}
+        </svg>
       </div>
     );
   }
 
-  // '' (default) and 'aurora' both render the classic two-blob aurora glow.
+  // '' (default) and 'aurora' now share the restrained signal field. The legacy
+  // key remains valid for saved branding documents.
   return (
     <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-      {auroraLayers}
+      {signalField}
     </div>
   );
 };
@@ -713,10 +727,9 @@ const DEFAULT_BODY =
 const DEFAULT_CHIPS = ['Audited', 'Cost-metered', 'Human-reviewable'];
 
 /**
- * The brand hero panel. A deep slate base with a curated illustration backdrop
- * tinted by the primary accent + the secondary accent (`--accent2`, falling back to
- * the primary). All motion is pure CSS and respects prefers-reduced-motion (global
- * rule in styles/theme.css).
+ * The brand context pane. It uses the same theme surface grammar as the Console and
+ * spends its space on product context, operator assurances, and a restrained trust
+ * path instead of a marketing gradient or floating dashboard fragments.
  *
  * SECURITY (#6/#9): every text field (wordmark/tagline/headline/body/chips/footer)
  * is operator-set → rendered as a PLAIN React text node (never dangerouslySetInnerHTML).
@@ -744,7 +757,7 @@ export const BrandHero: React.FC<BrandHeroProps> = ({
     return (
       <div
         aria-hidden
-        className="absolute inset-0 overflow-hidden bg-[hsl(222_28%_9%)]"
+        className="absolute inset-0 overflow-hidden bg-surface"
       >
         <LoginIllustration variant={illustration} />
       </div>
@@ -753,8 +766,8 @@ export const BrandHero: React.FC<BrandHeroProps> = ({
 
   const isFull = variant === 'full';
   const rootClass = isFull
-    ? 'absolute inset-0 flex flex-col overflow-hidden bg-[hsl(222_28%_9%)]'
-    : 'relative hidden overflow-hidden bg-[hsl(222_28%_9%)] lg:flex lg:flex-col';
+    ? 'absolute inset-0 flex flex-col overflow-hidden bg-surface'
+    : 'relative hidden overflow-hidden border-r border-border bg-surface lg:flex lg:flex-col';
 
   return (
     <div className={rootClass}>
@@ -763,47 +776,82 @@ export const BrandHero: React.FC<BrandHeroProps> = ({
       {/* Content (z-10 over the glow). */}
       <div
         className={cn(
-          'relative z-10 flex h-full flex-col justify-between p-12 text-white',
-          isFull && 'mx-auto w-full max-w-4xl',
+          'relative z-10 flex h-full flex-col justify-between p-10 text-foreground xl:p-14',
+          isFull && 'mx-auto w-full max-w-6xl',
         )}
       >
-        <div className="flex animate-hero-in-down items-center gap-3">
-          <span className="flex h-11 w-11 items-center justify-center rounded-xl border border-white/15 bg-white/5 shadow-lg backdrop-blur">
-            {logoUrl ? (
-              <img src={logoUrl} alt="" className="h-7 w-7 rounded-md object-contain" />
-            ) : (
-              <ShieldCheck className="h-6 w-6 text-white" aria-hidden />
-            )}
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-card">
+              {logoUrl ? (
+                <img src={logoUrl} alt="" className="h-6 w-6 rounded-sm object-contain" />
+              ) : (
+                <ShieldCheck className="h-5 w-5 text-primary" aria-hidden />
+              )}
+            </span>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold tracking-tight">{wordmark}</p>
+              <p className="mt-0.5 truncate font-mono text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                {tagline}
+              </p>
+            </div>
+          </div>
+          <span className="hidden items-center gap-2 font-mono text-xs uppercase tracking-[0.16em] text-muted-foreground xl:flex">
+            <span className="h-1.5 w-1.5 rounded-full bg-status-closed" aria-hidden />
+            Secure access
           </span>
-          <span className="text-lg font-semibold tracking-tight">{wordmark}</span>
         </div>
 
-        <div className="max-w-md animate-hero-in-up">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/55">
-            {tagline}
+        <div className="max-w-xl py-10">
+          <p className="font-mono text-xs font-medium uppercase tracking-[0.18em] text-primary">
+            Operator access / Agentic SOC
           </p>
-          <h2 className="mt-3 whitespace-pre-line text-3xl font-semibold leading-tight tracking-tight">
+          <h2 className="mt-4 max-w-[34rem] whitespace-pre-line text-4xl font-semibold leading-[1.08] tracking-[-0.035em] lg:text-5xl 2xl:text-6xl">
             {heroHeadline}
           </h2>
-          <p className="mt-4 whitespace-pre-line text-sm leading-relaxed text-white/65">
+          <p className="mt-5 max-w-[33rem] whitespace-pre-line text-base leading-6 text-muted-foreground">
             {heroBody}
           </p>
           {heroChips.length > 0 ? (
-            <div className="mt-7 flex flex-wrap gap-2">
+            <div className="mt-8 grid border-y border-border sm:grid-cols-3">
               {heroChips.map((chip, i) => (
-                <span
+                <div
                   key={`${chip}-${i}`}
-                  className="rounded-full border border-white/12 bg-white/5 px-3 py-1 text-xs font-medium text-white/75 backdrop-blur"
+                  className="min-w-0 border-b border-border py-3 pr-3 last:border-b-0 sm:border-b-0 sm:border-l sm:px-4 sm:first:border-l-0 sm:first:pl-0"
                 >
-                  {chip}
-                </span>
+                  <span className="block font-mono text-xs text-muted-foreground">
+                    {String(i + 1).padStart(2, '0')}
+                  </span>
+                  <span className="mt-1 block truncate text-xs font-medium text-foreground" title={chip}>
+                    {chip}
+                  </span>
+                </div>
               ))}
             </div>
           ) : null}
+
+          <div className="mt-8" aria-label="Trust path">
+            <p className="font-mono text-xs uppercase tracking-[0.16em] text-muted-foreground">
+              Trust path
+            </p>
+            <div className="mt-3 grid grid-cols-[auto_1fr_auto_1fr_auto] items-center gap-2" aria-hidden>
+              <span className="h-2 w-2 rounded-full border border-primary bg-primary/15" />
+              <span className="h-px bg-border" />
+              <span className="h-2 w-2 rounded-full border border-primary bg-primary/15" />
+              <span className="h-px bg-border" />
+              <span className="h-2 w-2 rounded-full bg-primary" />
+            </div>
+            <div className="mt-2 grid grid-cols-3 gap-4 text-xs leading-4 text-muted-foreground">
+              <span>Read-only telemetry</span>
+              <span className="text-center">Reviewable evidence</span>
+              <span className="text-right">Code decision</span>
+            </div>
+          </div>
         </div>
 
-        <div className="text-xs text-white/40">
-          {footerText ? <span>{footerText}</span> : <span>Secure sign-in</span>}
+        <div className="flex items-center justify-between gap-4 border-t border-border pt-4 font-mono text-xs uppercase tracking-[0.14em] text-muted-foreground">
+          <span>{footerText || 'Session activity is audited'}</span>
+          <span className="hidden sm:inline">Human authority preserved</span>
         </div>
       </div>
     </div>

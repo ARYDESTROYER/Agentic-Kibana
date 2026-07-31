@@ -8,23 +8,29 @@ keywords: [modsec, waf, sqli, xss, lfi, rfi, traversal, owasp, http, web, "941"]
 persona: web_application
 summary: A WAF/ModSec rule fired on a request to a public-facing web app.
 ---
-## What this looks like
-ModSecurity / WAF rules triggering (SQLi, XSS, path traversal, LFI/RFI) against a
-public web app, usually from one client IP across several endpoints.
+SIGNAL
+A web application firewall flags a request for injection, traversal, file inclusion, or another exploit pattern.
 
-## Steps
-1. **Read the response code.** A `403`/blocked status means the WAF held; a `200`
-   (or `500` from a backend error) on a rule-flagged request means the payload may
-   have reached the application — treat that as far more serious.
-2. **Inspect the payload.** Is it a generic scanner signature or a crafted,
-   target-specific exploit? Decode the request URI/body.
-3. **Correlate by client IP** across endpoints and time. A single IP hitting many
-   distinct attack paths is either a scanner or a determined attacker; breadth +
-   any `200` distinguishes them.
-4. **Look for success signals.** Unusual response sizes, new files, error stacks,
-   or follow-on requests to admin/upload endpoints.
+EVIDENCE REQUIRED
+Request path and payload, response status and size, enforcement action, client history, target asset, and follow-on application activity.
 
-## Verdict guidance
-- Flagged request returned `200` with a crafted payload → TRUE_POSITIVE, escalate.
-- All flagged requests blocked (`403`) → likely FALSE_POSITIVE / contained recon.
-- Can't tell if the app processed it → NEEDS_HUMAN.
+INVESTIGATION STEPS
+1. Confirm whether the firewall blocked the request or the application processed it.
+2. Determine whether the payload is generic scanner traffic or crafted for the target.
+3. Correlate the client across endpoints and measure the breadth and timing of attempts.
+4. Inspect unusual responses, new files, error activity, and follow-on access to privileged endpoints.
+
+TRUE POSITIVE SIGNALS
+A crafted payload that reached the application or produced corroborated success behavior supports a true positive.
+
+FALSE POSITIVE SIGNALS
+Fully blocked generic reconnaissance with no follow-on activity and no application impact supports a false positive.
+
+NEEDS HUMAN WHEN
+Enforcement status, application processing, or follow-on evidence cannot be established.
+
+RECOMMENDED NEXT ACTION
+Escalate likely exploitation for application containment and evidence preservation; otherwise consider blocking a hostile client.
+
+LIMITATIONS
+Response status alone cannot prove that an exploit succeeded or failed.

@@ -44,7 +44,7 @@ import type {
   TaskStatus,
 } from '@/soc/pages/CaseDetail.api';
 
-import { PanelCard, SectionHeading } from './shared';
+import { CASE_MANAGER_PANEL_PADDING, PanelCard, SectionHeading } from './shared';
 import type { CasePanelPresentation } from './shared';
 
 /**
@@ -211,20 +211,31 @@ export const CollaborationThreadTab: React.FC<{
   onLiveActivity,
   presentation = 'default',
 }) => {
+  const isCaseManager = presentation === 'case-manager';
+
   return (
     <div
       className={cn(
         'grid min-w-0 grid-cols-[minmax(0,1fr)] gap-6',
-        presentation === 'case-manager'
-          ? 'min-h-[400px] px-8 py-7 lg:grid-cols-[minmax(0,1fr)_16rem]'
+        isCaseManager
+          ? cn(
+              'min-h-[32rem] lg:grid-cols-[minmax(0,1fr)_18rem] lg:gap-6',
+              CASE_MANAGER_PANEL_PADDING,
+            )
           : 'p-6 lg:grid-cols-[minmax(0,1fr)_22rem]',
       )}
-      data-case-panel={presentation === 'case-manager' ? 'collaboration' : undefined}
-      data-presentation={presentation === 'case-manager' ? 'case-manager' : undefined}
+      data-case-panel={isCaseManager ? 'collaboration' : undefined}
+      data-presentation={isCaseManager ? 'case-manager' : undefined}
     >
       {/* -------------------------------------------------- main: the thread */}
-      <div className="min-w-0 space-y-6">
-        <PanelCard className={cn(presentation === 'case-manager' && 'min-h-[400px] rounded-[8px]')}>
+      <div className="min-w-0">
+        <PanelCard
+          data-collaboration-surface={isCaseManager ? 'discussion-canvas' : undefined}
+          className={cn(
+            isCaseManager &&
+              'flex min-h-[32rem] flex-col rounded-none border-0 bg-transparent p-0 shadow-none',
+          )}
+        >
           <SectionHeading
             icon={MessageSquare}
             actions={(() => {
@@ -272,6 +283,13 @@ export const CollaborationThreadTab: React.FC<{
               onReact={onReact}
               liveCaseId={liveCaseId}
               onLiveActivity={onLiveThread}
+              className={cn(
+                isCaseManager &&
+                  'flex min-h-[26rem] flex-1 flex-col [&>div:first-child]:flex-1',
+                isCaseManager &&
+                  canComment &&
+                  '[&>div:last-child]:mt-auto [&>div:last-child]:rounded-none [&>div:last-child]:border-x-0 [&>div:last-child]:border-b-0 [&>div:last-child]:border-t [&>div:last-child]:border-border/60 [&>div:last-child]:bg-transparent [&>div:last-child]:px-0 [&>div:last-child]:pb-0 [&>div:last-child]:pt-4',
+              )}
             />
           )}
         </PanelCard>
@@ -280,8 +298,20 @@ export const CollaborationThreadTab: React.FC<{
       {/* -------------------------------------------------- aside: ownership */}
       {/* Sticky rail on lg+ so ownership/tasks/activity stay in view while the
           thread scrolls; the rail itself scrolls when its own content overflows. */}
-      <aside className="min-w-0 space-y-6 lg:sticky lg:top-4 lg:self-start lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto">
-        <PanelCard className={cn('p-4', presentation === 'case-manager' && 'rounded-[8px]')}>
+      <aside
+        data-collaboration-surface={isCaseManager ? 'context-rail' : undefined}
+        className={cn(
+          'min-w-0 lg:sticky lg:top-4 lg:self-start lg:max-h-[calc(100dvh-8rem)] lg:overflow-y-auto',
+          isCaseManager ? 'space-y-0 rounded-md bg-muted/20 px-4 py-1' : 'space-y-6',
+        )}
+      >
+        <PanelCard
+          data-collaboration-rail-section={isCaseManager ? 'ownership' : undefined}
+          className={cn(
+            'p-4',
+            isCaseManager && 'rounded-none border-0 bg-transparent px-0 py-4 shadow-none',
+          )}
+        >
           <SectionHeading icon={Users}>
             Ownership
           </SectionHeading>
@@ -291,7 +321,14 @@ export const CollaborationThreadTab: React.FC<{
           <AssigneePicker c={c} users={users} canWrite={canWrite} onAssigned={onAssigned} />
         </PanelCard>
 
-        <PanelCard className={cn('p-4', presentation === 'case-manager' && 'rounded-[8px]')}>
+        <PanelCard
+          data-collaboration-rail-section={isCaseManager ? 'tasks' : undefined}
+          className={cn(
+            'p-4',
+            isCaseManager &&
+              'rounded-none border-x-0 border-b-0 border-t border-border/60 bg-transparent px-0 py-4 shadow-none',
+          )}
+        >
           <CaseTasks
             tasks={tasks || []}
             canWrite={canWrite}
@@ -302,7 +339,14 @@ export const CollaborationThreadTab: React.FC<{
           />
         </PanelCard>
 
-        <PanelCard className={cn('p-4', presentation === 'case-manager' && 'rounded-[8px]')}>
+        <PanelCard
+          data-collaboration-rail-section={isCaseManager ? 'activity' : undefined}
+          className={cn(
+            'p-4',
+            isCaseManager &&
+              'rounded-none border-x-0 border-b-0 border-t border-border/60 bg-transparent px-0 py-4 shadow-none',
+          )}
+        >
           <SectionHeading icon={History}>
             Activity
           </SectionHeading>

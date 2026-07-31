@@ -16,7 +16,7 @@ tiny, AGGREGATED survivor set to an LLM (via the async, discounted
                         eligible. A bucket must clear (a)-(c) to survive.
     (d) BATCH           the surviving AGGREGATED summaries become one BATCH request each
                         (custom_id = a stable hash of the candidate key), fenced as
-                        UNTRUSTED data (#9), for the BatchProvider (default Haiku 4.5,
+                        UNTRUSTED data (#9), for the BatchProvider (default GPT-5.6 Luna,
                         config-tunable via ``prefs.router_model`` / an override).
 
 Each LLM-CONFIRMED detection is then shaped BACK into a candidate cluster that RE-ENTERS
@@ -42,9 +42,10 @@ Non-negotiables held:
   UNTRUSTED/PLAYBOOK/MEMORY markers), so a poisoned event field can never smuggle
   instructions into the batch prompt.
 
-DEFAULTS OFF — the funnel is gated on ``prefs.batch.enabled`` AND
-``prefs.baseline.enabled`` (a detection toggle); with either off it emits nothing, so an
-existing deployment is byte-identical until an operator opts in.
+ASYNC BATCH DEFAULTS OFF — the funnel is gated on ``prefs.batch.enabled`` AND
+``prefs.baseline.enabled``. Baseline learning is on by default, but is advisory; with
+Batch off the funnel emits nothing, so an existing deployment does not queue delayed
+inference until an operator explicitly opts in.
 """
 
 from __future__ import annotations
@@ -57,23 +58,67 @@ from typing import Any
 
 from ..agents.prompts import fence
 from ..agents.standup import fence_block
-from ..config import Preferences
+from ..config import DEFAULT_COMPLETION_MODEL, Preferences
 from ..constants import DetectionSource, EntityType
 from ..engine.baseline import BaselineEngine, bucket_for
 from ..engine.correlation import cluster_from_events, resolve_entity
+from ..engine.priority import severity_scale_for_source
 from ..engine.signatures import cluster_signature
 from ..models import Cluster, RawEvent
+from ..ocsf import score_to_severity_id
 from ..utils import stable_signature
+from ..llm.pricing import provider_for
 
-# The default batch model for event-batch detection — the LOCKED decision (Haiku 4.5,
-# cheapest + strong-enough for triage; ``docs/research/2026-07-round4``). Config-tunable:
-# ``model_for_funnel`` prefers an explicit ``prefs.router_model`` (also Haiku 4.5 by
-# default) so an operator who repoints the cheap tier repoints the funnel too.
-DEFAULT_BATCH_MODEL = "claude-haiku-4-5-20251001"
+# The event-batch fallback follows the same fresh-install completion default. The
+# explicit ``prefs.router_model`` remains authoritative, so stored/operator choices
+# keep working and the async Batch provider still validates provider/model alignment.
+DEFAULT_BATCH_MODEL = DEFAULT_COMPLETION_MODEL
 
 # The stable prefix for a candidate's ``custom_id`` — so a re-poll / restart re-derives
 # the SAME id for the SAME (signature, bucket) and the BatchProvider/ledger dedups it (#6).
 _CANDIDATE_PREFIX = "evdet"
+
+
+def split_batch_eligible_events(
+    events: list[RawEvent],
+    prefs: Preferences,
+    *,
+    severity_scale: str = "auto",
+) -> tuple[list[RawEvent], list[RawEvent]]:
+    """Partition EVENT-feed records into ``(batch, synchronous)`` lanes.
+
+    ``BatchConfig.severity_floor`` is an OCSF ``severity_id`` ceiling for the slow,
+    discounted lane: informational/low/medium events at or below the configured value
+    may enter async Batch, while higher-severity events stay on the realtime path.  No
+    event is dropped.  ``severity_scale`` is the source-declared native scale so the
+    comparison is not distorted by a 0..10/0..100 ambiguity.
+    """
+    batch_events: list[RawEvent] = []
+    synchronous: list[RawEvent] = []
+    for event in events:
+        (batch_events if event_is_batch_eligible(
+            event, prefs, severity_scale=severity_scale
+        ) else synchronous).append(event)
+    return batch_events, synchronous
+
+
+def event_is_batch_eligible(
+    event: RawEvent,
+    prefs: Preferences,
+    *,
+    severity_scale: str = "auto",
+) -> bool:
+    """Whether one EVENT record belongs on the async Batch side of the split."""
+    floor = int(getattr(getattr(prefs, "batch", None), "severity_floor", 3) or 3)
+    scale = severity_scale
+    if scale == "auto":
+        try:
+            source = prefs.source_by_id(event.source_id)
+        except Exception:  # noqa: BLE001 - a missing source keeps legacy auto scaling
+            source = None
+        if source is not None:
+            scale = severity_scale_for_source(source)
+    return score_to_severity_id(event.severity, scale) <= floor
 
 
 # --------------------------------------------------------------------------- #
@@ -291,7 +336,11 @@ def funnel(
     false, returns ``[]`` (byte-identical to today — nothing is batched)."""
     if not (prefs.batch.enabled and prefs.baseline.enabled):
         return []
-    summaries = pre_aggregate(events, prefs)
+    # Direct callers get the same severity contract as the Poller.  The Poller routes
+    # the returned synchronous lane through realtime correlation; here we deliberately
+    # ignore it rather than silently batching a high/critical event.
+    eligible, _synchronous = split_batch_eligible_events(events, prefs)
+    summaries = pre_aggregate(eligible, prefs)
     threshold = float(prefs.baseline.modified_z_threshold)
     out: list[CandidateAlert] = []
     for s in summaries:
@@ -337,11 +386,49 @@ _DETECTION_SYSTEM = (
 
 
 def model_for_funnel(prefs: Preferences) -> str:
-    """The batch model the funnel uses — the operator's cheap tier
-    (``prefs.router_model``, Haiku 4.5 by default) so repointing the cheap tier repoints
-    the funnel; falls back to the locked :data:`DEFAULT_BATCH_MODEL`."""
+    """The batch model the funnel uses — the operator's router assignment, falling
+    back to the shared fresh-install completion default."""
     model = getattr(getattr(prefs, "router_model", None), "model", None)
     return str(model) if model else DEFAULT_BATCH_MODEL
+
+
+def target_for_funnel(prefs: Preferences) -> tuple[str, str]:
+    """Return the validated ``(provider, model)`` for true async Batch.
+
+    Async provider Batch is an execution mode of the configured router model, not an
+    independent provider chooser.  The legacy ``batch.providers`` list is retained as
+    an allow-list only.  Known model ids must agree with ``router_model.provider``;
+    custom endpoints/providers are rejected because the bundled async Batch clients do
+    not implement those contracts.  This prevents (for example) sending a Claude model
+    to OpenAI merely because an OpenAI key happened to be configured first.
+    """
+    cfg = getattr(prefs, "router_model", None)
+    provider = str(getattr(cfg, "provider", "") or "").strip().lower()
+    model = model_for_funnel(prefs).strip()
+    if provider not in {"anthropic", "openai"}:
+        raise ValueError(
+            f"async Batch requires router_model.provider anthropic or openai, got {provider!r}"
+        )
+    allow = {
+        str(item or "").strip().lower()
+        for item in (getattr(getattr(prefs, "batch", None), "providers", None) or [])
+        if str(item or "").strip()
+    }
+    if allow and provider not in allow:
+        raise ValueError(
+            f"router provider {provider!r} is not enabled in batch.providers"
+        )
+    inferred = provider_for(model)
+    if inferred in {"anthropic", "openai"} and inferred != provider:
+        raise ValueError(
+            f"router model {model!r} belongs to {inferred}, not configured provider {provider}"
+        )
+    if getattr(cfg, "base_url", None):
+        raise ValueError(
+            "async Batch supports only official Anthropic/OpenAI model endpoints; "
+            "use live inference for custom endpoints"
+        )
+    return provider, model
 
 
 def build_batch(

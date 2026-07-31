@@ -17,13 +17,14 @@ import {
   GitBranch,
   Globe,
   Shield,
+  SlidersHorizontal,
   Terminal,
   User,
   Wrench,
 } from 'lucide-react';
 
 import type { Case, CaseRationale } from '@/lib/types';
-import { humanizeToken } from '@/lib/format';
+import { formatTimestamp, humanizeToken } from '@/lib/format';
 import { cn } from '@/lib/cn';
 
 import { Badge } from '@/ui/badge';
@@ -104,6 +105,11 @@ export const WhyPanel: React.FC<{
   const decision = decisionByLabel(r.decision_by ?? c.decision_by);
 
   const knowledge = r.knowledge || [];
+  const runbooks = knowledge.filter((item) => {
+    const source = (item.source || '').trim().toLowerCase();
+    return source === 'runbook' || source.startsWith('runbook:');
+  });
+  const retrievedKnowledge = knowledge.filter((item) => !runbooks.includes(item));
   const tools = r.tools || [];
   const memory = (r.memory_used || []).filter((m) => (m || '').trim());
   const mitre = r.mitre || [];
@@ -117,6 +123,7 @@ export const WhyPanel: React.FC<{
       typeof enr.is_malicious === 'boolean' ||
       !!enr.country);
   const playbook = r.playbook || null;
+  const platformTuning = r.platform_tuning || [];
 
   return (
     <div className="space-y-6 p-6">
@@ -171,37 +178,50 @@ export const WhyPanel: React.FC<{
         )}
       </PanelCard>
 
-      {/* ------------------------------------------- knowledge used */}
+      {/* ------------------------------------------- knowledge retrieved */}
       <PanelCard>
         <SectionHeading icon={BookOpen}>
-          Knowledge used
+          Knowledge retrieved
         </SectionHeading>
         <p className="mb-3 text-xs text-muted-foreground">
-          Retrieved RAG / runbook / playbook context the investigation drew on.
+          Reference excerpts retrieved through RAG. Runbooks are identified separately;
+          playbooks are operator procedures shown below.
         </p>
         {knowledge.length === 0 ? (
           <EmptyState
             icon={BookOpen}
             compact
             title="No knowledge retrieved"
-            description="The investigation did not pull any RAG / runbook / playbook snippets."
+            description="The investigation did not retrieve any knowledge or runbook excerpts."
           />
         ) : (
-          <div className="space-y-3">
-            {knowledge.map((k, i) => (
-              <div key={i} className="rounded-md border border-border bg-muted/30 p-3">
-                <Badge variant="info" className="mb-2 gap-1">
-                  <BookOpen className="h-3 w-3" />
-                  {/* humanizeToken('') returns the DASH glyph (truthy), so guard the
-                      empty source explicitly to hit the 'Knowledge' fallback. */}
-                  {k.source ? humanizeToken(k.source) : 'Knowledge'}
-                </Badge>
-                {k.snippet ? (
-                  /* UNTRUSTED — inside CodeBlock fence. */
-                  <CodeBlock value={k.snippet} wrap copyable maxHeightClassName="max-h-40" />
-                ) : null}
-              </div>
-            ))}
+          <div className="space-y-5">
+            {[
+              { label: 'Knowledge', items: retrievedKnowledge },
+              { label: 'Runbook references', items: runbooks },
+            ].map((group) =>
+              group.items.length ? (
+                <div key={group.label} className="space-y-3">
+                  <h4 className="text-2xs font-semibold uppercase tracking-widest text-muted-foreground">
+                    {group.label}
+                  </h4>
+                  {group.items.map((k, i) => (
+                    <div key={`${group.label}-${i}`} className="rounded-md border border-border bg-muted/30 p-3">
+                      <Badge variant="info" className="mb-2 gap-1">
+                        <BookOpen className="h-3 w-3" />
+                        {/* humanizeToken('') returns the DASH glyph (truthy), so guard the
+                            empty source explicitly to hit the 'Knowledge' fallback. */}
+                        {k.source ? humanizeToken(k.source) : 'Knowledge reference'}
+                      </Badge>
+                      {k.snippet ? (
+                        /* UNTRUSTED — inside CodeBlock fence. */
+                        <CodeBlock value={k.snippet} wrap copyable maxHeightClassName="max-h-40" />
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null,
+            )}
           </div>
         )}
       </PanelCard>
@@ -248,10 +268,10 @@ export const WhyPanel: React.FC<{
       {memory.length ? (
         <PanelCard>
           <SectionHeading icon={Brain}>
-            Operator memory applied
+            Operator memory consulted
           </SectionHeading>
           <p className="mb-3 text-xs text-muted-foreground">
-            Durable operator facts the investigation was told to honour.
+            Approved operator facts supplied as trusted context to this investigation.
           </p>
           <ul className="space-y-2">
             {memory.map((m, i) => (
@@ -267,8 +287,61 @@ export const WhyPanel: React.FC<{
         </PanelCard>
       ) : null}
 
+      {/* ------------------------------- deterministic platform tuning */}
+      {platformTuning.length ? (
+        <PanelCard>
+          <SectionHeading icon={SlidersHorizontal}>
+            Platform tuning
+          </SectionHeading>
+          <p className="mb-4 text-xs leading-relaxed text-muted-foreground">
+            This case traversed a detection threshold previously adjusted by Agentic SOC
+            auto-tuning. This is threshold tuning, not model fine-tuning, and it does not
+            make the final close / escalate decision.
+          </p>
+          <div className="divide-y divide-border/60 border-y border-border/60">
+            {platformTuning.map((record, index) => {
+              const target =
+                record.target === 'correlation_n'
+                  ? 'Correlation threshold'
+                  : record.target === 'severity_floor'
+                    ? 'Severity floor'
+                    : humanizeToken(record.target);
+              const hasValues =
+                typeof record.before === 'number' && typeof record.after === 'number';
+              return (
+                <div key={record.record_id || `${record.target}-${record.rule_id}-${index}`} className="py-4 first:pt-3 last:pb-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-foreground">{target}</div>
+                      <div className="mt-1 font-mono text-xs text-muted-foreground">
+                        {record.rule_id || 'Scope not recorded'}
+                      </div>
+                    </div>
+                    {hasValues ? (
+                      <Badge variant="outline" className="font-mono">
+                        {record.before} → {record.after}
+                      </Badge>
+                    ) : null}
+                  </div>
+                  {record.rationale ? (
+                    <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">
+                      {record.rationale}
+                    </p>
+                  ) : null}
+                  {record.applied_at ? (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Applied {formatTimestamp(record.applied_at)}
+                    </p>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        </PanelCard>
+      ) : null}
+
       {/* ------------------------------- enrichment + playbook */}
-      {hasEnr || (playbook && playbook.id) ? (
+      {hasEnr || (playbook && playbook.id && playbook.consulted !== false) ? (
         <div className="grid gap-6 lg:grid-cols-2">
           {hasEnr && enr ? (
             <PanelCard>
@@ -307,13 +380,13 @@ export const WhyPanel: React.FC<{
               </div>
             </PanelCard>
           ) : null}
-          {playbook && playbook.id ? (
+          {playbook && playbook.id && playbook.consulted !== false ? (
             <PanelCard>
               <SectionHeading icon={BookOpen}>
-                Playbook
+                Playbook consulted
               </SectionHeading>
               <Badge variant="info" className="font-mono">
-                {playbook.id}
+                {playbook.id}{playbook.version ? ` · v${playbook.version}` : ''}
               </Badge>
               {playbook.reason ? (
                 /* UNTRUSTED — plain text. */

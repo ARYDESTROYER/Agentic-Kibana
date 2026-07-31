@@ -46,13 +46,16 @@ TrustLab / IIT Bombay ELK pipeline and still attaches to it cleanly as a
   (default), PostgreSQL+pgvector, or SQLite via `STATE_BACKEND`.
 - **Standalone web UI** is the **primary** surface; the Kibana plugin is archived.
 
-**Naming contract:** **Agentic SOC** is the product name shown to operators.
-`TLSOC` remains the compatibility namespace for technical identifiers that cannot be
-renamed casually: `TLSOC_*` environment variables, `tlsoc-*` service/image names,
-`tlsoc-agent-*` indices, `tlsoc_*` storage/cookie names, `X-TLSOC-*` headers,
-`tlsoc.connectors` entry points, existing API fields, and Python/package paths. New
-operator copy says Agentic SOC or Console; do not rename a wire identifier as part of
-a branding or documentation edit.
+**Naming contract:** **Agentic SOC** is the only product name. Never introduce the
+retired prototype name in prose, UI copy, generated documentation, API descriptions,
+logs intended for operators, or new identifiers. Existing literal compatibility
+contracts keep their current spelling until a separately versioned migration exists:
+`TLSOC_*` environment variables, `tlsoc-*` service/image names, `tlsoc-agent-*`
+indices, `tlsoc_*` storage/cookie names, `X-TLSOC-*` headers, `tlsoc.connectors`
+entry points, existing API fields, and Python/package paths. In documentation, show
+those strings only when the exact literal is operationally required; never present
+the compatibility namespace as a product or brand. Do not rename a wire identifier
+as part of a branding edit, and do not mint new compatibility-prefixed identifiers.
 
 The original upstream pipeline (when attached, we do NOT modify it):
 ```
@@ -97,7 +100,8 @@ contract), `ROADMAP.md` (work tracking).
 
 ```
 ┌────── PRIMARY surface: standalone Web UI (webui/, Vite+React+Tailwind+shadcn) ─────┐
-│ SPA: Wizard · Chat · Entity Investigation · Case Manager · Standup · Cost · Settings │
+│ SPA: Wizard · Chat + per-user history · Entity Investigation · Case Manager · Standup │
+│      Cost · Settings                                                                  │
 │ api (webui/src/lib) → /api proxy (nginx) ───────────────────────▶ tlsoc-backend    │
 └────────────────────────────────────────────────────────────────────────┬──────────┘
   (LEGACY surface) Kibana plugin → core.http /api/tlsoc/{path*}            │
@@ -107,7 +111,7 @@ contract), `ROADMAP.md` (work tracking).
 │   → CONNECTORS  pull (Elastic/OpenSearch/Wazuh) · push/queue/object receivers (16)   │
 │   → OCSF normalisation (canonical schema)                                            │
 │   → poll(durable cursor) / ingest → correlate (det.) → risk (det.)                   │
-│   → cost-gate → router (cheap LLM) → investigator (strong LLM, ReAct)                 │
+│   → cost-gate → router (role model) → investigator (role model, ReAct)                 │
 │   → formatter → Case Manager (deterministic close/escalate)                          │
 │ tools: es_query (READ-ONLY logs) · enrich (Redis-cached) · rag_retrieve              │
 │ single LLM gateway ──▶ usage/cost ledger (every call)                                │
@@ -133,11 +137,18 @@ proxy change.**
 backend/app/
   config.py          Secrets (env-only; incl. STATE_BACKEND/STATE_DB_URL +
                      per-source connector_secrets) + Preferences (UI-editable,
+                     fresh completion roles default to OpenAI GPT-5.6 Luna while
+                     embeddings remain dedicated and stored overrides are preserved;
                      incl. sources[] SourceInstance list; Round-4:
                      {threshold_tuning,batch,baseline,campaign} config blocks
                      (tuning/baseline/campaign ON; async Batch opt-in; compatible
                      live OpenAI case/alert Flex preference default ON with truthful
                      standard fallback) +
+                     release_updates read-only public GitHub source discovery
+                     (default repo + main/Testing refs; configurable, cached, never
+                     deploys or activates) +
+                     storage_lifecycle desired policy (Hot 180d + Warm 90d + desired
+                     Glacier from day 270; deletion always off; capability-aware) +
                      caps.max_concurrent + BrandingConfig.login_*
                      bounded plain-text white-label [validator rejects any `<`, #9];
                      AutomationRule → CaseAutomationRule (alias kept, wire key
@@ -163,7 +174,7 @@ backend/app/
                      corrected $15/$75 → $5/$25 ctx→1M; cache rates applied — read
                      0.1× / write 1.25×[5m]/2×[1h], batch 0.5×; non-cache math
                      byte-identical) · batch (Round-4: `BatchProvider` SPI — Anthropic
-                     Message Batches + OpenAI Batch + flex; results UNORDERED → keyed
+                     Message Batches + OpenAI Batch; results UNORDERED → keyed
                      by `custom_id`, one UsageDoc/result at 0.5× #6)
   tools/             base (MCP-shaped, + ToolTier safety tier) · es_query · enrich ·
                      rag (hybrid BM25+vector retrieval; import/list/get/delete +
@@ -192,7 +203,9 @@ backend/app/
                      per-signature in-flight lock so concurrent sources never dup a
                      case #4; single/zero-source path byte-identical) ·
                      ingest (push/queue → OCSF) · runbooks
-                     (RAG-knowledge loader) · chunking · case_id (customizable
+                     (strict Markdown parser/chunker) · runbook_service
+                     (protected bundled + CAS-backed operator catalog; RAG projection
+                     only, never executable/decision authority) · chunking · case_id (customizable
                      case-XXXX nomenclature; KV sequence + template) ·
                      metrics (verdict/status mix + Round-3 posture: MTTA/MTTR/dwell
                      p50/p90 from status_history, SLA/aging, period-over-period) ·
@@ -217,7 +230,7 @@ backend/app/
                      baseline (Round-4: online EWMA/EWMV + 168 hour-of-week buckets +
                      bounded t-digest + modified-z |M|>3.5 + 3×-period warm-up, H=14d;
                      pure producer) · event_detection (Round-4: EVENT-feed cheap-first
-                     funnel pre-aggregate→rules→anomaly→batched Haiku detection →
+                     funnel pre-aggregate→rules→anomaly→batched configured-router detection →
                      candidates re-enter the SAME correlate/decide pipeline #3/#4,
                      #9-fenced, #7 aggregate-only) · forwarding (Round-4: explain_forwarding
                      — read-only auto-forward-gate explainer) · reset (Round-4: tiered
@@ -225,10 +238,16 @@ backend/app/
                      contrast (pure WCAG contrast/AA-foreground utilities for operator
                      branding, dependency-free, fail-open) · sample_analysis (deterministic
                      field-mapping suggestion from a pasted sample record — no LLM, no
-                     persistence of the sample itself, #9-safe)
+                     persistence of the sample itself, #9-safe) · storage_lifecycle
+                     (explicit capability preview/apply; Elasticsearch ILM only for
+                     append-only audit+usage; no case rollover/delete/Glacier mutation) ·
+                     agent_improvement (read-only aggregate comparison of the last 7
+                     complete UTC days against the preceding 28; insufficient evidence
+                     stays explicit and never becomes a composite score)
   threat/            mitre_techniques.json (bundled ATT&CK, 697 techniques) +
                      refresh_mitre.py + SOURCE.md (data corpus, not live fetch)
-  runbooks/          plain-text Markdown runbooks (RAG knowledge corpus)
+  runbooks/          protected bundled Markdown runbooks (RAG knowledge corpus;
+                     operator-authored documents are durable StateStore records)
   playbooks/         Markdown PLAYBOOK engine: manifest · loader · registry
                      (deterministic per-cluster selection + atomic hot-reload)
   auth/              passwords (PBKDF2) · tokens (stdlib HS256 JWT) · service
@@ -252,7 +271,11 @@ backend/app/
                      refresh rotation) · user_prefs (UserPrefsStore over KV — personal
                      saved views/columns/terminology/theme, keyed by user) · memory
                      (MemoryStore over the KVStore — durable operator facts;
-                     EsKVStore/SqlKVStore adapters, no new index) · proposals ·
+                     EsKVStore/SqlKVStore adapters, no new index) · chat_conversations
+                     (bounded per-user Workspace transcripts; server history is
+                     authoritative on resume; no new index/table) · proposals ·
+                     runbooks (strict-CAS operator Markdown catalog layered over
+                     protected bundled runbooks; no new index/table) ·
                      8 Round-3 KV stores (same zero-migration pattern, no new index/
                      table): case_thread · case_activity · case_tasks (per-case
                      collaboration #4) · inbox (per-user fan-out, ~200/user ring) ·
@@ -271,10 +294,11 @@ backend/app/
                      models · repositories · vectorstore — SQLite/Postgres+pgvector)
   api/               routes.py (the base router; incl. /sources, /auth+/users+/auth/mfa+
                      /auth/sso, /auth/refresh+/auth/reauth, /sessions+/admin/sessions,
-                     /account/me+/me/avatar, /demo/*, /proposals, /settings/schema;
+                     /account/me+/me/avatar, /demo/*, /proposals, /settings/schema,
+                     POST /chat + per-user /chat/conversations list/detail/rename/delete;
                      Round-4: acknowledge → INVESTIGATING + GET /api/logs [unified
                      scatter-gather over browse-capable sources] + /cases/{id}/forwarding
-                     + /sources/health) + **21 `routes_*.py` feature routers**, ALL
+                     + /sources/health) + **22 `routes_*.py` feature routers**, ALL
                      auto-discovered at boot (`main.py::discover_feature_routers()` walks
                      `app.api.routes_*`, requires a top-level `router: APIRouter` — no
                      manual registration needed): Round-3's routes_metrics ·
@@ -294,7 +318,11 @@ backend/app/
                      that NEVER calls decide()/bills the LLM #3/#6] + typed baseline/
                      campaign/batch config endpoints + routes_export [`POST
                      /api/admin/export`, bounded secret-free
-                     application-state JSON behind `data_export:export`];
+                     application-state JSON behind `data_export:export`] + routes_storage
+                     [`GET/PUT /api/storage/lifecycle`, pure preview, freshly authenticated
+                     explicit apply limited to supported owned-state targets];
+                     routes_runbooks [dedicated `runbooks:read/manage` bundled/operator
+                     catalog CRUD + targeted/full RAG reconciliation] ·
                      mounted in main.py · deps (require_auth + require_permission +
                      require_fresh_auth + custom-role union enforcement + session check) ·
                      state.py (DI hub; exposes enrichment_registry + event_bus) · main.py
@@ -314,14 +342,20 @@ webui/               PRIMARY surface: standalone Vite+React+TS+Tailwind+shadcn/R
                      Rules home + polymorphic editor + condition builder] · dashboard/*
                      [custom-dashboard builder/grid/widget registry, LAZY react-grid-layout] ·
                      hooks/*; pages/* incl. Users/Security/Approvals/Knowledge/Memory + Round-3
-                     Models/Roles/Inbox + Metrics tabs + CaseDetail chips/trace/collab +
+                     Models/Roles/Inbox + Analytics tabs (Operational/Performance/Posture/
+                     Effectiveness/Cost; Effectiveness is aggregate-only and Cost exposes
+                     actual Standard/Flex/Batch/Unconfirmed ledger tiers) + CaseDetail chips/trace/collab +
                      CaseManager (canonical detail workspace; Active/All split-pane
                      queue, persisted accessible desktop resize, selection +
                      permission-gated bulk work, full six-tab detail; Cases list
-                     hands an opened row to the exact Case Manager record) +
+                     hands an opened row to the exact Case Manager record) + Chat
+                     (searchable 264px desktop history rail/mobile Sheet, newest-first
+                     durable per-user transcripts, one docked composer; Case Manager
+                     chat stays separate and case-scoped) +
                      Docs (same-origin, version-matched Help Center discovery hub) +
                      Round-5 Dashboards.tsx + settings/* data-driven section files [was a
-                     2673-line god-file, now a section registry]; components/* incl. Can RBAC
+                     2673-line god-file, now a section registry; includes Organization
+                     Storage & retention capability/status/preview/apply]; components/* incl. Can RBAC
                      guard, MfaSetupCard, QRCode, NotificationsEditor, RiskGauge, palette +
                      Round-3 NavSidebar, NotificationBell, GlassSurface, SettingsGrid/Card,
                      theme-tokens resolver, MitreHeatmap/BurnDownChart, TraceTimeline,
@@ -360,7 +394,9 @@ docs/                USAGE.md · TROUBLESHOOTING.md · ENVIRONMENT.md · VIGIL_S
    not policy-tunable)**. A playbook can recommend but can never change this policy.
 4. Durable polling cursor (no skip / no dup); cases idempotent by cluster
    signature (`engine/poller.py`, `engine/signatures.py`).
-5. ONE chat engine, two entry points (`agents/chat.py`).
+5. ONE chat engine, two entry points (`agents/chat.py`). Workspace history is a
+   per-user navigation/persistence layer; Case Manager chat remains case-scoped and
+   never enters personal Workspace history.
 6. 100% of LLM calls through ONE gateway → usage/cost ledger (`llm/gateway.py`).
 7. Aggregate-then-summarise (never raw logs to a model) (`agents/standup.py`).
 8. Enrichment Redis-cached (`tools/enrich.py`, `cache.py`).
@@ -431,17 +467,17 @@ See `docs/ENVIRONMENT.md` for the full detail. Summary:
 ## 7. Build / run / test cheatsheet
 
 ```bash
-# Backend tests (offline; MUST stay green) — currently 1982 tests (see Journal for the exact current count)
+# Backend tests (offline; MUST stay green) — latest recorded full run: 2,073 tests (see Journal for the exact current count)
 cd backend && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements-dev.txt
-python -m pytest -q                         # -> 1982 passed (rises each round; see Journal)
+python -m pytest -q                         # -> latest recorded full run: 2,073 passed (see Journal)
 
 # Backend run locally (in-memory store, mock LLM if no keys)
 uvicorn app.main:app --port 8088
 
 # Web UI + installed Help Center build, tests, and lint (Node 22)
 cd webui && npm install && npm run build   # MkDocs bundle + tsc --noEmit + Vite -> webui/dist/
-npm run docs:check                         # validate app 0.1.0 ↔ bundled docs 0.1
-npx vitest run                             # -> 1468 passed / 248 files (see Journal for the current count)
+npm run docs:check                         # validate app 0.1.1 ↔ bundled docs 0.1
+npx vitest run                             # -> latest recorded full run: 1,732 passed / 268 files (see Journal)
 npm run lint                               # 0 errors, 0 warnings; jsx-a11y at error
 
 # One-command demo (backend :8088 AUTH ENABLED + webui dev :5173; login Admin / Admin@123)
@@ -477,19 +513,30 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
   - **Low-level primitives** are the shadcn/Radix components under `webui/src/ui/*`
     (`button`, `card`, `dialog`, `select`, `tabs`, `table`, `tooltip`, `sheet`,
     `skeleton`, `popover`, `hover-card`, `badge`, … — wrap Radix, do not fork them).
+  - **Cross-cutting design-system exports** live under
+    `webui/src/design-system/*`: the one centered `LoadingState`/`LoadingGlyph`
+    feedback grammar, original theme-adaptive `SourceMark` asset catalog, and the
+    JSON-serializable `DESIGN_SYSTEM_CATALOG`. Import from `@/design-system`; do not
+    invent a page-local blocking loader or source mark. The catalog is an input for
+    future agent/MCP tooling—version 0.1.1 does **not** ship an MCP server.
   - **SOC-domain components** live in `webui/src/soc/components/*`
     (`PageHeader`, `KpiTile`/`StatCard`, `DataTable`, `EmptyState`, `RiskGauge`,
-    `CaseHoverCard`, `ChatPanel`, `badges.tsx`, `charts.tsx`, `Can.tsx` RBAC guard,
+    `CaseHoverCard`, `ChatPanel`, `ChatHistoryRail`, `badges.tsx`, `charts.tsx`,
+    `Can.tsx` RBAC guard,
     `LoadingBar`/`Stagger` motion, `HelpTip`, editors for sources/notifications/
     branding/MFA). Pages are `webui/src/soc/pages/*`; shell/nav/router/theme/auth in
     `webui/src/soc/{AppShell,nav,router,theme,auth}.tsx`. Compose these everywhere so
     the console stays consistent (8px grid, WCAG AA).
+  - The enforceable visual contract is `docs/development/ui-standard.md`; package
+    boundaries, asset rules, and catalog evolution are in
+    `docs/development/design-system.md`.
 - **Backend↔webui contract:** additive request/response fields are safe (the nginx
   `/api` proxy forwards arbitrary JSON). Keep `webui/src/lib/types.ts` in sync with
   `models.py`.
 - **Secrets:** env only; UI shows booleans (`configured ✓`) never values.
-- **Tests:** add/keep offline tests; `pytest -q` green (1982) + `npm run build` clean
-  + `vitest run` (1468 / 248 files) + `npm run lint` (0 errors, jsx-a11y at error) before
+- **Tests:** add/keep offline tests; `pytest -q` green (latest recorded full run: 2,174) +
+  `npm run build` clean + `vitest run` (latest recorded full run: 1,828 / 277 files) +
+  `npm run lint` (0 errors, jsx-a11y at error) before
   every commit. (Counts rise each round — see `Journal.md` for the exact current totals.)
 - **Git:** active branch `Testing`. Commit focused changes; push when asked. The
   current remote exposes `Testing` and legacy/default `claude/main`, not literal
@@ -500,7 +547,22 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
   popover reconciles the immutable Console stamp with public backend build-info.
   Any known version/channel/SHA mismatch downgrades to Testing. `run-demo.sh`
   derives Stable only for literal `main`; Docker release builds explicitly stamp
-  `TLSOC_RELEASE_CHANNEL`, SHA, and date.
+  `TLSOC_RELEASE_CHANNEL`, SHA, and date. A separate **Update available** action may
+  activate only a different, already-deployed static release whose no-store
+  `/release.json` identity exactly matches healthy backend build-info/readiness with a
+  non-`unknown` SHA and build time. It
+  requires confirmation, is blocked by known unsaved drafts, and repeats manifest,
+  backend, health, and `/index.html` preflight before preserving the hash route across
+  reload. Failure leaves the old document running. The browser never pulls images,
+  restarts services, migrates state, promotes channels, stores deployment credentials,
+  or performs rollback. Graceful rollout requires old hashed assets to remain served
+  through the observation window or an equivalent blue-green static origin.
+  A separate amber source notice may come from cached `GET /api/releases/upstream`
+  metadata for the operator-configured public GitHub repository and Stable/Testing
+  refs. It is a review link only, suppresses downgrades, and can never create the
+  activation action. `POST /api/releases/upstream/check` only refreshes that bounded
+  metadata; neither endpoint has Git, deployment, process, migration, or rollback
+  authority.
 - **Release discipline:** every supported release is cut from a fully verified
   `main` commit and receives exactly one immutable annotated `vX.Y.Z` tag matching
   the root `VERSION`. A Testing candidate is never tagged Stable. Before promotion,
@@ -539,9 +601,9 @@ deep-audit hardening pass (2026-07-14/15)** fixed **47 verified findings** (0 cr
 high / 24 med / 13 low) from a 24-auditor + adversarial-verify Workflow — one atomic
 commit per finding on `Testing` (`c5516e5`→`abd0385`), local only, not tagged or pushed.
 See the "Deep-audit hardening" bullet in the round summary and the 2026-07-15 `Journal.md`
-entry. The product is now Version **`0.1.0`**: changes integrate and pass acceptance on
+entry. The product is now Version **`0.1.1`**: changes integrate and pass acceptance on
 `Testing`, then the exact accepted commit promotes to the Stable `main` branch and receives
-the immutable `v0.1.0` tag. Use `git log -1`, `VERSION`, and the latest `Journal.md` entry for the
+the immutable `v0.1.1` tag. Use `git log -1`, `VERSION`, and the latest `Journal.md` entry for the
 exact current snapshot rather than an embedded HEAD hash. Round 9c (`559ce88`, PR
 #27) is historical;
 `feature/round7-ui-overhaul` (Rounds 7–8) merged via PR #23/#24, Round 9 via PR #25,
@@ -555,10 +617,9 @@ promotion, the owner must provision/protect `main` and make it default, or
 deliberately change all workflow and release references to one different canonical
 branch. No current build is Stable solely because `claude/main` exists.
 
-**Current baseline (2026-07-22):** backend **1982 pytest** passed (0 failures);
-webui **1468 Vitest** specs / 248 files, full docs+app build clean, entry
-chunk **294.80 kB** (motion lands in a **LAZY ~83.85 kB** chunk, never
-modulepreloaded); eslint **0 errors, 0 warnings**; **zero new webui runtime
+**Current baseline (2026-07-30):** backend **2,073 pytest** passed (0 failures);
+webui **1,732 Vitest** specs / 268 files, full docs+app build clean (3,176 modules;
+motion remains lazy and off the entry path); eslint **0 errors, 0 warnings**; **zero new webui runtime
 deps except the deliberate lazy `motion`** (12.42.2). Version 0.1 adds only the
 explicitly pinned connector/SQL packaging dependencies required by its advertised
 `full` image; the `core` image remains available. `engine/case_manager.py` `decide()` stays **byte-identical** to
@@ -663,9 +724,11 @@ a retelling — do not re-derive round detail from here.
   auto-forward to investigation via a deterministic risk gate at
   `risk_score >= auto_investigate_risk_floor` (default 70; below-floor stays a $0
   candidate, never dropped, #4); ALERTS-role feeds bypass the gate and correlate
-  `mode=EVERY`; a per-source per-tick cap (`caps.max_auto_investigations_per_tick=25`)
-  drains cap-deferred candidates on later ticks; investigations sequential; push
-  symmetric with pull; the daily budget is the GLOBAL spend bound. **Autopilot smart
+  `mode=EVERY`; one concurrency-safe global per-tick budget
+  (`caps.max_auto_investigations_per_tick=25`) is shared across concurrent pull sources
+  in the manager fan-out; each direct push batch enforces the same configured cap
+  locally. Cap-deferred candidates drain on later ticks and investigations remain
+  sequential within each handler; the daily budget is the GLOBAL spend bound. **Autopilot smart
   defaults** (default-ON, $0/#3-safe) — threshold tuning (shadow-eval forced on),
   campaigns, cross-source correlation, SLA policy, priority matrix, realtime SSE, the
   threshold-automation engine (empty rule set), baseline (producer + a new

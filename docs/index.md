@@ -13,7 +13,7 @@ reference, and release material live in the same searchable portal.
 
 !!! info "Matched to this app"
 
-    **Documentation 0.1** describes **Agentic SOC 0.1.0**. The application bundles this
+    **Documentation 0.1** describes **Agentic SOC 0.1.1**. The application bundles this
     Help Center from the same accepted source and serves it on the application
     origin under `/docs/0.1/`. Use it as the authority for the behavior and controls
     available in the running build. The channel badge identifies whether that build
@@ -29,9 +29,11 @@ Most readers should begin here.
 | Trace one alert through triage | [Work your first case](getting-started/first-case.md) |
 | Work the split-pane queue or select cases in bulk | [Case Manager](analyst/case-manager.md) |
 | Understand a case assessment and decision | [Investigation](analyst/investigation.md) |
+| Ask a read-only question or resume a saved analyst conversation | [Workspace Chat](analyst/chat.md) |
 | Find source evidence | [Logs and search](analyst/logs-search.md) |
 | Coordinate analyst work | [Collaboration](analyst/collaboration.md) |
 | Build or update a response procedure | [Playbooks and approvals](automation/playbooks-approvals.md) |
+| Add reusable investigation guidance | [Runbooks](intelligence/runbooks.md) |
 | Read posture and performance | [Analytics](analyst/analytics.md) |
 
 If this is your first session, [choose a getting-started path](getting-started/index.md).
@@ -94,14 +96,16 @@ flowchart LR
 
 Start with the [analyst workflow](analyst/overview.md), then continue to
 [cases](analyst/cases.md), [Case Manager](analyst/case-manager.md),
-[investigation](analyst/investigation.md), [logs and search](analyst/logs-search.md),
+[investigation](analyst/investigation.md), [Workspace Chat](analyst/chat.md),
+[logs and search](analyst/logs-search.md),
 [campaigns](analyst/campaigns.md), and [analytics](analyst/analytics.md).
 
 ### Detection engineers
 
 Read [automation](automation/index.md), [rules](automation/rules.md),
 [tuning and baselines](automation/tuning-baselines.md), and
-[playbooks and approvals](automation/playbooks-approvals.md). Source mapping and
+[playbooks and approvals](automation/playbooks-approvals.md). Maintain retrievable
+investigation guidance under [Runbooks](intelligence/runbooks.md). Source mapping and
 custom connector guidance is grouped under [data sources](sources/index.md).
 
 ### Administrators
@@ -138,7 +142,7 @@ does not replace the version-matched Help Center bundled with the application.
 
 Agentic SOC uses one promotion path: feature branches merge into **Testing**, and the
 accepted source tree promotes through a protected pull request to **`main` /
-Stable**. Code and images use SemVer `0.1.0`; compatible documentation uses the
+Stable**. Code and images use SemVer `0.1.1`; compatible documentation uses the
 major.minor line `0.1`.
 
 The current repository has not yet completed its first literal-`main` Stable

@@ -1,7 +1,7 @@
 /**
  * SourceEditor (new UI) — pick a connector, fill its DYNAMIC manifest-driven
  * form, configure advanced triage behaviour (N index patterns + roles, entity
- * strategy, message field), test the saved connection, and save. The reusable
+ * strategy, message field), test the current draft, and save. The reusable
  * unit behind the Sources manager's add/edit flow.
  *
  * Field rendering is driven entirely by the backend manifest's `auth_fields` +
@@ -24,7 +24,6 @@ import {
   CheckCircle2,
   AlertTriangle,
   FileUp,
-  Loader2,
   BookOpen,
   Sparkles,
   SlidersHorizontal,
@@ -42,6 +41,7 @@ import { api, ApiError } from '@/lib/api';
 import { useDemoGuard } from '@/soc/demo';
 import { saveSource, slugify } from '@/lib/connectors';
 import { cn } from '@/lib/cn';
+import { LoadingGlyph, LoadingState } from '@/design-system/loading';
 
 import { Button } from '@/ui/button';
 import { Input } from '@/ui/input';
@@ -80,7 +80,6 @@ import {
 } from '@/ui/accordion';
 
 import { ConnectorPicker } from '@/soc/components/ConnectorPicker';
-import { EmptyState } from '@/soc/components/EmptyState';
 import { HelpTip, ConnectorFieldHelp } from '@/soc/components/HelpTip';
 
 /** Best-effort human message from an unknown thrown value. */
@@ -1070,7 +1069,7 @@ const FeedCard: React.FC<{
                 }}
               >
                 {testing ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                  <LoadingGlyph size="sm" className="size-3.5" />
                 ) : (
                   <Beaker className="h-3.5 w-3.5" aria-hidden />
                 )}
@@ -1572,11 +1571,12 @@ export const SourceEditor: React.FC<SourceEditorProps> = ({
 
   if (!connectors.length) {
     return (
-      <EmptyState
-        icon={Loader2}
-        compact
-        title="Loading connectors…"
-        description="Fetching the connector catalog."
+      <LoadingState
+        label="Loading source catalog"
+        description="Fetching the connectors available to this deployment."
+        layout="panel"
+        shape="panel"
+        className="min-h-[18rem]"
       />
     );
   }
@@ -1784,7 +1784,7 @@ export const SourceEditor: React.FC<SourceEditorProps> = ({
                   disabled={analyzing || !sampleText.trim()}
                 >
                   {analyzing ? (
-                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                    <LoadingGlyph size="sm" className="size-4" />
                   ) : (
                     <Sparkles className="h-4 w-4" aria-hidden />
                   )}
@@ -1861,22 +1861,22 @@ export const SourceEditor: React.FC<SourceEditorProps> = ({
               className={cn(demoGuard.disabled && 'opacity-50')}
             >
               {testing ? (
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                <LoadingGlyph size="sm" className="size-4" />
               ) : (
                 <Beaker className="h-4 w-4" aria-hidden />
               )}
-              Test saved connection
+              Test connection
             </Button>
           </TooltipTrigger>
           <TooltipContent className="max-w-xs">
             {demoGuard.disabled
               ? demoGuard.reason
-              : "Tests the connector's currently SAVED configuration on the server. Values you have just typed here are only tested after you Save."}
+              : 'Tests this draft without saving it. Current configuration and newly typed secret values are sent only to the bounded connection-test endpoint.'}
           </TooltipContent>
         </Tooltip>
         <Button onClick={onSave} disabled={saving}>
           {saving ? (
-            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            <LoadingGlyph size="sm" className="size-4" />
           ) : (
             <Save className="h-4 w-4" aria-hidden />
           )}

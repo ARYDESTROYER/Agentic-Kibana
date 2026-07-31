@@ -45,8 +45,15 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..engine.case_id import SequenceStore
     from ..playbooks.registry import PlaybookRegistry
     from ..stores.memory import MemoryStore
+    from ..stores.tuning import TuningStore
 
 logger = logging.getLogger("tlsoc.agents.pipeline")
+
+# Case spend is displayed at six decimal places.  A ledger sum can legitimately
+# differ from ``round(previous_display + current_raw, 6)`` by one micro-dollar
+# because the previous display value was already rounded.  This is the only
+# tolerance used when proving that an all-time ledger read includes the current run.
+_LEDGER_DISPLAY_EPSILON = 0.000001
 
 # Distinguishes the legacy/default primary query surface from an explicit ``None``.
 # ``None`` means the originating source is push-only and MUST NOT inherit another
@@ -67,6 +74,7 @@ class InvestigationPipeline:
         source: PullConnector | None = None,
         playbooks: "PlaybookRegistry | None" = None,
         memory: "MemoryStore | None" = None,
+        tuning_store: "TuningStore | None" = None,
         seq_store: "SequenceStore | None" = None,
         notifier: Any = None,
         automation: Any = None,
@@ -90,6 +98,12 @@ class InvestigationPipeline:
         # Operator MEMORY store (durable trusted facts auto-injected into every
         # investigation). None → no memory injected (today's behaviour).
         self._memory = memory
+        # Adaptive tuning is DETECTION-THRESHOLD configuration, never model
+        # fine-tuning and never the deterministic close/escalate authority.  The
+        # optional ledger is read only to snapshot the exact active threshold(s)
+        # that this cluster traversed; that append-only audit snapshot lets the UI
+        # explain historical cases even after a later tune or rollback.
+        self._tuning_store = tuning_store
         # Case-number sequence store (F7). None → case_number stays "" and the UI
         # falls back to case_id (today's behaviour).
         self._seq_store = seq_store
@@ -272,6 +286,111 @@ class InvestigationPipeline:
             logger.warning("Case-number allocation failed (%s); falling back to case_id", exc)
             return ""
 
+    async def _platform_tuning_snapshot(
+        self, cluster: Cluster, prefs: Preferences
+    ) -> dict[str, Any]:
+        """Snapshot adaptive thresholds actually present on this cluster's path.
+
+        This is explainability-only.  It reads the active tuning ledger and the
+        already-computed cluster/config; it never mutates a threshold, risk, verdict,
+        or case route.  Matching is deliberately strict so the UI never claims a
+        tenant-wide tune affected an unrelated case:
+
+        * ``correlation_n`` must match a threshold-mode primary trigger AND the
+          ``n`` recorded in ``TriggerReason``;
+        * ``severity_floor`` must match a contributing ``source:feed`` AND the
+          current per-feed floor used by ingestion.
+
+        Ledger availability is explicit.  An unavailable store is not silently
+        presented as "no tuning".
+        """
+        if self._tuning_store is None:
+            return {"status": "not_recorded", "records": []}
+        try:
+            entries = await self._tuning_store.list_strict(active_only=True)
+        except Exception as exc:  # noqa: BLE001 — provenance is advisory/fail-open
+            logger.warning("Loading platform-tuning provenance failed (%s)", exc)
+            return {"status": "unavailable", "records": []}
+
+        trigger = cluster.trigger_reason
+        primary_rule = (trigger.rule_value if trigger and trigger.rule_value else None)
+        trigger_n = int(trigger.n) if trigger and trigger.n else None
+        trigger_mode = str(trigger.mode if trigger and trigger.mode else "")
+
+        # Preserve the source/feed PAIR carried by each member.  ``source_ids`` and
+        # ``feed_ids`` are independently de-duplicated lists, so taking their cross
+        # product can falsely attribute ``source-a:feed-b`` when feed-b actually came
+        # from source-b.  Older clusters may not retain member-level provenance; only
+        # fall back to the aggregate feed list when exactly one source contributed.
+        contributing_sources = set(cluster.source_ids or [])
+        if cluster.source_id:
+            contributing_sources.add(cluster.source_id)
+        exact_feed_pairs: set[tuple[str, str]] = set()
+        sole_source = next(iter(contributing_sources)) if len(contributing_sources) == 1 else ""
+        for event in cluster.member_events or []:
+            event_source = str(event.source_id or sole_source or "")
+            event_feed = str(event.feed_id or "")
+            if event_source and event_feed:
+                exact_feed_pairs.add((event_source, event_feed))
+        if not exact_feed_pairs and sole_source:
+            exact_feed_pairs.update(
+                (sole_source, str(feed_id))
+                for feed_id in (cluster.feed_ids or [])
+                if str(feed_id)
+            )
+
+        feed_floors: dict[str, int] = {}
+        if exact_feed_pairs:
+            for source in prefs.sources:
+                if source.id not in {source_id for source_id, _ in exact_feed_pairs}:
+                    continue
+                try:
+                    feeds = source.feeds()
+                except Exception:  # noqa: BLE001 — malformed source stays isolated
+                    continue
+                for feed in feeds:
+                    if (
+                        (source.id, feed.id) in exact_feed_pairs
+                        and feed.severity_floor is not None
+                    ):
+                        feed_floors[f"{source.id}:{feed.id}"] = int(feed.severity_floor)
+
+        snapshots: list[dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+        for record in entries:  # newest first; keep one effective record per knob
+            target = str(getattr(record, "target", "") or "")
+            rule_id = str(getattr(record, "rule_id", "") or "")
+            key = (target, rule_id)
+            if target not in {"correlation_n", "severity_floor"} or not rule_id or key in seen:
+                continue
+            # Only the newest active ledger row for a knob can describe its current
+            # provenance.  A newer non-matching row means the older value is stale;
+            # do not skip past it and accidentally resurrect historical attribution.
+            seen.add(key)
+            after = int(getattr(record, "after", 0) or 0)
+            applies = False
+            if target == "correlation_n":
+                applies = bool(
+                    trigger_mode == "threshold"
+                    and primary_rule
+                    and rule_id == primary_rule
+                    and trigger_n == after
+                )
+            elif target == "severity_floor":
+                applies = rule_id in feed_floors and feed_floors[rule_id] == after
+            if not applies:
+                continue
+            snapshots.append({
+                "record_id": str(getattr(record, "id", "") or ""),
+                "target": target,
+                "rule_id": rule_id,
+                "before": int(getattr(record, "before", 0) or 0),
+                "after": after,
+                "applied_at": str(getattr(record, "applied_at", "") or ""),
+                "rationale": truncate(str(getattr(record, "rationale", "") or ""), 300),
+            })
+        return {"status": "recorded", "records": snapshots}
+
     async def investigate_cluster(
         self,
         cluster: Cluster,
@@ -381,6 +500,7 @@ class InvestigationPipeline:
                     playbook_reason = f"forced_missing:{force_playbook_id}"
             elif prefs.playbooks.enabled and self._playbooks is not None:
                 playbook, playbook_reason = self._playbooks.select(cluster)
+            platform_tuning = await self._platform_tuning_snapshot(cluster, prefs)
             await self._audit.record(
                 action_type=ActionType.DECISION, surface=source_surface.value,
                 actor="playbook_selector", case_id=case_id,
@@ -388,6 +508,19 @@ class InvestigationPipeline:
                     f"playbook={f'{playbook.id} v{playbook.version}' if playbook else 'none'} "
                     f"persona={persona.id} reason={playbook_reason}"
                 ),
+                tool_input={
+                    "playbook_selection": (
+                        {
+                            "id": playbook.id,
+                            "version": playbook.version,
+                            "reason": playbook_reason,
+                            "forced": bool(force_playbook_id),
+                        }
+                        if playbook is not None
+                        else None
+                    ),
+                    "platform_tuning": platform_tuning,
+                },
             )
             # Live progress: the specialist persona + playbook are selected.
             self._emit_step(
@@ -477,6 +610,25 @@ class InvestigationPipeline:
                 persona_id=persona.id, playbook_id=(playbook.id if playbook else ""),
                 case_number=case_number,
             )
+            # ``Case.token_cost`` is a rounded cumulative presentation field. Adding
+            # a new raw run cost to the previously rounded value can drift by a
+            # micro-dollar across re-investigations (especially with low-cost models).
+            # Reconcile from the all-time authoritative ledger after this run's rows
+            # have landed. Elasticsearch is near-real-time, so an immediate search
+            # may still expose only the previous run. Adopt a lower (rounding-correct)
+            # ledger total only when it is within one display micro-dollar of the
+            # assembled total AND has advanced beyond the prior case value. Otherwise
+            # preserve the current run's fail-soft cost; a stale read must never erase
+            # newly realised spend.
+            recorded_cost = await self._gateway.recorded_case_pipeline_cost(case_id)
+            prior_cost = existing.token_cost if existing else 0.0
+            ledger_proves_current_run = bool(
+                recorded_cost is not None
+                and recorded_cost + _LEDGER_DISPLAY_EPSILON >= case.token_cost
+                and (cost <= 0.0 or recorded_cost > prior_cost)
+            )
+            if ledger_proves_current_run:
+                case.token_cost = recorded_cost
             CaseManager(prefs).apply(case)
             await self._cases.save(case)
             await self._audit.record(

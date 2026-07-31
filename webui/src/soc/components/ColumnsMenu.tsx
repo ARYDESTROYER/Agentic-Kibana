@@ -14,6 +14,7 @@ import * as React from 'react';
 import { Columns3, RotateCcw, ChevronUp, ChevronDown } from 'lucide-react';
 import { Button } from '@/ui/button';
 import { Checkbox } from '@/ui/checkbox';
+import { IconButton } from './IconButton';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -134,24 +135,26 @@ export const ColumnsMenu: React.FC<ColumnsMenuProps> = ({
                 />
                 <span className="flex-1 truncate">{col.label}</span>
                 <div className="flex items-center">
-                  <button
-                    type="button"
-                    className="rounded p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-30"
+                  <IconButton
+                    label={`Move ${col.label} up`}
+                    tooltip={false}
+                    size="sm"
+                    className="rounded [&_svg]:size-3.5 disabled:opacity-30"
                     disabled={i === 0}
-                    aria-label={`Move ${col.label} up`}
                     onClick={() => move(id, -1)}
                   >
                     <ChevronUp className="size-3.5" aria-hidden />
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-30"
+                  </IconButton>
+                  <IconButton
+                    label={`Move ${col.label} down`}
+                    tooltip={false}
+                    size="sm"
+                    className="rounded [&_svg]:size-3.5 disabled:opacity-30"
                     disabled={i === ids.length - 1}
-                    aria-label={`Move ${col.label} down`}
                     onClick={() => move(id, 1)}
                   >
                     <ChevronDown className="size-3.5" aria-hidden />
-                  </button>
+                  </IconButton>
                 </div>
               </div>
             );

@@ -6,7 +6,7 @@
  * the Metrics page (which had its OWN three tabs) plus a duplicate Cost tab. That
  * double strip is gone: `Metrics` now owns the ONE consolidated strip —
  *
- *   Operational | Performance | Posture | Cost
+ *   Operational | Performance | Posture | Effectiveness | Cost
  *
  * — with Cost folded in as the single spend home. This host is a thin shell that
  * renders the unified page header and threads the route tab through so `#/metrics`
@@ -24,7 +24,7 @@ import Metrics from './Metrics';
 
 export interface AnalyticsProps {
   onNavigate?: Navigate;
-  /** Active sub-tab from the route opts ('operational' | 'performance' | 'posture' | 'cost'). */
+  /** Active sub-tab from route opts (operational/performance/posture/effectiveness/cost). */
   tab?: string;
 }
 
@@ -39,7 +39,7 @@ export default function Analytics({ onNavigate, tab }: AnalyticsProps = {}) {
       <PageHeader
         icon={BarChart3}
         title="Analytics"
-        description="Triage performance, security posture, and LLM spend — the metrics, the posture rollup, and the cost ledger in one place."
+        description="Triage performance, observed agent-assisted outcomes, security posture, and LLM spend in one evidence-led workspace."
       />
       <Metrics
         embedded

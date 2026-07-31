@@ -5,8 +5,7 @@
  *
  *   ┌ MASTHEAD ─── a PLAIN, dense <PageHeader> (no card / no glow — the big title sits
  *   │             flush on the page background, like the Sources page) carrying the
- *   │             <TimeRangePicker> + auto-refresh + a manual refresh pulse, with the last
- *   │             poll timestamp kept alongside the title and an optional SLA chip in `meta`.
+ *   │             <TimeRangePicker> + auto-refresh + a manual refresh pulse in its actions.
  *   ├ KPI STRIP ── five borderless alert/case telemetry cells separated by hairlines.
  *   ├ INSTRUMENT ── one integrated 12-column band: Active Risk Index (#1 — the ONE risk
  *   │             instrument), resolved/open donut snapshots, and the latest-case queue.
@@ -19,8 +18,10 @@
  * (MTTA/MTTR/dwell/MTTD p50 + SLA + quality rates + period-over-period deltas).
  * `listCases` (current + previous window), `getMetrics` (burndown + timing_trend +
  * by_status), `usageSummary`, and `noiseReduction` are fetched with allSettled so one
- * failing call degrades a single widget, never the page. `noiseReduction` is typeof-
- * guarded so a minimal test/mock surface simply omits the funnel.
+ * failing call degrades a single widget, never the page. Usage and Noise Reduction keep
+ * independent availability/error state: a failed refresh retains the last usable value,
+ * names the unavailable slice, and offers a slice-only Retry. `noiseReduction` is typeof-
+ * guarded so a minimal test/mock surface can still omit the optional funnel contract.
  *
  * Security (#9): every label/value here is a humanized enum, a formatted number, or
  * backend-derived text rendered as PLAIN text. No untrusted string is injected as markup.
@@ -61,6 +62,7 @@ import { cn } from '@/lib/cn';
 
 import { PageContainer } from '@/soc/components/PageContainer';
 import { PageHeader } from '@/soc/components/PageHeader';
+import { LoadingState } from '@/design-system';
 import {
   TimeRangePicker,
   DEFAULT_RANGE,
@@ -89,7 +91,6 @@ import { usePosture } from '@/soc/hooks/usePosture';
 import { Card, CardContent } from '@/ui/card';
 import { Badge } from '@/ui/badge';
 import { Button } from '@/ui/button';
-import { Skeleton } from '@/ui/skeleton';
 
 import {
   humanizeMinutes as humanizeMins,
@@ -114,6 +115,13 @@ interface OverviewProps {
    * prop), it resolves from the router context via `useNavigateOptional()`.
    */
   onNavigate?: Navigate;
+}
+
+type SliceAvailability = 'loading' | 'available' | 'unavailable' | 'unsupported';
+
+interface SliceLoadState {
+  availability: SliceAvailability;
+  error: unknown | null;
 }
 
 /**
@@ -741,9 +749,17 @@ export default function Overview({ onNavigate }: OverviewProps) {
   const [usage, setUsage] = React.useState<UsageSummary | null>(null);
   const [noise, setNoise] = React.useState<NoiseReduction | null>(null);
   const [coverage, setCoverage] = React.useState<SourceCoverage | null>(null);
+  const noiseSupported = typeof api.noiseReduction === 'function';
+  const [usageLoad, setUsageLoad] = React.useState<SliceLoadState>({
+    availability: 'loading',
+    error: null,
+  });
+  const [noiseLoad, setNoiseLoad] = React.useState<SliceLoadState>(() => ({
+    availability: noiseSupported ? 'loading' : 'unsupported',
+    error: null,
+  }));
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<unknown>(null);
-  const [lastRefreshMs, setLastRefreshMs] = React.useState<number | null>(null);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -752,7 +768,7 @@ export default function Overview({ onNavigate }: OverviewProps) {
       // The Noise-Reduction funnel is typeof-guarded so a minimal test/mock surface
       // (no `noiseReduction`) simply resolves null and the funnel band self-omits.
       const noiseP: Promise<NoiseReduction | null> =
-        typeof api.noiseReduction === 'function'
+        noiseSupported
           ? api.noiseReduction(hours)
           : Promise.resolve(null);
       // The aggregate coverage rollup (A5.5). typeof-guarded exactly like `noiseReduction`
@@ -775,21 +791,40 @@ export default function Overview({ onNavigate }: OverviewProps) {
       ]);
       if (c.status === 'fulfilled') setCases(c.value.cases ?? []);
       if (m.status === 'fulfilled') setMetrics(m.value);
-      if (u.status === 'fulfilled') setUsage(u.value);
-      if (n.status === 'fulfilled') setNoise(n.value ?? null);
+      if (u.status === 'fulfilled') {
+        setUsage(u.value);
+        setUsageLoad({ availability: 'available', error: null });
+      } else {
+        // Preserve the last valid summary, but make the failed current read explicit.
+        setUsageLoad({
+          availability: 'unavailable',
+          error: u.reason ?? new Error('Failed to load LLM spend.'),
+        });
+      }
+      if (!noiseSupported) {
+        setNoiseLoad({ availability: 'unsupported', error: null });
+      } else if (n.status === 'fulfilled') {
+        setNoise(n.value ?? null);
+        setNoiseLoad({ availability: 'available', error: null });
+      } else {
+        // Keep the last valid funnel mounted while reporting the failed refresh.
+        setNoiseLoad({
+          availability: 'unavailable',
+          error: n.reason ?? new Error('Failed to load noise reduction.'),
+        });
+      }
       if (cov.status === 'fulfilled') setCoverage(cov.value ?? null);
       setPrevCases(pc.status === 'fulfilled' ? pc.value.cases ?? [] : null);
       // Only surface a page-level error if the load is wholly empty.
       if (c.status === 'rejected' && m.status === 'rejected') {
         setError(c.reason ?? m.reason ?? new Error('Failed to load dashboard data.'));
       }
-      setLastRefreshMs(Date.now());
     } catch (e) {
       setError(e);
     } finally {
       setLoading(false);
     }
-  }, [hours]);
+  }, [hours, noiseSupported]);
 
   React.useEffect(() => {
     void load();
@@ -798,6 +833,29 @@ export default function Overview({ onNavigate }: OverviewProps) {
   // Server-side posture rollup — the AUTHORITATIVE lifecycle (MTTA/MTTR/dwell/MTTD p50 +
   // SLA + quality rates). `'prev'` also asks for the period-over-period `compare` block.
   const { data: posture, reload: reloadPosture } = usePosture(hours, 'prev');
+
+  /** Retry only the LLM spend slice; healthy dashboard siblings never reload or blank. */
+  const retryUsage = React.useCallback(async () => {
+    try {
+      const next = await api.usageSummary(hours);
+      setUsage(next);
+      setUsageLoad({ availability: 'available', error: null });
+    } catch (nextError) {
+      setUsageLoad({ availability: 'unavailable', error: nextError });
+    }
+  }, [hours]);
+
+  /** Retry only the Noise Reduction slice; retain any last usable funnel on failure. */
+  const retryNoise = React.useCallback(async () => {
+    if (!noiseSupported) return;
+    try {
+      const next = await api.noiseReduction(hours);
+      setNoise(next ?? null);
+      setNoiseLoad({ availability: 'available', error: null });
+    } catch (nextError) {
+      setNoiseLoad({ availability: 'unavailable', error: nextError });
+    }
+  }, [hours, noiseSupported]);
 
   /** One refresh pulse for the whole dashboard (control-bar button + auto-refresh tick). */
   const refreshAll = React.useCallback(() => {
@@ -1211,11 +1269,13 @@ export default function Overview({ onNavigate }: OverviewProps) {
       if (!navigate) return;
       switch (key) {
         case 'escalated':
-          navigate('cases', { status: 'escalated', window: navWindow });
+          navigate('cases', { noiseOutcome: 'escalated', window: navWindow });
           break;
         case 'auto_cleared':
+          navigate('cases', { noiseOutcome: 'auto_cleared', window: navWindow });
+          break;
         case 'closed':
-          navigate('cases', { status: 'closed', window: navWindow });
+          navigate('cases', { noiseOutcome: 'closed', window: navWindow });
           break;
         default:
           navigate('cases', { window: navWindow });
@@ -1225,7 +1285,6 @@ export default function Overview({ onNavigate }: OverviewProps) {
   );
 
   // ----- The header control cluster --------------------------------------- //
-  const lastUpdated = lastRefreshMs ? humanizeAge(new Date(lastRefreshMs).toISOString()) : null;
   const headerControls = (
     <>
       <TimeRangePicker
@@ -1243,69 +1302,54 @@ export default function Overview({ onNavigate }: OverviewProps) {
         onClick={refreshAll}
         aria-label="Refresh dashboard"
         title="Refresh"
-        className="h-8 w-8 rounded-[3px] border-border/70 bg-transparent text-muted-foreground shadow-none hover:border-border-strong hover:bg-hover hover:text-foreground"
+        className={cn(
+          'h-8 w-8 rounded-[3px] border-border/70 bg-transparent text-muted-foreground shadow-none hover:border-border-strong hover:bg-hover hover:text-foreground',
+          refresh === 'live' && 'text-success-text hover:text-success-text',
+        )}
       >
-        <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} aria-hidden />
+        <RefreshCw
+          className={cn('h-4 w-4', (loading || refresh === 'live') && 'animate-spin')}
+          aria-hidden
+        />
       </Button>
     </>
   );
 
-  // ----- Loading skeleton (mirrors the final dense layout in lockstep) ---- //
+  // ----- Blocking load uses the Console's one centered motion grammar. ---- //
   if (loading && !cases.length && !metrics) {
     return (
       <PageContainer variant="wide">
-        <div className="space-y-4" aria-busy="true" aria-label="Loading dashboard">
-          <Skeleton className="h-14 w-full rounded-lg" />
-          <div
-            data-testid="kpi-strip-skeleton"
-            className="grid grid-cols-2 border-y border-border md:grid-cols-3 xl:grid-cols-5"
-          >
-            {Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="border-r border-border p-4 last:border-r-0">
-                <Skeleton className="h-20 rounded-md" />
-              </div>
-            ))}
-          </div>
-          <div
-            data-testid="hero-skeleton-row"
-            className="grid border-b border-border lg:grid-cols-3 lg:divide-x lg:divide-border"
-          >
-            {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="p-3">
-                <Skeleton className="h-44 rounded-sm" />
-              </div>
-            ))}
-          </div>
-          <div
-            data-testid="operations-skeleton-row"
-            className="grid border-b border-border xl:grid-cols-12"
-          >
-            <div className="p-4 xl:col-span-8 xl:border-r xl:border-border">
-              <Skeleton data-testid="noise-skeleton-row" className="h-52 w-full rounded-md" />
-            </div>
-            <div data-testid="zonec-skeleton-row" className="space-y-4 p-4 xl:col-span-4">
-              <Skeleton className="h-32 rounded-md" />
-              <Skeleton className="h-16 rounded-md" />
-            </div>
-          </div>
-          <Skeleton data-testid="deeper-analytics-skeleton" className="h-9 w-64 rounded-md" />
-        </div>
+        <LoadingState label="Loading dashboard" layout="page" shape="page" />
       </PageContainer>
     );
   }
 
   const empty = !loading && !error && cases.length === 0 && !metrics?.total_cases;
+  const noiseUnavailable = noiseLoad.availability === 'unavailable';
+  const noiseCellVisible = Boolean(noise) || noiseUnavailable;
+  const usageUnavailable = usageLoad.availability === 'unavailable';
+  const usageFailureSub = usage
+    ? `Last loaded ${fmtMoney(usage.total_cost, usage.currency)} · Retry spend telemetry`
+    : 'Retry spend telemetry';
 
   return (
     <PageContainer variant="wide" className="space-y-4">
       {/* ---- MASTHEAD: a PLAIN, dense header (the big title sits flush on the page
              background, like the Sources page) with the time-range + refresh controls in
-             its `actions` slot and an optional SLA chip in `meta`. ---- */}
+             its `actions` slot. ---- */}
       <PageHeader
         data-testid="page-hero"
         title={PAGE_TITLE}
-        description={lastUpdated ? `Last polled ${lastUpdated}` : 'Live operational posture'}
-        actions={headerControls}
+        description="Live operational posture across triage, risk, and response."
+        actions={
+          <div
+            role="group"
+            aria-label="Dashboard controls"
+            className="flex flex-wrap items-center gap-2"
+          >
+            {headerControls}
+          </div>
+        }
       />
 
       {/* Recommended-automation nudge — only in the non-empty state, only for a
@@ -1326,25 +1370,21 @@ export default function Overview({ onNavigate }: OverviewProps) {
       ) : null}
 
       {empty ? (
-        <Card>
-          <CardContent className="pt-6">
-            <EmptyState
-              icon={Gauge}
-              title="No triage activity yet"
-              description="Once sources are connected and cases start flowing, your posture, risk index, and timing metrics will appear here."
-              action={
-                <>
-                  {navigate ? (
-                    <Button onClick={() => navigate('sources')}>Connect a source</Button>
-                  ) : null}
-                  <StartDemoButton onStarted={refreshAll} />
-                </>
-              }
-            />
-          </CardContent>
-        </Card>
+        <EmptyState
+          icon={Gauge}
+          title="No triage activity yet"
+          description="Once sources are connected and cases start flowing, your posture, risk index, and timing metrics will appear here."
+          action={
+            <>
+              {navigate ? (
+                <Button onClick={() => navigate('sources')}>Connect a source</Button>
+              ) : null}
+              <StartDemoButton onStarted={refreshAll} />
+            </>
+          }
+        />
       ) : (
-        <div className="animate-fade-in space-y-4">
+        <div className="space-y-4">
           {/* ---- KPI STRIP — flat, un-nested, responsive by COLUMN COUNT ---- */}
           <div className="space-y-1.5">
             <Stagger
@@ -1439,24 +1479,50 @@ export default function Overview({ onNavigate }: OverviewProps) {
             delay={70}
             className="grid min-w-0 border-b border-border/70 xl:grid-cols-12"
           >
-            {noise ? (
+            {noiseCellVisible ? (
               <div className="min-w-0 border-b border-border/70 p-4 xl:col-span-8 xl:border-b-0 xl:border-r">
-                <NoiseFunnel
-                  data={noise}
-                  onStageClick={onStageClick}
-                  hidden={noiseHidden}
-                  onToggleHidden={toggleNoiseHidden}
-                  expandable
-                  variant="flat"
-                  className="w-full"
-                />
+                {noiseUnavailable ? (
+                  <EmptyState
+                    data-testid="noise-reduction-unavailable"
+                    icon={Workflow}
+                    variant="error"
+                    compact
+                    title="Noise reduction unavailable"
+                    description={
+                      noise
+                        ? 'Refresh failed. Showing the last loaded flow.'
+                        : "The selected window's noise-reduction flow could not be loaded."
+                    }
+                    action={
+                      <Button size="sm" variant="outline" onClick={() => void retryNoise()}>
+                        <RefreshCw aria-hidden />
+                        Retry noise reduction
+                      </Button>
+                    }
+                    className={cn(
+                      'rounded-md border border-critical/30 bg-transparent',
+                      noise && 'mb-3',
+                    )}
+                  />
+                ) : null}
+                {noise ? (
+                  <NoiseFunnel
+                    data={noise}
+                    onStageClick={onStageClick}
+                    hidden={noiseHidden}
+                    onToggleHidden={toggleNoiseHidden}
+                    expandable
+                    variant="flat"
+                    className="w-full"
+                  />
+                ) : null}
               </div>
             ) : null}
 
             <div
               className={cn(
                 'min-w-0',
-                noise ? 'xl:col-span-4' : 'md:grid md:grid-cols-2 xl:col-span-12',
+                noiseCellVisible ? 'xl:col-span-4' : 'md:grid md:grid-cols-2 xl:col-span-12',
               )}
             >
               <section aria-label="Cases burndown" className="border-b border-border/70 p-4 md:border-r xl:border-r-0">
@@ -1552,16 +1618,25 @@ export default function Overview({ onNavigate }: OverviewProps) {
                 variant="bar"
                 testId="llm-spend-detail"
                 label="LLM spend"
-                value={fmtMoney(usage?.total_cost, usage?.currency)}
+                value={usageUnavailable ? 'Unavailable' : fmtMoney(usage?.total_cost, usage?.currency)}
                 sub={
-                  typeof usage?.total_tokens === 'number'
+                  usageUnavailable
+                    ? usageFailureSub
+                    : typeof usage?.total_tokens === 'number'
                     ? `${fmtTokens(usage.total_tokens)} tokens · ${fmtNumber(usage.call_count)} calls`
                     : 'No spend recorded'
                 }
                 icon={CircleDollarSign}
-                accent="primary"
+                accent={usageUnavailable ? 'critical' : 'primary'}
                 goodDirection="down"
-                onClick={navigate ? () => navigate('metrics', { tab: 'cost' }) : undefined}
+                onClick={
+                  usageUnavailable
+                    ? () => void retryUsage()
+                    : navigate
+                      ? () => navigate('metrics', { tab: 'cost' })
+                      : undefined
+                }
+                className={usageUnavailable ? 'border-critical/30' : undefined}
               />
             </div>
 

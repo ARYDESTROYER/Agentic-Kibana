@@ -10,7 +10,7 @@
  * Fully offline — no network, no real providers beyond the mocked auth.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within, act } from '@testing-library/react';
 
 const { fetchReportMock } = vi.hoisted(() => ({ fetchReportMock: vi.fn() }));
 
@@ -133,6 +133,44 @@ describe('Standup shift handoff (Round 3 / F11)', () => {
   // so a case that installs a fake clipboard does not leak into the others.
   afterEach(() => {
     Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
+  });
+
+  it('uses one shared blocking loader, then keeps the snapshot mounted during refresh', async () => {
+    let resolveInitial: (value: StandupReport) => void = () => {};
+    fetchReportMock.mockReturnValueOnce(
+      new Promise<StandupReport>((resolve) => {
+        resolveInitial = resolve;
+      }),
+    );
+
+    const { container } = render(<Standup onNavigate={vi.fn()} />);
+
+    expect(
+      await screen.findByRole('status', { name: 'Loading shift handoff' }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByTestId('console-loading-glyph')).toHaveLength(1);
+    expect(container.querySelector('.animate-pulse')).toBeNull();
+
+    await act(async () => {
+      resolveInitial(REPORT);
+    });
+    await screen.findByText('Suspicious PowerShell on host-12');
+
+    let resolveRefresh: (value: StandupReport) => void = () => {};
+    fetchReportMock.mockReturnValueOnce(
+      new Promise<StandupReport>((resolve) => {
+        resolveRefresh = resolve;
+      }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: /^refresh$/i }));
+
+    await waitFor(() => expect(fetchReportMock).toHaveBeenCalledTimes(2));
+    expect(screen.getByText('Suspicious PowerShell on host-12')).toBeInTheDocument();
+    expect(screen.queryByRole('status', { name: 'Loading shift handoff' })).toBeNull();
+
+    await act(async () => {
+      resolveRefresh(REPORT);
+    });
   });
 
   it('renders the urgency-ranked attention queue with deep-link rows', async () => {

@@ -6,6 +6,9 @@
  *      reload in the BACKGROUND (no `loading` flip), so the rows stay on screen.
  * #41: the "Custom roles" chip group used a bare <Label> associated with nothing. FIX:
  *      a labelled `role="group"` so the toggle-chip set has an accessible name.
+ * #42: the base-role Select mounted uncontrolled, then became controlled when the
+ *      selected user was copied into dialog state. FIX: keep it controlled from its
+ *      first render so Radix never observes a mode change.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
@@ -129,5 +132,25 @@ describe('Users admin page', () => {
     // The chip set is a labelled group (not a dangling <label>).
     const group = await screen.findByRole('group', { name: /custom roles/i });
     expect(group).toBeInTheDocument();
+  });
+
+  it('keeps the assign-role Select controlled while the dialog opens (#42)', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      renderUsers();
+      await screen.findByText('alice');
+
+      fireEvent.click(screen.getByRole('button', { name: /manage roles for alice/i }));
+
+      const baseRole = await screen.findByRole('combobox', { name: /base role/i });
+      await waitFor(() => expect(baseRole).toHaveTextContent('Analyst — Tier 1'));
+
+      const emitted = errorSpy.mock.calls.flat().map(String).join('\n');
+      expect(emitted).not.toContain('uncontrolled to controlled');
+      expect(emitted).not.toContain('controlled to uncontrolled');
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 });

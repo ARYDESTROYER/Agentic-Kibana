@@ -11,6 +11,8 @@
  *   - Posture     : aging buckets + SLA breach/at-risk + the MITRE ATT&CK coverage
  *                   heatmap (with the Navigator-layer export note). This is the SINGLE
  *                   home for lifecycle timing + SLA (Overview/Standup link here).
+ *   - Effectiveness: aggregate-only observed outcome comparisons, evidence quality,
+ *                   and safety guardrails. No synthetic score or learning claim.
  *   - Cost        : the LLM spend ledger — the SINGLE cost home. Every scattered cost
  *                   tile/view folds in here (the former standalone Cost page, hosted).
  *
@@ -57,19 +59,20 @@ import { cn } from '@/lib/cn';
 
 import { Card, CardContent } from '@/ui/card';
 import { Button } from '@/ui/button';
-import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
-import { Skeleton, SkeletonCard } from '@/ui/skeleton';
 import { Separator } from '@/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/ui/tabs';
 
+import { LoadingState } from '@/design-system';
 import { PageContainer } from '@/soc/components/PageContainer';
 import { PageHeader } from '@/soc/components/PageHeader';
+import { ControlBar } from '@/soc/components/ControlBar';
 import { ChartCard, ChartEmpty } from '@/soc/components/ChartCard';
 import { SegmentedControl } from '@/soc/components/SegmentedControl';
 import { KpiTile, type KpiAccent, type KpiGoodDirection } from '@/soc/components/KpiTile';
 import { StatCard, type StatAccent } from '@/soc/components/StatCard';
 import { BarList, type BarListItem } from '@/soc/components/BarList';
 import { EmptyState } from '@/soc/components/EmptyState';
+import { LoadError } from '@/soc/components/LoadError';
 import { Stagger } from '@/soc/components/Stagger';
 import { InlineCode } from '@/soc/components/CodeBlock';
 import {
@@ -89,6 +92,7 @@ import {
   type PostureResponse,
 } from './Metrics.posture.api';
 import { deltaView, humanizeMinutes as humanizeMins, ratioPct } from './posture.format';
+import AgentEffectiveness from './AgentEffectiveness';
 import Cost from './Cost';
 
 // --------------------------------------------------------------------------- //
@@ -102,13 +106,17 @@ const WINDOWS = [
 
 type WindowId = (typeof WINDOWS)[number]['id'];
 type RankSort = 'count' | 'alpha';
-type MetricsTab = 'operational' | 'performance' | 'posture' | 'cost';
+type MetricsTab = 'operational' | 'performance' | 'posture' | 'effectiveness' | 'cost';
 
 // ONE responsive column formula per grid archetype (G4 density): KPI strips widen
 // by column COUNT up to 6 on ultrawide (`wide` container), and content-card grids
 // climb 1→2→3→4 across breakpoints. Reused everywhere so the page has a single,
 // consistent reflow rhythm instead of ad-hoc per-grid formulas.
-const KPI_GRID = 'grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-6';
+const KPI_GRID =
+  'grid grid-cols-2 border-y border-border/70 sm:grid-cols-3 xl:grid-cols-6 ' +
+  '[&>*:nth-child(odd)]:border-l-0 sm:[&>*:nth-child(odd)]:border-l sm:[&>*:nth-child(3n+1)]:border-l-0 ' +
+  'xl:[&>*]:border-l xl:[&>*:first-child]:border-l-0';
+const KPI_ITEM = 'h-full min-w-0 border-l border-border/70';
 const CARD_GRID = 'grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4';
 
 /** Humanize a minutes value to a compact "Xd Yh" / "Xh Ym" / "Xm" string. */
@@ -152,24 +160,6 @@ function tacticLabel(tacticId: string): string {
 }
 
 // --------------------------------------------------------------------------- //
-// Loading skeleton (operational tab)
-// --------------------------------------------------------------------------- //
-const MetricsSkeleton: React.FC = () => (
-  <div className="space-y-6" aria-busy="true" aria-label="Loading analytics">
-    <div className={KPI_GRID}>
-      {Array.from({ length: 6 }).map((_, i) => (
-        <SkeletonCard key={i} lines={1} />
-      ))}
-    </div>
-    <div className={CARD_GRID}>
-      {Array.from({ length: 4 }).map((_, i) => (
-        <Skeleton key={i} className="h-[260px] w-full rounded-lg" />
-      ))}
-    </div>
-  </div>
-);
-
-// --------------------------------------------------------------------------- //
 // Small section card with an icon + title — promoted to `soc/components/ChartCard`
 // (Round 5 / G7) so the custom-dashboard widgets and Metrics share ONE card chrome.
 // `ChartCard` + `ChartEmpty` are imported above; behaviour is byte-identical.
@@ -178,7 +168,13 @@ const MetricsSkeleton: React.FC = () => (
 // --------------------------------------------------------------------------- //
 // Page
 // --------------------------------------------------------------------------- //
-const METRICS_TABS: readonly MetricsTab[] = ['operational', 'performance', 'posture', 'cost'];
+const METRICS_TABS: readonly MetricsTab[] = [
+  'operational',
+  'performance',
+  'posture',
+  'effectiveness',
+  'cost',
+];
 
 /** Resolve a possibly-undefined route tab into a known MetricsTab (default operational). */
 function coerceTab(v: string | undefined): MetricsTab {
@@ -263,9 +259,17 @@ export default function MetricsPage({
     }
   }, [hours]);
 
+  const usesAgentEvidenceEndpoint = tab === 'effectiveness';
   React.useEffect(() => {
+    // Effectiveness owns a distinct, aggregate-only endpoint and must not depend on
+    // the generic metrics rollup succeeding. It loads itself only while its tab is
+    // mounted; switching back starts the normal windowed analytics request.
+    if (usesAgentEvidenceEndpoint) {
+      setLoading(false);
+      return;
+    }
     void load();
-  }, [load]);
+  }, [load, usesAgentEvidenceEndpoint]);
 
   // ---- derived series (operational) ------------------------------------- //
   const verdictSegments = React.useMemo<DonutSegment[]>(() => {
@@ -362,7 +366,7 @@ export default function MetricsPage({
   // the TabsList — no separate control band. The Cost tab owns its OWN window +
   // refresh controls (a different endpoint on its own cadence), so the shared
   // window/sort/refresh row is suppressed there to avoid two competing selectors.
-  const tabRowControls = tab === 'cost' ? null : (
+  const tabRowControls = tab === 'cost' || tab === 'effectiveness' ? null : (
     <>
       <SegmentedControl<WindowId>
         aria-label="Time window"
@@ -545,27 +549,28 @@ export default function MetricsPage({
   // ----- operational tab body -------------------------------------------- //
   const operationalBody =
     loading && !data ? (
-      <MetricsSkeleton />
+      <LoadingState label="Loading operational metrics" layout="page" shape="page" />
     ) : error && !hasAny ? (
       // A load failure already renders the destructive Alert above; don't ALSO show the
       // misleading "No cases yet" empty state (the two contradict each other).
       null
     ) : !hasAny ? (
       <div className="space-y-6">
-        <Card>
-          <CardContent className="py-4">
-            <EmptyState
-              icon={BarChart3}
-              title="No cases yet"
-              description={`Nothing has been triaged in the last ${windowLabel}. As the agent processes alerts, volume, verdicts and feedback analytics will appear here.`}
-            />
-          </CardContent>
-        </Card>
+        <EmptyState
+          icon={BarChart3}
+          title="No cases yet"
+          description={`Nothing has been triaged in the last ${windowLabel}. As the agent processes alerts, volume, verdicts and feedback analytics will appear here.`}
+        />
         {knowledgeSection}
       </div>
     ) : (
       <div className="space-y-6">
-        <Stagger className={KPI_GRID} step={40} itemClassName="h-full">
+        <Stagger
+          className={KPI_GRID}
+          step={40}
+          itemClassName={KPI_ITEM}
+          data-testid="analytics-kpi-strip"
+        >
           {kpis.map((k) => (
             <KpiTile
               key={k.key}
@@ -574,6 +579,7 @@ export default function MetricsPage({
               sub={k.sub}
               icon={k.icon}
               accent={k.accent}
+              variant="strip"
               onClick={k.onClick}
             />
           ))}
@@ -792,48 +798,48 @@ export default function MetricsPage({
       </div>
     );
 
-  return (
-    <PageContainer variant="wide" className="animate-fade-in space-y-6">
+  const content = (
+    <>
       {header}
 
-      {error ? (
-        <Alert variant="destructive">
-          <AlertTitle>Could not load metrics</AlertTitle>
-          <AlertDescription>
-            {error instanceof Error
-              ? error.message
-              : 'An unexpected error occurred while loading analytics.'}
-          </AlertDescription>
-        </Alert>
+      {error && !usesAgentEvidenceEndpoint ? (
+        <LoadError
+          error={error}
+          title="Could not load metrics"
+          fallback="An unexpected error occurred while loading analytics."
+          onRetry={() => void load()}
+        />
       ) : null}
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as MetricsTab)}>
-        {/* ONE row: the section tabs on the left, the window/sort/refresh controls
-            on the right — the former standalone control band is gone (G4 density). */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <TabsList data-testid="metrics-tabs">
-            <TabsTrigger value="operational" data-testid="metrics-tab-operational">
-              <BarChart3 className="mr-1.5 h-4 w-4" aria-hidden />
-              Operational
-            </TabsTrigger>
-            <TabsTrigger value="performance" data-testid="metrics-tab-performance">
-              <Activity className="mr-1.5 h-4 w-4" aria-hidden />
-              Performance
-            </TabsTrigger>
-            <TabsTrigger value="posture" data-testid="metrics-tab-posture">
-              <Crosshair className="mr-1.5 h-4 w-4" aria-hidden />
-              Posture
-            </TabsTrigger>
-            <TabsTrigger value="cost" data-testid="metrics-tab-cost">
-              <CircleDollarSign className="mr-1.5 h-4 w-4" aria-hidden />
-              Cost
-            </TabsTrigger>
-          </TabsList>
-
-          {tabRowControls ? (
-            <div className="flex flex-wrap items-center gap-2">{tabRowControls}</div>
-          ) : null}
-        </div>
+        <ControlBar
+          title={(
+            <TabsList data-testid="metrics-tabs">
+              <TabsTrigger value="operational" data-testid="metrics-tab-operational">
+                <BarChart3 className="mr-1.5 h-4 w-4" aria-hidden />
+                Operational
+              </TabsTrigger>
+              <TabsTrigger value="performance" data-testid="metrics-tab-performance">
+                <Activity className="mr-1.5 h-4 w-4" aria-hidden />
+                Performance
+              </TabsTrigger>
+              <TabsTrigger value="posture" data-testid="metrics-tab-posture">
+                <Crosshair className="mr-1.5 h-4 w-4" aria-hidden />
+                Posture
+              </TabsTrigger>
+              <TabsTrigger value="effectiveness" data-testid="metrics-tab-effectiveness">
+                <TrendingUp className="mr-1.5 h-4 w-4" aria-hidden />
+                Effectiveness
+              </TabsTrigger>
+              <TabsTrigger value="cost" data-testid="metrics-tab-cost">
+                <CircleDollarSign className="mr-1.5 h-4 w-4" aria-hidden />
+                Cost
+              </TabsTrigger>
+            </TabsList>
+          )}
+          controls={tabRowControls}
+          label="Analytics controls"
+        />
 
         <TabsContent value="operational">{operationalBody}</TabsContent>
 
@@ -855,12 +861,24 @@ export default function MetricsPage({
           />
         </TabsContent>
 
+        <TabsContent value="effectiveness">
+          <AgentEffectiveness />
+        </TabsContent>
+
         {/* Cost — the SINGLE cost home. The standalone Cost page renders embedded so
             it owns its own window/refresh controls + spend ledger; no page header. */}
         <TabsContent value="cost">
           <Cost embedded onNavigate={onNavigate} />
         </TabsContent>
       </Tabs>
+    </>
+  );
+
+  return embedded ? (
+    <div className="space-y-6">{content}</div>
+  ) : (
+    <PageContainer variant="wide" className="space-y-6">
+      {content}
     </PageContainer>
   );
 }
@@ -877,27 +895,16 @@ interface PerfPostureProps {
 function PerformanceTab({ posture, loading, windowLabel }: PerfPostureProps) {
   if (loading) {
     return (
-      <div className="space-y-6" aria-busy="true" aria-label="Loading performance metrics">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <SkeletonCard key={i} lines={1} />
-          ))}
-        </div>
-        <Skeleton className="h-[200px] w-full rounded-lg" />
-      </div>
+      <LoadingState label="Loading performance metrics" layout="panel" shape="panel" />
     );
   }
   if (!posture) {
     return (
-      <Card>
-        <CardContent className="py-4">
-          <EmptyState
-            icon={Activity}
-            title="Performance metrics unavailable"
-            description="The posture rollup could not be loaded. Try refreshing; it computes lifecycle timing and triage-quality rates server-side."
-          />
-        </CardContent>
-      </Card>
+      <EmptyState
+        icon={Activity}
+        title="Performance metrics unavailable"
+        description="The posture rollup could not be loaded. Try refreshing; it computes lifecycle timing and triage-quality rates server-side."
+      />
     );
   }
 
@@ -1114,14 +1121,7 @@ const AGE_ACCENT: Record<string, StatAccent> = {
 function PostureTab({ posture, mitre, loading, windowLabel, onNavigate }: PostureTabProps) {
   if (loading) {
     return (
-      <div className="space-y-6" aria-busy="true" aria-label="Loading posture">
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <SkeletonCard key={i} lines={1} />
-          ))}
-        </div>
-        <Skeleton className="h-[260px] w-full rounded-lg" />
-      </div>
+      <LoadingState label="Loading posture" layout="panel" shape="panel" />
     );
   }
 
@@ -1278,8 +1278,8 @@ function PostureTab({ posture, mitre, loading, windowLabel, onNavigate }: Postur
                         className={cn(
                           'inline-flex shrink-0 rounded-sm px-1.5 py-0.5 text-2xs font-semibold uppercase',
                           b.state === 'breached'
-                            ? 'bg-critical/10 text-critical'
-                            : 'bg-high/10 text-high',
+                            ? 'bg-critical/10 text-critical-text'
+                            : 'bg-high/10 text-high-text',
                         )}
                       >
                         {b.state === 'breached' ? 'Breached' : 'At risk'}

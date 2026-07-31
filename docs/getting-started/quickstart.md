@@ -12,7 +12,7 @@ real source with persistent application state.
 !!! info "Choose the matching channel"
 
     `Testing` contains integrated candidates. Under the release contract, `main`
-    holds only accepted Stable source and immutable `v0.1.0` identifies the released
+    holds only accepted Stable source and immutable `v0.1.1` identifies the released
     artifact. The current remote has not yet provisioned literal `main` or the tag;
     legacy/default `claude/main` is not a Stable substitute. Today, use Testing only
     as an unreleased preview.
@@ -27,15 +27,15 @@ real source with persistent application state.
     cd Agentic-Kibana
     ```
 
-=== "Stable 0.1.0"
+=== "Stable 0.1.1"
 
     ```bash
-    git clone --branch v0.1.0 --depth 1 \
+    git clone --branch v0.1.1 --depth 1 \
       https://github.com/ARYDESTROYER/Agentic-Kibana.git
     cd Agentic-Kibana
     ```
 
-    The Stable command applies only after `v0.1.0` is published from the protected
+    The Stable command applies only after `v0.1.1` is published from the protected
     `main` branch. Check the repository release list rather than creating or moving
     the tag yourself. After that promotion, users pulling `main` receive the last
     accepted Stable tree; candidate work remains isolated on `Testing`.

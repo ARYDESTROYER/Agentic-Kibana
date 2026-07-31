@@ -24,6 +24,18 @@ describe('ControlBar', () => {
     expect(screen.getByRole('button', { name: 'Refresh' })).toBeInTheDocument();
   });
 
+  it('keeps wide interactive title content horizontally reachable', () => {
+    render(
+      <ControlBar
+        title={<div data-testid="wide-title">Operational Performance Posture Cost</div>}
+      />,
+    );
+
+    const title = screen.getByTestId('wide-title').parentElement;
+    expect(title).toHaveClass('max-w-full', 'overflow-x-auto');
+    expect(title).not.toHaveClass('truncate');
+  });
+
   it('exposes a labelled group for the controls (not a toolbar)', () => {
     render(
       <ControlBar

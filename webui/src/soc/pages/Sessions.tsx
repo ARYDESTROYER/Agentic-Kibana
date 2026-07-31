@@ -292,7 +292,12 @@ export default function Sessions(_props: SessionsPageProps) {
  * embed it under the Account (Personal) group. No `<Can>` gate: every signed-in user
  * manages their OWN sessions (the backend scopes the listing to the caller).
  */
-export function SessionsInner() {
+export interface SessionsInnerProps {
+  /** True when this body is hosted beneath the Settings page header. */
+  embedded?: boolean;
+}
+
+export function SessionsInner({ embedded = false }: SessionsInnerProps) {
   const { authEnabled, isAuthenticated } = useAuth();
   const [sessions, setSessions] = React.useState<Session[]>([]);
   const [activity, setActivity] = React.useState<ActivityEvent[]>([]);
@@ -373,6 +378,7 @@ export function SessionsInner() {
   return (
     <div className="space-y-6">
       <PageHeader
+        embedded={embedded}
         icon={MonitorSmartphone}
         eyebrow="Account"
         title="Sessions & activity"

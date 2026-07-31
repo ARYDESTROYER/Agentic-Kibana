@@ -56,10 +56,21 @@ describe('navLabel — the registry is the authoritative label source', () => {
     });
   });
 
+  it('groups Runbooks under Intelligence with the backend read grant', () => {
+    const intelligence = FEATURES.find((feature) => feature.id === 'intelligence');
+    expect(intelligence?.children).toContainEqual(
+      expect.objectContaining({
+        id: 'runbooks',
+        label: 'Runbooks',
+        perm: { resource: 'runbooks', action: 'read' },
+      }),
+    );
+  });
+
   it('derives Docs as the single pinned footer destination', () => {
     expect(NAV_FOOTER_ITEMS.map((item) => item.id)).toEqual(['docs']);
     expect(NAV_ITEMS.some((item) => item.id === 'docs')).toBe(true);
-    expect(navLabel('docs')).toBe('Docs');
+    expect(navLabel('docs')).toBe('Documentation');
   });
 
   it('keeps the redundant Automated Scans surface out of primary navigation', () => {

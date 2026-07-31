@@ -26,7 +26,15 @@ from typing import Any, get_args
 
 import pytest
 
-from app.config import EnrichmentConfig, ModelConfig, Provider, Secrets
+from app.config import (
+    DEFAULT_COMPLETION_MODEL,
+    DEFAULT_COMPLETION_PROVIDER,
+    EnrichmentConfig,
+    ModelConfig,
+    Preferences,
+    Provider,
+    Secrets,
+)
 from app.constants import IndicatorKind, Role, USAGE_READ_PATTERN, UsageOutcome
 from app.es.fake import InMemoryESClient
 from app.llm import pricing
@@ -79,13 +87,63 @@ def test_modelconfig_endpoint_fields_default_safely_and_round_trip() -> None:
     assert rt_json == cfg
 
 
-def test_legacy_modelconfig_defaults_byte_identical() -> None:
-    # The pre-existing fields keep their exact defaults (no regression for stored cfgs).
+def test_modelconfig_uses_current_fresh_install_default() -> None:
     m = ModelConfig()
-    assert m.provider == "anthropic"
-    assert m.model == "claude-sonnet-4-6"
+    assert m.provider == DEFAULT_COMPLETION_PROVIDER == "openai"
+    assert m.model == DEFAULT_COMPLETION_MODEL == "gpt-5.6-luna"
     assert m.temperature == 0.1
     assert m.max_tokens == 1500
+
+
+def test_every_fresh_completion_role_uses_luna_but_embeddings_stay_dedicated() -> None:
+    prefs = Preferences()
+    for role in ("router", "investigator", "formatter", "standup", "chat", "overview"):
+        cfg = prefs.model_for(role)
+        assert cfg.provider == "openai", role
+        assert cfg.model == "gpt-5.6-luna", role
+    assert prefs.embedding_model.provider == "openai"
+    assert prefs.embedding_model.model == "text-embedding-3-small"
+
+
+def test_explicit_stored_role_assignments_survive_new_defaults() -> None:
+    """Changing fresh defaults must never migrate an operator's saved routing."""
+    stored = Preferences().model_dump(mode="json")
+    stored.update({
+        "router_model": {
+            "provider": "anthropic", "model": "claude-haiku-4-5", "max_tokens": 601,
+        },
+        "investigator_model": {
+            "provider": "anthropic", "model": "claude-sonnet-4-6", "max_tokens": 2001,
+        },
+        "formatter_model": {
+            "provider": "openai", "model": "gpt-4o-mini", "max_tokens": 1201,
+        },
+        "standup_model": {
+            "provider": "openai", "model": "gpt-4.1-mini", "max_tokens": 1202,
+        },
+        "chat_model": {
+            "provider": "openai_compatible", "model": "local-chat",
+            "base_url": "http://model.internal", "max_tokens": 1501,
+        },
+        "overview_model": {
+            "provider": "azure", "model": "azure-overview",
+            "base_url": "https://example.openai.azure.com", "max_tokens": 901,
+        },
+        "embedding_model": {
+            "provider": "openai", "model": "text-embedding-3-large", "max_tokens": 1500,
+        },
+    })
+
+    restored = Preferences.model_validate(stored)
+
+    assert restored.router_model.model == "claude-haiku-4-5"
+    assert restored.investigator_model.model == "claude-sonnet-4-6"
+    assert restored.formatter_model.model == "gpt-4o-mini"
+    assert restored.standup_model.model == "gpt-4.1-mini"
+    assert restored.chat_model.model == "local-chat"
+    assert restored.chat_model.base_url == "http://model.internal"
+    assert restored.overview_model.model == "azure-overview"
+    assert restored.embedding_model.model == "text-embedding-3-large"
 
 
 # --------------------------------------------------------------------------- #

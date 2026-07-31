@@ -7,7 +7,7 @@
  * empty/<=0 value instead of 0.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 vi.mock('@/lib/api', () => ({
   ApiError: class extends Error {},
@@ -16,6 +16,7 @@ vi.mock('@/lib/api', () => ({
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 import { SessionPolicyEditor } from '../SessionPolicyEditor';
+import { api } from '@/lib/api';
 
 const DEFAULT_ACCESS_TTL = 900; // 15m — mirrors DEFAULTS.access_ttl
 
@@ -55,5 +56,19 @@ describe('SessionPolicyEditor DurationField (Round-6)', () => {
 
     const last = onChange.mock.calls[onChange.mock.calls.length - 1][0] as { access_ttl?: number };
     expect(last.access_ttl).toBe(300); // 5 minutes
+  });
+
+  it('does not expose editable defaults when the authoritative read fails', async () => {
+    vi.mocked(api.getSettings)
+      .mockRejectedValueOnce(new Error('settings unavailable'))
+      .mockResolvedValueOnce({ prefs: { session_policy: { access_ttl: 1200 } } } as never);
+
+    render(<SessionPolicyEditor />);
+
+    expect(await screen.findByText('Could not load session policy')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Access token TTL')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.getByLabelText('Access token TTL')).toHaveValue(20));
   });
 });

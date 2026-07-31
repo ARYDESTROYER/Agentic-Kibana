@@ -52,6 +52,8 @@ Thumbs.db
 
 # ---- Round-5 temp / caches (do not commit) ----
 WORK_TRACKER.md
+# Rendered contact sheets and other local review artifacts.
+/tmp/
 # Per-session agent scratchpad. It may exist while a long task is active, but must
 # be deleted before handoff and must never enter source control.
 /memory.md

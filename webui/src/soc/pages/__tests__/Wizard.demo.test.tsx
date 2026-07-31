@@ -6,13 +6,13 @@
  *   - flipping it ON calls POST /api/demo/enable (arms the isolated demo tenant),
  *   - flipping it OFF calls POST /api/demo/disable,
  *   - it NO LONGER writes a `demo_mode` key into settings on finish,
- *   - it is HIDDEN entirely for a non-admin (auth on + no `settings:manage` grant).
+ *   - it is visible but disabled for a non-admin so the unavailable mode is explained.
  *
  * The api is fully mocked; the Wizard is mounted under the Auth + Demo providers it now
  * reads (useAuth / useDemo) plus a TooltipProvider.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const {
@@ -96,11 +96,19 @@ describe('Wizard demo toggle (bug #3)', () => {
       .mockResolvedValue({ roles: [], default_role: 'analyst_tier1', rbac_enabled: false, matrix: {} });
   });
 
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((nextResolve) => {
+      resolve = nextResolve;
+    });
+    return { promise, resolve };
+  }
+
   it('arms demo mode via POST /api/demo/enable when toggled ON (admin)', async () => {
     const user = userEvent.setup();
     renderWizard();
 
-    const toggle = await screen.findByLabelText(/Demo mode/i);
+    const toggle = await screen.findByRole('radio', { name: /Synthetic demo/i });
     expect(toggle).toBeInTheDocument();
     expect(demoEnableMock).not.toHaveBeenCalled();
 
@@ -120,14 +128,38 @@ describe('Wizard demo toggle (bug #3)', () => {
     const user = userEvent.setup();
     renderWizard();
 
-    const toggle = await screen.findByLabelText(/Demo mode/i);
+    const toggle = await screen.findByRole('radio', { name: /Synthetic demo/i });
     await waitFor(() => expect(toggle).toBeChecked());
 
-    await user.click(toggle);
+    await user.click(screen.getByRole('radio', { name: /Live environment/i }));
+    expect(demoDisableMock).not.toHaveBeenCalled();
+    expect(await screen.findByRole('alertdialog')).toHaveTextContent(
+      /removes its isolated sample activity/i,
+    );
+    await user.click(screen.getByRole('button', { name: /Disable demo and switch/i }));
     await waitFor(() => expect(demoDisableMock).toHaveBeenCalledTimes(1));
   });
 
-  it('hides the demo toggle entirely without demo:manage', async () => {
+  it('blocks step navigation while a demo transition is pending', async () => {
+    const enable = deferred<typeof SEEDED>();
+    demoEnableMock.mockReturnValueOnce(enable.promise);
+    const user = userEvent.setup();
+    renderWizard();
+
+    await user.click(await screen.findByRole('radio', { name: /Synthetic demo/i }));
+    const reviewButton = screen.getByRole('button', { name: /Review & launch/i });
+    fireEvent.click(reviewButton);
+
+    expect(reviewButton).toBeDisabled();
+    expect(screen.getByRole('heading', { name: /How do you want to start/i })).toBeVisible();
+    expect(demoEnableMock).toHaveBeenCalledTimes(1);
+
+    enable.resolve(SEEDED);
+    await waitFor(() => expect(reviewButton).toBeEnabled());
+    expect(screen.getByRole('heading', { name: /How do you want to start/i })).toBeVisible();
+  });
+
+  it('shows demo as unavailable without demo:manage', async () => {
     authMeMock.mockResolvedValue({
       auth_enabled: true,
       authenticated: true,
@@ -143,10 +175,34 @@ describe('Wizard demo toggle (bug #3)', () => {
 
     renderWizard();
 
-    // The Welcome step (deployment name) renders, proving the wizard booted…
-    await screen.findByLabelText(/Deployment name/i);
-    // …but the admin-only demo toggle is NOT offered.
-    expect(screen.queryByLabelText(/Demo mode/i)).toBeNull();
+    const demoChoice = await screen.findByRole('radio', { name: /Synthetic demo/i });
+    expect(demoChoice).toBeDisabled();
+    expect(screen.getByText(/Requires demo management permission/i)).toBeInTheDocument();
     expect(demoEnableMock).not.toHaveBeenCalled();
+  });
+
+  it('disables the Live choice when an operator cannot disable the active demo', async () => {
+    demoStatusMock.mockResolvedValue(SEEDED);
+    authMeMock.mockResolvedValue({
+      auth_enabled: true,
+      authenticated: true,
+      user: { username: 'ana', role: 'analyst_tier1' },
+    });
+    rolesGetMock.mockResolvedValue({
+      roles: [],
+      default_role: 'analyst_tier1',
+      rbac_enabled: true,
+      matrix: { analyst_tier1: { cases: ['read'] } },
+    });
+
+    renderWizard();
+
+    const liveChoice = await screen.findByRole('radio', { name: /Live environment/i });
+    await waitFor(() => expect(screen.getByRole('radio', { name: /Synthetic demo/i })).toBeChecked());
+    expect(liveChoice).toBeDisabled();
+    expect(
+      screen.getByText(/Requires demo management permission to disable the active demo/i),
+    ).toBeVisible();
+    expect(demoDisableMock).not.toHaveBeenCalled();
   });
 });

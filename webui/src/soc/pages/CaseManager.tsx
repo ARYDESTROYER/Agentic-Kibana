@@ -61,13 +61,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/ui/select';
-import { Skeleton } from '@/ui/skeleton';
+import { LoadingState } from '@/design-system';
 
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
 import { PageContainer } from '@/soc/components/PageContainer';
 import { Can, ProtectedRoute } from '@/soc/components/Can';
 import { ConfirmDialog } from '@/soc/components/ConfirmDialog';
+import { SegmentedControl } from '@/soc/components/SegmentedControl';
 import { SeverityBadge, StatusBadge, severityBand } from '@/soc/components/badges';
 import { useAuth } from '@/soc/auth';
 import { useRoute } from '@/soc/router';
@@ -230,7 +231,7 @@ const QueueRow: React.FC<{
         disabled={selectionDisabled}
         onCheckedChange={(next) => onCheckedChange(next === true)}
         aria-label={`Select ${displayId}`}
-        className="absolute left-3 top-3 z-10 rounded-[3px] bg-background"
+        className="absolute left-2.5 top-2.5 z-10 rounded-[3px] bg-background"
       />
 
       <button
@@ -238,7 +239,7 @@ const QueueRow: React.FC<{
         onClick={onOpen}
         aria-current={active ? 'true' : undefined}
         className={cn(
-          'block w-full px-3 py-3 pl-10 text-left',
+          'block w-full px-3 py-2.5 pl-9 text-left',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
         )}
       >
@@ -260,7 +261,7 @@ const QueueRow: React.FC<{
           {fact}
         </span>
 
-        <span className="mt-2.5 flex min-w-0 items-center justify-between gap-2">
+        <span className="mt-2 flex min-w-0 items-center justify-between gap-2">
           <StatusBadge
             status={item.status}
             className="h-5 max-w-[72%] truncate rounded-[3px] px-1.5 text-2xs"
@@ -275,18 +276,14 @@ const QueueRow: React.FC<{
 };
 
 const QueueSkeleton = () => (
-  <div className="space-y-2 px-3 py-3" aria-busy="true" aria-label="Loading case queue">
-    {Array.from({ length: 5 }).map((_, i) => (
-      <div key={i} className="space-y-2 rounded-[4px] border border-border p-3">
-        <div className="flex justify-between gap-4">
-          <Skeleton className="h-3 w-28" />
-          <Skeleton className="h-5 w-16" />
-        </div>
-        <Skeleton className="h-4 w-4/5" />
-        <Skeleton className="h-3 w-2/3" />
-      </div>
-    ))}
-  </div>
+  <LoadingState
+    label="Loading cases"
+    description="Preparing the active case queue."
+    layout="panel"
+    shape="rows"
+    shapeRows={5}
+    className="min-h-[28rem]"
+  />
 );
 
 export interface CaseManagerProps {
@@ -893,7 +890,7 @@ export default function CaseManager({ initialCaseId }: CaseManagerProps) {
     <ProtectedRoute resource="cases" action="read">
       <PageContainer
         variant="fluid"
-        className="h-[calc(100dvh-7rem)] min-h-0 xl:min-h-[600px]"
+        className="h-[calc(100dvh-7rem)] min-h-0 w-auto sm:-mx-2 lg:-mx-4 xl:min-h-[600px] 2xl:-mx-8"
         data-testid="case-manager"
       >
         <div
@@ -918,7 +915,7 @@ export default function CaseManager({ initialCaseId }: CaseManagerProps) {
               selectedCaseId ? 'hidden xl:flex' : 'flex',
             )}
           >
-            <header className="shrink-0 border-b border-border px-4 pb-3 pt-4">
+            <header className="shrink-0 border-b border-border px-3 pb-2.5 pt-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-2xs font-semibold uppercase tracking-[0.16em] text-primary">
@@ -943,32 +940,21 @@ export default function CaseManager({ initialCaseId }: CaseManagerProps) {
                 </Button>
               </div>
 
-              <div
-                role="group"
+              <SegmentedControl<QueueMode>
                 aria-label="Case queue scope"
-                className="mt-3 grid grid-cols-2 rounded-[4px] border border-input bg-background p-0.5"
-              >
-                {(['active', 'all'] as const).map((mode) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    aria-pressed={queueMode === mode}
-                    onClick={() => setQueueMode(mode)}
-                    className={cn(
-                      'h-8 rounded-[3px] px-3 text-xs font-medium transition-colors',
-                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                      queueMode === mode
-                        ? 'bg-accent text-foreground shadow-sm'
-                        : 'text-muted-foreground hover:text-foreground',
-                    )}
-                  >
-                    {mode === 'active' ? 'Active' : 'All'}
-                  </button>
-                ))}
-              </div>
+                size="sm"
+                fitted
+                className="mt-2.5"
+                value={queueMode}
+                onValueChange={setQueueMode}
+                options={[
+                  { value: 'active', label: 'Active' },
+                  { value: 'all', label: 'All' },
+                ]}
+              />
             </header>
 
-            <div className="shrink-0 space-y-2 border-b border-border p-3">
+            <div className="shrink-0 space-y-1.5 border-b border-border p-2.5">
               <div className="relative">
                 <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
                 <Input
@@ -1024,7 +1010,7 @@ export default function CaseManager({ initialCaseId }: CaseManagerProps) {
               role="region"
               aria-label="Case selection and bulk actions"
               aria-busy={bulkBusy}
-              className="shrink-0 border-b border-border bg-card/25 px-3 py-2"
+              className="shrink-0 border-b border-border bg-card/25 px-2.5 py-1.5"
             >
               <div className="flex min-h-8 flex-wrap items-center gap-x-2 gap-y-1.5">
                 <Checkbox
@@ -1187,7 +1173,7 @@ export default function CaseManager({ initialCaseId }: CaseManagerProps) {
                   }
                 />
               ) : (
-                <div className="space-y-2 p-3" role="list" aria-label="Cases">
+                <div className="space-y-1.5 p-2.5" role="list" aria-label="Cases">
                   {visibleCases.map((item) => (
                     <div role="listitem" key={item.case_id}>
                       <QueueRow

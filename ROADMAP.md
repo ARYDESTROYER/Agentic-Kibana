@@ -10,8 +10,8 @@ count current), full `npm run build` (version-matched Help Center + tsc + Vite) 
 Vitest clean, **#3 `decide()` byte-identical**,
 docs + Journal updated, commit + push.
 
-**Current baseline (Version `0.1.0` on `Testing`; promote the accepted source tree to
-the Stable `main` branch, re-run its gates, and tag the resulting commit `v0.1.0`):**
+**Current baseline (Version `0.1.1` on `Testing`; promote the accepted source tree to
+the Stable `main` branch, re-run its gates, and tag the resulting commit `v0.1.1`):**
 the remote currently exposes `Testing` and legacy/default `claude/main`, but no literal
 `main`; provisioning/protecting the canonical Stable branch (or consistently changing
 every workflow/release reference) is an explicit promotion blocker. `claude/main` is
@@ -35,6 +35,11 @@ alert-to-cluster-to-case formation; Demo Mode now has five sources including Ent
 and privileged operators can create a bounded, secret-free portable analysis export.
 Compatible official OpenAI alert/case work prefers live Flex with truthful standard
 fallback, independently of the still-opt-in asynchronous Batch event funnel.
+Agent Effectiveness now preserves its established quality/turnaround headline while
+adding separate aggregate outcomes for recorded case-linked AI cost, observed closure
+elapsed difference, confirmed-positive case rate, durable ingress/clustering volume,
+and true week-over-week plus rolling-28 comparisons. Tuning chronology is explicitly
+non-causal; unlike-unit TP/raw-alert yield remains unavailable rather than fabricated.
 **Round 10** ("Autopilot & Comprehensive Ingestion + motion.dev" — a **behavior change**:
 `background_scan_enabled` default TRUE + a deterministic risk gate + an `autopilot_profile`
 smart-defaults dial + a default-enabled $10/day budget ceiling + per-source coverage
@@ -115,6 +120,11 @@ competitively — it is a dated research snapshot):
   above); this closes the loop with actual write-side actions.
 - ☐ **A formal eval / detection-quality harness** — golden-set replay, precision/
   recall against known-good verdicts, prompt/model regression gating.
+- ☐ **Governed telemetry-gap recommendations** — map investigation uncertainty and
+  ATT&CK/detection coverage to validated missing-source capabilities (for example,
+  outgoing DNS telemetry), show the specific evidence behind each recommendation,
+  and measure post-addition outcomes. Do not ship heuristic source advice before the
+  alert→case lineage, coverage model, and provenance can support it.
 - ☐ **Sigma / detection-as-code import** — an import path into the Detection & Rules
   editor (shipped in Round 5 G6) for Sigma-format rules.
 - ☐ **An MCP transport** — expose the existing MCP-shaped tools (`tools/base.py`)
@@ -129,9 +139,10 @@ competitively — it is a dated research snapshot):
 smart defaults have shipped (see "Progress → Round 10" below), the genuinely open
 threads from that round are:
 
-- ☐ **Global per-tick investigation cap threading** — `caps.max_auto_investigations_per_tick`
-  (default 25) is enforced **per source**; a true cross-source *global* tick cap (so 10
-  busy sources can't collectively blow past the intended ceiling) is not yet threaded.
+- ☑ **Global per-tick investigation cap threading** — `caps.max_auto_investigations_per_tick`
+  (default 25) is enforced once across every source in a `PollerManager` fan-out tick
+  through a shared concurrency-safe budget. Eligible work beyond the allowance remains
+  a durable deferred candidate and drains on a later tick.
 - ☐ **Reputation-in-routing-gate opt-in** — enrichment/IOC reputation is currently
   advisory/display-only; letting it *influence* the risk-gate's `auto_investigate_risk_floor`
   (not just the case view) is scoped but not built, and must stay opt-in (#3/#9 —
@@ -738,9 +749,9 @@ where possible, docs + Journal updated, commit + push.
   guard, min-cosine, richer query, chat grounding — committed (260a170), 69 tests.
 - ☑ **Feature 2** — per-log AI overview (Discover doc-viewer tab + in-app button
   → POST /api/overview) — committed; 8.19.12 zip rebuilt + verified.
-- ☐ **Feature 5** (wizard rewrite) — DEFERRED: the original 4-step wizard is
-  functional; the rewrite (dataViews.createAndSave, auto-suggest, per-role models)
-  is polish best validated against a live 8.19 Kibana. Tracked for next cycle.
+- ☐ **Historical Feature 5** (archived Kibana-plugin wizard rewrite) — DEFERRED and
+  superseded: this item targeted a live 8.19 Kibana-specific flow. The plugin is now
+  archived; the standalone Console setup workspace below is the supported path.
 - Note: 4 frontend sub-agent runs hit infra failures (rate-limit/watchdog); the
   contract-critical + Feature-2 work was authored directly to guarantee tested
   results.
@@ -779,9 +790,11 @@ storage, and the Kibana-bound UI.
   reuses the OpenSearch connector plus a Wazuh-alert→OCSF mapper.
 - ☑ **Epoch D — Standalone web UI.** DONE: `webui/` (Vite + React + TypeScript +
   **Tailwind + shadcn/Radix** — the sole primary surface; EUI was fully removed in
-  the Round-5 UI overhaul) is the standalone SPA. The **first-run wizard** is now 4
-  steps (Welcome → Sources → Provider keys → Review & finish) driven by connector
-  manifests; the reusable dynamic source form is `SourceEditor` +
+  the Round-5 UI overhaul) is the standalone SPA. The **first-run setup workspace**
+  is four stages (**Workspace → Data sources → AI runtime → Review & launch**) driven
+  by connector manifests. It distinguishes Synthetic demo from Live, guards source
+  and write-only key drafts, reports full versus limited readiness, and supports a
+  non-destructive Settings re-run; the reusable dynamic source form is `SourceEditor` +
   `ConnectorPicker`; a full Sources manager, sectioned Settings (5 groups × 26
   sections), and every analytics surface (Cases/Chat/Investigate/Automated Scans/
   Standup/Cost/Metrics/Dashboards/Detection & Rules/…) are built out — not preview

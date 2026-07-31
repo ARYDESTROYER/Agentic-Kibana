@@ -35,6 +35,12 @@ Provider = Literal[
     "anthropic", "openai", "mock", "azure", "bedrock", "vertex", "openai_compatible"
 ]
 
+# Fresh-install completion defaults. Keep these in one place so the base
+# ModelConfig and every role assignment cannot drift apart. Existing persisted
+# preferences remain authoritative and alternate providers/models stay available.
+DEFAULT_COMPLETION_PROVIDER: Provider = "openai"
+DEFAULT_COMPLETION_MODEL = "gpt-5.6-luna"
+
 # Bump this when the seeded rule catalog ships new built-in rules. Seeding only
 # fires when the stored catalog is EMPTY or its ``rule_catalog_seed_version`` is
 # missing/older than this value — operator-edited (non-empty) catalogs are NEVER
@@ -400,8 +406,8 @@ class ModelConfig(BaseModel):
     * ``region`` — the cloud region (e.g. Bedrock ``us-east-1``).
     """
 
-    provider: Provider = "anthropic"
-    model: str = "claude-sonnet-4-6"
+    provider: Provider = DEFAULT_COMPLETION_PROVIDER
+    model: str = DEFAULT_COMPLETION_MODEL
     temperature: float = 0.1
     max_tokens: int = 1500
     base_url: str | None = None
@@ -816,8 +822,9 @@ class BrandingConfig(BaseModel):
     _ALLOWED_THEME_TOKENS: ClassVar[frozenset[str]] = frozenset({
         # Core brand + ring
         "--primary", "--ring", "--accent2",
-        # Semantic SOC fills (operator may re-key severity hues within reason)
-        "--critical", "--high", "--medium", "--low", "--info", "--success", "--warning",
+        # Semantic SOC fills are intentionally absent. Each fill is coupled to a
+        # measured foreground/text/CVD axis; accepting only the fill lets an org-wide
+        # branding payload invalidate every badge, chart and status treatment.
         # Canvas / surface tints (backdrop nudges)
         "--canvas-tint", "--surface-tint",
         # Radius + density scale
@@ -829,10 +836,14 @@ class BrandingConfig(BaseModel):
     })
     # The vetted display-font values (mirror theme-tokens.ts FONT_ALLOWLIST outputs).
     _FONT_ALLOWLIST: ClassVar[dict[str, str]] = {
-        "inter": "'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+        "inter": "'Inter Variable', 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
         "system": "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
         "mono": "'JetBrains Mono', SFMono-Regular, Consolas, Menlo, monospace",
-        "grotesk": "'Space Grotesk', Inter, ui-sans-serif, system-ui, sans-serif",
+        "grotesk": "'Space Grotesk', 'Inter Variable', 'Inter', ui-sans-serif, system-ui, sans-serif",
+    }
+    _FONT_LEGACY_ALIASES: ClassVar[dict[str, str]] = {
+        "'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif": "inter",
+        "'Space Grotesk', Inter, ui-sans-serif, system-ui, sans-serif": "grotesk",
     }
     # Caps for the Round-4 login white-label copy (plain text, bounded — #9/#10).
     _MAX_LOGIN_HEADLINE_LEN: ClassVar[int] = 120
@@ -878,8 +889,17 @@ class BrandingConfig(BaseModel):
         if name == "--font-display":
             key = v.lower()
             if key in cls._FONT_ALLOWLIST:
-                return cls._FONT_ALLOWLIST[key]
-            return v if v in cls._FONT_ALLOWLIST.values() else None
+                # Keep the stable enum on the wire. The browser expands it to the
+                # matching self-hosted stack at the DOM boundary; returning a full
+                # stack here made the Settings Select lose its value after reload.
+                return key
+            for known_key, stack in cls._FONT_ALLOWLIST.items():
+                if v == stack:
+                    # Canonicalise already-saved full stacks compatibly.
+                    return known_key
+            if v in cls._FONT_LEGACY_ALIASES:
+                return cls._FONT_LEGACY_ALIASES[v]
+            return None
         return v
 
     @field_validator("theme_tokens")
@@ -1294,6 +1314,162 @@ class RealtimeConfig(BaseModel):
     heartbeat_seconds: int = Field(default=15, ge=1)
 
 
+_GITHUB_OWNER_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$")
+_GITHUB_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,98}[A-Za-z0-9])?$")
+_GITHUB_BRANCH_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._/-]{0,126}[A-Za-z0-9])?$")
+
+
+def _canonical_public_github_repository(value: str) -> str:
+    """Validate and canonicalise one public GitHub repository URL.
+
+    Release discovery deliberately accepts no arbitrary host, port, credentials,
+    query string or fragment.  The resulting owner/repository coordinates are used
+    only with the fixed ``api.github.com`` API origin by the discovery service, so a
+    saved preference can never become an SSRF target.
+    """
+    from urllib.parse import urlsplit
+
+    raw = str(value or "").strip()
+    try:
+        parsed = urlsplit(raw)
+    except ValueError as exc:
+        raise ValueError(
+            "repository_url must be a public https://github.com/owner/repo URL"
+        ) from exc
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("repository_url must not contain an invalid port") from exc
+    if (
+        parsed.scheme.lower() != "https"
+        or (parsed.hostname or "").lower() != "github.com"
+        or port is not None
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError("repository_url must be a public https://github.com/owner/repo URL")
+    parts = [part for part in parsed.path.split("/") if part]
+    if len(parts) != 2:
+        raise ValueError("repository_url must contain exactly one GitHub owner and repository")
+    owner, repository = parts
+    if repository.lower().endswith(".git"):
+        repository = repository[:-4]
+    if not _GITHUB_OWNER_RE.fullmatch(owner) or not _GITHUB_REPOSITORY_RE.fullmatch(repository):
+        raise ValueError("repository_url contains an unsupported GitHub owner or repository name")
+    return f"https://github.com/{owner}/{repository}"
+
+
+def _validated_github_branch(value: str) -> str:
+    """Accept a conservative, bounded subset of Git branch names.
+
+    Branch names are URL-encoded again at the API boundary.  Rejecting ambiguous Git
+    ref syntax here keeps the configuration understandable and prevents values such
+    as ``..``, ``@{`` and ``.lock`` from ever reaching repository discovery.
+    """
+    branch = str(value or "").strip()
+    if (
+        not _GITHUB_BRANCH_RE.fullmatch(branch)
+        or ".." in branch
+        or "//" in branch
+        or "@{" in branch
+        or branch.endswith(".lock")
+        or any(part.startswith(".") or part.endswith(".") for part in branch.split("/"))
+    ):
+        raise ValueError(
+            "branch must be 1-128 ASCII letters, numbers, '.', '_', '-', or '/', "
+            "without ambiguous Git ref syntax"
+        )
+    return branch
+
+
+class ReleaseUpdateConfig(BaseModel):
+    """Read-only public upstream metadata discovery.
+
+    This block identifies release *source* branches only.  It never grants the
+    backend or browser authority to clone, pull, execute, deploy, migrate, restart,
+    promote, or roll back code.  Activation remains governed by the separately
+    deployed same-origin release manifest and backend readiness contract.
+    """
+
+    enabled: bool = True
+    repository_url: str = Field(
+        default="https://github.com/ARYDESTROYER/Agentic-Kibana",
+        description="Public GitHub upstream used only for release metadata discovery.",
+    )
+    stable_branch: str = Field(
+        default="main",
+        description="Protected Stable release branch (normally main).",
+    )
+    testing_branch: str = Field(
+        default="Testing",
+        description="Integration/acceptance branch used for Testing candidates.",
+    )
+    check_interval_minutes: int = Field(
+        default=360,
+        ge=15,
+        le=10_080,
+        description="Minimum automatic GitHub check interval (15 minutes to 7 days).",
+    )
+
+    @field_validator("repository_url")
+    @classmethod
+    def _repository_is_public_github(cls, value: str) -> str:
+        return _canonical_public_github_repository(value)
+
+    @field_validator("stable_branch", "testing_branch")
+    @classmethod
+    def _branch_is_bounded(cls, value: str) -> str:
+        return _validated_github_branch(value)
+
+
+class StorageLifecycleConfig(BaseModel):
+    """Desired lifecycle for Agentic SOC's OWN application state.
+
+    Connected log-source retention is intentionally excluded: those indices are
+    read-only and stay operator/vendor managed.  The backend only enforces phases
+    that are safe for the selected state store.  Today that means Elasticsearch ILM
+    for the append-only audit and usage ledgers; mutable cases plus live KV/config
+    state stay hot until an index-aware archive/restore path exists.
+
+    The archive boundary is derived as ``hot_days + warm_days`` so independently
+    entered dates cannot drift.  Glacier is a desired archive target, not a claim
+    that the active state backend can restore directly from it.  This policy never
+    deletes active data.
+    """
+
+    enabled: bool = True
+    hot_days: int = Field(
+        default=180,
+        ge=1,
+        le=3650,
+        description="Days kept in the active hot tier before eligible state moves warm.",
+    )
+    warm_days: int = Field(
+        default=90,
+        ge=1,
+        le=3650,
+        description="Days kept warm before the desired archive hand-off begins.",
+    )
+    archive_target: Literal["aws_glacier"] = Field(
+        default="aws_glacier",
+        description="Desired immutable archive target; advisory until an export/restore pipeline is configured.",
+    )
+    glacier_storage_class: Literal["GLACIER", "DEEP_ARCHIVE"] = Field(
+        default="GLACIER",
+        description="S3 Glacier class for independent archive objects, never an Elasticsearch snapshot repository.",
+    )
+    delete_after_archive: Literal[False] = Field(
+        default=False,
+        description="Reserved safety policy. Deletion stays disabled until verified archive and restore exist.",
+    )
+
+    @property
+    def archive_from_days(self) -> int:
+        return int(self.hot_days) + int(self.warm_days)
+
+
 class StandupConfig(BaseModel):
     enabled: bool = True
     window_hours: int = 24
@@ -1363,10 +1539,21 @@ class BatchConfig(BaseModel):
     # OCSF severity_id (1-6): a candidate AT/BELOW this floor is eligible for batch
     # (slow, discounted) processing; above it stays synchronous. 3 == medium.
     severity_floor: int = Field(default=3, ge=1, le=6)
+    # Backwards-compatible allow-list for the true async provider Batch API.  The
+    # runtime does NOT choose the first available entry: it binds the batch provider
+    # to ``router_model.provider`` and rejects a provider/model mismatch.  Keeping the
+    # list preserves stored configs while making its meaning unambiguous.
     providers: list[str] = Field(default_factory=lambda: ["anthropic", "openai"])
-    flex: bool = False
+    flex: bool = Field(
+        default=False,
+        deprecated=True,
+        description=(
+            "Legacy compatibility field; ignored by async Batch routing. Live OpenAI "
+            "Flex preference is controlled only by prefer_discounted_alerts."
+        ),
+    )
     # Default-ON cost preference for case/alert inference. This is separate from the
-    # historical ``flex`` switch above, which belongs to the opt-in async EVENT funnel.
+    # deprecated ``flex`` field above, which is intentionally ignored.
     prefer_discounted_alerts: bool = True
     # Flex is best-effort capacity. A standard retry preserves alert processing when
     # Flex is unavailable; the fallback is metered at the standard rate, truthfully.
@@ -2294,23 +2481,23 @@ class Preferences(BaseModel):
 
     # --- Models per role (Section 6.4) ---
     router_model: ModelConfig = Field(
-        default_factory=lambda: ModelConfig(model="claude-haiku-4-5-20251001", max_tokens=600)
+        default_factory=lambda: ModelConfig(max_tokens=600)
     )
     investigator_model: ModelConfig = Field(
-        default_factory=lambda: ModelConfig(model="claude-sonnet-4-6", max_tokens=2000)
+        default_factory=lambda: ModelConfig(max_tokens=2000)
     )
     formatter_model: ModelConfig = Field(
-        default_factory=lambda: ModelConfig(model="claude-haiku-4-5-20251001", max_tokens=1200)
+        default_factory=lambda: ModelConfig(max_tokens=1200)
     )
     standup_model: ModelConfig = Field(
-        default_factory=lambda: ModelConfig(model="claude-haiku-4-5-20251001", max_tokens=1200)
+        default_factory=lambda: ModelConfig(max_tokens=1200)
     )
     chat_model: ModelConfig = Field(
-        default_factory=lambda: ModelConfig(model="claude-haiku-4-5-20251001", max_tokens=1500)
+        default_factory=lambda: ModelConfig(max_tokens=1500)
     )
-    # Single-event AI overview (Feature 2): default to the cheap model.
+    # Single-event AI overview (Feature 2): follows the shared completion default.
     overview_model: ModelConfig = Field(
-        default_factory=lambda: ModelConfig(model="claude-haiku-4-5-20251001", max_tokens=900)
+        default_factory=lambda: ModelConfig(max_tokens=900)
     )
     embedding_model: ModelConfig = Field(
         default_factory=lambda: ModelConfig(provider="openai", model="text-embedding-3-small")
@@ -2433,6 +2620,14 @@ class Preferences(BaseModel):
     priority_matrix: PriorityMatrix = Field(default_factory=PriorityMatrix)
     budget: BudgetConfig = Field(default_factory=BudgetConfig)
     realtime: RealtimeConfig = Field(default_factory=RealtimeConfig)
+    # Public upstream metadata only. The corresponding service is hard-pinned to
+    # api.github.com, cached, bounded, and read-only; this configuration can never
+    # deploy or activate code.
+    release_updates: ReleaseUpdateConfig = Field(default_factory=ReleaseUpdateConfig)
+    # OWN-state retention intent.  Safe native enforcement is capability-aware:
+    # Elasticsearch manages append-only audit/usage with ILM; mutable cases, live
+    # configuration, connected source logs, and unsupported SQL tiers remain hot.
+    storage_lifecycle: StorageLifecycleConfig = Field(default_factory=StorageLifecycleConfig)
 
     # --- Round 4 (tuning/baseline/campaign ON; batch inference remains opt-in;
     # NONE feeds case_manager.decide(), #3; #6 preserved). Nightly threshold auto-tuning

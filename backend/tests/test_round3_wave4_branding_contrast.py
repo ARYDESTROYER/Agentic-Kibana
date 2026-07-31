@@ -9,8 +9,8 @@ Discipline checks baked in:
   * the helper is PURE (same input → same output, no mutation of the argument);
   * WCAG luminance + contrast-ratio math matches KNOWN reference values
     (white/black = 21:1, white/white = 1:1, luminance of white = 1.0 / black = 0.0);
-  * a LOW-contrast accent yields a warning AND an auto-corrected foreground;
-  * a GOOD accent yields neither;
+  * every parseable accent reports the exact higher-contrast derived foreground;
+  * the advisory is silent when that effective pair clears AA;
   * the PUT response keeps every existing branding field intact (additive keys only)
     and the save still persists (warn, don't block).
 """
@@ -99,21 +99,17 @@ def test_best_foreground_picks_higher_contrast_side() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_low_contrast_accent_warns_and_autocorrects() -> None:
+def test_light_accent_derives_black_without_a_residual_warning() -> None:
     out = evaluate_branding_contrast({"accent_color": "#ffff00"})
-    # The light accent fails white-text AA → corrected to a black foreground.
+    # The light accent receives the exact black foreground the webui applies.
     assert out["auto_corrected"] == {"--primary-foreground": "#000000"}
-    # …and a single plain-text warning is surfaced.
-    assert len(out["contrast_warnings"]) == 1
-    msg = out["contrast_warnings"][0]
-    assert isinstance(msg, str)
-    assert "#ffff00" in msg
-    assert "4.5" in msg  # references the AA-normal bar
+    # The effective black/yellow pair clears AA, so there is no unresolved warning.
+    assert out["contrast_warnings"] == []
 
 
-def test_good_accent_yields_no_advisory() -> None:
+def test_dark_accent_reports_the_derived_white_foreground() -> None:
     out = evaluate_branding_contrast({"accent_color": "#1f6feb"})
-    assert out["auto_corrected"] == {}
+    assert out["auto_corrected"] == {"--primary-foreground": "#ffffff"}
     assert out["contrast_warnings"] == []
 
 
@@ -128,33 +124,29 @@ def test_blank_and_default_accents_are_silent() -> None:
     }
 
 
-def test_white_passing_accent_keeps_white_default_no_correction() -> None:
-    # #767676: white text reaches ~4.54:1 (>= 4.5) — keep the white default; black would
-    # be a hair higher but white IS the design token and is legible. No correction/warn.
+def test_mid_accent_chooses_maximum_contrast_even_when_white_already_passes() -> None:
+    # #767676: both candidates clear ~4.5, but black is slightly stronger. This is the
+    # regression pair that used to disagree with the webui's maximum-contrast choice.
     out = evaluate_branding_contrast({"accent_color": "#767676"})
-    assert out["auto_corrected"] == {}
+    assert best_foreground("#767676") == "#000000"
+    assert out["auto_corrected"] == {"--primary-foreground": "#000000"}
     assert out["contrast_warnings"] == []
 
 
 def test_secondary_accent_and_theme_tokens_are_each_evaluated() -> None:
     out = evaluate_branding_contrast(
         {
-            "accent_color": "#ffff00",  # light → warns + corrects --primary-foreground
-            "accent_color2": "#1f6feb",  # good → silent
-            "theme_tokens": {"--accent": "#fafafa"},  # light → warns + corrects --accent-foreground
+            "accent_color": "#ffff00",  # light → black --primary-foreground
+            "accent_color2": "#1f6feb",  # dark → white --accent2-foreground
+            "theme_tokens": {"--accent": "#fafafa"},
         }
     )
     assert out["auto_corrected"] == {
         "--primary-foreground": "#000000",
+        "--accent2-foreground": "#ffffff",
         "--accent-foreground": "#000000",
     }
-    # Two warnings: the primary accent and the --accent theme token.
-    assert len(out["contrast_warnings"]) == 2
-    blob = " ".join(out["contrast_warnings"])
-    assert "#ffff00" in blob
-    assert "#fafafa" in blob
-    # The good secondary accent contributes nothing.
-    assert "#1f6feb" not in blob
+    assert out["contrast_warnings"] == []
 
 
 def test_helper_is_pure_and_does_not_mutate_input() -> None:
@@ -178,7 +170,7 @@ def test_aa_bars_are_the_published_thresholds() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_put_branding_low_contrast_returns_warning_and_correction(client) -> None:
+def test_put_branding_light_accent_returns_derived_foreground(client) -> None:
     r = client.put(
         "/api/branding",
         json={"org_name": "Lemon SOC", "accent_color": "#ffff00"},
@@ -190,16 +182,14 @@ def test_put_branding_low_contrast_returns_warning_and_correction(client) -> Non
     assert body["accent_color"] == "#ffff00"
     # Existing branding fields are intact (a representative defaulted field).
     assert body["product_name"] == ""
-    # The new ADDITIVE advisory keys are present + populated.
+    # The additive response reports the exact runtime foreground choice.
     assert body["auto_corrected"] == {"--primary-foreground": "#000000"}
-    assert isinstance(body["contrast_warnings"], list)
-    assert len(body["contrast_warnings"]) == 1
-    assert "#ffff00" in body["contrast_warnings"][0]
+    assert body["contrast_warnings"] == []
     # And the save is durable: GET reflects the persisted accent.
     assert client.get("/api/branding").json()["accent_color"] == "#ffff00"
 
 
-def test_put_branding_good_accent_returns_empty_advisory(client) -> None:
+def test_put_branding_dark_accent_returns_derived_white_foreground(client) -> None:
     r = client.put(
         "/api/branding",
         json={"org_name": "Azure SOC", "accent_color": "#1f6feb"},
@@ -207,8 +197,7 @@ def test_put_branding_good_accent_returns_empty_advisory(client) -> None:
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["accent_color"] == "#1f6feb"
-    # Additive keys present but EMPTY for a good accent.
-    assert body["auto_corrected"] == {}
+    assert body["auto_corrected"] == {"--primary-foreground": "#ffffff"}
     assert body["contrast_warnings"] == []
 
 
@@ -249,13 +238,30 @@ def test_theme_tokens_normalises_bare_keys() -> None:
 
 
 def test_theme_tokens_drops_derived_foreground_and_text_tokens() -> None:
-    # The AA-tuned companions are NOT operator-writable (preserve measured contrast).
+    # The complete measured semantic axis is NOT operator-writable. Accepting only
+    # its fill would break the fixed foreground/text contrast and CVD pairings.
     out = _tokens(**{
-        "--critical": "358 75% 45%",           # the fill IS writable → kept
+        "--critical": "358 75% 45%",           # semantic fill → dropped
         "--critical-foreground": "0 0% 0%",     # derived → dropped
         "--critical-text": "358 75% 42%",       # derived → dropped
     })
-    assert out == {"--critical": "358 75% 45%"}
+    assert out == {}
+
+
+def test_theme_tokens_drops_every_semantic_fill_compatibly() -> None:
+    out = _tokens(**{
+        "--critical": "0 0% 100%",
+        "--high": "0 0% 100%",
+        "--medium": "0 0% 100%",
+        "--low": "0 0% 100%",
+        "--info": "0 0% 100%",
+        "--success": "0 0% 100%",
+        "--warning": "0 0% 100%",
+        "--radius": "0.5rem",
+    })
+    # Legacy payloads remain loadable: unsafe appearance keys are ignored rather
+    # than making the whole BrandingConfig fail validation.
+    assert out == {"--radius": "0.5rem"}
 
 
 def test_theme_tokens_drops_unsafe_values() -> None:
@@ -263,16 +269,36 @@ def test_theme_tokens_drops_unsafe_values() -> None:
         "--primary": "red; } body { display:none",  # declaration break-out → dropped
         "--ring": "url(javascript:alert(1))",        # url() → dropped
         "--accent2": "expression(alert(1))",          # expression() → dropped
-        "--info": "blue /* x */",                    # comment marker → dropped
-        "--high": "22 90% 44%",                      # safe HSL → kept
+        "--canvas-tint": "blue /* x */",              # comment marker → dropped
+        "--radius": "0.5rem",                         # safe value → kept
     })
-    assert out == {"--high": "22 90% 44%"}
+    assert out == {"--radius": "0.5rem"}
 
 
 def test_theme_tokens_font_display_restricted_to_enum() -> None:
-    # A vetted enum KEY maps to the full stack; an arbitrary family is dropped.
+    # A vetted enum KEY stays stable on the wire; the browser expands it at the
+    # DOM boundary. This keeps the Settings Select stable after save/reload.
     ok = _tokens(**{"--font-display": "inter"})
-    assert "--font-display" in ok and "Inter" in ok["--font-display"]
+    assert ok == {"--font-display": "inter"}
+    # Current and legacy full stacks are accepted and canonicalised.
+    current = _tokens(
+        **{
+            "--font-display": (
+                "'Inter Variable', 'Inter', ui-sans-serif, system-ui, -apple-system, "
+                "'Segoe UI', Roboto, sans-serif"
+            )
+        }
+    )
+    legacy = _tokens(
+        **{
+            "--font-display": (
+                "'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', "
+                "Roboto, sans-serif"
+            )
+        }
+    )
+    assert current == {"--font-display": "inter"}
+    assert legacy == {"--font-display": "inter"}
     assert _tokens(**{"--font-display": "Comic Sans, cursive"}) == {}
 
 

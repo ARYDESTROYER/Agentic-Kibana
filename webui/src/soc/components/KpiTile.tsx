@@ -82,6 +82,8 @@ export interface KpiTileProps {
    *               the hairline separators; the icon sits inline with the label.
    */
   variant?: 'default' | 'bar' | 'strip';
+  /** Compact command-surface rhythm for embedded telemetry bands. */
+  density?: 'default' | 'compact';
   /** When provided the tile becomes a keyboard-accessible button. */
   onClick?: () => void;
   /**
@@ -220,6 +222,7 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
       delta,
       goodDirection = 'up',
       variant = 'default',
+      density = 'default',
       onClick,
       testId,
       countTo,
@@ -235,6 +238,7 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
     const kpiTestId = `kpi-${testId ?? slugId(label)}`;
     const bar = variant === 'bar';
     const strip = variant === 'strip';
+    const compact = density === 'compact';
 
     const deltaFacts = delta ? resolveDelta(delta, goodDirection) : null;
 
@@ -330,7 +334,7 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
           <span
             className={cn(
               'font-semibold leading-none tracking-tight tabular-nums',
-              strip ? 'text-4xl' : 'text-3xl',
+              strip ? (compact ? 'text-2xl' : 'text-4xl') : 'text-3xl',
               strip && (accent === 'critical' || accent === 'success')
                 ? ACCENT_TEXT[accent]
                 : 'text-foreground',
@@ -345,7 +349,11 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
           <span
             className={cn(
               'block text-muted-foreground',
-              strip ? 'mt-1 truncate pr-16 font-mono text-2xs' : 'mt-2 text-xs',
+              strip
+                ? compact
+                  ? 'mt-1 line-clamp-1 font-mono text-2xs'
+                  : 'mt-1 truncate pr-16 font-mono text-2xs'
+                : 'mt-2 text-xs',
             )}
           >
             {sub}
@@ -356,7 +364,11 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
 
     const base = cn(
       'relative h-full min-w-0 overflow-hidden text-left',
-      strip ? 'min-h-28 bg-transparent px-4 py-5' : 'rounded-lg border border-border bg-card p-4',
+      strip
+        ? compact
+          ? 'min-h-0 bg-transparent px-3 py-3'
+          : 'min-h-28 bg-transparent px-4 py-5'
+        : 'rounded-lg border border-border bg-card p-4',
       bar && !strip && 'pl-5',
     );
 

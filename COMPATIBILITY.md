@@ -90,6 +90,12 @@ All registered in `BUILTIN_RECEIVERS` (`backend/app/connectors/receivers/`).
 | Azure Blob | `azure_blob` | OBJECT_STORE | `azure-storage-blob` |
 | Local file / directory tail | `file` | OBJECT_STORE / PUSH_SOCKET | none (stdlib) |
 
+Syslog TLS is a real TLS 1.2+ server transport, not a compatibility label. It accepts
+mounted server certificate/key paths, an optional write-only private-key password,
+and an optional client CA with required mTLS. Selecting TLS without readable required
+material fails that receiver closed; it never silently downgrades to plaintext TCP.
+See `DEPLOY.md` §3.6 for the exact fields and mount requirements.
+
 Payload parsing (JSON, NDJSON, CEF, LEEF, RFC 5424/3164 syslog, GELF, key/value)
 is shared (`receivers/formats.py`); records are normalised to OCSF via
 `generic_to_ocsf` before ingestion.
@@ -117,7 +123,7 @@ is shared (`receivers/formats.py`); records are normalised to OCSF via
 | Backend | **Python 3.11**; FastAPI + LangGraph; deps pinned in `backend/requirements.txt` (`sqlalchemy`/`aiosqlite`/`asyncpg`/`pgvector` added for the SQL backends) |
 | Standalone web UI | **Node 22**; Vite + React 18 + TypeScript + **Tailwind CSS** + shadcn-style primitives on **Radix UI** (**not** `@elastic/eui` — fully removed); builds with `tsc --noEmit && vite build`; **no Kibana** required |
 | Kibana plugin | **ARCHIVED** (`archive/kibana-plugin/`, frozen 2026-06-21) — not built, tested, or shipped; last built for Kibana **8.12.2** and **8.19.12** (see §F) |
-| LLM providers | **7**, all through the single gateway: `anthropic`, `openai`, `azure`, `bedrock`, `vertex`, `openai_compatible` (self-hosted LiteLLM/vLLM/Ollama/LM Studio), `mock` (offline tests only); embeddings default to OpenAI |
+| LLM providers | **7**, all through the single gateway: `anthropic`, `openai`, `azure`, `bedrock`, `vertex`, `openai_compatible` (self-hosted LiteLLM/vLLM/Ollama/LM Studio), `mock` (offline tests only); fresh completion roles default to OpenAI `gpt-5.6-luna`, embeddings to `text-embedding-3-small`, and stored/operator assignments remain authoritative |
 | Enrichment | **19 registered providers** across 17 files — AbuseIPDB, VirusTotal, GreyNoise, Shodan, Shodan InternetDB, Censys, BinaryEdge, IPinfo, OTX, Pulsedive, Spur, XForce, URLScan, HIBP, ProjectHoneypot, RDAP, URLhaus, ThreatFox, MalwareBazaar (Redis-cached; degrades to in-memory); several keyless ones default ON |
 
 ---
@@ -185,7 +191,7 @@ rsyslog (omkafka) → Kafka → foss-soc-engine → Logstash → Elasticsearch (
 | Key | Scope | Privileges | Used by |
 |---|---|---|---|
 | `ES_API_KEY` | log indices (e.g. `all-logs-*`) | `read`, `view_index_metadata` | the agent's pull connector / `es_query` — the **only** path to log data |
-| `ES_MGMT_API_KEY` | `tlsoc-agent-*` | `read`, `write`, `create_index`, `manage` | the backend's own state indices (only when `STATE_BACKEND=elasticsearch`) |
+| `ES_MGMT_API_KEY` | `tlsoc-agent-*` | Index: `read`, `write`, `create_index`, `view_index_metadata`, `manage`; cluster: `manage_ilm`, `manage_index_templates`, `monitor` | the backend's own state indices and explicit lifecycle capability/apply (only when `STATE_BACKEND=elasticsearch`) |
 
 The read-only key is wired to a **physically separate** ES client
 (`RealESClient._ro`) so "running next to Kibana" can never silently escalate what

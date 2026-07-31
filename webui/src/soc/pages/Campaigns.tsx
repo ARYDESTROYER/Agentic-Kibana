@@ -33,6 +33,7 @@ import {
 import { toast } from 'sonner';
 
 import { api } from '@/lib/api';
+import { LoadingState } from '@/design-system';
 import { humanizeToken, humanizeAge, fmtNumber } from '@/lib/format';
 import { useNavigateOptional, type Navigate } from '@/soc/router';
 import type { CampaignConfig } from '@/lib/types';
@@ -62,7 +63,6 @@ import {
 import { PageHeader } from '@/soc/components/PageHeader';
 import { PageContainer } from '@/soc/components/PageContainer';
 import { DataTable, type DataTableColumn } from '@/soc/components/DataTable';
-import { Skeleton } from '@/ui/skeleton';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
 import { errorMessage } from '@/lib/errorMessage';
@@ -127,6 +127,7 @@ export function CampaignsInner({ onNavigate }: CampaignsProps) {
   const [campaigns, setCampaigns] = React.useState<Campaign[]>([]);
   const [enabled, setEnabled] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
+  const [hasLoaded, setHasLoaded] = React.useState(false);
   const [error, setError] = React.useState<unknown>(null);
   const [recorrelating, setRecorrelating] = React.useState(false);
   const [detail, setDetail] = React.useState<Campaign | null>(null);
@@ -157,12 +158,15 @@ export function CampaignsInner({ onNavigate }: CampaignsProps) {
       setError(e);
     } finally {
       setLoading(false);
+      setHasLoaded(true);
     }
   }, []);
 
   React.useEffect(() => {
     void load();
   }, [load]);
+
+  const initialLoading = loading && !hasLoaded;
 
   const recorrelate = React.useCallback(async () => {
     setRecorrelating(true);
@@ -311,7 +315,15 @@ export function CampaignsInner({ onNavigate }: CampaignsProps) {
         }
       />
 
-      {!enabled ? (
+      {initialLoading ? (
+        <LoadingState
+          label="Loading campaigns"
+          description="Preparing related-case groups and shared threat context."
+          layout="page"
+          shape="rows"
+          shapeRows={6}
+        />
+      ) : !enabled ? (
         <Alert>
           <Network className="h-4 w-4" aria-hidden />
           <AlertTitle>Campaign clustering is off.</AlertTitle>
@@ -323,20 +335,23 @@ export function CampaignsInner({ onNavigate }: CampaignsProps) {
         </Alert>
       ) : null}
 
-      {error ? (
+      {!initialLoading && error ? (
         <LoadError
           error={error}
           title="Could not load campaigns"
           fallback="Could not load campaigns."
           onRetry={() => void load()}
         />
-      ) : (
+      ) : null}
+
+      {!initialLoading && !(error && campaigns.length === 0) ? (
         <DataTable
           columns={columns}
           rows={campaigns}
           getRowId={(c) => c.id}
-          loading={loading}
+          loading={loading && campaigns.length > 0}
           onRowClick={(c) => setDetail(c)}
+          getRowActionLabel={(c) => `Open campaign ${c.id}`}
           ariaLabel="Campaigns"
           empty={
             <EmptyState
@@ -346,8 +361,10 @@ export function CampaignsInner({ onNavigate }: CampaignsProps) {
             />
           }
         />
-      )}
+      ) : null}
 
+      {!initialLoading ? (
+        <>
       <CampaignDetailSheet
         campaign={detail}
         onClose={() => setDetail(null)}
@@ -375,10 +392,12 @@ export function CampaignsInner({ onNavigate }: CampaignsProps) {
           >
             {cfg.loading ? (
               // Don't flash the default-valued form while the persisted policy loads.
-              <div className="space-y-4" aria-busy="true">
-                <Skeleton className="h-14 w-full" />
-                <Skeleton className="h-24 w-full" />
-              </div>
+              <LoadingState
+                label="Loading campaign policy"
+                description="Preparing the saved cross-case clustering configuration."
+                layout="panel"
+                shape="panel"
+              />
             ) : (
             <fieldset disabled={!canManage} className="space-y-6">
               <Alert>
@@ -452,6 +471,8 @@ export function CampaignsInner({ onNavigate }: CampaignsProps) {
           onSave={() => void saveConfig()}
           onDiscard={cfg.discard}
         />
+      ) : null}
+        </>
       ) : null}
     </PageContainer>
   );
