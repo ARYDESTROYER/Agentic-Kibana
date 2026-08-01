@@ -11,17 +11,16 @@ unit-test suite is never mistaken for production evidence.
 
 ## Stable-promotion blockers
 
-### Stable branch topology is not provisioned
+### Repository protections require administrator verification
 
-The release contract requires a protected literal `main` branch. The current
-remote exposes `Testing` and legacy/default `claude/main`, but no `main`.
-Consequently no current checkout or artifact is a supported Stable release.
+The canonical `Testing` and default `main` branches now exist, but branch protection,
+required checks, Pages source, and environment rules are GitHub repository settings;
+the application source cannot enforce or attest to them.
 
-**Required change:** create or rename and protect literal `main`, make it the
-default branch, require the documented CI/promotion gates, and publish the first
-tag from its verified commit. If the owner intentionally keeps `claude/main`,
-change every workflow, link, branch protection, and release document to that one
-canonical name before publication.
+**Required control:** require the fail-closed `CI passed` aggregate and reviewed
+promotion into `main`, set Pages source to **GitHub Actions**, and protect the
+`github-pages` environment as appropriate. Verify those settings before treating a
+new commit or documentation deployment as accepted merely because its workflow ran.
 
 ### No project license
 

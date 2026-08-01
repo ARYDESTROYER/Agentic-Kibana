@@ -539,10 +539,10 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
   `npm run lint` (0 errors, jsx-a11y at error) before
   every commit. (Counts rise each round — see `Journal.md` for the exact current totals.)
 - **Git:** active branch `Testing`. Commit focused changes; push when asked. The
-  current remote exposes `Testing` and legacy/default `claude/main`, not literal
-  `main`; the owner must provision/protect `main` (or consistently change all
-  release machinery) before the first Stable promotion. Never treat
-  `claude/main` as Stable by implication.
+  canonical remote branches are `Testing` for integration and default `main` for
+  Stable promotion. Keep the documented pull-request gates and the required
+  `CI passed` aggregate enforced through repository settings; branch names alone
+  do not prove acceptance.
 - **Release identity UI:** the shell always shows `vX.Y.Z · Testing|Stable`; its
   popover reconciles the immutable Console stamp with public backend build-info.
   Any known version/channel/SHA mismatch downgrades to Testing. `run-demo.sh`
@@ -611,11 +611,10 @@ Round 9b via PR #26. Round 10 ("Autopilot & Comprehensive Ingestion + motion.dev
 flips the suite from "opt-in automation" to **comprehensive ingestion + smart-
 autopilot defaults ON out of the box** — see the Round-10 bullet below.
 
-**Release-topology prerequisite:** the remote currently exposes `Testing` and
-legacy/default `claude/main`, but no literal `main`. Before the first Stable
-promotion, the owner must provision/protect `main` and make it default, or
-deliberately change all workflow and release references to one different canonical
-branch. No current build is Stable solely because `claude/main` exists.
+**Release topology:** the remote now exposes canonical `Testing` and `main`, uses
+`main` as its default, and has the `v0.1.1` release tag. Repository-level branch
+protection, required-check, and `github-pages` environment policy remain administrator
+controls and must be verified independently of source changes.
 
 **Current baseline (2026-07-30):** backend **2,073 pytest** passed (0 failures);
 webui **1,732 Vitest** specs / 268 files, full docs+app build clean (3,176 modules;

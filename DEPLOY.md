@@ -11,11 +11,11 @@ exact accepted `main` / `v0.1.1` commit. Version and channel are independent so 
 Testing candidate cannot report itself as Stable merely because it already carries
 the final SemVer.
 
-> **Release-topology status (2026-07-20):** the remote currently exposes
-> `Testing` and legacy/default `claude/main`; it does not expose literal `main` or
-> `v0.1.1`. Until the owner creates/renames and protects `main` (or deliberately
-> changes every workflow/document to another canonical name), only Testing
-> candidates exist. `claude/main` is not Stable by implication.
+> **Release topology:** the remote uses `Testing` for integration and default
+> `main` for accepted Stable source, and it has the `v0.1.1` release tag. Branch
+> protections, required checks, and release-environment policies are repository
+> administration controls; verify them independently rather than inferring
+> acceptance from a branch or tag name.
 
 > **The SIEM is NOT baked into the stack.** You connect your log source(s) from
 > the **first-run wizard** ("add a source") AFTER the stack is up — not in a
@@ -434,10 +434,11 @@ curl -s http://localhost:8088/api/health
   export with its own manifest, checksums, catalog, and tested restore procedure.
 
 **Upgrades.** Deploy an exact accepted tag or digest; do not run a generic
-`git pull` and assume the resulting branch is Stable. Once literal `main` is
-provisioned, pulling it receives only the last accepted Stable source, while
-pulling `Testing` receives the next integration candidate. Back up first and
-follow [`docs/operations/upgrades.md`](docs/operations/upgrades.md):
+`git pull` and assume the resulting checkout is an accepted release. The canonical
+`main` branch carries Stable source, while `Testing` carries the next integration
+candidate, but repository protections and required checks must still be verified
+independently. Back up first and follow
+[`docs/operations/upgrades.md`](docs/operations/upgrades.md):
 
 ```bash
 cd <repo-root>

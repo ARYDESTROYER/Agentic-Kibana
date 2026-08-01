@@ -47,12 +47,11 @@ Console. The web image serves both the compiled SPA and the version-matched Help
 Center at `/docs/0.1/`, and proxies `/api/*` to the backend. Redis is a cache, not
 the authoritative case/config store.
 
-The current remote has not yet provisioned literal `main` or the `v0.1.1` tag; it
-exposes `Testing` and legacy/default `claude/main`. Until the repository owner
-completes the documented promotion setup, only the Testing checkout is available
-and it is not a supported Stable release. After provisioning, a pull of `main`
-receives the last accepted Stable tree while integration work continues on
-`Testing`.
+The remote now uses `Testing` for integration and default `main` for accepted Stable
+source, and it has the `v0.1.1` release tag. A pull of `main` receives the current
+accepted Stable tree while integration work continues on `Testing`. Branch
+protections, required checks, and release-environment policy remain repository
+settings that administrators must verify independently.
 
 ## Existing Elasticsearch attachment
 

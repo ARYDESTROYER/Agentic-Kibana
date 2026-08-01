@@ -10,13 +10,12 @@ count current), full `npm run build` (version-matched Help Center + tsc + Vite) 
 Vitest clean, **#3 `decide()` byte-identical**,
 docs + Journal updated, commit + push.
 
-**Current baseline (Version `0.1.1` on `Testing`; promote the accepted source tree to
-the Stable `main` branch, re-run its gates, and tag the resulting commit `v0.1.1`):**
-the remote currently exposes `Testing` and legacy/default `claude/main`, but no literal
-`main`; provisioning/protecting the canonical Stable branch (or consistently changing
-every workflow/release reference) is an explicit promotion blocker. `claude/main` is
-not implicitly Stable. The current console adds the polished selected-window Security
-Command Center and an additive split-pane **Case Manager** (Active/All queue, six-tab
+**Current baseline (Version `0.1.1`; `Testing` integration, default `main` Stable,
+and release tag `v0.1.1`):** the canonical branches and tag now exist. Branch
+protections, required checks, Pages source selection, and `github-pages` environment
+policy remain repository-administration controls and must be verified independently;
+source files cannot attest to those settings. The current console adds the polished
+selected-window Security Command Center and an additive split-pane **Case Manager** (Active/All queue, six-tab
 workspace, selection and permission-gated Acknowledge/Assign/Add tag/Set status/
 Set disposition/Reinvestigate/Resolve) while the legacy Cases table remains. The
 always-visible `vX.Y.Z · Testing|Stable` badge reconciles Console/backend stamps and

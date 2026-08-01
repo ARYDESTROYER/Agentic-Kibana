@@ -14,10 +14,10 @@ The latest fully recorded local baseline is **2,174 backend tests** and **1,828
 Console tests across 277 files**. Counts rise as coverage is added; the
 commands and zero-failure result are the contract, not a frozen target.
 
-The current remote has no literal `main`; it exposes `Testing` and legacy/default
-`claude/main`. Repository provisioning and branch protection must be completed before
-the Stable half of this workflow can run. Do not reinterpret `claude/main` as Stable
-without changing the workflow and all release references consistently.
+The remote now uses `Testing` for integration and default `main` for accepted Stable
+source, and it has the `v0.1.1` release tag. Branch protection, required checks,
+Pages source selection, and `github-pages` environment policy are repository settings;
+verify them independently before treating a merge or deployment as accepted.
 
 ## GitHub merge gate
 
@@ -197,6 +197,34 @@ Confirm that **Use the product** is the default navigation path and that in-app 
 stay on the application origin. Internal development records are deliberately excluded
 from the Help Center build.
 
+### Native Pages publication verification
+
+The `Documentation` workflow validates every eligible pull request, push, and manual
+run. Only a push to `main`, or a manual run explicitly selected on `main`, may enter
+the Stable publication path. Pull requests, `Testing` pushes, and manual runs on any
+other ref must stop after validation and preview-artifact upload.
+
+After a Stable publication event:
+
+1. Confirm **Validate Help Center**, **Assemble Stable documentation**, and
+   **Deploy Stable documentation** all succeed for the same `main` SHA.
+2. Confirm the generated `gh-pages` history contains `index.html`,
+   `0.1/index.html`, `stable/index.html`, `latest/index.html`, and `versions.json`.
+   `gh-pages` is a Mike-managed backing store; never edit it by hand.
+3. In **Settings → Pages**, verify **Build and deployment → Source** is
+   **GitHub Actions**, not **Deploy from a branch**. Verify the `github-pages`
+   environment deployment points to the expected workflow run and commit.
+4. Request the public root, `/0.1/`, `/stable/`, and `/latest/`; follow redirects,
+   require successful responses, and confirm the version selector, Stable marquee,
+   and `main` edit links render from the deployed artifact.
+5. Run the workflow manually on `main` once to prove an idempotent redeploy preserves
+   prior version history. Also inspect a `Testing` or non-main manual run and confirm
+   that neither publication nor deployment executes.
+
+The native Pages artifact is assembled from the complete generated branch tree and
+must be free of symbolic links. A green preview artifact does not prove that the
+Pages environment deployed or that the public aliases resolve.
+
 ## Deployment-shape checks
 
 Validate Compose interpolation without starting services:
@@ -225,9 +253,11 @@ Before promoting `Testing` to Stable:
    release gate again on the resulting `main` commit.
 5. Build and stamp the verified commit with the correct channel, exact SHA, build
    date, and source URL.
-6. Create the immutable `v0.1.1` tag and publish matching artifacts by digest and
-   the matching versioned documentation from that verified commit.
-7. Verify `/api/health/build-info`, image metadata, and the 0.1 Stable docs selector.
+6. Create the immutable `v0.1.1` tag and publish matching application artifacts by
+   digest; let the Documentation workflow publish the accepted public 0.1 line from
+   `main`.
+7. Verify `/api/health/build-info`, image metadata, the native Pages deployment, and
+   the 0.1 Stable docs selector and aliases.
 
 See [Development](index.md), [Compatibility](../reference/compatibility.md), and
 [Release channels](../releases/channels.md).

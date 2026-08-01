@@ -6,12 +6,11 @@
 There are **two distinct environments**. Confusing them causes most build/deploy
 pain, so they are documented separately.
 
-> **Branch topology (2026-07-20):** the remote exposes `Testing` and
-> legacy/default `claude/main`; it does not yet expose the protected literal
-> `main` required by the Testing → Stable release contract. `claude/main` is not
-> implicitly Stable. A repository owner must provision the documented branch and
-> protection, or deliberately update every workflow and release reference to a
-> different canonical name, before the first Stable build.
+> **Branch topology:** the remote uses `Testing` for integration and default
+> `main` for accepted Stable source, and it has the `v0.1.1` release tag. Branch
+> protection, required checks, Pages source selection, and environment policy are
+> repository settings; administrators must verify them independently of this
+> checkout.
 
 > The suite is **vendor-agnostic**: the backend (FastAPI+LangGraph) plus a
 > **standalone web UI** (`webui/`, Vite+React+TS+**Tailwind+shadcn/Radix** — EUI was

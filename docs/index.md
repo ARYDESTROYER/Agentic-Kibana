@@ -145,7 +145,9 @@ accepted source tree promotes through a protected pull request to **`main` /
 Stable**. Code and images use SemVer `0.1.1`; compatible documentation uses the
 major.minor line `0.1`.
 
-The current repository has not yet completed its first literal-`main` Stable
-publication. Read [Agentic SOC 0.1](releases/0.1.md),
-[release channels and versioning](releases/channels.md), and
-[known limitations](releases/known-limitations.md) before deployment.
+The repository now uses default `main` for accepted source, retains `Testing` for
+integration, and has the `v0.1.1` release tag. Repository protections and the native
+Pages deployment remain administrator-controlled and must be verified independently
+before treating a branch, workflow run, or public URL as accepted. Read
+[Agentic SOC 0.1](releases/0.1.md), [release channels and versioning](releases/channels.md),
+and [known limitations](releases/known-limitations.md) before deployment.

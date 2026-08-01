@@ -15,19 +15,13 @@ feature branches → Testing → main (Stable)
 branch. Version 0.1 is represented as `0.1.1` in packages/images and `v0.1.1` as an
 immutable release tag; its documentation line is `0.1`.
 
-!!! warning "Provision Stable before the first promotion"
+!!! note "Canonical topology and administrative controls"
 
-    The current remote exposes `Testing` and legacy/default `claude/main`, not a
-    literal `main`. A repository owner must create or rename and protect `main`,
-    make it the default, and require the release gates before the first promotion.
-    Alternatively, retaining `claude/main` requires a deliberate, consistent change
-    to all workflows and documentation. Until that work is complete, there is no
-    Stable branch or tag to upgrade from.
-
-    Do not push `Testing` over `claude/main`. Preserve the legacy tip, bootstrap and
-    protect literal `main`, promote through a pull request, verify/tag it, and only
-    then retire `claude/main`; the exact one-time sequence is in
-    [Release channels](../releases/channels.md#one-time-cleanup-of-the-legacy-claudemain-branch).
+    The remote now uses `Testing` for integration and default `main` for accepted
+    Stable source, and it has the `v0.1.1` release tag. Pull-request protections,
+    required checks, and release-environment policy are repository settings rather
+    than source-code guarantees. Administrators must verify them independently;
+    branch and tag names alone do not prove acceptance.
 
 ## Promotion gate
 
@@ -151,8 +145,9 @@ as stale.
 
 The blue **Update available** action remains governed only by the already-deployed,
 same-origin manifest/readiness contract above. Source discovery can never make that
-control appear by itself. Today the reference repository has no literal `main`, so the
-default Stable observation correctly stays unavailable until the branch is provisioned.
+control appear by itself. The default Stable observation now targets canonical
+`main`; it remains read-only source metadata and cannot prove repository protection,
+release acceptance, or the availability of an already-deployed update.
 
 !!! important "Static-asset retention is part of a graceful rollout"
 

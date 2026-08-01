@@ -13,9 +13,10 @@ real source with persistent application state.
 
     `Testing` contains integrated candidates. Under the release contract, `main`
     holds only accepted Stable source and immutable `v0.1.1` identifies the released
-    artifact. The current remote has not yet provisioned literal `main` or the tag;
-    legacy/default `claude/main` is not a Stable substitute. Today, use Testing only
-    as an unreleased preview.
+    artifact. The remote now has both canonical branches and the release tag. Use
+    `v0.1.1` for the immutable release and `Testing` only for an unreleased preview;
+    repository administrators must verify branch protections and required checks
+    independently.
 
 ## Get the source
 
@@ -35,10 +36,10 @@ real source with persistent application state.
     cd Agentic-Kibana
     ```
 
-    The Stable command applies only after `v0.1.1` is published from the protected
-    `main` branch. Check the repository release list rather than creating or moving
-    the tag yourself. After that promotion, users pulling `main` receive the last
-    accepted Stable tree; candidate work remains isolated on `Testing`.
+    The `v0.1.1` tag is immutable; do not create, move, or replace it locally. Users
+    pulling `main` receive the current accepted Stable source, while candidate work
+    remains isolated on `Testing`. A branch name alone is not acceptance evidence,
+    so repository administrators must verify protections and required checks.
 
 ## Option A: deterministic demo
 

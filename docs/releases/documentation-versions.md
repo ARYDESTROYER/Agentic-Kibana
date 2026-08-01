@@ -15,7 +15,7 @@ and previewing future work.
 | Destination | What it represents | Use it for |
 | --- | --- | --- |
 | **Installed version** | The Help Center built from the same accepted source as the running application and served on that application origin at `/docs/0.1/` | Daily use, administration, troubleshooting, and every decision about the running build |
-| **Latest Stable** | Documentation built from the current protected `main` release and its immutable tag | Upgrade evaluation, current supported guidance, and comparison with an older installation |
+| **Latest Stable** | Documentation built from the current accepted `main` source for the supported release line | Upgrade evaluation, current supported guidance, and comparison with an older installation |
 | **Development** | Documentation source integrated on `Testing` but not yet promoted and tagged | Preview and review only; never assume it describes the installed application |
 
 Open **Documentation** from the bottom of the application navigation to enter the
@@ -49,7 +49,7 @@ newer Stable or Development material.
 | --- | --- | --- | --- |
 | 0.1 installed Testing guide | 0.1.1 | candidate commit on `Testing` | Testing |
 | 0.1 installed Stable guide | 0.1.1 | verified `main` commit tagged `v0.1.1` | Stable |
-| 0.1 public Stable guide | 0.1.1 | the same verified tag used by the Stable artifacts | Stable |
+| 0.1 public Stable guide | 0.1.x | current accepted documentation on `main` for the supported 0.1 line | Stable |
 
 The shorter documentation label keeps patch-compatible guidance together. When a
 patch changes behavior or an operational procedure, the 0.1 Help Center is rebuilt
@@ -58,8 +58,10 @@ incompatible or feature release receives a new documentation line rather than
 rewriting 0.1 silently.
 
 The channel is independent of SemVer. A Testing candidate and a Stable artifact may
-both report application version `0.1.1`; only the accepted `main`/tag provenance may
-claim Stable.
+both report application version `0.1.1`; only accepted `main`/tag provenance may
+claim a Stable application build. Public documentation can receive corrections on
+`main` between application tags, so the installed Help Center remains authoritative
+for the exact binaries running in a deployment.
 
 ## Confirm what is installed
 
@@ -106,17 +108,27 @@ the documentation bundled with an older installed app inaccurate for that app.
 
 Before the first Stable publish, repository administrators must:
 
-1. create and protect `Testing` and `main`, make `main` the default branch, and
-   require the documented pull-request and CI gates on both;
-2. allow the documentation workflow to write publication output;
-3. promote the accepted 0.1 source tree to `main` and let the workflow create the
-   version directory, aliases, and root redirect; and
-4. configure the public documentation host for that generated output.
+1. keep `Testing` and `main` as the integration and Stable branches, make `main`
+   the default, and require the documented pull-request and CI gates;
+2. open **Settings → Pages**, set **Build and deployment → Source** to
+   **GitHub Actions**, and protect the generated `github-pages` environment as
+   appropriate for the repository;
+3. promote accepted documentation to `main`; and
+4. allow the `Documentation` workflow to complete its `validate`, `publish`, and
+   `deploy` jobs.
 
-The current remote has `Testing` and legacy/default `claude/main`, but no literal
-`main`. These prerequisites are therefore still outstanding and the public Stable
-publication contract has not yet been activated. Never treat `claude/main` as
-Stable implicitly.
+The repository already uses `main` as its default branch and retains `Testing` as
+the integration branch. GitHub Actions Pages source selection is a one-time
+administrator setting; the workflow deliberately does not carry a personal access
+token that could change repository settings.
+
+On a push to `main`, or a manual `workflow_dispatch` run selected on `main`, the
+workflow uses Mike to update the generated history on `gh-pages`, assembles that
+history as a link-free Pages artifact, and deploys it with GitHub's native Pages
+actions. The `gh-pages` branch is generated version history, **not** the configured
+Pages publishing source. Pull requests, `Testing` pushes, and manual runs on any
+other ref validate and upload a preview artifact only; they cannot move the public
+Stable site.
 
 Generated public-site output is a release artifact. Do not edit it by hand; edit the
 Markdown on `Testing`, promote the accepted source through `main`, and let the

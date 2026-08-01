@@ -16,7 +16,7 @@ distinguishes implemented support from enum placeholders and archived components
 | Agentic SOC Console | Node 22 for install/build | React 18, Vite 5, TypeScript 5.6, Tailwind, and Radix/shadcn-style primitives |
 | Container frontend | nginx | Serves the compiled SPA, version-matched `/docs/<major.minor>/` Help Center, and relative `/api/*` proxy |
 | Event schema | OCSF 1.4.0 | Every connector normalizes before the engine processes an event |
-| Documentation | MkDocs Material; Mike for public publication | Every app serves its installed 0.1 guide at `/docs/0.1/`; the public selector uses `0.1`; packages/images use `0.1.1` |
+| Documentation | MkDocs Material; Mike history plus native GitHub Pages deployment | Every app serves its installed 0.1 guide at `/docs/0.1/`; the public selector uses `0.1`; packages/images use `0.1.1` |
 
 The Agentic SOC Console is the only supported primary UI. It does not require Kibana. The
 former Kibana plugin is archived, frozen, and excluded from current build/test/release
@@ -108,10 +108,6 @@ For integrations:
 Persisted Pydantic models generally use defaults/migrations for additive fields, and
 shared KV stores avoid a new table for many features. Version 0.1 does not yet provide
 a complete database migration/rollback framework. See [Upgrades](../operations/upgrades.md).
-
-The current remote exposes `Testing` and legacy/default `claude/main`, not literal
-`main`; therefore the Stable promotion prerequisite remains outstanding. A branch
-name containing `main` does not grant Stable provenance.
 
 ## Browser, proxy, and network expectations
 
