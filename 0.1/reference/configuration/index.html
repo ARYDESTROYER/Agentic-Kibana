@@ -1,0 +1,3635 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Configuration authorities, environment wiring, durable preferences, runtime-only secrets, and state backends in Agentic SOC 0.1.">
+      
+      
+      
+        <link rel="canonical" href="https://arydestroyer.github.io/Agentic-Kibana/0.1/reference/configuration/">
+      
+      
+        <link rel="prev" href="../api/">
+      
+      
+        <link rel="next" href="../permissions/">
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.19">
+    
+    
+      
+        <title>Configuration reference - Agentic SOC Help Center</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.7e37652d.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.06af60db.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+    
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&amp;family=Unbounded:wght@700;800;900&amp;display=swap"
+  >
+  <meta name="color-scheme" content="light dark">
+  <script>
+    (() => {
+      let mode = "system";
+      try {
+        const saved = window.localStorage.getItem("soc.theme");
+        if (saved === "light" || saved === "dark" || saved === "system") mode = saved;
+      } catch (_) {
+        /* Storage may be unavailable in a hardened browser; system remains safe. */
+      }
+
+      const systemDark = Boolean(
+        window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches,
+      );
+      const dark = mode === "dark" || (mode === "system" && systemDark);
+      const scheme = dark ? "slate" : "default";
+      const root = document.documentElement;
+
+      // Stamp the same effective mode as the Console before body/CSS paint. Material's
+      // own palette engine still owns the accessible toggle and per-page attributes.
+      root.dataset.tlsocTheme = dark ? "dark" : "light";
+      root.style.colorScheme = dark ? "dark" : "light";
+      __md_set("__palette", {
+        index: dark ? 0 : 1,
+        color: {
+          media: "",
+          scheme,
+          primary: dark ? "black" : "white",
+          accent: "lime",
+        },
+      });
+    })();
+  </script>
+
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="lime">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#configuration-reference" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+        <aside class="md-banner">
+          <div class="md-banner__inner md-grid md-typeset">
+            
+            
+  
+  <div
+    class="tlsoc-marquee"
+    role="status"
+    aria-label="Stable documentation for Agentic SOC 0.1"
+  >
+    <div class="tlsoc-marquee__track">
+      
+        <span class="tlsoc-marquee__item">
+          
+            STABLE DOCUMENTATION — AGENTIC SOC 0.1
+          
+          <span class="tlsoc-marquee__dot">■</span>
+        </span>
+      
+        <span class="tlsoc-marquee__item" aria-hidden="true">
+          
+            STABLE DOCUMENTATION — AGENTIC SOC 0.1
+          
+          <span class="tlsoc-marquee__dot">■</span>
+        </span>
+      
+        <span class="tlsoc-marquee__item" aria-hidden="true">
+          
+            STABLE DOCUMENTATION — AGENTIC SOC 0.1
+          
+          <span class="tlsoc-marquee__dot">■</span>
+        </span>
+      
+        <span class="tlsoc-marquee__item" aria-hidden="true">
+          
+            STABLE DOCUMENTATION — AGENTIC SOC 0.1
+          
+          <span class="tlsoc-marquee__dot">■</span>
+        </span>
+      
+        <span class="tlsoc-marquee__item" aria-hidden="true">
+          
+            STABLE DOCUMENTATION — AGENTIC SOC 0.1
+          
+          <span class="tlsoc-marquee__dot">■</span>
+        </span>
+      
+        <span class="tlsoc-marquee__item" aria-hidden="true">
+          
+            STABLE DOCUMENTATION — AGENTIC SOC 0.1
+          
+          <span class="tlsoc-marquee__dot">■</span>
+        </span>
+      
+        <span class="tlsoc-marquee__item" aria-hidden="true">
+          
+            STABLE DOCUMENTATION — AGENTIC SOC 0.1
+          
+          <span class="tlsoc-marquee__dot">■</span>
+        </span>
+      
+        <span class="tlsoc-marquee__item" aria-hidden="true">
+          
+            STABLE DOCUMENTATION — AGENTIC SOC 0.1
+          
+          <span class="tlsoc-marquee__dot">■</span>
+        </span>
+      
+        <span class="tlsoc-marquee__item" aria-hidden="true">
+          
+            STABLE DOCUMENTATION — AGENTIC SOC 0.1
+          
+          <span class="tlsoc-marquee__dot">■</span>
+        </span>
+      
+        <span class="tlsoc-marquee__item" aria-hidden="true">
+          
+            STABLE DOCUMENTATION — AGENTIC SOC 0.1
+          
+          <span class="tlsoc-marquee__dot">■</span>
+        </span>
+      
+        <span class="tlsoc-marquee__item" aria-hidden="true">
+          
+            STABLE DOCUMENTATION — AGENTIC SOC 0.1
+          
+          <span class="tlsoc-marquee__dot">■</span>
+        </span>
+      
+        <span class="tlsoc-marquee__item" aria-hidden="true">
+          
+            STABLE DOCUMENTATION — AGENTIC SOC 0.1
+          
+          <span class="tlsoc-marquee__dot">■</span>
+        </span>
+      
+    </div>
+  </div>
+
+          </div>
+          
+        </aside>
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+          <aside class="md-banner md-banner--warning">
+            <div class="md-banner__inner md-grid md-typeset">
+              
+  You are viewing an older Agentic SOC documentation version.
+  <a href="https://arydestroyer.github.io/Agentic-Kibana/stable/">Open the Stable documentation.</a>
+
+            </div>
+            <script>
+  var el = document.querySelector("[data-md-component=outdated]");
+  var base = new URL("../..", location);
+  var outdated = __md_get("__outdated", sessionStorage, base);
+  if (outdated === true && el) el.hidden = false;
+</script>
+          </aside>
+        
+      </div>
+    
+    
+      <header class="md-header tlsoc-mobile-header" data-md-component="header">
+  <nav class="tlsoc-mobile-nav" aria-label="Header">
+    <a
+      class="tlsoc-mobile-brand"
+      href="../.."
+      aria-label="Agentic SOC Help Center"
+    >Agentic SOC</a>
+
+    
+      <a class="tlsoc-repo-link tlsoc-repo-link--mobile" href="https://github.com/ARYDESTROYER/Agentic-Kibana" target="_blank" rel="noopener">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.0.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path fill="currentColor" d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+        <span>GitHub</span>
+        <span class="tlsoc-source-badge">Stable · 0.1</span>
+      </a>
+    
+
+    <span class="tlsoc-mobile-spacer"></span>
+
+    <button class="tlsoc-icon-button" type="button" aria-label="Search" data-tlsoc-open-search>
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="11" cy="11" r="8"></circle>
+        <path d="m21 21-4.3-4.3"></path>
+      </svg>
+    </button>
+    <button class="tlsoc-icon-button" type="button" aria-label="Open navigation" aria-controls="tlsoc-primary-nav" aria-expanded="false" data-tlsoc-open-drawer>
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <rect width="18" height="18" x="3" y="3" rx="2"></rect>
+        <path d="M9 3v18"></path>
+      </svg>
+    </button>
+  </nav>
+
+  
+    
+    
+      <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+    
+  
+
+  
+    <script>
+      (() => {
+        const saved = __md_get("__palette");
+        const indices = { slate: 0, default: 1 };
+        const index = indices[saved?.color?.scheme];
+        if (Number.isInteger(index) && saved.index !== index) {
+          saved.index = index;
+          __md_set("__palette", saved);
+        }
+      })();
+    </script>
+    <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+<nav id="tlsoc-primary-nav" class="md-nav md-nav--primary tlsoc-sidebar-nav" aria-label="Navigation" data-md-level="0">
+  <div class="tlsoc-sidebar-head">
+    <div class="tlsoc-sidebar-brand-row">
+      <a
+        class="tlsoc-sidebar-brand"
+        href="../.."
+        aria-label="Agentic SOC Help Center"
+      >Agentic SOC</a>
+
+      
+        <a class="tlsoc-repo-link" href="https://github.com/ARYDESTROYER/Agentic-Kibana" target="_blank" rel="noopener">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.0.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path fill="currentColor" d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+          <span>GitHub</span>
+          <span class="tlsoc-source-badge">Stable · 0.1</span>
+        </a>
+      
+    </div>
+
+    <button class="tlsoc-search-button" type="button" data-tlsoc-open-search>
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="11" cy="11" r="8"></circle>
+        <path d="m21 21-4.3-4.3"></path>
+      </svg>
+      <span>Search</span>
+      <span class="tlsoc-search-shortcut"><kbd>⌘</kbd><kbd>K</kbd></span>
+    </button>
+  </div>
+
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../.." class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    Use the product
+    
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_1" id="__nav_1_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            Use the product
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../getting-started/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    Get started
+    
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_1_2" id="__nav_1_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_1_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1_2">
+            <span class="md-nav__icon md-icon"></span>
+            Get started
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Quickstart
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/first-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    First-run setup
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/demo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Demo Mode
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/first-case/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Your first case
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_1_3" id="__nav_1_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    User and analyst guide
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_1_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1_3">
+            <span class="md-nav__icon md-icon"></span>
+            User and analyst guide
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../analyst/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Start a shift
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../analyst/cases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Cases
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../analyst/case-manager/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Case Manager
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../analyst/investigation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Investigation
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../analyst/chat/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Workspace Chat
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../analyst/logs-search/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Logs and search
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../analyst/collaboration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Collaboration
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../analyst/campaigns/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Campaigns
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../analyst/analytics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Analytics
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../automation/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    Automation
+    
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_1_4" id="__nav_1_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_1_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1_4">
+            <span class="md-nav__icon md-icon"></span>
+            Automation
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../automation/rules/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Detection rules
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../automation/tuning-baselines/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Tuning and baselines
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../automation/playbooks-approvals/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Playbooks and approvals
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_1_5" id="__nav_1_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Threat intelligence
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_1_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1_5">
+            <span class="md-nav__icon md-icon"></span>
+            Threat intelligence
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../intelligence/knowledge-memory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Knowledge and memory
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../intelligence/runbooks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Runbooks
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../intelligence/enrichment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Enrichment
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../intelligence/mitre-threat-context/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    MITRE and threat context
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Administer
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            Administer
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_1" id="__nav_2_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Console administration
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_1">
+            <span class="md-nav__icon md-icon"></span>
+            Console administration
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../administration/settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Settings
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../administration/users-rbac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Users and RBAC
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../administration/authentication/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Authentication
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../administration/models-spend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Models and spend
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../administration/notifications/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Notifications
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../administration/customization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Customization
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../administration/reset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Reset controls
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../sources/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    Connect data sources
+    
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2_2" id="__nav_2_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_2">
+            <span class="md-nav__icon md-icon"></span>
+            Connect data sources
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sources/support-matrix/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Support matrix
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sources/pull/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Pull connectors
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sources/http-syslog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    HTTP and syslog
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sources/queues-object-stores/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Queues and object stores
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sources/feeds-mapping/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Feeds and field mapping
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sources/custom-connectors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Custom connectors
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Deploy and operate
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            Deploy and operate
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Install
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operations/deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Deployment
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operations/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Configuration
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operations/security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Security hardening
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operations/health-backup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Health and backup
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operations/upgrades/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Upgrades
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operations/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Troubleshooting
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Reference
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            Reference
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_1" id="__nav_4_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Product concepts
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_1">
+            <span class="md-nav__icon md-icon"></span>
+            Product concepts
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Architecture
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/terminology/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Terminology
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/ocsf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    OCSF normalization
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/deterministic-decisions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Deterministic decisions
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/state-audit-cost/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    State, audit, and cost
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/ingestion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Ingestion and investigation
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Contracts
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4_2">
+            <span class="md-nav__icon md-icon"></span>
+            Contracts
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    API
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    Configuration
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    Configuration
+    
+  </span>
+  
+
+      </a>
+      
+        
+<nav class="md-nav md-nav--secondary tlsoc-toc" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M15 18H3"></path>
+        <path d="M17 6H3"></path>
+        <path d="M21 12H3"></path>
+      </svg>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#configuration-authorities" class="md-nav__link">
+    <span class="md-ellipsis">
+      Configuration authorities
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#environment-names" class="md-nav__link">
+    <span class="md-ellipsis">
+      Environment names
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#common-backend-environment-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      Common backend environment variables
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#state-backends" class="md-nav__link">
+    <span class="md-ellipsis">
+      State backends
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#own-state-storage-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      Own-state storage lifecycle
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#upstream-release-discovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      Upstream release discovery
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#durable-preferences" class="md-nav__link">
+    <span class="md-ellipsis">
+      Durable preferences
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Durable preferences">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#discounted-alert-inference" class="md-nav__link">
+    <span class="md-ellipsis">
+      Discounted alert inference
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#secret-durability-and-exposure" class="md-nav__link">
+    <span class="md-ellipsis">
+      Secret durability and exposure
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#safe-configuration-sequence" class="md-nav__link">
+    <span class="md-ellipsis">
+      Safe configuration sequence
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../permissions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Permissions
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Compatibility
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Security invariants
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../development/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    Develop and extend
+    
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4_3" id="__nav_4_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_3">
+            <span class="md-nav__icon md-icon"></span>
+            Develop and extend
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/backend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Backend
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/webui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Web console
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/ui-standard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Console UI standard
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/design-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Console design system
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/extensions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Extensions
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Testing and contracts
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Releases and versions
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            Releases and versions
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/documentation-versions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Documentation versions
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/channels/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Channels and versioning
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/known-limitations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Known limitations
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+
+  
+    <div class="tlsoc-sidebar-footer">
+      <div class="md-header__topic tlsoc-version-topic" aria-label="Documentation version">
+        <span class="tlsoc-version-fallback">
+          <span>Docs</span>
+          <strong>0.1</strong>
+        </span>
+      </div>
+      
+        
+<div class="tlsoc-theme-control">
+  <form class="md-header__option tlsoc-palette-engine" data-md-component="palette" aria-hidden="true">
+    
+      
+      
+      
+      <input
+        class="md-option"
+        data-md-color-media=""
+        data-md-color-scheme="slate"
+        data-md-color-primary="black"
+        data-md-color-accent="lime"
+        aria-label="Switch to light mode"
+        type="radio"
+        name="__palette"
+        id="__palette_0"
+        tabindex="-1"
+      >
+      
+        <label for="__palette_1" hidden>
+          Switch to light mode
+        </label>
+      
+    
+      
+      
+      
+      <input
+        class="md-option"
+        data-md-color-media=""
+        data-md-color-scheme="default"
+        data-md-color-primary="white"
+        data-md-color-accent="lime"
+        aria-label="Switch to dark mode"
+        type="radio"
+        name="__palette"
+        id="__palette_1"
+        tabindex="-1"
+      >
+      
+        <label for="__palette_0" hidden>
+          Switch to dark mode
+        </label>
+      
+    
+  </form>
+
+  <button
+    class="tlsoc-theme-switch"
+    type="button"
+    aria-label="Switch to light mode"
+    aria-pressed="true"
+    title="Switch to light mode"
+    data-tlsoc-theme-toggle
+  >
+    <span class="tlsoc-theme-switch__choice tlsoc-theme-switch__choice--light" aria-hidden="true">
+      <svg viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="4"></circle>
+        <path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"></path>
+      </svg>
+    </span>
+    <span class="tlsoc-theme-switch__choice tlsoc-theme-switch__choice--dark" aria-hidden="true">
+      <svg viewBox="0 0 24 24">
+        <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path>
+      </svg>
+    </span>
+  </button>
+</div>
+      
+      <button class="tlsoc-drawer-close" type="button" aria-label="Close navigation" data-tlsoc-close-drawer>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <rect width="18" height="18" x="3" y="3" rx="2"></rect>
+          <path d="M15 3v18"></path>
+        </svg>
+      </button>
+    </div>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+<nav class="md-nav md-nav--secondary tlsoc-toc" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M15 18H3"></path>
+        <path d="M17 6H3"></path>
+        <path d="M21 12H3"></path>
+      </svg>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#configuration-authorities" class="md-nav__link">
+    <span class="md-ellipsis">
+      Configuration authorities
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#environment-names" class="md-nav__link">
+    <span class="md-ellipsis">
+      Environment names
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#common-backend-environment-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      Common backend environment variables
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#state-backends" class="md-nav__link">
+    <span class="md-ellipsis">
+      State backends
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#own-state-storage-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      Own-state storage lifecycle
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#upstream-release-discovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      Upstream release discovery
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#durable-preferences" class="md-nav__link">
+    <span class="md-ellipsis">
+      Durable preferences
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Durable preferences">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#discounted-alert-inference" class="md-nav__link">
+    <span class="md-ellipsis">
+      Discounted alert inference
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#secret-durability-and-exposure" class="md-nav__link">
+    <span class="md-ellipsis">
+      Secret durability and exposure
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#safe-configuration-sequence" class="md-nav__link">
+    <span class="md-ellipsis">
+      Safe configuration sequence
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+  
+  
+  
+    
+  
+  <button
+    class="tlsoc-mobile-tocbar"
+    type="button"
+    aria-controls="tlsoc-mobile-toc-popover"
+    aria-expanded="false"
+    data-tlsoc-mobile-toc-toggle
+  >
+    <svg class="tlsoc-progress-ring" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="11"></circle>
+      <circle cx="12" cy="12" r="11"></circle>
+    </svg>
+    <span class="tlsoc-mobile-tocbar__label">
+      Configuration authorities
+    </span>
+    <svg class="tlsoc-mobile-tocbar__chevron" viewBox="0 0 24 24">
+      <path d="m6 9 6 6 6-6"></path>
+    </svg>
+  </button>
+  <nav id="tlsoc-mobile-toc-popover" class="tlsoc-mobile-toc-popover" aria-label="On this page" hidden>
+    <ul class="md-nav__list">
+      
+        
+        
+        
+          
+        
+        
+          <li class="md-nav__item">
+  <a href="#configuration-authorities" class="md-nav__link">
+    <span class="md-ellipsis">
+      Configuration authorities
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#environment-names" class="md-nav__link">
+    <span class="md-ellipsis">
+      Environment names
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#common-backend-environment-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      Common backend environment variables
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#state-backends" class="md-nav__link">
+    <span class="md-ellipsis">
+      State backends
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#own-state-storage-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      Own-state storage lifecycle
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#upstream-release-discovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      Upstream release discovery
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#durable-preferences" class="md-nav__link">
+    <span class="md-ellipsis">
+      Durable preferences
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Durable preferences">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#discounted-alert-inference" class="md-nav__link">
+    <span class="md-ellipsis">
+      Discounted alert inference
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#secret-durability-and-exposure" class="md-nav__link">
+    <span class="md-ellipsis">
+      Secret durability and exposure
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#safe-configuration-sequence" class="md-nav__link">
+    <span class="md-ellipsis">
+      Safe configuration sequence
+    </span>
+  </a>
+  
+</li>
+        
+      
+    </ul>
+  </nav>
+  <div class="md-content" data-md-component="content">
+    <article class="md-content__inner md-typeset">
+      
+        
+
+
+  
+  
+
+
+<h1 id="configuration-reference">Configuration reference<a class="headerlink" href="#configuration-reference" title="Permanent link">&para;</a></h1>
+<p>Agentic SOC 0.1 separates credentials and process wiring from validated application
+preferences. Keep that boundary intact: a secret is never an ordinary setting.</p>
+<h2 id="configuration-authorities">Configuration authorities<a class="headerlink" href="#configuration-authorities" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Authority</th>
+<th>Examples</th>
+<th>Persistence</th>
+<th>Managed through</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Backend environment</td>
+<td>state URL, provider keys, auth signing key, TLS paths</td>
+<td>Deployment-owned</td>
+<td>Process environment or <code>.env</code></td>
+</tr>
+<tr>
+<td>Organization preferences</td>
+<td>sources, feeds, models, correlation, budgets, automation, branding, RBAC</td>
+<td>Selected Agentic SOC state backend</td>
+<td>Agentic SOC Console or <code>/api/settings*</code></td>
+</tr>
+<tr>
+<td>User preferences</td>
+<td>theme, saved views, table layouts, personal dashboards</td>
+<td>Selected Agentic SOC state backend</td>
+<td>Agentic SOC Console or <code>/api/prefs/user</code>, <code>/api/views*</code>, <code>/api/dashboards*</code></td>
+</tr>
+<tr>
+<td>Runtime secret tier</td>
+<td>wizard-submitted global keys and per-source/channel/provider secrets</td>
+<td>Process memory only unless also supplied at boot</td>
+<td>Secret-setting API routes</td>
+</tr>
+</tbody>
+</table>
+<p><code>backend/app/config.py</code> defines both <code>Secrets</code> and <code>Preferences</code>. The settings schema
+is available at <code>GET /api/settings/schema</code>; <code>GET /api/settings/{section}</code> returns a
+validated section, while <code>GET</code>/<code>PUT /api/settings</code> operate on the preference document.</p>
+<h2 id="environment-names">Environment names<a class="headerlink" href="#environment-names" title="Permanent link">&para;</a></h2>
+<p>The backend reads <strong>unprefixed</strong> names, case-insensitively. For example:</p>
+<div class="highlight"><pre><span></span><code>STATE_BACKEND=postgres
+STATE_DB_URL=postgresql+asyncpg://tlsoc:password@postgres:5432/tlsoc
+AUTH_ENABLED=true
+AUTH_JWT_SECRET=&lt;stable-random-secret&gt;
+OPENAI_API_KEY=&lt;secret&gt;
+</code></pre></div>
+<p>The repository's Compose files accept selected root <code>.env</code> names prefixed with
+<code>TLSOC_</code> and explicitly map them into the backend container. For example,
+<code>TLSOC_OPENAI_API_KEY</code> becomes <code>OPENAI_API_KEY</code>. A prefixed variable has no effect
+unless the selected Compose service maps it. Use <code>.env.example</code> and the Compose file
+as the authority for those mappings.</p>
+<p>Unknown values are ignored by the Pydantic settings loader. Validate spelling by
+checking the relevant configured boolean or health/configuration surface rather than
+assuming that a process-start succeeded with the intended value.</p>
+<p>Release identity is the deliberate exception to the ordinary unprefixed settings
+rule. The image/build pipeline passes these names directly:</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>TLSOC_VERSION</code></td>
+<td>Compose image tag/build argument; must match the code's Semantic Version (<code>0.1.1</code>)</td>
+</tr>
+<tr>
+<td><code>TLSOC_RELEASE_CHANNEL</code></td>
+<td><code>testing</code> by default; set to <code>stable</code> only for the accepted <code>main</code>/tag build</td>
+</tr>
+<tr>
+<td><code>TLSOC_BUILD_SHA</code></td>
+<td>Exact source commit embedded in <code>/api/health/build-info</code> and image metadata</td>
+</tr>
+<tr>
+<td><code>TLSOC_BUILD_DATE</code></td>
+<td>Build timestamp embedded in <code>/api/health/build-info</code> and image metadata</td>
+</tr>
+<tr>
+<td><code>TLSOC_SOURCE_URL</code></td>
+<td>Dockerfile build argument for the canonical source URL embedded in OCI image metadata; the reference Compose files currently use the Dockerfile's repository default</td>
+</tr>
+</tbody>
+</table>
+<p>The release channel is independent of SemVer: both the accepted Testing candidate and
+its Stable promotion are application <code>0.1.1</code>. Promotion changes provenance/channel,
+not the source version.</p>
+<p>The Console compiles version/channel/SHA/date into its own build and displays an
+always-visible <code>vX.Y.Z · Testing|Stable</code> badge. Opening the badge compares Console
+and <code>/api/health/build-info</code> identities. A channel/version/known-SHA mismatch is
+shown as Testing; Stable is never inferred from SemVer or a branch name.</p>
+<h2 id="common-backend-environment-variables">Common backend environment variables<a class="headerlink" href="#common-backend-environment-variables" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Group</th>
+<th>Variables</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>State</td>
+<td><code>STATE_BACKEND</code>, <code>STATE_DB_URL</code>, <code>ES_STORE_ENABLED</code></td>
+<td>Selects Agentic SOC-owned persistence; does not select a log source</td>
+</tr>
+<tr>
+<td>Elasticsearch wiring</td>
+<td><code>ES_URL</code>, <code>ES_CA_CERT</code>, <code>ES_VERIFY_CERTS</code>, <code>ES_REQUEST_TIMEOUT</code></td>
+<td>Used by the implicit Elastic source and/or Elastic state backend</td>
+</tr>
+<tr>
+<td>Elasticsearch keys</td>
+<td><code>ES_API_KEY</code>, <code>ES_MGMT_API_KEY</code></td>
+<td>Read-only log key and separate <code>tlsoc-agent-*</code> management key; lifecycle apply additionally needs cluster <code>manage_ilm</code>, <code>manage_index_templates</code>, and <code>monitor</code></td>
+</tr>
+<tr>
+<td>LLMs</td>
+<td><code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code>, <code>LITELLM_API_KEY</code>; Azure, Bedrock, and Vertex fields</td>
+<td>Every call still goes through the Agentic SOC gateway and cost ledger</td>
+</tr>
+<tr>
+<td>Enrichment</td>
+<td>provider-specific API keys plus <code>EMBEDDING_API_KEY</code></td>
+<td>Keyless providers need no key; enabled/keyed filtering happens at dispatch</td>
+</tr>
+<tr>
+<td>Cache</td>
+<td><code>REDIS_URL</code></td>
+<td>Enrichment caching degrades to an in-process cache when Redis is unavailable</td>
+</tr>
+<tr>
+<td>Server</td>
+<td><code>BACKEND_HOST</code>, <code>BACKEND_PORT</code>, <code>LOG_LEVEL</code></td>
+<td>Uvicorn bind and logging configuration</td>
+</tr>
+<tr>
+<td>Release identity</td>
+<td><code>TLSOC_VERSION</code>, <code>TLSOC_RELEASE_CHANNEL</code>, <code>TLSOC_BUILD_SHA</code>, <code>TLSOC_BUILD_DATE</code>, <code>TLSOC_SOURCE_URL</code></td>
+<td>Direct prefixed build metadata; channel/SHA/date also reach the API runtime as non-secret identity. Source URL is an OCI-only Docker build argument and is not mapped from <code>.env</code> by the reference Compose files</td>
+</tr>
+<tr>
+<td>Authentication</td>
+<td><code>AUTH_ENABLED</code>, <code>AUTH_JWT_SECRET</code>, <code>AUTH_TOKEN_HOURS</code>, <code>AUTH_COOKIE_SECURE</code>, bootstrap user fields</td>
+<td>Use a stable signing key and secure cookies behind HTTPS</td>
+</tr>
+<tr>
+<td>Security middleware</td>
+<td><code>SECURITY_HEADERS_ENABLED</code>, <code>RATE_LIMIT_ENABLED</code>, <code>RATE_LIMIT_CAPACITY</code>, <code>RATE_LIMIT_REFILL_PER_SECOND</code>, <code>CSRF_ENABLED</code></td>
+<td>Headers default on; rate limiting and CSRF default off</td>
+</tr>
+<tr>
+<td>Secret maps</td>
+<td><code>CONNECTOR_SECRETS</code>, <code>SSO_CLIENT_SECRETS</code>, <code>NOTIFICATION_SECRETS</code></td>
+<td>JSON objects parsed directly by the backend; mapping support differs by Compose file</td>
+</tr>
+<tr>
+<td>MFA protection</td>
+<td><code>MFA_OBFUSCATION_KEY</code></td>
+<td>Stable key for TOTP-secret obfuscation; distinct from user preferences</td>
+</tr>
+</tbody>
+</table>
+<p>The reference standalone Compose file maps the SSO and notification JSON maps. It
+does <strong>not</strong> map a <code>TLSOC_CONNECTOR_SECRETS</code> variable in 0.1. To boot per-source
+connector secrets from the environment, pass the backend's unprefixed
+<code>CONNECTOR_SECRETS</code> explicitly or add a deliberate Compose mapping.</p>
+<h2 id="state-backends">State backends<a class="headerlink" href="#state-backends" title="Permanent link">&para;</a></h2>
+<p><code>STATE_BACKEND</code> controls only Agentic SOC-owned state: cases, audit, usage, preferences,
+cursors, users/sessions, collaboration, baselines, campaigns, rule versions, and
+knowledge/vector records. Connector credentials and external telemetry remain outside
+that store.</p>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Connection</th>
+<th>0.1 behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>postgres</code></td>
+<td><code>postgresql+asyncpg://...</code></td>
+<td>Recommended standalone persistent profile; pgvector backs vector retrieval</td>
+</tr>
+<tr>
+<td><code>elasticsearch</code></td>
+<td><code>ES_URL</code> plus <code>ES_MGMT_API_KEY</code></td>
+<td>Stores state in dedicated <code>tlsoc-agent-*</code> indices; the default when running the backend directly</td>
+</tr>
+<tr>
+<td><code>sqlite</code></td>
+<td><code>sqlite+aiosqlite:///path/to/tlsoc.db</code></td>
+<td>Single-node file-backed profile; defaults to <code>./tlsoc.db</code> if the URL is omitted</td>
+</tr>
+</tbody>
+</table>
+<p>The standalone Compose stack fixes the backend to PostgreSQL and derives
+<code>STATE_DB_URL</code> from <code>TLSOC_PG_*</code>. The legacy ELK merge uses Elasticsearch state.
+When the Elasticsearch state path cannot initialize, the current implementation can
+degrade to in-memory state; monitor readiness and do not mistake that fallback for
+durable operation.</p>
+<h2 id="own-state-storage-lifecycle">Own-state storage lifecycle<a class="headerlink" href="#own-state-storage-lifecycle" title="Permanent link">&para;</a></h2>
+<p><code>Preferences.storage_lifecycle</code> records a desired lifecycle for Agentic SOC-owned
+state. Its default is 180 days Hot, 90 more days Warm, then a desired AWS S3 Glacier
+Flexible Retrieval archive beginning at day 270. Deletion is not supported and is
+always off.</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;storage_lifecycle&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;enabled&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;hot_days&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">180</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;warm_days&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">90</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;archive_target&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;aws_glacier&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;glacier_storage_class&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;GLACIER&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;delete_after_archive&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>This is desired policy, not a cross-provider promise. The status/preview API reports
+the effective state and blockers before any mutation:</p>
+<table>
+<thead>
+<tr>
+<th>State backend</th>
+<th>Effective 0.1.1 behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Elasticsearch</td>
+<td>Explicit Apply can install ILM for append-only <code>tlsoc-agent-audit-*</code> and <code>tlsoc-agent-usage-*</code> only, after the cluster/privilege/tier probe succeeds</td>
+</tr>
+<tr>
+<td>PostgreSQL</td>
+<td>Advisory; no built-in partitions, tablespace movement, or archive scheduler</td>
+</tr>
+<tr>
+<td>SQLite</td>
+<td>Export-only; no row-level Hot/Warm lifecycle inside one database file</td>
+</tr>
+</tbody>
+</table>
+<p>Mutable cases and live metadata stay Hot on every backend. Connected SIEM/log
+retention remains under the source owner and is never changed by this preference.
+The Elasticsearch ILM policy has no delete phase and no Glacier phase. Archive needs
+a separate immutable export + manifest + checksum + restore-validation workflow;
+never transition an Elasticsearch snapshot-repository prefix to Glacier.</p>
+<h2 id="upstream-release-discovery">Upstream release discovery<a class="headerlink" href="#upstream-release-discovery" title="Permanent link">&para;</a></h2>
+<p><code>Preferences.release_updates</code> controls bounded observation of the public source
+repository. It is enabled on fresh installations with this configuration:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;release_updates&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;enabled&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;repository_url&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;https://github.com/ARYDESTROYER/Agentic-Kibana&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;stable_branch&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;main&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;testing_branch&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Testing&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;check_interval_minutes&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">360</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>Only a canonical public <code>https://github.com/owner/repository</code> URL is accepted. Branch
+refs are bounded and reject ambiguous Git syntax. The discovery client is pinned to
+<code>api.github.com</code>, rejects redirects and oversized/malformed responses, and reads only
+the branch head plus root <code>VERSION</code>. The interval is 15 minutes to 7 days. This
+preference grants no clone, pull, execution, deployment, restart, promotion, rollback,
+or migration capability.</p>
+<p>Fork operators may change the repository and either release branch in <strong>Settings →
+Organization → Updates &amp; releases</strong>. Save the preference before running a manual
+check. The same-origin <code>/release.json</code> and backend readiness identity remain the only
+authority for activating an already-deployed Console build.</p>
+<h2 id="durable-preferences">Durable preferences<a class="headerlink" href="#durable-preferences" title="Permanent link">&para;</a></h2>
+<p>Every <code>Preferences</code> field has a default. Major blocks include:</p>
+<ul>
+<li>sources, feeds, OCSF field mappings, polling, and data scope;</li>
+<li>correlation, risk, rules, baselines, campaigns, threshold tuning, and autopilot;</li>
+<li>model routing, concurrency caps, batch processing, budgets, and pricing overlays;</li>
+<li>deterministic auto-close policy, case ID format, priority, and SLA targets;</li>
+<li>playbooks, RAG, memory, enrichment, threat context, and personas;</li>
+<li>auth policy, MFA/SSO metadata, RBAC, sessions, notifications, and realtime events;</li>
+<li>branding, terminology, themes, saved views, dashboard defaults, and the desired
+  own-state storage lifecycle;</li>
+<li>public release-source discovery repository, Stable/Testing refs, and cache interval.</li>
+</ul>
+<p><code>PUT /api/settings</code> deep-merges a JSON object and validates the resulting complete
+preferences model. Prefer small section-specific changes and re-read after updating.
+A malformed value is rejected rather than persisted. General preference updates do
+not provide a universal revision history in 0.1; detection rules have their own
+version ledger and rollback endpoints.</p>
+<h3 id="discounted-alert-inference">Discounted alert inference<a class="headerlink" href="#discounted-alert-inference" title="Permanent link">&para;</a></h3>
+<p>Fresh preferences use official OpenAI <code>gpt-5.6-luna</code> for all six completion roles
+(router, investigator, formatter, standup, chat, and overview). Embeddings remain on
+the dedicated OpenAI <code>text-embedding-3-small</code> model. This changes only newly-created
+defaults: persisted role assignments and every alternate provider/model are preserved.
+The Chat Completions adapter explicitly uses <code>reasoning_effort: none</code> for Luna to
+retain the existing non-reasoning latency/cost and function-tool contract.
+The bundled short-context Standard ledger rate follows OpenAI's current public pricing:
+$0.20/M input, $0.02/M cached input, $0.25/M cache write, and $1.20/M output.</p>
+<p><code>batch.prefer_discounted_alerts</code> defaults to <code>true</code>. When an automated-scan or
+entity/case investigation uses official OpenAI (no Azure/custom base URL) with a
+supported GPT-5, o3, or o4-mini model, the single LLM gateway requests
+<code>service_tier=flex</code>. The usage ledger applies the discounted rate only when the
+provider response actually reports Flex (<code>processing_tier: flex</code>); unsupported
+providers/models remain standard before the call. <code>batch.fallback_to_standard</code>
+defaults to <code>true</code>, so an OpenAI 429 or Flex/service-tier-specific 400 retries at
+standard service and is metered as standard. Chat, standup, embeddings, and
+model-test calls are not automatically moved to Flex.</p>
+<p>The existing <code>batch.enabled</code> switch remains the separate, true asynchronous provider
+Batch path for the aggregated event-feed funnel. Ordinary case investigations require
+an in-band result before deterministic routing can proceed, so they use supported Flex
+rather than pretending an asynchronous Batch job has completed. Neither path changes
+the deterministic close/escalate authority.</p>
+<h2 id="secret-durability-and-exposure">Secret durability and exposure<a class="headerlink" href="#secret-durability-and-exposure" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Secret path</th>
+<th>Stored where</th>
+<th>Survives restart?</th>
+<th>Read behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Environment/provider key</td>
+<td>Deployment environment</td>
+<td>Yes, if the deployment retains it</td>
+<td>Configured boolean only</td>
+</tr>
+<tr>
+<td>First-run <code>/api/setup/secrets</code> value</td>
+<td>Process memory</td>
+<td>No</td>
+<td>Configured boolean only</td>
+</tr>
+<tr>
+<td><code>/api/sources/{source_id}/secrets</code> value</td>
+<td>Per-source in-memory secret bucket</td>
+<td>No, unless separately boot-supplied</td>
+<td>Configured field names only</td>
+</tr>
+<tr>
+<td><code>/api/auth/sso/providers/{provider_id}/secret</code> value</td>
+<td>In-memory SSO map</td>
+<td>No, unless <code>SSO_CLIENT_SECRETS</code> is boot-supplied</td>
+<td>Configured boolean by provider</td>
+</tr>
+<tr>
+<td><code>/api/notifications/channels/{channel_id}/secret</code> value</td>
+<td>In-memory channel map</td>
+<td>No, unless <code>NOTIFICATION_SECRETS</code> is boot-supplied</td>
+<td>Configured field names/booleans only</td>
+</tr>
+<tr>
+<td>User TOTP seed</td>
+<td>User record, obfuscated</td>
+<td>With the state store</td>
+<td>Never returned after the setup flow</td>
+</tr>
+</tbody>
+</table>
+<p>Back up deployment secrets separately from the state database. A state backup alone
+cannot restore provider, connector, SSO, notification, JWT-signing, or MFA-protection
+keys.</p>
+<h2 id="safe-configuration-sequence">Safe configuration sequence<a class="headerlink" href="#safe-configuration-sequence" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Select and initialize a durable state backend.</li>
+<li>Configure HTTPS termination, authentication, a stable JWT secret, and secure cookies.</li>
+<li>Add one least-privilege source credential and validate its data scope.</li>
+<li>Configure one model provider and set a daily budget before enabling broad automation.</li>
+<li>Review deterministic auto-close thresholds, RBAC, receiver authentication, and notification targets.</li>
+<li>Back up state and deployment secrets through separate controlled procedures.</li>
+<li>Record <code>/api/health/build-info</code> with the deployment inventory.</li>
+</ol>
+<p>See <a href="../../operations/configuration/">Operations configuration</a>,
+<a href="../security/">Security</a>, and <a href="../../administration/models-spend/">Models and spend</a>.</p>
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+
+
+      
+    </article>
+  </div>
+
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        
+  <footer class="md-footer tlsoc-page-footer">
+    <nav class="md-footer__inner" aria-label="Footer">
+      
+        <a
+          href="../api/"
+          class="tlsoc-page-footer__link tlsoc-page-footer__link--previous"
+          aria-label="Previous: API"
+        >
+          <span class="tlsoc-page-footer__title">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg>
+            API
+          </span>
+          
+            <span class="tlsoc-page-footer__description">Curated Agentic SOC API endpoint groups, authentication, pagination, realtime events, and OpenAPI discovery for version 0.1.</span>
+          
+        </a>
+      
+      
+        <a
+          href="../permissions/"
+          class="tlsoc-page-footer__link tlsoc-page-footer__link--next"
+          aria-label="Next: Permissions"
+        >
+          <span class="tlsoc-page-footer__title">
+            Permissions
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
+          </span>
+          
+            <span class="tlsoc-page-footer__description">Built-in Agentic SOC roles, resource-action grants, authorization modes, and custom-role behavior in version 0.1.</span>
+          
+        </a>
+      
+    </nav>
+  </footer>
+
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      <script id="__config" type="application/json">{"base": "../..", "features": ["content.code.annotate", "content.code.copy", "content.tabs.link", "navigation.footer", "navigation.indexes", "navigation.top", "search.highlight", "search.suggest", "toc.follow"], "search": "../../assets/javascripts/workers/search.973d3a69.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "default": "stable", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.92b07e13.min.js"></script>
+      
+        <script src="../../javascripts/extra.js"></script>
+      
+    
+  </body>
+</html>

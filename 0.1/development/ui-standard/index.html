@@ -1,0 +1,3880 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="The current enforceable visual, interaction, loading, navigation, and accessibility contract for every Agentic SOC Console page.">
+      
+      
+      
+        <link rel="canonical" href="https://arydestroyer.github.io/Agentic-Kibana/0.1/development/ui-standard/">
+      
+      
+        <link rel="prev" href="../webui/">
+      
+      
+        <link rel="next" href="../design-system/">
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.19">
+    
+    
+      
+        <title>Console UI standard - Agentic SOC Help Center</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.7e37652d.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.06af60db.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+    
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&amp;family=Unbounded:wght@700;800;900&amp;display=swap"
+  >
+  <meta name="color-scheme" content="light dark">
+  <script>
+    (() => {
+      let mode = "system";
+      try {
+        const saved = window.localStorage.getItem("soc.theme");
+        if (saved === "light" || saved === "dark" || saved === "system") mode = saved;
+      } catch (_) {
+        /* Storage may be unavailable in a hardened browser; system remains safe. */
+      }
+
+      const systemDark = Boolean(
+        window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches,
+      );
+      const dark = mode === "dark" || (mode === "system" && systemDark);
+      const scheme = dark ? "slate" : "default";
+      const root = document.documentElement;
+
+      // Stamp the same effective mode as the Console before body/CSS paint. Material's
+      // own palette engine still owns the accessible toggle and per-page attributes.
+      root.dataset.tlsocTheme = dark ? "dark" : "light";
+      root.style.colorScheme = dark ? "dark" : "light";
+      __md_set("__palette", {
+        index: dark ? 0 : 1,
+        color: {
+          media: "",
+          scheme,
+          primary: dark ? "black" : "white",
+          accent: "lime",
+        },
+      });
+    })();
+  </script>
+
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="lime">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#console-ui-standard" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+        <aside class="md-banner">
+          <div class="md-banner__inner md-grid md-typeset">
+            
+            
+  
+  <div
+    class="tlsoc-marquee"
+    role="status"
+    aria-label="Stable documentation for Agentic SOC 0.1"
+  >
+    <div class="tlsoc-marquee__track">
+      
+        <span class="tlsoc-marquee__item">
+          
+            STABLE DOCUMENTATION — AGENTIC SOC 0.1
+          
+          <span class="tlsoc-marquee__dot">■</span>
+        </span>
+      
+        <span class="tlsoc-marquee__item" aria-hidden="true">
+          
+            STABLE DOCUMENTATION — AGENTIC SOC 0.1
+          
+          <span class="tlsoc-marquee__dot">■</span>
+        </span>
+      
+        <span class="tlsoc-marquee__item" aria-hidden="true">
+          
+            STABLE DOCUMENTATION — AGENTIC SOC 0.1
+          
+          <span class="tlsoc-marquee__dot">■</span>
+        </span>
+      
+        <span class="tlsoc-marquee__item" aria-hidden="true">
+          
+            STABLE DOCUMENTATION — AGENTIC SOC 0.1
+          
+          <span class="tlsoc-marquee__dot">■</span>
+        </span>
+      
+        <span class="tlsoc-marquee__item" aria-hidden="true">
+          
+            STABLE DOCUMENTATION — AGENTIC SOC 0.1
+          
+          <span class="tlsoc-marquee__dot">■</span>
+        </span>
+      
+        <span class="tlsoc-marquee__item" aria-hidden="true">
+          
+            STABLE DOCUMENTATION — AGENTIC SOC 0.1
+          
+          <span class="tlsoc-marquee__dot">■</span>
+        </span>
+      
+        <span class="tlsoc-marquee__item" aria-hidden="true">
+          
+            STABLE DOCUMENTATION — AGENTIC SOC 0.1
+          
+          <span class="tlsoc-marquee__dot">■</span>
+        </span>
+      
+        <span class="tlsoc-marquee__item" aria-hidden="true">
+          
+            STABLE DOCUMENTATION — AGENTIC SOC 0.1
+          
+          <span class="tlsoc-marquee__dot">■</span>
+        </span>
+      
+        <span class="tlsoc-marquee__item" aria-hidden="true">
+          
+            STABLE DOCUMENTATION — AGENTIC SOC 0.1
+          
+          <span class="tlsoc-marquee__dot">■</span>
+        </span>
+      
+        <span class="tlsoc-marquee__item" aria-hidden="true">
+          
+            STABLE DOCUMENTATION — AGENTIC SOC 0.1
+          
+          <span class="tlsoc-marquee__dot">■</span>
+        </span>
+      
+        <span class="tlsoc-marquee__item" aria-hidden="true">
+          
+            STABLE DOCUMENTATION — AGENTIC SOC 0.1
+          
+          <span class="tlsoc-marquee__dot">■</span>
+        </span>
+      
+        <span class="tlsoc-marquee__item" aria-hidden="true">
+          
+            STABLE DOCUMENTATION — AGENTIC SOC 0.1
+          
+          <span class="tlsoc-marquee__dot">■</span>
+        </span>
+      
+    </div>
+  </div>
+
+          </div>
+          
+        </aside>
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+          <aside class="md-banner md-banner--warning">
+            <div class="md-banner__inner md-grid md-typeset">
+              
+  You are viewing an older Agentic SOC documentation version.
+  <a href="https://arydestroyer.github.io/Agentic-Kibana/stable/">Open the Stable documentation.</a>
+
+            </div>
+            <script>
+  var el = document.querySelector("[data-md-component=outdated]");
+  var base = new URL("../..", location);
+  var outdated = __md_get("__outdated", sessionStorage, base);
+  if (outdated === true && el) el.hidden = false;
+</script>
+          </aside>
+        
+      </div>
+    
+    
+      <header class="md-header tlsoc-mobile-header" data-md-component="header">
+  <nav class="tlsoc-mobile-nav" aria-label="Header">
+    <a
+      class="tlsoc-mobile-brand"
+      href="../.."
+      aria-label="Agentic SOC Help Center"
+    >Agentic SOC</a>
+
+    
+      <a class="tlsoc-repo-link tlsoc-repo-link--mobile" href="https://github.com/ARYDESTROYER/Agentic-Kibana" target="_blank" rel="noopener">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.0.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path fill="currentColor" d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+        <span>GitHub</span>
+        <span class="tlsoc-source-badge">Stable · 0.1</span>
+      </a>
+    
+
+    <span class="tlsoc-mobile-spacer"></span>
+
+    <button class="tlsoc-icon-button" type="button" aria-label="Search" data-tlsoc-open-search>
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="11" cy="11" r="8"></circle>
+        <path d="m21 21-4.3-4.3"></path>
+      </svg>
+    </button>
+    <button class="tlsoc-icon-button" type="button" aria-label="Open navigation" aria-controls="tlsoc-primary-nav" aria-expanded="false" data-tlsoc-open-drawer>
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <rect width="18" height="18" x="3" y="3" rx="2"></rect>
+        <path d="M9 3v18"></path>
+      </svg>
+    </button>
+  </nav>
+
+  
+    
+    
+      <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+    
+  
+
+  
+    <script>
+      (() => {
+        const saved = __md_get("__palette");
+        const indices = { slate: 0, default: 1 };
+        const index = indices[saved?.color?.scheme];
+        if (Number.isInteger(index) && saved.index !== index) {
+          saved.index = index;
+          __md_set("__palette", saved);
+        }
+      })();
+    </script>
+    <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+<nav id="tlsoc-primary-nav" class="md-nav md-nav--primary tlsoc-sidebar-nav" aria-label="Navigation" data-md-level="0">
+  <div class="tlsoc-sidebar-head">
+    <div class="tlsoc-sidebar-brand-row">
+      <a
+        class="tlsoc-sidebar-brand"
+        href="../.."
+        aria-label="Agentic SOC Help Center"
+      >Agentic SOC</a>
+
+      
+        <a class="tlsoc-repo-link" href="https://github.com/ARYDESTROYER/Agentic-Kibana" target="_blank" rel="noopener">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.0.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path fill="currentColor" d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+          <span>GitHub</span>
+          <span class="tlsoc-source-badge">Stable · 0.1</span>
+        </a>
+      
+    </div>
+
+    <button class="tlsoc-search-button" type="button" data-tlsoc-open-search>
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="11" cy="11" r="8"></circle>
+        <path d="m21 21-4.3-4.3"></path>
+      </svg>
+      <span>Search</span>
+      <span class="tlsoc-search-shortcut"><kbd>⌘</kbd><kbd>K</kbd></span>
+    </button>
+  </div>
+
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../.." class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    Use the product
+    
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_1" id="__nav_1_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            Use the product
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../getting-started/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    Get started
+    
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_1_2" id="__nav_1_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_1_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1_2">
+            <span class="md-nav__icon md-icon"></span>
+            Get started
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Quickstart
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/first-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    First-run setup
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/demo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Demo Mode
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/first-case/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Your first case
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_1_3" id="__nav_1_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    User and analyst guide
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_1_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1_3">
+            <span class="md-nav__icon md-icon"></span>
+            User and analyst guide
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../analyst/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Start a shift
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../analyst/cases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Cases
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../analyst/case-manager/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Case Manager
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../analyst/investigation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Investigation
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../analyst/chat/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Workspace Chat
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../analyst/logs-search/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Logs and search
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../analyst/collaboration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Collaboration
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../analyst/campaigns/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Campaigns
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../analyst/analytics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Analytics
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../automation/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    Automation
+    
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_1_4" id="__nav_1_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_1_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1_4">
+            <span class="md-nav__icon md-icon"></span>
+            Automation
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../automation/rules/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Detection rules
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../automation/tuning-baselines/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Tuning and baselines
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../automation/playbooks-approvals/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Playbooks and approvals
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_1_5" id="__nav_1_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Threat intelligence
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_1_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1_5">
+            <span class="md-nav__icon md-icon"></span>
+            Threat intelligence
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../intelligence/knowledge-memory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Knowledge and memory
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../intelligence/runbooks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Runbooks
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../intelligence/enrichment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Enrichment
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../intelligence/mitre-threat-context/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    MITRE and threat context
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Administer
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            Administer
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_1" id="__nav_2_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Console administration
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_1">
+            <span class="md-nav__icon md-icon"></span>
+            Console administration
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../administration/settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Settings
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../administration/users-rbac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Users and RBAC
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../administration/authentication/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Authentication
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../administration/models-spend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Models and spend
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../administration/notifications/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Notifications
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../administration/customization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Customization
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../administration/reset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Reset controls
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../sources/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    Connect data sources
+    
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2_2" id="__nav_2_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_2">
+            <span class="md-nav__icon md-icon"></span>
+            Connect data sources
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sources/support-matrix/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Support matrix
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sources/pull/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Pull connectors
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sources/http-syslog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    HTTP and syslog
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sources/queues-object-stores/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Queues and object stores
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sources/feeds-mapping/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Feeds and field mapping
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sources/custom-connectors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Custom connectors
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Deploy and operate
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            Deploy and operate
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Install
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operations/deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Deployment
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operations/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Configuration
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operations/security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Security hardening
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operations/health-backup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Health and backup
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operations/upgrades/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Upgrades
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operations/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Troubleshooting
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Reference
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            Reference
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_1" id="__nav_4_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Product concepts
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_1">
+            <span class="md-nav__icon md-icon"></span>
+            Product concepts
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Architecture
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/terminology/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Terminology
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/ocsf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    OCSF normalization
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/deterministic-decisions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Deterministic decisions
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/state-audit-cost/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    State, audit, and cost
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/ingestion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Ingestion and investigation
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Contracts
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_2">
+            <span class="md-nav__icon md-icon"></span>
+            Contracts
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    API
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Configuration
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/permissions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Permissions
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Compatibility
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Security invariants
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_3" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    Develop and extend
+    
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4_3" id="__nav_4_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4_3">
+            <span class="md-nav__icon md-icon"></span>
+            Develop and extend
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../backend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Backend
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../webui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Web console
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    Console UI standard
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    Console UI standard
+    
+  </span>
+  
+
+      </a>
+      
+        
+<nav class="md-nav md-nav--secondary tlsoc-toc" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M15 18H3"></path>
+        <path d="M17 6H3"></path>
+        <path d="M21 12H3"></path>
+      </svg>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#migration-contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      Migration contract
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#visual-character" class="md-nav__link">
+    <span class="md-ellipsis">
+      Visual character
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#page-anatomy" class="md-nav__link">
+    <span class="md-ellipsis">
+      Page anatomy
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#queue-and-detail-workspaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      Queue and detail workspaces
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#case-investigation-input-provenance" class="md-nav__link">
+    <span class="md-ellipsis">
+      Case investigation-input provenance
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#conversation-workspaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      Conversation workspaces
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#navigation-and-information-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      Navigation and information architecture
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#motion-and-loading" class="md-nav__link">
+    <span class="md-ellipsis">
+      Motion and loading
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#operational-metric-and-tuning-surfaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      Operational metric and tuning surfaces
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#operational-flow-visualizations" class="md-nav__link">
+    <span class="md-ellipsis">
+      Operational flow visualizations
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evidence-led-analytics" class="md-nav__link">
+    <span class="md-ellipsis">
+      Evidence-led analytics
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#theme-and-appearance" class="md-nav__link">
+    <span class="md-ellipsis">
+      Theme and appearance
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#release-identity-and-activation" class="md-nav__link">
+    <span class="md-ellipsis">
+      Release identity and activation
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#identity-surfaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      Identity surfaces
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#forms-settings-and-dangerous-actions" class="md-nav__link">
+    <span class="md-ellipsis">
+      Forms, Settings, and dangerous actions
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#guided-setup-workflows" class="md-nav__link">
+    <span class="md-ellipsis">
+      Guided setup workflows
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#accessibility-and-verification" class="md-nav__link">
+    <span class="md-ellipsis">
+      Accessibility and verification
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../design-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Console design system
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../extensions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Extensions
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Testing and contracts
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Releases and versions
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            Releases and versions
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/documentation-versions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Documentation versions
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/channels/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Channels and versioning
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/known-limitations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Known limitations
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+
+  
+    <div class="tlsoc-sidebar-footer">
+      <div class="md-header__topic tlsoc-version-topic" aria-label="Documentation version">
+        <span class="tlsoc-version-fallback">
+          <span>Docs</span>
+          <strong>0.1</strong>
+        </span>
+      </div>
+      
+        
+<div class="tlsoc-theme-control">
+  <form class="md-header__option tlsoc-palette-engine" data-md-component="palette" aria-hidden="true">
+    
+      
+      
+      
+      <input
+        class="md-option"
+        data-md-color-media=""
+        data-md-color-scheme="slate"
+        data-md-color-primary="black"
+        data-md-color-accent="lime"
+        aria-label="Switch to light mode"
+        type="radio"
+        name="__palette"
+        id="__palette_0"
+        tabindex="-1"
+      >
+      
+        <label for="__palette_1" hidden>
+          Switch to light mode
+        </label>
+      
+    
+      
+      
+      
+      <input
+        class="md-option"
+        data-md-color-media=""
+        data-md-color-scheme="default"
+        data-md-color-primary="white"
+        data-md-color-accent="lime"
+        aria-label="Switch to dark mode"
+        type="radio"
+        name="__palette"
+        id="__palette_1"
+        tabindex="-1"
+      >
+      
+        <label for="__palette_0" hidden>
+          Switch to dark mode
+        </label>
+      
+    
+  </form>
+
+  <button
+    class="tlsoc-theme-switch"
+    type="button"
+    aria-label="Switch to light mode"
+    aria-pressed="true"
+    title="Switch to light mode"
+    data-tlsoc-theme-toggle
+  >
+    <span class="tlsoc-theme-switch__choice tlsoc-theme-switch__choice--light" aria-hidden="true">
+      <svg viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="4"></circle>
+        <path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"></path>
+      </svg>
+    </span>
+    <span class="tlsoc-theme-switch__choice tlsoc-theme-switch__choice--dark" aria-hidden="true">
+      <svg viewBox="0 0 24 24">
+        <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path>
+      </svg>
+    </span>
+  </button>
+</div>
+      
+      <button class="tlsoc-drawer-close" type="button" aria-label="Close navigation" data-tlsoc-close-drawer>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <rect width="18" height="18" x="3" y="3" rx="2"></rect>
+          <path d="M15 3v18"></path>
+        </svg>
+      </button>
+    </div>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+<nav class="md-nav md-nav--secondary tlsoc-toc" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M15 18H3"></path>
+        <path d="M17 6H3"></path>
+        <path d="M21 12H3"></path>
+      </svg>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#migration-contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      Migration contract
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#visual-character" class="md-nav__link">
+    <span class="md-ellipsis">
+      Visual character
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#page-anatomy" class="md-nav__link">
+    <span class="md-ellipsis">
+      Page anatomy
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#queue-and-detail-workspaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      Queue and detail workspaces
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#case-investigation-input-provenance" class="md-nav__link">
+    <span class="md-ellipsis">
+      Case investigation-input provenance
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#conversation-workspaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      Conversation workspaces
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#navigation-and-information-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      Navigation and information architecture
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#motion-and-loading" class="md-nav__link">
+    <span class="md-ellipsis">
+      Motion and loading
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#operational-metric-and-tuning-surfaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      Operational metric and tuning surfaces
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#operational-flow-visualizations" class="md-nav__link">
+    <span class="md-ellipsis">
+      Operational flow visualizations
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evidence-led-analytics" class="md-nav__link">
+    <span class="md-ellipsis">
+      Evidence-led analytics
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#theme-and-appearance" class="md-nav__link">
+    <span class="md-ellipsis">
+      Theme and appearance
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#release-identity-and-activation" class="md-nav__link">
+    <span class="md-ellipsis">
+      Release identity and activation
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#identity-surfaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      Identity surfaces
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#forms-settings-and-dangerous-actions" class="md-nav__link">
+    <span class="md-ellipsis">
+      Forms, Settings, and dangerous actions
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#guided-setup-workflows" class="md-nav__link">
+    <span class="md-ellipsis">
+      Guided setup workflows
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#accessibility-and-verification" class="md-nav__link">
+    <span class="md-ellipsis">
+      Accessibility and verification
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+  
+  
+  
+    
+  
+  <button
+    class="tlsoc-mobile-tocbar"
+    type="button"
+    aria-controls="tlsoc-mobile-toc-popover"
+    aria-expanded="false"
+    data-tlsoc-mobile-toc-toggle
+  >
+    <svg class="tlsoc-progress-ring" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="11"></circle>
+      <circle cx="12" cy="12" r="11"></circle>
+    </svg>
+    <span class="tlsoc-mobile-tocbar__label">
+      Migration contract
+    </span>
+    <svg class="tlsoc-mobile-tocbar__chevron" viewBox="0 0 24 24">
+      <path d="m6 9 6 6 6-6"></path>
+    </svg>
+  </button>
+  <nav id="tlsoc-mobile-toc-popover" class="tlsoc-mobile-toc-popover" aria-label="On this page" hidden>
+    <ul class="md-nav__list">
+      
+        
+        
+        
+          
+        
+        
+          <li class="md-nav__item">
+  <a href="#migration-contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      Migration contract
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#visual-character" class="md-nav__link">
+    <span class="md-ellipsis">
+      Visual character
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#page-anatomy" class="md-nav__link">
+    <span class="md-ellipsis">
+      Page anatomy
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#queue-and-detail-workspaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      Queue and detail workspaces
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#case-investigation-input-provenance" class="md-nav__link">
+    <span class="md-ellipsis">
+      Case investigation-input provenance
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#conversation-workspaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      Conversation workspaces
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#navigation-and-information-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      Navigation and information architecture
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#motion-and-loading" class="md-nav__link">
+    <span class="md-ellipsis">
+      Motion and loading
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#operational-metric-and-tuning-surfaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      Operational metric and tuning surfaces
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#operational-flow-visualizations" class="md-nav__link">
+    <span class="md-ellipsis">
+      Operational flow visualizations
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#evidence-led-analytics" class="md-nav__link">
+    <span class="md-ellipsis">
+      Evidence-led analytics
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#theme-and-appearance" class="md-nav__link">
+    <span class="md-ellipsis">
+      Theme and appearance
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#release-identity-and-activation" class="md-nav__link">
+    <span class="md-ellipsis">
+      Release identity and activation
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#identity-surfaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      Identity surfaces
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#forms-settings-and-dangerous-actions" class="md-nav__link">
+    <span class="md-ellipsis">
+      Forms, Settings, and dangerous actions
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#guided-setup-workflows" class="md-nav__link">
+    <span class="md-ellipsis">
+      Guided setup workflows
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#accessibility-and-verification" class="md-nav__link">
+    <span class="md-ellipsis">
+      Accessibility and verification
+    </span>
+  </a>
+  
+</li>
+        
+      
+    </ul>
+  </nav>
+  <div class="md-content" data-md-component="content">
+    <article class="md-content__inner md-typeset">
+      
+        
+
+
+  
+  
+
+
+<h1 id="console-ui-standard">Console UI standard<a class="headerlink" href="#console-ui-standard" title="Permanent link">&para;</a></h1>
+<p>This is the current implementation contract for the Agentic SOC Console. It turns the
+Security Command Center visual language into reusable rules for every route. New work
+must use these primitives; existing pages migrate toward them as they are touched.</p>
+<h2 id="migration-contract">Migration contract<a class="headerlink" href="#migration-contract" title="Permanent link">&para;</a></h2>
+<p>The shared shell, navigation rail, route-loading fallback, in-app Documentation
+index, Case Manager, Settings frame, and Entity investigation workflow are the
+current reference surfaces. Other routes remain supported while they move to this
+grammar incrementally; a page is not called migrated merely because the shell around
+it changed.</p>
+<p>When touching an older page, include its loading/empty/error states, menus and
+popovers, both themes, narrow layout, and keyboard path in the same change. Remove
+page-local card, color, spacing, and motion inventions rather than layering new chrome
+over them. Keep deep links and permissions stable, and record any intentional legacy
+route in the feature registry and operator documentation.</p>
+<h2 id="visual-character">Visual character<a class="headerlink" href="#visual-character" title="Permanent link">&para;</a></h2>
+<p>The Console is a calm SOC command surface: near-black dark mode, quiet light mode,
+hairline dividers, dense but readable information, and semantic color only when the
+meaning warrants it. Avoid decorative gradients, nested cards, heavy resting shadows,
+large rounded marketing panels, emoji status symbols, and animation that competes with
+case state.</p>
+<ul>
+<li>Use <code>background</code>, <code>surface</code>, <code>card</code>, <code>border</code>, <code>foreground</code>, and
+  <code>muted-foreground</code> tokens from <code>theme.css</code>; never add page-local hex colors.</li>
+<li>Use the shared severity/status/verdict/risk palette. Color supplements an icon or
+  label; it never carries meaning alone.</li>
+<li>Prefer transparent sections separated by <code>border-border</code> over card-inside-card
+  layouts. A card is reserved for a selectable record, contained editor, dialog, or
+  genuinely independent widget.</li>
+<li>Controls are compact and squared/quiet (<code>Button</code>, <code>Select</code>, <code>SegmentedControl</code>,
+  <code>TimeRangePicker</code>); keep one visual grammar in light and dark themes.</li>
+</ul>
+<h2 id="page-anatomy">Page anatomy<a class="headerlink" href="#page-anatomy" title="Permanent link">&para;</a></h2>
+<p>Every routed page follows the same order:</p>
+<ol>
+<li><code>PageContainer</code> owns the width (<code>fixed</code>, <code>wide</code>, <code>fluid</code>, or <code>prose</code>).</li>
+<li>One <code>PageHeader</code> owns title, description, status metadata, and primary actions.</li>
+<li>Optional controls occupy one compact <code>ControlBar</code>/<code>FilterBar</code> band.</li>
+<li>Content is organized into flat sections or shared data/table/chart components.</li>
+<li>Loading, empty, denied, error, and partial-data states occupy the same geometry as
+   the final content so the layout does not jump.</li>
+</ol>
+<p>Do not repeat a page title inside the first content panel. Do not add an eyebrow such
+as “Decision brief” when the actual outcome heading is already explicit. A nested
+workflow can have its own section label only when it adds information.</p>
+<h2 id="queue-and-detail-workspaces">Queue and detail workspaces<a class="headerlink" href="#queue-and-detail-workspaces" title="Permanent link">&para;</a></h2>
+<p>A desktop list/detail split uses one hairline, focusable separator rather than two
+unrelated cards. Pointer resizing and keyboard resizing are the same operation: Arrow
+keys make a documented small step, Shift+Arrow a larger step, Home/End reach the safe
+bounds, and double-click resets. Clamp both panes to usable minimums, persist only a
+presentation preference locally, and remove the handle below the desktop breakpoint;
+compact layouts use an explicit back-to-list path.</p>
+<p>A routed split workspace may reclaim the shared shell gutter down to a consistent
+16px operational inset, but it remains framed rather than touching the navigation or
+viewport edge. Inside the detail pane, header, tabs, and every tab panel share one
+responsive 16–24px content rail. Do not stack page, pane, and panel padding into
+separate 32px gutters; the resizable detail pane must spend its width on evidence.</p>
+<p>Row selection is independent of row navigation. “Select visible” means the filtered
+rows in the loaded client window and never implies every server match. Mixed bulk
+operations expose progress and per-record partial failures; successful records leave
+the selection while failures remain retryable. Permission hiding in the Console is
+guidance—the API must recheck every action.</p>
+<h2 id="case-investigation-input-provenance">Case investigation-input provenance<a class="headerlink" href="#case-investigation-input-provenance" title="Permanent link">&para;</a></h2>
+<p>Case Manager may disclose the context and platform configuration recorded for one
+investigation run, but it must never turn global feature availability into case
+provenance. Project the <strong>latest run only</strong> and render applicable inputs conditionally:</p>
+<ul>
+<li>approved operator <strong>memory consulted</strong>;</li>
+<li>indexed <strong>RAG knowledge retrieved</strong>;</li>
+<li><strong>runbook references retrieved</strong> through RAG, separate from playbooks;</li>
+<li>a <strong>playbook actually injected and consulted</strong>, never merely selected; and</li>
+<li>an immutable <strong>platform threshold-tuning snapshot</strong> for a correlation threshold or
+  severity floor that this case traversed.</li>
+</ul>
+<p>Call the last item threshold tuning, not model fine-tuning. The summary belongs in the
+flat Overview evidence flow and links to detailed Investigation evidence; do not add a
+nested feature-badge card. Hide a successful empty section, preserve a stable loading
+geometry, and distinguish an unavailable projection from “no inputs.” All displayed
+model, memory, retrieval, and operator-authored strings remain plain untrusted text.
+Close the section with the authority boundary: these inputs may inform preprocessing
+or the agent assessment, while deterministic case policy makes the final route.</p>
+<h2 id="conversation-workspaces">Conversation workspaces<a class="headerlink" href="#conversation-workspaces" title="Permanent link">&para;</a></h2>
+<p>Workspace Chat is a conversation workspace, not an empty dashboard. On desktop it
+uses one quiet 264px history rail separated from the active thread by a hairline; below
+the desktop breakpoint, the rail becomes a left Sheet opened by an explicit
+<strong>History</strong> control. The list is searchable, newest-first, and grouped by recency. Its
+rows show title, preview, age, and message count; the selected row exposes
+<code>aria-current</code>, while rename and delete remain secondary row actions. Loading, empty,
+partial-error, and no-match states occupy the rail rather than replacing the usable
+active transcript. Desktop exposes one page-level <strong>New chat</strong> action; the mobile Sheet
+may repeat it locally because the page action is no longer in view.</p>
+<p>History truth is fail-closed. A storage/read failure is an explicit retryable error and
+must never render the calm <strong>No previous conversations</strong> state. Revalidate the newest-
+first summary list when the workspace mounts and when its browser tab regains focus so
+another tab or device does not leave a stale rail indefinitely. Same-origin tabs may
+announce mutations for faster refresh, but focus revalidation remains the correctness
+fallback; keep the already-open transcript usable while that background refresh runs.</p>
+<p>The transcript begins at the top of a readable 52–54rem measure and uses ordinary
+speaker labels, neutral operator messages, and flat assistant responses. Keep exactly
+one thread header, one <code>Agent ready|working</code> status, and one composer. The composer
+remains docked at the bottom in empty, restoring, error, and populated states; it is
+disabled while a saved thread restores or a turn is in flight. Source and model live in
+the composer's settings and quiet footer, not in a second status band. The empty state
+is compact and top-aligned, with no vertically centered marketing panel. Do not add an
+assistant accent rail, a blue user-message wash, duplicate readiness/source/model
+strips, or a second inline composer.</p>
+<p>The answer is the primary object. Query, tools, knowledge, citations, reasoning, model,
+and per-message cost belong in one collapsed <strong>Evidence &amp; execution</strong> disclosure beneath
+that answer instead of separate cards or debug bands. If a bounded saved snapshot omits
+larger evidence structures, the disclosure must say that explicitly. New turns follow automatically
+only while the analyst is already near the transcript bottom. If the analyst is reading
+older evidence, preserve their position and reveal <strong>Jump to latest</strong> when new content
+arrives; smooth scrolling must respect reduced-motion preference.</p>
+<p>Execution provenance is per turn, not inferred from the conversation's latest selector.
+Show the effective source and effective model that actually served the answer. When an
+operator explicitly selects a source that is disabled, missing, non-queryable, or cannot
+be built, fail that turn with a scoped recovery message; never run it against Primary and
+then label the answer with the requested source. Primary is the fallback only when the
+operator made no explicit source selection.</p>
+<p>A new conversation is a truthful local draft until its first successful response is
+saved and the backend confirms that the record is durable. Selecting an existing
+conversation restores the server transcript and its source/model inside the still-mounted
+workspace. Preserve the unsent composer draft independently for the new-chat draft and
+for each visited saved thread; switching threads must not erase analyst input or write it
+to server history. A restore failure leaves that frame
+and its single disabled composer in place, with explicit <strong>Retry</strong> and <strong>Start new chat</strong>
+recovery. Stale in-flight replies must not land in a newly selected thread, and thread
+switching is disabled while the current turn is being committed. Case Manager chat is
+a separate case-scoped entry point to the same engine and must never appear in personal
+Workspace history. On narrow layouts, closing the History Sheet returns focus through
+the Radix trigger path.</p>
+<p>Every persisted Workspace turn carries one stable 8–128 character
+<code>idempotency_key</code>. Retrying an ambiguous response reuses that identifier; the server
+returns the previously committed turn or commits it once, never bills or appends a
+duplicate exchange. Do not promote a draft into the saved rail until the verified-save
+response arrives. If generation succeeds but persistence does not, retain the local
+turn attempt with an explicit <strong>not saved</strong> state and one retry path rather than
+claiming durability; do not put the failed attempt into hidden model history.</p>
+<p>History remains intentionally bounded. The current contract retains at most 50
+conversations per user and 100 messages per conversation. When an older conversation or
+turn is removed, disclose the boundary in the rail/transcript; message counts describe
+retained messages and must not imply that a clipped transcript is complete. Use the
+server's <code>history_truncated</code>, total-count, and <code>oldest_retained_at</code> metadata rather than
+inferring completeness in the client. Persisted history is partitioned by normalized
+user identity so one operator's append does not rewrite every user's transcript.
+Deployments upgrading from the legacy shared document must migrate it through the
+compatibility path without requiring an operator reset.</p>
+<h2 id="navigation-and-information-architecture">Navigation and information architecture<a class="headerlink" href="#navigation-and-information-architecture" title="Permanent link">&para;</a></h2>
+<p><code>src/soc/registry.tsx</code> is the only feature registry. It derives routes, the left rail,
+and command-palette destinations. Add, rename, gate, hide, or deprecate a feature there;
+do not hand-build a second nav list.</p>
+<ul>
+<li>Primary navigation contains distinct operator jobs, not alternate reports over the
+  same objects. Legacy destinations may stay hidden and routable for bookmarks during a
+  transition.</li>
+<li>The collapsed rail remains a stable 64px dock until the operator explicitly expands
+  it. Hovering or focusing a grouped icon reveals one compact, viewport-clamped
+  destination flyout; it never widens the entire rail. Pointer travel across the gap is
+  delay-safe, focus opens immediately, Escape restores the trigger, and childless
+  destinations retain simple labels/tooltips. Explicit expansion uses the shared
+  reduced-motion-aware transition.</li>
+<li>Product documentation is a bottom utility destination, separate from operational
+  feature groups.</li>
+<li>The in-app <strong>Documentation</strong> destination opens the version-matched Help Center
+  shipped with the application at <code>/docs/&lt;major.minor&gt;/</code>; it never substitutes a
+  GitHub directory for product help. Generate that static site from the same Markdown
+  and accepted source identity as the application instead of copying articles into
+  React components or maintaining a second manual.</li>
+<li>Installed documentation is authoritative for the running build and does not carry
+  a blanket freshness warning. Latest Stable, Development, “View source”, and “Edit
+  this page” are secondary destinations with explicit version/channel context.</li>
+<li>Deep links remain stable. If a page is consolidated, add an explicit redirect or a
+  hidden compatibility route and document the replacement.</li>
+</ul>
+<h2 id="motion-and-loading">Motion and loading<a class="headerlink" href="#motion-and-loading" title="Permanent link">&para;</a></h2>
+<p>Every lazy route renders the shared centered route fallback immediately. A blocking
+page, panel, or empty-table load uses <code>LoadingState</code> from <code>@/design-system</code>: one named,
+centered, reduced-motion-safe indeterminate progress ring over optional static geometry. Never show a blank
+canvas, only the word “Loading”, a page-local spinner, or several competing shimmer
+animations. Keep usable content mounted during refresh and use the existing
+<code>LoadingBar</code>; do not add another animation dependency. Button-level progress remains
+local to the button it disables.</p>
+<p>Motion explains state change: route entry, disclosure, row insertion/removal, or a
+terminal live marker. It does not decorate static content. Honor
+<code>prefers-reduced-motion</code>; no required information depends on animation. Only the newest
+terminal timeline marker pulses.</p>
+<h2 id="operational-metric-and-tuning-surfaces">Operational metric and tuning surfaces<a class="headerlink" href="#operational-metric-and-tuning-surfaces" title="Permanent link">&para;</a></h2>
+<p>Operational summaries use one continuous strip rather than a row of independent
+cards. The strip owns its outer hairlines; each metric supplies only the responsive
+internal divider needed for the current column count. At the one-, two-, and four-
+column breakpoints, no cell may acquire both a left and top divider or lose the line
+that separates it from the preceding row. Use the compact <code>KpiTile</code> density when the
+strip is supporting a workflow rather than serving as the page's primary dashboard.</p>
+<p>Observed-outcome metrics embedded in another operational page use the integrated
+<code>ComparisonMetric</code> variant. Keep the shared reporting window, evidence state, and
+safety guardrails in one summary band; do not repeat them in every metric cell. An
+unavailable metric says why it is unavailable and never renders a synthetic zero.
+Definitions remain available from the metric's keyboard-accessible <strong>How</strong> control.</p>
+<p>Auto-tuning uses three task-focused Radix tabs: <strong>Operations</strong> (default), <strong>Outcomes</strong>
+(<code>metrics:view</code>), and <strong>Policy &amp; history</strong>. Do not place all three workflows in one
+continuous page. Operations owns authority, health, recommendations, pending human
+proposals, monitored rules, and selected-rule detail. Outcomes owns the reporting
+window, comparisons, daily evidence, and quality controls. Policy &amp; history owns the
+append-only ledger and editable tuner policy.</p>
+<p>Operations begins with one compact authority/status band and one continuous four-cell
+health strip. Rule state vocabulary is fixed: <strong>Collecting</strong> below <code>min_samples</code>,
+<strong>Within target</strong> when sufficiently sampled and at or below policy, and <strong>Needs
+attention</strong> when sufficiently sampled and above policy. Never label under-sampled
+evidence healthy.</p>
+<p>Recommendations are grouped by rule and expose exactly one mutation affordance per
+rule. The visual and reading order is <strong>Why it needs attention → Recommended action →
+Expected operational effect → Safety replay</strong>. Processing one rule may apply multiple
+eligible bounded changes and queue restricted changes; same-rule actions lock together
+while unrelated rules remain usable. Never label a recommendation merely <strong>Safe</strong>:
+use <strong>Eligible after replay</strong>, because the evidence and safeguards are recomputed before
+the write and may still route the change to Approvals. A restricted-only rule links to
+Approvals when the operator has access.</p>
+<p>All monitored rules use a responsive diagnosis-first list rather than a wide
+statistics-first table. Each row states the rule's evidence state and the bounded next
+step before exposing supporting measurements. The observed false-positive ratio is
+supporting context; the conservative Wilson lower-bound estimate is the policy gate,
+and its distance from policy is stated in <strong>percentage points</strong>. The list provides
+search and state filtering, truncates long identifiers without letter-wrapping, and
+opens a labelled contextual inspector beside the list only at genuinely wide (1536px+)
+layouts or in a focus-managed Sheet below that breakpoint. The inspector owns the
+diagnosis, current recommendation, expected effect, replay result, supporting
+measurements, optional technical context, and recent history. The page must not
+introduce horizontal document overflow.</p>
+<p>In <strong>Policy &amp; history</strong>, policy controls precede audit history. Advanced statistical
+controls may be collapsed, while the append-only ledger exposes rollback only for the
+newest active reversible row per rule.</p>
+<p>The Outcomes tab shows one daily trajectory at a time—analyst-reported agreement,
+material correction rate, or review-turnaround p50—through a keyboard-operable
+<code>SegmentedControl</code>. Ratios and elapsed minutes must never share one axis. Preserve
+every nullable daily point as a visible gap, show how many current-window days are
+measurable, and provide the same values in a visually hidden table. Label the series
+as raw eligible daily cohorts: the comparison cells above are source × severity mix
+adjusted, while the daily series are deliberately unadjusted. Applied tuning events
+belong in a collapsed disclosure as chronological context only; never draw a causal
+connector or attribute an outcome shift to a change without an explicit future
+analysis contract.</p>
+<p>Keep these workspaces flat and divider-led rather than nesting them in rounded cards.
+Initial loading uses <code>LoadingState</code>; refresh keeps the last usable data mounted beneath
+one <code>LoadingBar</code>, and a refresh error is reported without replacing that data.</p>
+<h2 id="operational-flow-visualizations">Operational flow visualizations<a class="headerlink" href="#operational-flow-visualizations" title="Permanent link">&para;</a></h2>
+<p>The Dashboard Noise Reduction view uses the established horizontal ribbon with an
+aligned stage rail. The ribbon supplies directional context; the labelled count,
+percentage, definition, coverage, and truncation evidence is authoritative:</p>
+<ul>
+<li>Preserve the familiar left-to-right lifecycle order and the current selected-window
+  scope. Do not invent, relabel, or hide volume to make a branch look fuller.</li>
+<li>Treat <strong>Auto-cleared by AI</strong> and <strong>Escalated</strong> as the conserved split of opened cases.
+  <strong>Closed by human</strong> is an overlapping analyst-owned subset of Escalated, not volume
+  to add as a third partition. The restored fan may place these operational views beside
+  one another for scanability, so the visible definition and rail—not curve topology—must
+  state the relationship.</li>
+<li>When the backend emits an <strong>Awaiting review / Candidate</strong> cohort, keep it distinct
+  from the mandatory lifecycle; it is not a parent of Cases opened.</li>
+<li>Keep the stage rail aligned, readable in both themes, and usable without reading the
+  curves. Stage detail must be available to keyboard and pointer users, not hover-only.</li>
+<li>Outcome activation opens the matching selected-window Cases filter. Earlier stages
+  open the selected-window Cases context because raw alert and cluster records are not
+  exposed through the case list.</li>
+<li>Counter coverage, the bounded case-store page, the bounded lineage sample, and any
+  truncation remain visible. A chart must never imply that partial evidence is complete.</li>
+</ul>
+<p>The implementation layers, public design-system exports, source-asset rules, and
+machine-readable catalog contract are documented in the
+<a href="../design-system/">Console design system</a>.</p>
+<h2 id="evidence-led-analytics">Evidence-led analytics<a class="headerlink" href="#evidence-led-analytics" title="Permanent link">&para;</a></h2>
+<p>Analytics surfaces distinguish measurements, evidence quality, and policy. Use the
+shared <code>ComparisonMetric</code>/definition disclosure for a current value, comparable
+baseline, direction, sample, and formula. A measured value may remain visible beside
+an <strong>Insufficient</strong> state, but missing evidence renders as an em dash—never zero.
+Loading, unavailable, collecting, insufficient, and not-applicable are different
+operator states and must not be collapsed into one neutral card.</p>
+<p>Agent Effectiveness is aggregate-only and deliberately has no composite score.
+Analyst agreement and correction share one graded-case quality domain; human review
+turnaround is the independent second domain. A favorable headline requires both
+domains plus evaluable, unbreached safety guardrails. Always expose the two complete
+UTC windows, sample counts, comparable source×severity coverage, exclusions,
+suppressed strata, and truncation. Do not show raw case/source identifiers or imply
+causal model learning from an observed period-over-period change.</p>
+<p>Cost execution tiers report what the ledger recorded, not what Settings requested.
+Keep the fixed Standard/Flex/Batch/Unconfirmed buckets visible even when zero, include
+Unconfirmed in coverage denominators, and never label a Standard row as a Flex
+fallback unless a future ledger contract explicitly records that provenance.</p>
+<h2 id="theme-and-appearance">Theme and appearance<a class="headerlink" href="#theme-and-appearance" title="Permanent link">&para;</a></h2>
+<p>System, Light, and Dark are the three supported modes. Signed-in appearance entry points
+use <code>PrefsProvider.setThemeMode</code>; the pre-auth Login delegates directly to the same
+underlying <code>ThemeProvider.setTheme</code> persistence path because user preferences are not
+available yet. First paint, the persisted choice, and every visible selection must
+agree. Test every changed surface in both themes; hard-coded light-only dropdowns,
+popovers, tooltips, and native-looking menu surfaces are defects.</p>
+<p>The semantic SOC palette is system-owned. Severity, status, verdict, and risk fills
+must remain coupled to their measured on-fill foreground and standalone-text tokens;
+Branding cannot override only one member of that axis. Legacy semantic keys are ignored
+compatibly. Small copy on a 10% semantic wash uses the corresponding <code>*-text</code> token,
+while the base token remains available for icons, borders, charts, and sufficiently
+large non-text marks. The contrast gate must test those text tokens on the actual
+card-plus-wash composition in both themes, not merely against pure white or black.</p>
+<p>Organisation accent overrides are theme-independent fills. Always derive the higher-
+contrast black/white <code>--primary-foreground</code> from the effective accent and apply that
+same pair in Light and Dark. Reapplying or discarding Branding clears the complete
+writable inline-token set first so an older override cannot leak into the next preview.
+Persist display-font choices as their stable allow-listed key; expand the key to the
+self-hosted stack only when writing CSS. Normalise legacy hex primary/ring/secondary
+accent tokens to the HSL triplets expected by <code>hsl(var(--token))</code> consumers.</p>
+<h2 id="release-identity-and-activation">Release identity and activation<a class="headerlink" href="#release-identity-and-activation" title="Permanent link">&para;</a></h2>
+<p>The version badge remains the always-visible release identity. When a different,
+already-deployed static release is proven coherent with public backend build-info and
+readiness, place one compact <strong>Update available</strong> action immediately beside that badge.
+Do not replace the badge, add a persistent banner, or infer availability from SemVer
+alone.</p>
+<p>The action opens the shared confirmation dialog, explains that the current document
+will reload, and returns focus to its trigger when cancelled. A known unsaved draft
+must withhold the confirm action and direct the operator back to save or discard the
+work; the page-exit guard remains a fallback. Announce newly available status once
+through the polite live region, never by repeated toast. There is no automatic reload.</p>
+<p>Activation repeats the no-store release-manifest, backend identity/readiness, and
+entry-document checks before preserving the hash route across a full-page navigation.
+Background discovery failures stay quiet. An explicit activation failure may use one
+actionable error toast, but it must leave the current Console interactive. Never expose
+browser controls for image pulls, service restarts, migrations, deploy credentials,
+channel promotion, or rollback.</p>
+<h2 id="identity-surfaces">Identity surfaces<a class="headerlink" href="#identity-surfaces" title="Permanent link">&para;</a></h2>
+<p>The sign-in experience is intentionally minimal. Use one vertically and horizontally
+centred, borderless 480px by 492px identity slab for the normal desktop sign-in state
+on the isolated identity canvas, with a 384px content measure: one standalone 56px
+mark, the current auth-mode heading, one short
+description, credential controls, one primary action, and quiet support or operator-
+configured footer text. The hierarchy remains left-aligned inside the centred slab. A
+configured sign-in headline replaces the default heading; it never stacks above a
+second <code>h1</code>. Do not add a synthetic audit-status claim: auditing is a platform
+invariant, not useful sign-in instructions. The form is the page. Do not add a marketing
+hero, split context pane, assurance rail, trust-path diagram, decorative illustration,
+gradient, glow, fake telemetry, or repeated security claims.</p>
+<p>The slab has no radius, border, or elevation. It uses 48px top/side and 96px bottom
+desktop insets. Its fixed, login-scoped palette is intentionally independent of Console
+branding tokens: Light canvas/slab/muted tile are <code>#fbfbf8</code> / <code>#fff</code> / <code>#f5f4ef</code>;
+Dark uses <code>#1a1a1e</code> / <code>#101013</code> / <code>#27272b</code>. Four explicit 0.5px viewport guides
+align to the slab edges. The ambient layer follows the live Mistral sign-in choreography:
+exactly four neutral 240px tiles reveal sparsely, dwell, move on a 1,800ms ease-in-out
+transition, then fade away before scheduling their next randomized cycle. Top and bottom
+use two horizontal endpoints; left and right use a two-column by two-row outer lattice and
+choose a next cell sharing the current row or column. Only the top and bottom tiles may
+emit an occasional warm directional trail (<code>gold</code>, amber, orange, vermilion, or red), one
+tile behind the current move. Side tiles never emit colour. The trail belongs to the same
+movement lifecycle and retracts when that movement settles; there are no detached colour
+anchors or independently timed stationary blocks. The light/dark neutral tile, canvas,
+and guide tokens remain the dominant visual treatment, so the background reads as a quiet
+grid with rare colour rather than a perpetual saturated animation. Do not replace this
+with a gradient, glow, blurred blob, perpetual CSS drift, or tile border. The decoration
+is pointer-inert, <code>aria-hidden</code>, reduced-motion-safe, layered below the opaque slab, and
+never crosses behind credential content. Light/Dark changes snap the neutral tile palette
+atomically while preserving the active movement; never interpolate white tiles through a
+large grey flash during a theme switch. Below the small breakpoint, all
+guides and ambient tiles disappear and the
+surface becomes a full-width, full-height flow with 32px side/top and 80px bottom insets.
+A small pre-auth System/Light/Dark control may sit in the viewport corner;
+it delegates to <code>ThemeProvider.setTheme</code>, while authenticated surfaces continue through
+the preference layer. Sign-in, setup, MFA, MFA enrollment, and forced password change
+share the same centred slab; taller modes grow naturally and the slab scrolls within the
+viewport so software keyboards never trap the primary action. The form owns the page's
+single <code>h1</code>.
+Credential entry is identity-first: the initial surface contains only the username field;
+once it has a non-empty value, <strong>Continue</strong> appears and advances to the password step.
+The password step repeats the selected identity as quiet context and provides an explicit
+way back without discarding it. Credential inputs are 48px and primary/SSO actions are
+40px or taller. Inputs use a 16px mobile font and 14px desktop font to avoid browser
+focus zoom while keeping the reference's editorial density, password-manager
+autocomplete, and paste available. Seeded demo credentials label username and password
+explicitly beneath the primary credential form; their optional <code>Use</code> action fills the
+form, advances to the password step, and never submits it. When configured, icon-led,
+accessibly named SSO actions follow the identity step in one equal-width row; no empty
+divider or provider region is reserved when SSO is absent.
+External support links say they open a new tab, and the blocking first-paint gate uses
+the shared <code>LoadingState</code>.</p>
+<p>Legacy <code>split</code>, <code>centered</code>, and <code>full</code> branding values remain readable and round-trip for
+configuration compatibility, but all render the same minimal shell. Bounded operator
+wordmark, logo, subtitle, optional short welcome copy, footer notes, and support URL may
+remain; they must stay plain text and must not rebuild a second content pane. The Branding
+editor preview mirrors this exact minimal geometry and tokens.</p>
+<h2 id="forms-settings-and-dangerous-actions">Forms, Settings, and dangerous actions<a class="headerlink" href="#forms-settings-and-dangerous-actions" title="Permanent link">&para;</a></h2>
+<p>Settings is one responsive configuration workspace, not a collection of unrelated
+admin cards:</p>
+<ul>
+<li>On desktop, use one searchable, registry-derived, grouped section rail beside the
+  active editor. Below the desktop breakpoint, replace that long rail with one compact
+  contextual trigger and a searchable Sheet chooser; do not stack the full inventory
+  above the form.</li>
+<li>The active renderer owns exactly one visible <code>h2</code> and its description. The workspace
+  may show a compact group/section context line and truthful dirty status, but it must
+  not repeat the section title as a second heading.</li>
+<li>Related controls sit in flat, divider-led <code>SettingsCard</code> bands. Fields, switches,
+  posture summaries, and status text use aligned field/status lanes inside the band;
+  do not wrap the section, each toggle, or each summary in another decorative card.</li>
+<li>Dirty state is visible globally and per section. Save and Discard live in one sticky,
+  opaque hairline action bar; never introduce a second section-local preference save
+  path.</li>
+<li>A dirty preference or write-only-secret draft must not disappear silently. Protect
+  reload/tab close and pause Console-driven cross-page navigation before changing
+  React state or the hash; use the shared accessible confirmation dialog rather than
+  <code>window.confirm</code>. Section and anchor jumps inside Settings preserve the same draft
+  and do not prompt.</li>
+</ul>
+<p>The responsive shell is presentation only. Preserve <code>#/settings?s=&lt;id&gt;&amp;a=&lt;anchor&gt;</code>
+deep links, registry/RBAC visibility, schema and API fields, write-only secret drafts,
+and partial-update/dirty semantics when changing it. Search may expose matching
+in-section anchors, but it must not reveal a section the current role cannot access.</p>
+<p>Secrets remain write-only. Destructive or externally consequential actions require a
+clear label, scoped confirmation, permission gate, and audited backend operation. Never
+place deterministic case decisions behind an LLM-generated button.</p>
+<h2 id="guided-setup-workflows">Guided setup workflows<a class="headerlink" href="#guided-setup-workflows" title="Permanent link">&para;</a></h2>
+<p>The first-run setup workspace is the reference pattern for a short, stateful guided
+workflow. It uses one wide, height-bounded shell rather than a marketing card: a
+compact product header, a desktop progress rail, a compact progress strip below the
+desktop breakpoint, one scrollable content region, and one sticky footer aligned to
+the content column. Long manifest-driven editors consume the available width and
+scroll inside that frame.</p>
+<ul>
+<li>Keep the sequence short and job-named. The current setup contract is <strong>Workspace →
+  Data sources → AI runtime → Review &amp; launch</strong>.</li>
+<li>Focus the new stage heading after every transition, expose <code>aria-current="step"</code>,
+  announce progress, provide a skip link, and keep exactly one <code>h1</code> in the active
+  stage.</li>
+<li>Derive progress status from actual readiness, not from which stages were visited.
+  A review must distinguish <strong>Ready</strong>, <strong>Needs attention</strong>, and <strong>Optional</strong> and may
+  allow a deliberately limited launch when it says what is unavailable.</li>
+<li>Route Back, Continue, progress links, Close, and Launch through one guarded
+  transition. Save write-only credential drafts before leaving their stage; keep the
+  operator in place on failure. Confirm before abandoning an open editor draft.</li>
+<li>A first-run terminal action names the product outcome (<strong>Launch Agentic SOC</strong>).
+  The same flow used as a Settings re-run uses <strong>Apply changes</strong> and offers Close;
+  it does not imply a destructive reset.</li>
+<li>Fail closed when authoritative setup state is unknown. Show a shaped error with
+  Retry instead of rendering an operational surface on an assumed default.</li>
+<li>Present the default automation posture as an explanation, not a ceremonial switch.
+  Detailed tuning belongs in Settings, and deterministic close/escalate authority is
+  never altered by setup copy or controls.</li>
+</ul>
+<h2 id="accessibility-and-verification">Accessibility and verification<a class="headerlink" href="#accessibility-and-verification" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Keyboard focus is always visible; use the shared focus ring.</li>
+<li>Icon-only controls have an accessible name and a target of at least 24×24 CSS pixels.</li>
+<li>Radix primitives provide menu, dialog, radio, tabs, tooltip, and focus behavior.</li>
+<li>Render source/log/user text as plain text. Truncation has an accessible full-value
+  path (hover/focus detail, title, or expanded view).</li>
+<li>Maintain WCAG AA token contrast in both themes and never disable paste.</li>
+</ul>
+<p>Before handoff, run typecheck, lint, design gates, focused tests, the complete Console
+suite, and the production build. Use the in-app browser to inspect both themes, a narrow
+viewport, hover/focus behavior, lazy-route loading, and console errors. Update this
+standard when a deliberate shared pattern changes; do not let implementation and the
+document drift. Stable promotion additionally requires the complete
+<a href="../testing/#release-candidate-browser-acceptance">release-candidate browser acceptance matrix</a>
+against the exact built candidate.</p>
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+
+
+      
+    </article>
+  </div>
+
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        
+  <footer class="md-footer tlsoc-page-footer">
+    <nav class="md-footer__inner" aria-label="Footer">
+      
+        <a
+          href="../webui/"
+          class="tlsoc-page-footer__link tlsoc-page-footer__link--previous"
+          aria-label="Previous: Web console"
+        >
+          <span class="tlsoc-page-footer__title">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg>
+            Web console
+          </span>
+          
+            <span class="tlsoc-page-footer__description">Agentic SOC Console architecture, design system, API contracts, accessibility, and development workflow for version 0.1.</span>
+          
+        </a>
+      
+      
+        <a
+          href="../design-system/"
+          class="tlsoc-page-footer__link tlsoc-page-footer__link--next"
+          aria-label="Next: Console design system"
+        >
+          <span class="tlsoc-page-footer__title">
+            Console design system
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
+          </span>
+          
+            <span class="tlsoc-page-footer__description">Canonical tokens, primitives, feedback states, source marks, and machine-readable contracts for the Agentic SOC Console.</span>
+          
+        </a>
+      
+    </nav>
+  </footer>
+
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      <script id="__config" type="application/json">{"base": "../..", "features": ["content.code.annotate", "content.code.copy", "content.tabs.link", "navigation.footer", "navigation.indexes", "navigation.top", "search.highlight", "search.suggest", "toc.follow"], "search": "../../assets/javascripts/workers/search.973d3a69.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "default": "stable", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.92b07e13.min.js"></script>
+      
+        <script src="../../javascripts/extra.js"></script>
+      
+    
+  </body>
+</html>

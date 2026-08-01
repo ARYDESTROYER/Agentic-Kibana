@@ -1,0 +1,3962 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Curated Agentic SOC API endpoint groups, authentication, pagination, realtime events, and OpenAPI discovery for version 0.1.">
+      
+      
+      
+        <link rel="canonical" href="https://arydestroyer.github.io/Agentic-Kibana/0.1/reference/api/">
+      
+      
+        <link rel="prev" href="../../architecture/ingestion/">
+      
+      
+        <link rel="next" href="../configuration/">
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.19">
+    
+    
+      
+        <title>API reference - Agentic SOC Help Center</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.7e37652d.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.06af60db.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+    
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&amp;family=Unbounded:wght@700;800;900&amp;display=swap"
+  >
+  <meta name="color-scheme" content="light dark">
+  <script>
+    (() => {
+      let mode = "system";
+      try {
+        const saved = window.localStorage.getItem("soc.theme");
+        if (saved === "light" || saved === "dark" || saved === "system") mode = saved;
+      } catch (_) {
+        /* Storage may be unavailable in a hardened browser; system remains safe. */
+      }
+
+      const systemDark = Boolean(
+        window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches,
+      );
+      const dark = mode === "dark" || (mode === "system" && systemDark);
+      const scheme = dark ? "slate" : "default";
+      const root = document.documentElement;
+
+      // Stamp the same effective mode as the Console before body/CSS paint. Material's
+      // own palette engine still owns the accessible toggle and per-page attributes.
+      root.dataset.tlsocTheme = dark ? "dark" : "light";
+      root.style.colorScheme = dark ? "dark" : "light";
+      __md_set("__palette", {
+        index: dark ? 0 : 1,
+        color: {
+          media: "",
+          scheme,
+          primary: dark ? "black" : "white",
+          accent: "lime",
+        },
+      });
+    })();
+  </script>
+
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="lime">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#api-reference" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+        <aside class="md-banner">
+          <div class="md-banner__inner md-grid md-typeset">
+            
+            
+  
+  <div
+    class="tlsoc-marquee"
+    role="status"
+    aria-label="Stable documentation for Agentic SOC 0.1"
+  >
+    <div class="tlsoc-marquee__track">
+      
+        <span class="tlsoc-marquee__item">
+          
+            STABLE DOCUMENTATION — AGENTIC SOC 0.1
+          
+          <span class="tlsoc-marquee__dot">■</span>
+        </span>
+      
+        <span class="tlsoc-marquee__item" aria-hidden="true">
+          
+            STABLE DOCUMENTATION — AGENTIC SOC 0.1
+          
+          <span class="tlsoc-marquee__dot">■</span>
+        </span>
+      
+        <span class="tlsoc-marquee__item" aria-hidden="true">
+          
+            STABLE DOCUMENTATION — AGENTIC SOC 0.1
+          
+          <span class="tlsoc-marquee__dot">■</span>
+        </span>
+      
+        <span class="tlsoc-marquee__item" aria-hidden="true">
+          
+            STABLE DOCUMENTATION — AGENTIC SOC 0.1
+          
+          <span class="tlsoc-marquee__dot">■</span>
+        </span>
+      
+        <span class="tlsoc-marquee__item" aria-hidden="true">
+          
+            STABLE DOCUMENTATION — AGENTIC SOC 0.1
+          
+          <span class="tlsoc-marquee__dot">■</span>
+        </span>
+      
+        <span class="tlsoc-marquee__item" aria-hidden="true">
+          
+            STABLE DOCUMENTATION — AGENTIC SOC 0.1
+          
+          <span class="tlsoc-marquee__dot">■</span>
+        </span>
+      
+        <span class="tlsoc-marquee__item" aria-hidden="true">
+          
+            STABLE DOCUMENTATION — AGENTIC SOC 0.1
+          
+          <span class="tlsoc-marquee__dot">■</span>
+        </span>
+      
+        <span class="tlsoc-marquee__item" aria-hidden="true">
+          
+            STABLE DOCUMENTATION — AGENTIC SOC 0.1
+          
+          <span class="tlsoc-marquee__dot">■</span>
+        </span>
+      
+        <span class="tlsoc-marquee__item" aria-hidden="true">
+          
+            STABLE DOCUMENTATION — AGENTIC SOC 0.1
+          
+          <span class="tlsoc-marquee__dot">■</span>
+        </span>
+      
+        <span class="tlsoc-marquee__item" aria-hidden="true">
+          
+            STABLE DOCUMENTATION — AGENTIC SOC 0.1
+          
+          <span class="tlsoc-marquee__dot">■</span>
+        </span>
+      
+        <span class="tlsoc-marquee__item" aria-hidden="true">
+          
+            STABLE DOCUMENTATION — AGENTIC SOC 0.1
+          
+          <span class="tlsoc-marquee__dot">■</span>
+        </span>
+      
+        <span class="tlsoc-marquee__item" aria-hidden="true">
+          
+            STABLE DOCUMENTATION — AGENTIC SOC 0.1
+          
+          <span class="tlsoc-marquee__dot">■</span>
+        </span>
+      
+    </div>
+  </div>
+
+          </div>
+          
+        </aside>
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+          <aside class="md-banner md-banner--warning">
+            <div class="md-banner__inner md-grid md-typeset">
+              
+  You are viewing an older Agentic SOC documentation version.
+  <a href="https://arydestroyer.github.io/Agentic-Kibana/stable/">Open the Stable documentation.</a>
+
+            </div>
+            <script>
+  var el = document.querySelector("[data-md-component=outdated]");
+  var base = new URL("../..", location);
+  var outdated = __md_get("__outdated", sessionStorage, base);
+  if (outdated === true && el) el.hidden = false;
+</script>
+          </aside>
+        
+      </div>
+    
+    
+      <header class="md-header tlsoc-mobile-header" data-md-component="header">
+  <nav class="tlsoc-mobile-nav" aria-label="Header">
+    <a
+      class="tlsoc-mobile-brand"
+      href="../.."
+      aria-label="Agentic SOC Help Center"
+    >Agentic SOC</a>
+
+    
+      <a class="tlsoc-repo-link tlsoc-repo-link--mobile" href="https://github.com/ARYDESTROYER/Agentic-Kibana" target="_blank" rel="noopener">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.0.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path fill="currentColor" d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+        <span>GitHub</span>
+        <span class="tlsoc-source-badge">Stable · 0.1</span>
+      </a>
+    
+
+    <span class="tlsoc-mobile-spacer"></span>
+
+    <button class="tlsoc-icon-button" type="button" aria-label="Search" data-tlsoc-open-search>
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="11" cy="11" r="8"></circle>
+        <path d="m21 21-4.3-4.3"></path>
+      </svg>
+    </button>
+    <button class="tlsoc-icon-button" type="button" aria-label="Open navigation" aria-controls="tlsoc-primary-nav" aria-expanded="false" data-tlsoc-open-drawer>
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <rect width="18" height="18" x="3" y="3" rx="2"></rect>
+        <path d="M9 3v18"></path>
+      </svg>
+    </button>
+  </nav>
+
+  
+    
+    
+      <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+    
+  
+
+  
+    <script>
+      (() => {
+        const saved = __md_get("__palette");
+        const indices = { slate: 0, default: 1 };
+        const index = indices[saved?.color?.scheme];
+        if (Number.isInteger(index) && saved.index !== index) {
+          saved.index = index;
+          __md_set("__palette", saved);
+        }
+      })();
+    </script>
+    <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+<nav id="tlsoc-primary-nav" class="md-nav md-nav--primary tlsoc-sidebar-nav" aria-label="Navigation" data-md-level="0">
+  <div class="tlsoc-sidebar-head">
+    <div class="tlsoc-sidebar-brand-row">
+      <a
+        class="tlsoc-sidebar-brand"
+        href="../.."
+        aria-label="Agentic SOC Help Center"
+      >Agentic SOC</a>
+
+      
+        <a class="tlsoc-repo-link" href="https://github.com/ARYDESTROYER/Agentic-Kibana" target="_blank" rel="noopener">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.0.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path fill="currentColor" d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+          <span>GitHub</span>
+          <span class="tlsoc-source-badge">Stable · 0.1</span>
+        </a>
+      
+    </div>
+
+    <button class="tlsoc-search-button" type="button" data-tlsoc-open-search>
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="11" cy="11" r="8"></circle>
+        <path d="m21 21-4.3-4.3"></path>
+      </svg>
+      <span>Search</span>
+      <span class="tlsoc-search-shortcut"><kbd>⌘</kbd><kbd>K</kbd></span>
+    </button>
+  </div>
+
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../.." class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    Use the product
+    
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_1" id="__nav_1_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            Use the product
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../getting-started/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    Get started
+    
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_1_2" id="__nav_1_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_1_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1_2">
+            <span class="md-nav__icon md-icon"></span>
+            Get started
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Quickstart
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/first-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    First-run setup
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/demo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Demo Mode
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/first-case/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Your first case
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_1_3" id="__nav_1_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    User and analyst guide
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_1_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1_3">
+            <span class="md-nav__icon md-icon"></span>
+            User and analyst guide
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../analyst/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Start a shift
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../analyst/cases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Cases
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../analyst/case-manager/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Case Manager
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../analyst/investigation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Investigation
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../analyst/chat/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Workspace Chat
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../analyst/logs-search/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Logs and search
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../analyst/collaboration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Collaboration
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../analyst/campaigns/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Campaigns
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../analyst/analytics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Analytics
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../automation/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    Automation
+    
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_1_4" id="__nav_1_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_1_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1_4">
+            <span class="md-nav__icon md-icon"></span>
+            Automation
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../automation/rules/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Detection rules
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../automation/tuning-baselines/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Tuning and baselines
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../automation/playbooks-approvals/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Playbooks and approvals
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_1_5" id="__nav_1_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Threat intelligence
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_1_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1_5">
+            <span class="md-nav__icon md-icon"></span>
+            Threat intelligence
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../intelligence/knowledge-memory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Knowledge and memory
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../intelligence/runbooks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Runbooks
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../intelligence/enrichment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Enrichment
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../intelligence/mitre-threat-context/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    MITRE and threat context
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Administer
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            Administer
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_1" id="__nav_2_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Console administration
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_1">
+            <span class="md-nav__icon md-icon"></span>
+            Console administration
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../administration/settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Settings
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../administration/users-rbac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Users and RBAC
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../administration/authentication/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Authentication
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../administration/models-spend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Models and spend
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../administration/notifications/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Notifications
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../administration/customization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Customization
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../administration/reset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Reset controls
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../sources/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    Connect data sources
+    
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2_2" id="__nav_2_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_2">
+            <span class="md-nav__icon md-icon"></span>
+            Connect data sources
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sources/support-matrix/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Support matrix
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sources/pull/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Pull connectors
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sources/http-syslog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    HTTP and syslog
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sources/queues-object-stores/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Queues and object stores
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sources/feeds-mapping/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Feeds and field mapping
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sources/custom-connectors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Custom connectors
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Deploy and operate
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            Deploy and operate
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Install
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operations/deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Deployment
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operations/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Configuration
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operations/security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Security hardening
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operations/health-backup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Health and backup
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operations/upgrades/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Upgrades
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operations/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Troubleshooting
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Reference
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            Reference
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_1" id="__nav_4_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Product concepts
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_1">
+            <span class="md-nav__icon md-icon"></span>
+            Product concepts
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Architecture
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/terminology/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Terminology
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/ocsf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    OCSF normalization
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/deterministic-decisions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Deterministic decisions
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/state-audit-cost/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    State, audit, and cost
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/ingestion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Ingestion and investigation
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Contracts
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4_2">
+            <span class="md-nav__icon md-icon"></span>
+            Contracts
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    API
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    API
+    
+  </span>
+  
+
+      </a>
+      
+        
+<nav class="md-nav md-nav--secondary tlsoc-toc" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M15 18H3"></path>
+        <path d="M17 6H3"></path>
+        <path d="M21 12H3"></path>
+      </svg>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#interactive-and-machine-readable-specifications" class="md-nav__link">
+    <span class="md-ellipsis">
+      Interactive and machine-readable specifications
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#base-url-and-json" class="md-nav__link">
+    <span class="md-ellipsis">
+      Base URL and JSON
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#authentication" class="md-nav__link">
+    <span class="md-ellipsis">
+      Authentication
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#endpoint-groups" class="md-nav__link">
+    <span class="md-ellipsis">
+      Endpoint groups
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#runbook-management" class="md-nav__link">
+    <span class="md-ellipsis">
+      Runbook management
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#common-query-behavior" class="md-nav__link">
+    <span class="md-ellipsis">
+      Common query behavior
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#workspace-chat-persistence-and-retry" class="md-nav__link">
+    <span class="md-ellipsis">
+      Workspace Chat persistence and retry
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#agent-improvement-evidence" class="md-nav__link">
+    <span class="md-ellipsis">
+      Agent-improvement evidence
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#case-clustering-explanation" class="md-nav__link">
+    <span class="md-ellipsis">
+      Case clustering explanation
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#realtime-events" class="md-nav__link">
+    <span class="md-ellipsis">
+      Realtime events
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#upstream-release-observations" class="md-nav__link">
+    <span class="md-ellipsis">
+      Upstream release observations
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#own-state-storage-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      Own-state storage lifecycle
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#decision-previews-and-side-effects" class="md-nav__link">
+    <span class="md-ellipsis">
+      Decision previews and side effects
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#portable-application-export" class="md-nav__link">
+    <span class="md-ellipsis">
+      Portable application export
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#compatibility-expectations" class="md-nav__link">
+    <span class="md-ellipsis">
+      Compatibility expectations
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Configuration
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../permissions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Permissions
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Compatibility
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Security invariants
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../development/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    Develop and extend
+    
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4_3" id="__nav_4_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_3">
+            <span class="md-nav__icon md-icon"></span>
+            Develop and extend
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/backend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Backend
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/webui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Web console
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/ui-standard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Console UI standard
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/design-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Console design system
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/extensions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Extensions
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Testing and contracts
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Releases and versions
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            Releases and versions
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/documentation-versions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Documentation versions
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/channels/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Channels and versioning
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/known-limitations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Known limitations
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+
+  
+    <div class="tlsoc-sidebar-footer">
+      <div class="md-header__topic tlsoc-version-topic" aria-label="Documentation version">
+        <span class="tlsoc-version-fallback">
+          <span>Docs</span>
+          <strong>0.1</strong>
+        </span>
+      </div>
+      
+        
+<div class="tlsoc-theme-control">
+  <form class="md-header__option tlsoc-palette-engine" data-md-component="palette" aria-hidden="true">
+    
+      
+      
+      
+      <input
+        class="md-option"
+        data-md-color-media=""
+        data-md-color-scheme="slate"
+        data-md-color-primary="black"
+        data-md-color-accent="lime"
+        aria-label="Switch to light mode"
+        type="radio"
+        name="__palette"
+        id="__palette_0"
+        tabindex="-1"
+      >
+      
+        <label for="__palette_1" hidden>
+          Switch to light mode
+        </label>
+      
+    
+      
+      
+      
+      <input
+        class="md-option"
+        data-md-color-media=""
+        data-md-color-scheme="default"
+        data-md-color-primary="white"
+        data-md-color-accent="lime"
+        aria-label="Switch to dark mode"
+        type="radio"
+        name="__palette"
+        id="__palette_1"
+        tabindex="-1"
+      >
+      
+        <label for="__palette_0" hidden>
+          Switch to dark mode
+        </label>
+      
+    
+  </form>
+
+  <button
+    class="tlsoc-theme-switch"
+    type="button"
+    aria-label="Switch to light mode"
+    aria-pressed="true"
+    title="Switch to light mode"
+    data-tlsoc-theme-toggle
+  >
+    <span class="tlsoc-theme-switch__choice tlsoc-theme-switch__choice--light" aria-hidden="true">
+      <svg viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="4"></circle>
+        <path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"></path>
+      </svg>
+    </span>
+    <span class="tlsoc-theme-switch__choice tlsoc-theme-switch__choice--dark" aria-hidden="true">
+      <svg viewBox="0 0 24 24">
+        <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path>
+      </svg>
+    </span>
+  </button>
+</div>
+      
+      <button class="tlsoc-drawer-close" type="button" aria-label="Close navigation" data-tlsoc-close-drawer>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <rect width="18" height="18" x="3" y="3" rx="2"></rect>
+          <path d="M15 3v18"></path>
+        </svg>
+      </button>
+    </div>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+<nav class="md-nav md-nav--secondary tlsoc-toc" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M15 18H3"></path>
+        <path d="M17 6H3"></path>
+        <path d="M21 12H3"></path>
+      </svg>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#interactive-and-machine-readable-specifications" class="md-nav__link">
+    <span class="md-ellipsis">
+      Interactive and machine-readable specifications
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#base-url-and-json" class="md-nav__link">
+    <span class="md-ellipsis">
+      Base URL and JSON
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#authentication" class="md-nav__link">
+    <span class="md-ellipsis">
+      Authentication
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#endpoint-groups" class="md-nav__link">
+    <span class="md-ellipsis">
+      Endpoint groups
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#runbook-management" class="md-nav__link">
+    <span class="md-ellipsis">
+      Runbook management
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#common-query-behavior" class="md-nav__link">
+    <span class="md-ellipsis">
+      Common query behavior
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#workspace-chat-persistence-and-retry" class="md-nav__link">
+    <span class="md-ellipsis">
+      Workspace Chat persistence and retry
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#agent-improvement-evidence" class="md-nav__link">
+    <span class="md-ellipsis">
+      Agent-improvement evidence
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#case-clustering-explanation" class="md-nav__link">
+    <span class="md-ellipsis">
+      Case clustering explanation
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#realtime-events" class="md-nav__link">
+    <span class="md-ellipsis">
+      Realtime events
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#upstream-release-observations" class="md-nav__link">
+    <span class="md-ellipsis">
+      Upstream release observations
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#own-state-storage-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      Own-state storage lifecycle
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#decision-previews-and-side-effects" class="md-nav__link">
+    <span class="md-ellipsis">
+      Decision previews and side effects
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#portable-application-export" class="md-nav__link">
+    <span class="md-ellipsis">
+      Portable application export
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#compatibility-expectations" class="md-nav__link">
+    <span class="md-ellipsis">
+      Compatibility expectations
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+  
+  
+  
+    
+  
+  <button
+    class="tlsoc-mobile-tocbar"
+    type="button"
+    aria-controls="tlsoc-mobile-toc-popover"
+    aria-expanded="false"
+    data-tlsoc-mobile-toc-toggle
+  >
+    <svg class="tlsoc-progress-ring" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="11"></circle>
+      <circle cx="12" cy="12" r="11"></circle>
+    </svg>
+    <span class="tlsoc-mobile-tocbar__label">
+      Interactive and machine-readable specifications
+    </span>
+    <svg class="tlsoc-mobile-tocbar__chevron" viewBox="0 0 24 24">
+      <path d="m6 9 6 6 6-6"></path>
+    </svg>
+  </button>
+  <nav id="tlsoc-mobile-toc-popover" class="tlsoc-mobile-toc-popover" aria-label="On this page" hidden>
+    <ul class="md-nav__list">
+      
+        
+        
+        
+          
+        
+        
+          <li class="md-nav__item">
+  <a href="#interactive-and-machine-readable-specifications" class="md-nav__link">
+    <span class="md-ellipsis">
+      Interactive and machine-readable specifications
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#base-url-and-json" class="md-nav__link">
+    <span class="md-ellipsis">
+      Base URL and JSON
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#authentication" class="md-nav__link">
+    <span class="md-ellipsis">
+      Authentication
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#endpoint-groups" class="md-nav__link">
+    <span class="md-ellipsis">
+      Endpoint groups
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#runbook-management" class="md-nav__link">
+    <span class="md-ellipsis">
+      Runbook management
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#common-query-behavior" class="md-nav__link">
+    <span class="md-ellipsis">
+      Common query behavior
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#workspace-chat-persistence-and-retry" class="md-nav__link">
+    <span class="md-ellipsis">
+      Workspace Chat persistence and retry
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agent-improvement-evidence" class="md-nav__link">
+    <span class="md-ellipsis">
+      Agent-improvement evidence
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#case-clustering-explanation" class="md-nav__link">
+    <span class="md-ellipsis">
+      Case clustering explanation
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#realtime-events" class="md-nav__link">
+    <span class="md-ellipsis">
+      Realtime events
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#upstream-release-observations" class="md-nav__link">
+    <span class="md-ellipsis">
+      Upstream release observations
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#own-state-storage-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      Own-state storage lifecycle
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#decision-previews-and-side-effects" class="md-nav__link">
+    <span class="md-ellipsis">
+      Decision previews and side effects
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#portable-application-export" class="md-nav__link">
+    <span class="md-ellipsis">
+      Portable application export
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#compatibility-expectations" class="md-nav__link">
+    <span class="md-ellipsis">
+      Compatibility expectations
+    </span>
+  </a>
+  
+</li>
+        
+      
+    </ul>
+  </nav>
+  <div class="md-content" data-md-component="content">
+    <article class="md-content__inner md-typeset">
+      
+        
+
+
+  
+  
+
+
+<h1 id="api-reference">API reference<a class="headerlink" href="#api-reference" title="Permanent link">&para;</a></h1>
+<p>The <strong>Agentic SOC API</strong> is the FastAPI service behind the Agentic SOC Console. This page covers
+the public HTTP surface in application version <strong>0.1.1</strong> and documentation line
+<strong>0.1</strong>. The API is mounted at <code>/api</code>; the service root is <code>/</code>.</p>
+<h2 id="interactive-and-machine-readable-specifications">Interactive and machine-readable specifications<a class="headerlink" href="#interactive-and-machine-readable-specifications" title="Permanent link">&para;</a></h2>
+<p>Each running API publishes:</p>
+<ul>
+<li>Swagger UI at <code>/docs</code>;</li>
+<li>the OpenAPI document at <code>/openapi.json</code>;</li>
+<li>build identity at <code>/api/health/build-info</code>.</li>
+</ul>
+<p>Build information reports the application version, independent release channel,
+commit SHA, build time, state backend, and OCSF version. A Testing candidate and its
+Stable promotion both remain <code>0.1.1</code>; <code>TLSOC_RELEASE_CHANNEL</code> distinguishes
+<code>testing</code> from the accepted <code>stable</code> build.</p>
+<p>The committed 0.1 OpenAPI snapshot contains 202 paths and 243 operations. It is the
+best source for current request-body models, enums, parameters, and operation IDs.
+Some handlers return plain dictionaries without a FastAPI <code>response_model</code>, so their
+generated response schema is intentionally less specific than the runtime payload.
+The specification also does not declare tags or an OpenAPI security scheme in 0.1.
+Runtime authentication and authorization still apply as described below.</p>
+<p>Because <code>/docs</code> and <code>/openapi.json</code> sit outside the protected <code>/api</code> router, restrict
+them at the reverse proxy if publishing the route inventory is not acceptable in your
+environment.</p>
+<h2 id="base-url-and-json">Base URL and JSON<a class="headerlink" href="#base-url-and-json" title="Permanent link">&para;</a></h2>
+<p>The Agentic SOC Console uses relative <code>/api/*</code> URLs. External clients should use the same
+HTTPS origin exposed by the deployment proxy:</p>
+<div class="highlight"><pre><span></span><code>https://soc.example.com/api/cases
+</code></pre></div>
+<p>Requests with a body use <code>Content-Type: application/json</code>. Errors normally use
+FastAPI's <code>{"detail": ...}</code> envelope. Validation failures return HTTP 422.</p>
+<h2 id="authentication">Authentication<a class="headerlink" href="#authentication" title="Permanent link">&para;</a></h2>
+<p>Authentication is disabled by default in the base configuration. When enabled, the
+API accepts either:</p>
+<ul>
+<li>the HTTP-only <code>tlsoc_token</code> cookie issued by <code>/api/auth/login</code>; or</li>
+<li><code>Authorization: Bearer &lt;token&gt;</code> using the token returned by that login.</li>
+</ul>
+<p>For example, with a cookie jar:</p>
+<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>--fail-with-body<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--cookie-jar<span class="w"> </span>tlsoc.cookies<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--header<span class="w"> </span><span class="s1">&#39;Content-Type: application/json&#39;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--data<span class="w"> </span><span class="s1">&#39;{&quot;username&quot;:&quot;analyst&quot;,&quot;password&quot;:&quot;replace-me&quot;}&#39;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>https://soc.example.com/api/auth/login
+
+curl<span class="w"> </span>--fail-with-body<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--cookie<span class="w"> </span>tlsoc.cookies<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s1">&#39;https://soc.example.com/api/cases?limit=25&amp;offset=0&#39;</span>
+</code></pre></div>
+<p>An MFA-enabled account receives a short-lived <code>pending_token</code> after password
+verification and completes sign-in through <code>/api/auth/mfa/verify</code>. Session refresh,
+revocation, and step-up reauthentication have dedicated endpoints in the auth group.</p>
+<p>Authentication is applied centrally to the <code>/api</code> routers. A small bootstrap and
+health allowlist remains public; <code>POST /api/ingest/{source_id}</code> performs receiver-level
+bearer or HMAC authentication instead. State-changing routes also enforce resource and
+action permissions when RBAC is enabled. See <a href="../permissions/">Permissions</a> and
+<a href="../../administration/authentication/">Authentication</a>.</p>
+<h2 id="endpoint-groups">Endpoint groups<a class="headerlink" href="#endpoint-groups" title="Permanent link">&para;</a></h2>
+<p>The table is a curated map of the full surface. Use <code>/docs</code> or <code>/openapi.json</code> for
+the exact request model and every operation under a prefix.</p>
+<table>
+<thead>
+<tr>
+<th>Area</th>
+<th>Principal operations</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Service and health</td>
+<td><code>GET /</code>, <code>GET /api/health</code>, <code>/live</code>, <code>/ready</code>, <code>/build-info</code></td>
+<td>Service discovery, probes, dependency readiness, and release identity</td>
+</tr>
+<tr>
+<td>First-run setup</td>
+<td><code>GET /api/setup/status</code>; <code>POST /api/setup/account</code>, <code>/secrets</code>, <code>/complete</code></td>
+<td>Bootstrap the first account, submit runtime secrets, and complete setup</td>
+</tr>
+<tr>
+<td>Authentication</td>
+<td><code>/api/auth/login</code>, <code>/logout</code>, <code>/refresh</code>, <code>/reauth</code>, <code>/change-password</code>; <code>/api/auth/mfa/*</code>; <code>/api/auth/sso/*</code></td>
+<td>Password sessions, MFA, refresh rotation, step-up authentication, and OIDC</td>
+</tr>
+<tr>
+<td>Account and sessions</td>
+<td><code>/api/account/*</code>, <code>/api/me/avatar</code>, <code>/api/sessions*</code>, <code>/api/admin/sessions*</code></td>
+<td>Profile, effective permissions, activity, and session revocation</td>
+</tr>
+<tr>
+<td>Users and roles</td>
+<td><code>/api/users*</code>, <code>/api/roles*</code></td>
+<td>User lifecycle, built-in/custom roles, permission preview, and simulation</td>
+</tr>
+<tr>
+<td>Connector catalog</td>
+<td><code>GET /api/connectors</code>, <code>GET /api/connectors/{source_type}</code>, <code>POST /api/connectors/test</code></td>
+<td>Discover connector manifests and test source access</td>
+</tr>
+<tr>
+<td>Sources and ingest</td>
+<td><code>/api/sources*</code>, <code>POST /api/ingest/{source_id}</code>, <code>POST /api/poll</code>, <code>GET /api/logs</code></td>
+<td>Configure feeds, accept pushed records, poll pull sources, inspect health, and browse logs</td>
+</tr>
+<tr>
+<td>Cases</td>
+<td><code>GET /api/cases</code>, <code>GET /api/cases/{case_id}</code>, <code>POST /api/cases/bulk</code></td>
+<td>List, filter, retrieve, export, and act on cases</td>
+</tr>
+<tr>
+<td>Case investigation</td>
+<td><code>/api/cases/{case_id}/triage</code>, <code>/timeline</code>, <code>/trace</code>, <code>/stages</code>, <code>/rationale</code>, <code>/threat-context</code>, <code>/forwarding</code>; <code>POST /investigate</code>, <code>/reinvestigate</code>, <code>/feedback</code></td>
+<td>Explain evidence, agent work, deterministic routing, and analyst feedback</td>
+</tr>
+<tr>
+<td>Case collaboration</td>
+<td><code>/api/cases/{case_id}/thread*</code>, <code>/tasks*</code>, <code>/activity</code>, <code>/comment</code>, <code>/assign</code>, <code>/tags</code>, <code>/notify</code></td>
+<td>Discussion, reactions, tasks, ownership, activity, and manual notification</td>
+</tr>
+<tr>
+<td>Workspace</td>
+<td><code>POST /api/chat</code>, <code>/api/chat/conversations*</code>, <code>POST /api/investigate</code>, <code>POST /api/overview</code>, <code>GET /api/search</code>, <code>/scans</code>, <code>/personas</code></td>
+<td>Console chat with per-user history, entity investigation, cross-surface search, scan queues, and personas</td>
+</tr>
+<tr>
+<td>Detection and automation</td>
+<td><code>/api/rules*</code>, <code>/api/tuning*</code>, <code>/api/baseline*</code>, <code>/api/campaigns*</code>, <code>/api/batch*</code>, <code>/api/proposals*</code></td>
+<td>Rule lifecycle, safe preview/version rollback, recommendations, baselines, campaigns, batch jobs, and approvals</td>
+</tr>
+<tr>
+<td>Playbooks</td>
+<td><code>GET/POST /api/playbooks</code>, <code>GET/PUT /api/playbooks/{playbook_id}</code>, <code>POST /api/playbooks/reload</code>, <code>GET /api/playbooks/selection/{case_id}</code>, <code>POST /api/cases/{case_id}/run-playbook</code></td>
+<td>Catalog/open, protected operator-file management, deterministic selection, hot reload, and case execution</td>
+</tr>
+<tr>
+<td>Knowledge and memory</td>
+<td><code>/api/rag/*</code>, <code>/api/memory*</code>, <code>/api/runbooks*</code>, <code>POST /api/threat-context/import</code></td>
+<td>Import/search/delete knowledge, manage operator memory, and manage protected/owned runbooks</td>
+</tr>
+<tr>
+<td>Enrichment and MITRE</td>
+<td><code>/api/enrichment/*</code>, <code>/api/mitre/coverage*</code>, <code>GET /api/cases/{case_id}/threat-context</code></td>
+<td>IOC enrichment, provider configuration, ATT&amp;CK coverage, and Navigator export</td>
+</tr>
+<tr>
+<td>Dashboards and metrics</td>
+<td><code>/api/dashboards*</code>, <code>/api/metrics*</code>, <code>/api/feedback/stats</code>, <code>/api/usage/summary</code>, <code>/api/cost/estimate</code></td>
+<td>Personal dashboards, posture/noise/improvement metrics, usage, feedback, and cost estimates</td>
+</tr>
+<tr>
+<td>Standup and handoff</td>
+<td><code>/api/standup*</code></td>
+<td>Shift report, acknowledgements, and action items</td>
+</tr>
+<tr>
+<td>Notifications</td>
+<td><code>/api/notifications/providers</code>, <code>/channels/*</code>, <code>/preview</code>, <code>/test</code>, <code>/prefs</code>, <code>/inbox*</code></td>
+<td>Channel catalog/secrets, safe previews, tests, per-user preferences, and in-app inbox</td>
+</tr>
+<tr>
+<td>Preferences and presentation</td>
+<td><code>/api/settings*</code>, <code>/api/prefs/*</code>, <code>/api/branding</code>, <code>/api/terminology</code>, <code>/api/views*</code>, <code>/api/budget*</code>, <code>/api/llm/*</code>, <code>/api/models</code></td>
+<td>Organization/user preferences, saved views, model routing/pricing, branding, and budget controls</td>
+</tr>
+<tr>
+<td>Release-source discovery</td>
+<td><code>GET /api/releases/upstream</code>, <code>POST /api/releases/upstream/check</code></td>
+<td>Read cached or force a cooldown-bounded refresh of public Stable/Testing source metadata; never deploys or activates code</td>
+</tr>
+<tr>
+<td>Own-state storage lifecycle</td>
+<td><code>GET/PUT /api/storage/lifecycle</code>, <code>POST /api/storage/lifecycle/preview</code>, <code>POST /api/storage/lifecycle/apply</code></td>
+<td>Inspect/save desired Hot/Warm/archive policy, preview capabilities, and explicitly apply the supported Elasticsearch ILM subset</td>
+</tr>
+<tr>
+<td>Portable data export</td>
+<td><code>POST /api/admin/export</code></td>
+<td>Download selected, bounded, secret-free application state for offline analysis (<code>data_export:export</code>)</td>
+</tr>
+<tr>
+<td>Audit and realtime</td>
+<td><code>GET /api/audit</code>, <code>GET /api/events</code></td>
+<td>Append-only action history and server-sent event updates</td>
+</tr>
+<tr>
+<td>Demo and reset</td>
+<td><code>/api/demo/*</code>, <code>POST /api/admin/reset</code></td>
+<td>Isolated synthetic demonstration lifecycle and privileged tiered reset</td>
+</tr>
+</tbody>
+</table>
+<h2 id="runbook-management">Runbook management<a class="headerlink" href="#runbook-management" title="Permanent link">&para;</a></h2>
+<p>Runbooks use a dedicated resource boundary: list/detail require <code>runbooks:read</code>,
+while create, update, delete, and reindex require <code>runbooks:manage</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Operation</th>
+<th>Contract</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET /api/runbooks</code></td>
+<td>Bundled and operator runbook summaries plus enabled/retrieval state and per-item index status</td>
+</tr>
+<tr>
+<td><code>GET /api/runbooks/{runbook_id}</code></td>
+<td>Metadata, full stored <code>content</code>, and parsed guidance body</td>
+</tr>
+<tr>
+<td><code>POST /api/runbooks</code></td>
+<td>Validate and create an operator runbook from <code>{id, content}</code>, then attempt immediate targeted indexing</td>
+</tr>
+<tr>
+<td><code>PUT /api/runbooks/{runbook_id}</code></td>
+<td>Validate and replace an operator runbook using <code>{content, expected_revision}</code>, then attempt targeted reindexing</td>
+</tr>
+<tr>
+<td><code>DELETE /api/runbooks/{runbook_id}?expected_revision=N</code></td>
+<td>Delete the expected operator revision and its retrieval projection</td>
+</tr>
+<tr>
+<td><code>POST /api/runbooks/{runbook_id}/reindex</code></td>
+<td>Reconcile one runbook's full-body retrieval projection</td>
+</tr>
+<tr>
+<td><code>POST /api/runbooks/reindex</code></td>
+<td>Reconcile all bundled and operator runbook projections without clearing unrelated knowledge</td>
+</tr>
+</tbody>
+</table>
+<p>Bundled items return <code>source_type=bundled</code>, <code>protected=true</code>, and <code>editable=false</code>.
+Operator items return their current revision, actor/timestamp metadata, and separate
+index state (<code>index_status</code>, <code>indexed_revision</code>, <code>last_indexed_at</code>, and a bounded
+<code>index_error</code>). The list envelope also reports <code>enabled</code> and <code>retrieval_enabled</code>;
+catalog management remains possible when retrieval is disabled.</p>
+<p>Update and delete are optimistic: a stale <code>expected_revision</code> is rejected rather
+than overwriting another operator's edit. Create/update/delete responses report the
+durable catalog result separately from the index result. Reindex responses report
+<code>indexed</code>, <code>deleted</code>, <code>failed</code>, and bounded <code>errors</code>, so callers must not treat a
+partial synchronization as a complete success.</p>
+<p>New and replacement operator documents require a small plain-text manifest plus a
+strict plain-text body of no more than 1,800 characters. The body uses the required
+ordered labels documented in <a href="../../intelligence/runbooks/">Runbooks</a>, rejects
+Markdown and HTML formatting, and permits sequential numbered lines only in
+<code>INVESTIGATION STEPS</code>. Manifest fields have independent write ceilings and their
+combined retrieval descriptor may not exceed 1,200 Unicode characters.
+Validation failures return actionable issues identifying what failed, why it is
+rejected, and how to fix it. A rejected request creates neither a catalog revision nor
+a retrieval projection. Existing non-compliant content remains readable and
+reindexable; its next edited revision must satisfy the current contract.</p>
+<p>The validation response uses HTTP 422 with this stable detail envelope:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;detail&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;code&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;runbook_validation_failed&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Runbook rejected. Fix the issues below and submit again.&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;issues&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">      </span><span class="p">{</span>
+<span class="w">        </span><span class="nt">&quot;code&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;stable_issue_code&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;field&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;body&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;problem&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;What is missing or invalid.&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;reason&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Why the contract rejects it.&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;fix&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;The concrete correction to make.&quot;</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">    </span><span class="p">],</span>
+<span class="w">    </span><span class="nt">&quot;limits&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;body_max_characters&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1800</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;retrieval_descriptor_max_characters&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1200</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;document_max_bytes&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">131072</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="nt">&quot;body_characters&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<p><code>body_characters</code> is the Unicode character count of the parsed, newline-normalized,
+outer-trimmed body. Clients should render all returned issues rather than stopping at
+the first one. <code>GET /api/runbooks</code> publishes the full backend-owned
+<code>authoring_standard</code>, including current field/list limits and prohibited formatting,
+so alternate authoring clients can present the same guidance.</p>
+<p>Runbook content is trusted operator-controlled knowledge and is projected under a
+stable <code>runbook:&lt;id&gt;</code> document identity. These routes never execute it as a playbook
+and never call or modify deterministic case-policy authority.</p>
+<h2 id="common-query-behavior">Common query behavior<a class="headerlink" href="#common-query-behavior" title="Permanent link">&para;</a></h2>
+<p>Case listing uses <code>limit</code> and <code>offset</code>, with optional <code>status</code>, <code>surface</code>, <code>entity</code>,
+<code>from</code>, and <code>to</code> filters. Other list endpoints define their own query parameters;
+do not assume that all collections share one pagination envelope. Follow the OpenAPI
+operation for the endpoint being called.</p>
+<p>Source and log browse limits are server-bounded. Treat every returned log field,
+raw record, case-derived string, and search result as untrusted data when presenting
+it in another system.</p>
+<h2 id="workspace-chat-persistence-and-retry">Workspace Chat persistence and retry<a class="headerlink" href="#workspace-chat-persistence-and-retry" title="Permanent link">&para;</a></h2>
+<p><code>POST /api/chat</code> remains compatible with stateless and Case Manager callers. Durable
+personal Workspace history is opt-in with <code>persist_conversation: true</code> and is disabled
+whenever the effective request is case-scoped. Resume a saved thread with its
+<code>conversation_id</code>; the server transcript is authoritative and caller-supplied <code>history</code>
+does not replace it.</p>
+<p>Persisted Workspace sends may include an <code>idempotency_key</code> of <strong>8 through 128
+characters</strong> using letters, digits, <code>.</code>, <code>_</code>, <code>:</code>, or <code>-</code>. When omitted, the server
+returns a generated key for the completed persisted turn. Keep that value stable when
+retrying an ambiguous turn. Reusing a key for the same completed request replays the
+committed response without another transcript append or model charge. A still-running
+key returns <code>409 chat_request_in_progress</code>; a key reused for a different request returns
+<code>409 chat_idempotency_conflict</code>. Each principal may hold at most 256 simultaneous live
+request leases; while all are occupied, a new key returns retryable
+<code>409 chat_request_capacity_busy</code> without invoking or billing the model.</p>
+<p>The additive <code>ChatResponse</code> fields are:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>idempotency_key</code></td>
+<td>Stable identifier for the persisted Workspace turn</td>
+</tr>
+<tr>
+<td><code>effective_model</code></td>
+<td>Model that actually executed the answer</td>
+</tr>
+<tr>
+<td><code>effective_source_id</code>, <code>effective_source_name</code></td>
+<td>Queryable source that actually served the turn</td>
+</tr>
+<tr>
+<td><code>truncated</code></td>
+<td>Whether the bounded saved response snapshot omitted larger supporting structures</td>
+</tr>
+</tbody>
+</table>
+<p>An explicit <code>source_id</code> is strict: disabled, removed, push-only, or unbuildable sources
+return <code>422 chat_source_unavailable</code>; the route never queries Primary and labels it as
+the requested source. Primary remains the default only when no source was explicitly
+selected. Persisted assistant messages carry <code>idempotency_key</code>, <code>model</code>, <code>source_id</code>,
+and <code>source_name</code>, so later selector changes cannot rewrite historical provenance.</p>
+<p>History endpoints are newest-first and per authenticated user:</p>
+<table>
+<thead>
+<tr>
+<th>Operation</th>
+<th>Contract</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET /api/chat/conversations</code></td>
+<td>Retained summaries plus <code>total</code>, <code>history_truncated</code>, <code>total_conversation_count</code>, and <code>oldest_retained_at</code></td>
+</tr>
+<tr>
+<td><code>GET /api/chat/conversations/{conversation_id}</code></td>
+<td>Authoritative retained transcript and per-turn provenance</td>
+</tr>
+<tr>
+<td><code>PATCH /api/chat/conversations/{conversation_id}</code></td>
+<td>Rename an owned conversation</td>
+</tr>
+<tr>
+<td><code>DELETE /api/chat/conversations/{conversation_id}</code></td>
+<td>Delete an owned conversation; audit remains append-only</td>
+</tr>
+</tbody>
+</table>
+<p><code>total</code> and a conversation's <code>message_count</code> describe retained rows. The additive
+<code>total_conversation_count</code> and <code>total_message_count</code> describe the corresponding total
+before retention, while <code>history_truncated</code> and <code>oldest_retained_at</code> disclose an
+incomplete retained window. The current bounds are <strong>50 conversations per user</strong> and
+<strong>100 messages per conversation</strong>. Conversation summary/detail objects also include
+<code>source_name</code>, <code>history_truncated</code>, <code>total_message_count</code>, and <code>oldest_retained_at</code>.</p>
+<p>History lives in one hashed StateStore partition per normalized user. On first access,
+the compatibility path can read and lazily migrate that user's entries from the legacy
+shared document; no reset or new index/table is required. A history read or commit that
+cannot be verified returns <code>503 chat_history_unavailable</code> instead of an empty list or a
+false saved result. Existing <code>404 conversation not found</code> behavior remains unchanged.</p>
+<h2 id="agent-improvement-evidence">Agent-improvement evidence<a class="headerlink" href="#agent-improvement-evidence" title="Permanent link">&para;</a></h2>
+<p><code>GET /api/metrics/agent-improvement</code> is an additive, read-only reporting endpoint
+protected by <code>metrics:view</code>. By default it compares the <strong>last seven complete UTC
+days</strong> with the <strong>preceding, non-overlapping 28 complete UTC days</strong>. The current UTC
+day is excluded so a partial day cannot be compared with complete history.</p>
+<p>Optional query parameters are:</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th style="text-align: right;">Default</th>
+<th>Contract</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>as_of</code></td>
+<td style="text-align: right;">current UTC date</td>
+<td>Exclusive <code>YYYY-MM-DD</code> boundary; future UTC dates are rejected</td>
+</tr>
+<tr>
+<td><code>current_days</code></td>
+<td style="text-align: right;"><code>7</code></td>
+<td>Current cohort length, from 1 through 31 complete days</td>
+</tr>
+<tr>
+<td><code>baseline_days</code></td>
+<td style="text-align: right;"><code>28</code></td>
+<td>Preceding baseline length, from 7 through 90 complete days</td>
+</tr>
+</tbody>
+</table>
+<p>The established headline deliberately reports three separate measurements rather
+than a synthetic composite score:</p>
+<table>
+<thead>
+<tr>
+<th>Response key</th>
+<th>Definition</th>
+<th>Better direction</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>analyst_reported_verdict_agreement</code></td>
+<td>Weighted analyst-reported agreement: <code>(agree + 0.5 × partial) / unique latest-valid graded cases</code></td>
+<td>Higher</td>
+</tr>
+<tr>
+<td><code>material_analyst_correction_rate</code></td>
+<td>Explicit disagreement or an allow-listed AI-verdict/outcome conflict divided by the same unique graded-case cohort</td>
+<td>Lower</td>
+</tr>
+<tr>
+<td><code>human_review_turnaround</code></td>
+<td>p50 elapsed time from the first human acknowledgement to the final human terminal transition in the final live episode</td>
+<td>Lower</td>
+</tr>
+</tbody>
+</table>
+<p>Each metric carries its current and baseline samples, definition, delta, direction,
+minimum sample, and <code>enough_data</code>, <code>insufficient_evidence</code>, or <code>unavailable</code> status.
+Agreement and correction require at least 30 eligible cases in both cohorts;
+turnaround requires at least 20. Daily points remain <code>null</code> until that day has five
+eligible samples; missing evidence is never converted to zero.</p>
+<p>An additive <code>outcomes</code> object is reported separately and never changes the headline:</p>
+<table>
+<thead>
+<tr>
+<th>Response key</th>
+<th>Contract</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>recorded_case_cost</code></td>
+<td>Sum of gateway-recorded <code>UsageDoc.cost</code> for timestamped rows carrying <code>case_id</code>; includes per-day and per-costed-case readings. This is AI processing cost, not overtime, labor, or provider-invoice truth.</td>
+</tr>
+<tr>
+<td><code>observed_time_saved</code></td>
+<td>p50 human-owned final-episode closure elapsed time minus p50 agent-closed elapsed time. Both cohorts are agent-assisted, actor labels are operational, and elapsed time is not active labor or a human-only benchmark. Requires 10 cases per owner in both compared windows. <code>observed_aggregate_elapsed_difference_minutes</code> is the signed p50 difference multiplied by the agent-closed count; the compatibility field <code>estimated_total_minutes_saved</code> is populated only when that difference is positive and is never counterfactual labor saved. Analyst-reported estimates remain a separate field.</td>
+</tr>
+<tr>
+<td><code>confirmed_positive_case_rate</code></td>
+<td>Confirmed-positive latest-valid outcomes divided by all outcome-evaluable latest-valid case outcomes. Requires 20 evaluated cases in each window; direction is descriptive, not automatically good or bad.</td>
+</tr>
+<tr>
+<td><code>true_positive_alert_yield</code></td>
+<td>Always <code>unavailable</code> in this release. Case outcomes and raw-alert counters are different units and alert-level confirmed-outcome lineage is not persisted. <code>supported_alternative</code> points to <code>confirmed_positive_case_rate</code>.</td>
+</tr>
+<tr>
+<td><code>alert_volume</code></td>
+<td>Durable <code>ingested_alerts</code> and <code>after_clustering_alerts</code>, plus clustering-reduction count/rate, per-day readings, and deltas. Counter coverage must span both complete-UTC windows and is bounded by the retained 90-day hourly counter history. Lower ingress can mean a source outage; the response does not grade it as improvement.</td>
+</tr>
+<tr>
+<td><code>tuning_context</code></td>
+<td>Applied/rolled-back threshold-change counts beside aggregate post-clustering movement. <code>causal_claim=false</code> and <code>model_fine_tuning_evidence=false</code>; this is context, not attribution.</td>
+</tr>
+<tr>
+<td><code>source_guidance</code></td>
+<td><code>not_available</code>, empty <code>items</code>, and <code>long_term_objective=true</code>. The current schema cannot support alert-specific missing-source advice without a governed coverage model.</td>
+</tr>
+</tbody>
+</table>
+<p><code>period_comparisons.week_over_week</code> compares seven complete UTC days with the prior
+seven. The compatibility wire key <code>period_comparisons.month_over_month</code> is labelled
+<strong>Rolling 28 days over prior 28 days</strong>, compares the latest 28 complete UTC days with
+the prior 28, and returns <code>calendar_period=false</code>; it is not a calendar-month
+comparison.
+Each period comparison reports the four case-derived metrics (agreement, correction,
+human review turnaround, and confirmed-positive case rate) with its own samples,
+reason, delta, and status, plus an <code>outcomes</code> object recomputed over those exact
+equal-length windows for cost, closure timing, case mix, volume, and tuning context.
+Outcome objects preserve <code>enough_data</code>,
+<code>insufficient_evidence</code>, <code>unavailable</code>, and where applicable <code>not_applicable</code>; source
+guidance uses <code>not_available</code>. A missing ledger, incomplete durable-counter window,
+bounded read, absent human/agent cohort, or undersized sample remains named rather
+than becoming zero.</p>
+<p>Agreement and correction use identical reference weights over exact source-by-severity
+strata represented by at least five grades in both windows. The payload reports only
+aggregate stratum counts and coverage—never source identifiers. A headline improvement
+claim requires at least 80% coverage in <strong>each</strong> cohort, complete non-truncated case
+retrieval, and sufficient samples. The guardrails report confirmed false-negative rate
+over confirmed positives and human reopen-after-agent-close rate over closures with a
+complete 24-hour follow-up window. A guardrail needs 20 eligible samples per cohort;
+until then <code>breached</code> is <code>null</code> and the headline remains insufficient evidence. A
+material guardrail regression prevents favorable efficiency changes from being
+promoted as improvement.</p>
+<p>The headline groups agreement and correction into one analyst-grade quality domain;
+they are not counted as two independent signals because both derive from the same
+graded-case cohort. The second independent domain is human review turnaround, and both
+domains must improve before the headline can say <code>improving</code>. Turnaround excludes known
+automation actor labels, but historical actor fields are operational labels rather
+than authenticated identity provenance. Exclusion counters are bounded to the same
+reporting horizon as the cohorts.</p>
+<p>The response is aggregate-only: it includes no case identifiers, entities, raw
+evidence, prompts, or model calls, and it performs no model call or write itself.
+<code>provenance.billing</code> is <code>none</code>, <code>case_ids_included</code> is <code>false</code>, and
+<code>decision_authority</code> is <code>reporting_only</code>. This endpoint describes observed outcome
+shifts; it does not claim that a model learned, establish causation, or participate
+in deterministic close/escalate decisions. When the bounded case load is truncated,
+the response says so and classifies the headline and metric directions as insufficient
+evidence.</p>
+<h2 id="case-clustering-explanation">Case clustering explanation<a class="headerlink" href="#case-clustering-explanation" title="Permanent link">&para;</a></h2>
+<p><code>GET /api/cases/{case_id}/threat-context</code> includes an additive <code>clustering</code> object.
+It is a read-only projection of persisted case facts; it never re-runs correlation,
+changes a cluster signature, scores risk, or participates in the case decision. The
+object reports availability, input/source counts, a source breakdown, correlation
+mode/threshold/window/grouping/reason, opened-case status/verdict, and bounded related
+cases. Up to 12 member references are returned as stable one-way hashes, with a
+truncation count; raw source identifiers and alert payloads are excluded. Consumers
+must tolerate <code>available: false</code> or incomplete fields for older cases.</p>
+<h2 id="realtime-events">Realtime events<a class="headerlink" href="#realtime-events" title="Permanent link">&para;</a></h2>
+<p><code>GET /api/events</code> is a server-sent events stream. The optional <code>topics</code> query filters
+the stream. Resume with the <code>Last-Event-ID</code> header or the <code>lastEventId</code> query parameter.
+The server emits heartbeats; clients should reconnect and fall back to bounded polling
+when the stream is unavailable. When realtime preferences disable the event bus, the
+endpoint returns HTTP 204. Browser <code>EventSource</code> clients cannot set an Authorization
+header, so authenticated Console subscriptions use the session cookie.</p>
+<h2 id="upstream-release-observations">Upstream release observations<a class="headerlink" href="#upstream-release-observations" title="Permanent link">&para;</a></h2>
+<p><code>GET /api/releases/upstream</code> requires <code>settings:read</code> and returns the cached
+observation for the saved <code>release_updates</code> preference. <code>POST
+/api/releases/upstream/check</code> requests a refresh but still respects a five-minute
+manual anti-hammering floor. A response contains the canonical repository URL, overall
+check/cache metadata, and independent <code>stable</code> and <code>testing</code> channel objects:</p>
+<ul>
+<li><code>state</code>: <code>available</code>, <code>unavailable</code>, or <code>disabled</code>;</li>
+<li>the configured <code>branch</code>;</li>
+<li>validated <code>version</code>, immutable <code>commit_sha</code>, and safe GitHub review links when
+  available;</li>
+<li><code>checked_at</code>, <code>stale</code>, and curated <code>error_code</code>/<code>error_message</code> fields.</li>
+</ul>
+<p>One channel's failure never hides its sibling. A later transient failure can retain a
+last-known-good available channel with <code>stale: true</code>; provider response bodies are not
+returned. Both endpoints are discovery-only. They cannot clone, download, execute,
+write Git state, deploy, migrate, restart, promote, activate, or roll back code.</p>
+<h2 id="own-state-storage-lifecycle">Own-state storage lifecycle<a class="headerlink" href="#own-state-storage-lifecycle" title="Permanent link">&para;</a></h2>
+<p><code>GET /api/storage/lifecycle</code> returns the desired policy, effective state, provider
+capabilities, per-tier status, and a target-by-target explanation. <code>PUT</code> saves the
+validated desired policy but does not silently mutate storage. <code>POST .../preview</code>
+is read-only and returns the plan/blockers for the supplied or saved policy.
+<code>POST .../apply</code> is the explicit, freshly authenticated, audited mutation.</p>
+<p>Apply is deliberately allowlisted: on Elasticsearch it can install/remove the
+Agentic SOC ILM policy and lifecycle settings only for the append-only audit and
+usage/cost ledgers. It never accepts an arbitrary index pattern, never rolls mutable
+cases, never changes connected source retention, and never adds a delete phase.
+PostgreSQL and SQLite return their honest advisory/export-only state instead of
+claiming movement. AWS Glacier remains <code>not_configured</code> until an independent
+checksummed export/manifest/restore pipeline exists.</p>
+<h2 id="decision-previews-and-side-effects">Decision previews and side effects<a class="headerlink" href="#decision-previews-and-side-effects" title="Permanent link">&para;</a></h2>
+<p><code>POST /api/triage/preview-decision</code> and <code>POST /api/rules/preview</code> are preview surfaces.
+They do not create a real decision or bill an LLM call. A preview is not authorization
+to close or escalate a case. Actual case state transitions still pass through the
+human action path or the deterministic case manager.</p>
+<p>Secret-setting routes accept values but never return them. Subsequent reads expose
+only configured booleans or configured field names. See the
+<a href="../configuration/">Configuration reference</a> before automating setup.</p>
+<h2 id="portable-application-export">Portable application export<a class="headerlink" href="#portable-application-export" title="Permanent link">&para;</a></h2>
+<p><code>POST /api/admin/export</code> accepts <code>scopes</code> (<code>all</code>, <code>cases</code>, <code>audit</code>, <code>usage</code>,
+<code>configuration</code>, <code>automation</code>, or <code>knowledge</code>) and <code>limit_per_scope</code> (1–5000;
+default 1000). It returns a canonical <code>application/json</code> attachment with a per-scope
+count/total/truncation manifest. <code>limit_per_scope</code> caps the whole selected scope;
+grouped automation and knowledge collections are sampled fairly within that cap. The
+server never traverses environment/source credentials,
+users, sessions, password/MFA material, browser tokens, or upstream raw logs; a final
+recursive sanitizer removes credential-shaped fields and common token/private-key
+patterns. Raw knowledge chunks are also excluded. Exports are hard-limited to 25 MiB;
+use fewer scopes or a lower item cap when the server returns HTTP 413. The response is
+not an import/restore format. The default permission is limited to <code>super_admin</code> and
+<code>soc_manager</code> through <code>data_export:export</code>, and each request is audited.</p>
+<h2 id="compatibility-expectations">Compatibility expectations<a class="headerlink" href="#compatibility-expectations" title="Permanent link">&para;</a></h2>
+<p>The 0.1 API favors additive fields and stable existing paths, but it is still a
+pre-1.0 contract. Pin clients to an application patch version, tolerate unknown
+response fields, regenerate typed clients when the OpenAPI snapshot changes, and
+test against the <code>Testing</code> branch before promoting the accepted source tree to
+<code>main</code>/Stable and re-running the gate on the resulting commit.
+See <a href="../compatibility/">Compatibility</a> and <a href="../../releases/documentation-versions/">Documentation versions</a>.</p>
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+
+
+      
+    </article>
+  </div>
+
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        
+  <footer class="md-footer tlsoc-page-footer">
+    <nav class="md-footer__inner" aria-label="Footer">
+      
+        <a
+          href="../../architecture/ingestion/"
+          class="tlsoc-page-footer__link tlsoc-page-footer__link--previous"
+          aria-label="Previous: Ingestion and investigation"
+        >
+          <span class="tlsoc-page-footer__title">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg>
+            Ingestion and investigation
+          </span>
+          
+            <span class="tlsoc-page-footer__description">The Agentic SOC 0.1 ingestion and investigation flow, its explicit operating boundaries, and the durability and scale roadmap.</span>
+          
+        </a>
+      
+      
+        <a
+          href="../configuration/"
+          class="tlsoc-page-footer__link tlsoc-page-footer__link--next"
+          aria-label="Next: Configuration"
+        >
+          <span class="tlsoc-page-footer__title">
+            Configuration
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
+          </span>
+          
+            <span class="tlsoc-page-footer__description">Configuration authorities, environment wiring, durable preferences, runtime-only secrets, and state backends in Agentic SOC 0.1.</span>
+          
+        </a>
+      
+    </nav>
+  </footer>
+
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      <script id="__config" type="application/json">{"base": "../..", "features": ["content.code.annotate", "content.code.copy", "content.tabs.link", "navigation.footer", "navigation.indexes", "navigation.top", "search.highlight", "search.suggest", "toc.follow"], "search": "../../assets/javascripts/workers/search.973d3a69.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "default": "stable", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.92b07e13.min.js"></script>
+      
+        <script src="../../javascripts/extra.js"></script>
+      
+    
+  </body>
+</html>
