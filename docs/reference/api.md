@@ -422,7 +422,4 @@ pre-1.0 contract. Pin clients to an application patch version, tolerate unknown
 response fields, regenerate typed clients when the OpenAPI snapshot changes, and
 test against the `Testing` branch before promoting the accepted source tree to
 `main`/Stable and re-running the gate on the resulting commit.
-The current remote has not yet provisioned literal `main`; legacy/default
-`claude/main` must not be treated as Stable without a deliberate repository-wide
-release-contract change.
 See [Compatibility](compatibility.md) and [Documentation versions](../releases/documentation-versions.md).

@@ -7621,3 +7621,114 @@
 - Tests: Backend passed **2,174/2,174**, dependency integrity, wheel/sdist content and installed-wheel import, 24 feature-router discovery, compile/startup, and real SQLite liveness/readiness. Console passed generated OpenAPI drift (**204 paths**), TypeScript, zero-warning ESLint, all five design gates, **1,828/1,828** Vitest tests across **277 files**, and the release-complete production build (**3,186 modules**). Documentation passed consistency for **66 pages**, bundle tests **4/4**, theme tests **3/3**, strict build, and bundle revalidation. All tracked shell files, invalid demo-mode exit, exact four-service standalone Compose topology, Actionlint, two YAML parsers, aggregate invariants, and scoped `git diff --check` passed. Existing documented jsdom chart/`act(...)` harness notices remain non-failing cleanup debt; no new test failure or workflow warning was accepted.
 - Status: complete in the existing dirty v0.1.1 Testing worktree. No file was staged, committed, pushed, tagged, promoted, deployed, or published; no Codex Security review was run.
 - Next: Push through the normal Testing pull-request flow and require only the exact **CI passed** status on protected `Testing` and `main`; GitHub will remain the authoritative clean-checkout execution.
+
+### 2026-07-31 18:30Z — `/root` — Testing-to-main promotion readiness review started
+- Context: Verify whether the newly pushed `Testing` branch is ready for a direct promotion pull request to literal `main`, including remote branch existence, exact commit identity, version/channel metadata, CI status, and release-boundary behavior.
+- Did: Confirmed the local checkout is clean, on `Testing`, and synchronized with `origin/Testing`; began a read-only live GitHub and local release-contract inspection. No pull request, merge, tag, deployment, or repository setting is being changed by this review.
+- Tests: Remote branch, Actions, commit comparison, and release metadata checks pending.
+- Status: in progress.
+- Next: Resolve literal `main`, compare branch heads, inspect the pushed CI run, and provide the exact safe promotion sequence.
+
+### 2026-07-31 18:33Z — `/root` — Testing-to-main promotion readiness review completed
+- Context: Determine the safe first Stable publication path after the v0.1.1 Testing source was pushed.
+- Did: Verified `origin/Testing` and the clean local checkout both point to `ba179651a7b63d6352ad346fd633e1460f3a4d39`. Live GitHub exposes only `Testing` and default `claude/main`; literal `main` does not exist, and GitHub reports no common ancestor between `claude/main` and `Testing`. Therefore a normal promotion PR is not yet a valid bootstrap mechanism. Established the safe one-time sequence: wait for the exact Testing CI SHA to pass, create literal `main` directly from that exact Testing SHA, make/protect `main`, wait for its Stable-channel CI, then tag that main commit `v0.1.1`. Future promotions can use normal `Testing` to `main` pull requests because the branches will then share history. Do not merge the unrelated `claude/main` history into the release line.
+- Tests: The pushed Testing CI and Documentation runs exist for the exact SHA but were still queued at review time. Stable branch and `v0.1.1` tag simulations both passed `scripts/check_version.py`; root, Console, and backend versions all equal `0.1.1`, with documentation line `0.1` as designed.
+- Status: review complete; no pull request, merge, branch, tag, deployment, or GitHub setting was created or changed. Only this required repository review receipt was appended locally.
+- Next: Wait for CI run `30655350562` to report `CI passed`, bootstrap `main` from the tested SHA, configure default/protection, re-run CI on `main`, and only then create the `v0.1.1` tag.
+
+### 2026-07-31 18:42Z — `/root` — Stable publication state recheck started
+- Context: Recheck whether the one-time `main` bootstrap, Stable CI, and v0.1.1 tag publication are now fully complete.
+- Did: Confirmed read-only that remote `Testing`, new literal `main`, and the dereferenced annotated `v0.1.1` tag all point to the accepted commit `ba179651a7b63d6352ad346fd633e1460f3a4d39`; began inspecting current default-branch, protection, Actions, and release state.
+- Tests: Live GitHub metadata and workflow conclusions pending.
+- Status: in progress; no remote mutation is being performed.
+- Next: Verify every Testing/main/tag quality gate, repository default/protection, and release-object status, then report any remaining administrative step precisely.
+
+### 2026-07-31 18:50Z — `/root` — Stable publication state recheck completed
+- Context: Determine whether the first literal-`main` Stable v0.1.1 publication is fully complete after the bootstrap push and tag.
+- Did: Verified that `main` is now the repository default and that `main`, `Testing`, and dereferenced annotated tag `v0.1.1` all identify commit `ba179651a7b63d6352ad346fd633e1460f3a4d39`. Confirmed the Testing, main, and tag CI runs all completed successfully, including the fail-closed `CI passed` aggregate. Found three remaining publication-administration gaps: neither `main` nor `Testing` is protected and the repository has no ruleset; Stable documentation has not been published because no Documentation workflow run exists for `main` and no `gh-pages`/Pages site exists; and the tag has no GitHub Release object. No remote mutation was performed.
+- Tests: Read-only Git refs, default-branch metadata, branch protection/rulesets, workflow-run results, Pages/`gh-pages`, release-by-tag, and the repository release contract were checked live. The source/tag quality gate is green; the publication controls are not yet complete.
+- Status: code promotion and immutable tag are complete, but the repository is not yet fully release-complete under its own documented contract.
+- Next: Protect `main` and `Testing` with pull requests plus the exact `CI passed` check and up-to-date merges; manually dispatch the Documentation workflow on `main`, then enable/verify Pages if needed; optionally publish a GitHub Release from the existing tag without moving or recreating it; update the stale pre-publication paragraph in `docs/releases/0.1.md` through the normal Testing-to-main flow.
+### 2026-08-01 18:24Z — `/root` — Stable documentation publication check started
+- Context: Locate the public versioned Help Center after the operator manually ran the Documentation workflow on `main`.
+- Did: Began a read-only check of the live Documentation run, `gh-pages` publication ref, Pages configuration, and canonical MkDocs URL.
+- Tests: Live publication checks pending.
+- Status: in progress; no repository or GitHub setting is being changed.
+- Next: Confirm the exact public URL and version alias, then report whether Pages is immediately reachable or still needs a repository setting.
+
+### 2026-08-01 18:27Z — `/root` — Stable documentation publication check completed
+- Context: Locate the public versioned Help Center after the operator manually dispatched the Documentation workflow on `main`.
+- Did: Confirmed run `30657053217` completed successfully and produced the downloadable `tlsoc-docs-ba179651a7b63d6352ad346fd633e1460f3a4d39` preview artifact. The run did not publish Stable documentation: both version-resolution and `mike deploy` steps were skipped because their workflow conditions accept only a `push` event on `main`, not `workflow_dispatch`. Consequently no `gh-pages` branch or Pages configuration exists and the canonical `https://arydestroyer.github.io/Agentic-Kibana/` URL still returns 404.
+- Tests: Inspected every workflow step and artifact through the live GitHub API; checked remote refs, Pages API state, and HTTP status for root, `0.1`, `stable`, and `latest` URLs.
+- Status: diagnosed; the formatted Help Center built successfully but exists only as an Actions artifact, not a published website. No remote mutation was performed.
+- Next: Through the normal Testing-to-main flow, either merge a docs-path change (which triggers the existing push-only publisher) or amend both publish-step conditions to allow a manual dispatch on `main`; after `mike deploy` creates `gh-pages`, configure/verify GitHub Pages and recheck the canonical and `/0.1/` URLs.
+
+### 2026-08-01 18:30Z — `/root` — GitHub Pages setup guidance started
+- Context: Give the operator an exact, safe setup sequence for publishing the already-formatted, versioned Help Center.
+- Did: Re-read the repository workflow and current GitHub Pages guidance, including the distinction between the existing Mike-managed `gh-pages` publication and GitHub's native Pages deployment mechanism.
+- Tests: No repository mutation; guidance validation in progress.
+- Status: in progress.
+- Next: Provide the minimal first-publication sequence and identify the durable workflow improvement for reliable manual redeploys.
+
+### 2026-08-01 18:30Z — `/root` — GitHub Pages setup guidance completed
+- Context: Close the Help Center publication handoff without conflating a successful preview artifact with a Pages deployment.
+- Did: Established the immediate sequence: merge a legitimate documentation/workflow-path change from `Testing` to `main` so the existing push-only Mike publisher creates `gh-pages`; then select `gh-pages` and `/ (root)` under GitHub Settings → Pages. Also identified the durable follow-up: allow `workflow_dispatch` in both Stable publish conditions, or migrate to GitHub's native Pages artifact/deployment actions so manual redeploys are first-class and token-trigger behavior is not relied upon.
+- Tests: Cross-checked the sequence against the live skipped workflow steps, current YAML, canonical MkDocs URL, and GitHub's official publishing-source and manual-workflow documentation.
+- Status: guidance complete; no source, branch, workflow, Pages setting, or remote repository state changed.
+- Next: Apply the workflow/docs correction through `Testing` → `main`, confirm the Stable publish steps run rather than skip, configure Pages, and verify root plus `/0.1/` URLs.
+
+### 2026-08-01 18:49Z — `/root` — Reliable Stable Help Center publication implementation started
+- Context: Make the Documentation workflow publish the formatted, versioned Help Center reliably when `main` is pushed or manually dispatched, ready for the operator's `Testing` → `main` pull request.
+- Did: Re-read the repository handoff/rules, current Mike publication contract, live Pages diagnosis, and GitHub workflow guidance. Preserved the existing unstaged Journal work and delegated bounded read-only audits of workflow architecture, active documentation drift, and validation coverage.
+- Tests: Not run at session start.
+- Status: in progress; no file is staged or committed, and no remote mutation is authorized.
+- Next: Implement a least-privilege native Pages deployment that retains Mike version aliases, synchronize active release documentation, and run workflow/docs/version checks before handoff.
+
+### 2026-08-01 19:03Z — `/root` — Native Pages publication path assembled
+- Context: Replace the green-but-preview-only manual Documentation run with a durable Stable Help Center deployment.
+- Did: Split documentation publication into read-only validation, main-only Mike history assembly, and a native `github-pages` environment deployment. Manual dispatch and pushes publish only when the selected ref is literal `main`; Testing, pull requests, and non-main manual runs remain preview-only. Mike retains generated history on `gh-pages`, uses redirect aliases instead of symlinks, uploads the complete version tree, and grants write permissions only to the two jobs that require them. Stable runs are serialized and cannot be cancelled mid-publication. Updated the canonical release/version guidance and began removing obsolete missing-`main` status text.
+- Tests: Actionlint 1.7.7 passed the final workflow expressions and job graph. Version metadata and 66-page documentation consistency passed. An isolated first-publication proof with pinned Mike 2.2.0 created root, `/0.1/`, `/stable/`, `/latest/`, and `versions.json`; the exported tree contained 252 files and zero symlinks. The first bundle pass exposed one now-stale anchor into the removed legacy branch-migration section; its active upgrade guidance is being corrected before the final strict build.
+- Status: workflow implementation complete; documentation synchronization and final validation in progress. Nothing staged, committed, pushed, deployed, or published.
+- Next: Complete the active documentation corrections, rerun strict Help Center/theme/bundle checks and workflow invariants, then hand the unstaged Testing changes to the operator.
+
+### 2026-08-01 18:57Z — `/root/pages_docs_audit` — Native Pages documentation audit started
+- Context: Audit active documentation against the planned Mike-backed native GitHub Pages workflow and current repository topology.
+- Did: Read `HANDOFF.md` and `AGENTS.md`, inspected the documentation workflow, and scoped active release, deployment, contribution, and versioning guidance.
+- Tests: Read-only audit; no repository files changed.
+- Status: complete.
+- Next: Complete the live topology and publication-behavior comparison.
+
+### 2026-08-01 18:57Z — `/root/pages_docs_audit` — Native Pages documentation audit completed
+- Context: Identify stale and behavior-sensitive documentation before native Pages publication is enabled.
+- Did: Verified `main` and `Testing` shared the accepted source, `v0.1.1` dereferenced to it, both branches remained unprotected, no rulesets or `gh-pages` branch existed, Pages was unpublished, and the latest manual-main documentation run skipped publication. Mapped the active stale passages and canonical native-Pages wording required.
+- Tests: Git remote refs, public GitHub repository/branch/ruleset/Pages APIs, public site response, and Actions run steps inspected read-only.
+- Status: complete.
+- Next: Update canonical release documentation, remove stale legacy-topology instructions, preserve the public-doc versus immutable-tag distinction, and validate the final site contract.
+
+### 2026-08-01 18:58Z — `/root/pages_workflow_audit` — Native Pages workflow audit completed
+- Context: Audit the Documentation workflow for reliable push and manual Stable publication while keeping pull-request and Testing validation read-only.
+- Did: Designed a three-job least-privilege workflow: read-only validation, main-only Mike history assembly using a durable `gh-pages` ledger, and native GitHub Pages artifact deployment. Verified main-safe concurrency, redirect aliases, one-push history handling, artifact structure checks, environment permissions, and required Pages settings.
+- Tests: A temporary isolated clone confirmed initial Mike publication creates `0.1`, `stable`/`latest` aliases, `versions.json`, and the Stable root redirect; an identical repeat preserved the published result. No workspace files were changed.
+- Status: complete.
+- Next: Select GitHub Actions under Settings → Pages, merge through Testing to main, dispatch on main, and verify root, `/0.1/`, `/stable/`, and `/latest/`.
+
+### 2026-08-01 18:58Z — `/root/pages_validation_audit` — Documentation Pages validation audit completed
+- Context: Audit offline validation coverage and GitHub Pages failure modes for the Documentation workflow change supporting reliable main push and manual Stable publication.
+- Did: Inspected workflow and MkDocs/Mike configuration, documentation checks, available validators, expression behavior, Pages artifact requirements, permissions, environment, source configuration, concurrency, and version-retention boundaries. Proved that Mike's default aliases are symlinks and that `--alias-type redirect` produces an artifact-safe version tree.
+- Tests: Proposed conditions passed Actionlint 1.7.7; PyYAML and js-yaml parsing passed; version metadata, 66-page documentation consistency, bundle tests 4/4, theme tests 3/3, strict Stable MkDocs build, complete Pages-tree structure, and zero-symlink checks passed in the isolated audit.
+- Status: complete; no repository file was edited by this audit.
+- Next: Rerun the matrix on the integrated YAML, configure Pages to use GitHub Actions, and verify main push plus manual-dispatch deployments and the public aliases.
+
+### 2026-08-01 19:02Z — `/root/pages_docs_audit` — Active documentation topology corrections completed
+- Context: Align the remaining active guides with the canonical Testing/main topology and the Mike-backed native GitHub Pages publication workflow.
+- Did: Updated README, deployment, roadmap, environment, Help Center index, getting-started, operations, and development guidance; removed obsolete missing-main/tag claims; distinguished repository settings from source guarantees; and added exact native Pages and manual-main redeployment verification.
+- Tests: Documentation consistency passed for 66 public pages; version metadata passed for app 0.1.1/docs 0.1; strict MkDocs build passed; `git diff --check` passed.
+- Status: complete.
+- Next: Review the integrated workflow and documentation diff, append this milestone, then commit through Testing and promote by pull request.
+
+### 2026-08-01 19:04Z — `/root` — Reliable Stable Help Center publication completed
+- Context: Deliver an uncommitted Testing change that turns the versioned Help Center into a real GitHub Pages deployment on both `main` pushes and manual `main` runs.
+- Did: Finalized the three-job least-privilege Documentation workflow, durable Mike `gh-pages` history, redirect aliases, complete-tree artifact validation, native Pages deployment, main-safe concurrency, and accurate preview-only behavior for all non-main contexts. Synchronized active release, setup, deployment, upgrade, compatibility, contribution, testing, roadmap, handoff, and agent guidance with the real default-`main`/Testing/tag topology and the distinction between installed docs, public release-line corrections, and immutable application artifacts. The only required external action is the documented one-time Pages source selection; no workflow credential can or should change that repository setting.
+- Tests: Actionlint 1.7.7 passed. Final workflow invariants and `git diff --check` passed. Version metadata is consistent at app 0.1.1/docs 0.1; documentation consistency passed for 66 public pages; bundle tests passed 4/4; theme tests passed 3/3; strict Stable MkDocs build passed; the Console's same-origin docs bundle built and revalidated. An isolated Mike proof created root, `0.1`, `stable`, `latest`, and `versions.json` with zero symbolic links and retained the complete version tree.
+- Status: complete on `Testing`; all requested changes remain unstaged and uncommitted for the operator's commit, push, and promotion pull request. Nothing was pushed, deployed, published, or staged, and no Codex Security review was run.
+- Next: In GitHub Settings → Pages choose GitHub Actions as the source, commit/push this Testing change, merge it to `main`, confirm all three Documentation jobs run, then verify the public root plus `/0.1/`, `/stable/`, and `/latest/`.

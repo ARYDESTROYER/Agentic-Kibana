@@ -11,16 +11,12 @@ protected pull request to **Stable** on `main`, and the resulting `main` commit 
 verified. There is no third prerelease branch and no separate release-branch
 vocabulary.
 
-!!! warning "The Stable branch is not provisioned yet"
+!!! note "Current repository topology"
 
-    The current remote exposes `Testing` and the legacy/default branch
-    `claude/main`; it does **not** yet expose a literal `main`. `claude/main` is not
-    Stable merely because its name contains `main`. Before the first Stable
-    release, a repository owner must create or rename and protect literal `main`,
-    make it the default, and configure the required promotion gates. If the owner
-    deliberately retains `claude/main` instead, every workflow, link, and release
-    document must be changed consistently before publication. Until then, only
-    Testing candidates exist and no checkout should claim Stable provenance.
+    The remote now exposes both canonical branches and uses `main` as the default.
+    Repository administrators must still keep the required pull-request gates and
+    the `CI passed` aggregate enforced; a branch name alone never proves that a
+    particular build passed acceptance.
 
 ## Channel contract
 
@@ -98,10 +94,6 @@ Every release starts with a candidate commit on `Testing`:
 6. Let the documentation workflow publish the matching major.minor line and move
    the `stable` and `latest` aliases to it.
 
-Before step 4 can run for the first time, complete the repository-provisioning
-prerequisite above. Do not substitute `claude/main` silently or stamp a Testing
-build as Stable to work around the missing branch.
-
 Use an annotated tag and verify it before pushing:
 
 ```bash
@@ -134,45 +126,6 @@ If promotion is abandoned, revert the prepared release heading rather than leavi
 a Testing snapshot that reads as though it were published. Never keep multiple
 top-level `[Unreleased]` sections as a dated work log; the development journal and
 Development snapshot headings hold that history.
-
-### One-time cleanup of the legacy `claude/main` branch
-
-Do **not** copy `claude/main` over `Testing`, and do not delete it before the new
-Stable branch is protected and verified. The safe first-promotion sequence is:
-
-1. Finish, verify, commit, and push the candidate to `Testing`.
-2. Preserve the current legacy tip under an archive branch before changing defaults:
-
-   ```bash
-   git fetch origin --prune
-   git push origin origin/claude/main:refs/heads/archive/claude-main-2026-07-20
-   ```
-
-3. Bootstrap literal `main` from the current legacy default, then immediately protect
-   it and make pull requests plus the release gate mandatory:
-
-   ```bash
-   git switch --create main --track origin/claude/main
-   git push --set-upstream origin main
-   ```
-
-4. Open the first protected promotion pull request from `Testing` into `main`. Resolve
-   any history-only divergence without dropping accepted `Testing` content; verify the
-   resulting tree and rerun the complete release gate on the merged `main` SHA.
-5. Create the annotated `vX.Y.Z` tag from that verified SHA, publish artifacts/docs,
-   make `main` the repository default, and confirm clones, Pages, branch protections,
-   and the Console badge all identify Stable correctly.
-6. Only then delete the obsolete branch:
-
-   ```bash
-   git push origin --delete claude/main
-   ```
-
-The archive branch is deliberately non-default and can be removed later under the
-repository's retention policy. If the owner does not need an archive branch, use an
-immutable backup tag instead—but preserve the old tip somewhere until the first
-Stable promotion is proven. This is a one-time topology migration; subsequent releases
-always flow `feature → Testing → main → vX.Y.Z` and never recreate `claude/main`.
 
 If a Stable defect is found, fix it through `Testing`, exercise the same gate, and
 promote a patch release. Emergency timing may shorten review windows, but it does
@@ -289,8 +242,12 @@ promotion direction as the source:
 
 - a pull request or push to `Testing` runs a strict docs-plus-app build and can
   publish a Development review artifact, but does not move the public Stable site;
-- a push to `main` publishes the current major.minor directory with Mike, assigns
-  the `stable` and `latest` aliases, and keeps older documentation directories;
+- a push to `main`, or a manual Documentation run selected on `main`, updates the
+  current major.minor history with Mike, assigns the `stable` and `latest` aliases,
+  and keeps older documentation directories;
+- the generated `gh-pages` branch is the version-history backing store; GitHub Pages
+  itself must use **GitHub Actions** as its source, and the workflow deploys a
+  validated link-free artifact with the native Pages actions;
 - the site version selector prefers the equivalent page in the selected version
   and falls back to that version's home page when the page did not yet exist.
 

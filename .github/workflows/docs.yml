@@ -24,20 +24,21 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: docs-${{ github.ref }}
-  cancel-in-progress: true
+  # Preview builds may be superseded. A Stable publication must finish atomically.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  build:
+  validate:
+    name: Validate Help Center
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -64,29 +65,109 @@ jobs:
       - name: Upload documentation preview
         uses: actions/upload-artifact@v4
         with:
-          name: tlsoc-docs-${{ github.sha }}
+          name: agentic-soc-docs-${{ github.sha }}
           path: site
-          retention-days: 90
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Assemble Stable documentation
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository with publication history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: docs/requirements.txt
+
+      - name: Install documentation dependencies
+        run: python -m pip install --requirement docs/requirements.txt
 
       - name: Resolve documentation version
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         id: version
         shell: bash
         run: |
+          set -Eeuo pipefail
           product_version="$(tr -d '[:space:]' < VERSION)"
           docs_version="$(printf '%s' "$product_version" | cut -d. -f1-2)"
+          if [[ ! "$docs_version" =~ ^[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid documentation version derived from VERSION: $docs_version" >&2
+            exit 1
+          fi
           echo "docs_version=$docs_version" >> "$GITHUB_OUTPUT"
 
-      - name: Publish Stable versioned documentation
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      - name: Update Stable version history
         env:
           TLSOC_DOCS_CHANNEL: Stable
           TLSOC_DOCS_EDIT_URI: edit/main/docs/
         shell: bash
         run: |
+          set -Eeuo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          mike deploy --push --update-aliases \
+          mike deploy --update-aliases --alias-type=redirect \
             "${{ steps.version.outputs.docs_version }}" stable latest \
             --title "${{ steps.version.outputs.docs_version }} (Stable)"
-          mike set-default --push stable
+          mike set-default stable
+
+      - name: Assemble and validate the Pages tree
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          pages_dir="${RUNNER_TEMP}/pages-site"
+          mkdir -p "$pages_dir"
+          git archive gh-pages | tar -xf - -C "$pages_dir"
+
+          test -f "$pages_dir/index.html"
+          test -f "$pages_dir/${{ steps.version.outputs.docs_version }}/index.html"
+          test -f "$pages_dir/stable/index.html"
+          test -f "$pages_dir/latest/index.html"
+          test -f "$pages_dir/versions.json"
+
+          if find "$pages_dir" -type l -print -quit | grep -q .; then
+            echo "The GitHub Pages artifact must not contain symbolic links." >&2
+            exit 1
+          fi
+
+          git push --porcelain origin gh-pages
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: ${{ runner.temp }}/pages-site
+
+  deploy:
+    name: Deploy Stable documentation
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

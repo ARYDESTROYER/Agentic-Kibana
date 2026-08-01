@@ -24,7 +24,7 @@ when infrastructure and external model calls are not part of your evaluation.
 
 ## 1. Check out version 0.1
 
-Use the immutable Stable tag after it has been published:
+Use the immutable Stable tag:
 
 ```bash
 git clone --branch v0.1.1 --depth 1 \
@@ -32,11 +32,11 @@ git clone --branch v0.1.1 --depth 1 \
 cd Agentic-Kibana
 ```
 
-For an unreleased preview, use the repository's `Testing` branch instead. The
-current remote has no literal `main` or `v0.1.1`; legacy/default `claude/main` does
-not satisfy the Stable contract. Do not create or move a release tag locally. Once
-provisioned, pulling `main` means pulling the last accepted Stable source—not the
-next Testing candidate.
+For an unreleased preview, use the repository's `Testing` branch instead. The remote
+now uses default `main` for accepted Stable source and has the `v0.1.1` tag. Do not
+create or move a release tag locally. Pulling `main` means pulling the current
+accepted Stable source—not the next Testing candidate—but repository protections
+and required checks must be verified independently.
 
 ## 2. Prepare configuration
 

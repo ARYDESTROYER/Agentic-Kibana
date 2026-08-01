@@ -6,21 +6,18 @@
 > source of truth for *where we are*, *how to run it*, *what's done*, and *what's next*.
 > Everything in here is verified against the repo as of the date below — not from memory.
 
-- **Repo:** `ARYDESTROYER/Agentic-Kibana`  ·  **Working branch:** `Testing`  ·  **Date:** 2026-07-31
+- **Repo:** `ARYDESTROYER/Agentic-Kibana`  ·  **Working branch:** `Testing`  ·  **Date:** 2026-08-01
 - **Status:** Round 10 and the additive Security Command Center / Case Manager work are
   integrated on `Testing`. A **backend deep-audit hardening pass
   (2026-07-14/15)** fixed **47 verified findings** (0 crit / 10 high / 24 med / 13 low)
   from a 24-auditor + adversarial-verify Workflow — **one atomic commit per finding, no
   co-author**, on `Testing` (`c5516e5`→`abd0385`).
   The current product version is **`0.1.1`**. `Testing` is the permanent integration and
-  acceptance branch; the accepted source tree is promoted through a protected pull request
-  to the Stable `main` branch, the resulting commit is re-verified, and that commit is tagged
-  `v0.1.1`; see `docs/releases/channels.md`.
-- **Branch-topology gap:** the remote currently exposes `Testing` and legacy/default
-  `claude/main`, but no literal `main`. `claude/main` is not implicitly Stable. Before the
-  first Stable publication, the owner must create/rename and protect `main`, make it default,
-  and require the documented gates—or deliberately update every workflow and release
-  reference to one different canonical Stable branch.
+  acceptance branch; accepted changes are promoted through a pull request to the Stable
+  `main` branch and re-verified there. The remote now uses `main` as its default, retains
+  `Testing` for integration, and has the `v0.1.1` release tag; see
+  `docs/releases/channels.md`. Repository administrators remain responsible for enforcing
+  the documented branch and environment protections.
 - **Release identity UI:** the top-right badge always reads
   `v0.1.1 · Testing|Stable`; its popover reconciles build-time Console and public backend
   build-info. Any known version/channel/SHA mismatch downgrades to Testing. Local demo auto-
@@ -38,8 +35,7 @@
   `/api/releases/upstream` observation. Fresh preferences watch the public Agentic SOC
   repository at Stable `main` and Testing `Testing`; forks can change that repository
   and either branch in Settings. This is review metadata only, suppresses downgrades,
-  and cannot create the deployment activation action. The currently absent literal
-  `main` therefore reports an honest unavailable Stable observation.
+  and cannot create the deployment activation action.
 - **Current Console contract:** the shared rail and route-loading states follow
   `docs/development/ui-standard.md`; `webui/src/design-system/` now exposes the one
   centered loading grammar, original source marks, and a serializable catalog for

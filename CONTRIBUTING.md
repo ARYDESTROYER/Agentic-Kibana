@@ -24,12 +24,9 @@ workflow that sits on top of it.
   `main` commit. Do not develop directly on `main`, and
   do not maintain a parallel prerelease branch under another name. See
   [`docs/releases/channels.md`](docs/releases/channels.md). Commit focused changes;
-  push only when asked.
-  **Current repository caveat:** the remote presently exposes `Testing` and
-  legacy/default `claude/main`, not literal `main`. The owner must provision and
-  protect `main` before the first Stable promotion, or deliberately update all
-  workflows and release references to a different canonical Stable branch.
-  `claude/main` is not implicitly Stable.
+  push only when asked. The remote uses `main` as its default and retains `Testing`
+  as the integration branch. Repository administrators must keep the required
+  checks and pull-request protections enforced on those canonical branches.
 - **Release notes:** keep one active top-level `[Unreleased]` section. Dated,
   unpublished work is a Development snapshot, not another pseudo-release. The final
   frozen release-preparation change creates `[X.Y.Z]`, reopens `[Unreleased]`, and is
