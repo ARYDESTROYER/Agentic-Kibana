@@ -33,11 +33,13 @@ from fastapi.testclient import TestClient
 
 from app.api.deps import require_auth, require_permission
 from app.api.routes import router as monolith_router
+from app.api.routes_rag import router as rag_router
 from app.api.routes_roles import router as roles_router
 from app.config import Secrets
-from app.constants import UserRole
+from app.constants import CaseStatus, EntityType, SourceSurface, UserRole
 from app.es.fake import InMemoryESClient
 from app.llm.providers import MockProvider
+from app.models import Case, Entity
 from app.state import AppState
 
 SA = UserRole.SUPER_ADMIN.value
@@ -45,6 +47,7 @@ MGR = UserRole.SOC_MANAGER.value
 T1 = UserRole.ANALYST_TIER1.value
 T2 = UserRole.ANALYST_TIER2.value
 AUD = UserRole.AUDITOR.value
+RESP = UserRole.RESPONDER.value
 
 
 # --------------------------------------------------------------------------- #
@@ -77,6 +80,7 @@ def _make_app(rbac: bool = True):
     api = FastAPI(lifespan=lifespan)
     api.include_router(monolith_router, dependencies=[Depends(require_auth)])
     api.include_router(roles_router, dependencies=[Depends(require_auth)])
+    api.include_router(rag_router, dependencies=[Depends(require_auth)])
 
     # Probe routes — one per resource:action used in the tests. Each returns 200 only
     # if deps._enforce (require_permission) allows the caller; otherwise it 401/403s.
@@ -193,6 +197,168 @@ def test_assigned_custom_role_grants_a_narrow_action() -> None:
         c.cookies.clear()
         _login(c, "bob", "bob-pass-12345")
         assert c.get("/api/_probe/cases/close").status_code == 200
+
+
+def test_case_feedback_uses_verified_actor_and_honors_custom_write_grant() -> None:
+    """Feedback is tuning ground truth, not an ungated self-service mutation."""
+    with TestClient(_make_app()) as c:
+        _login(c)
+        assert c.post("/api/roles", json={
+            "name": "case_grader",
+            "grants": {"cases": ["write"]},
+        }).status_code == 200
+        _mk_user(c, "feedback-auditor", "feedback-auditor-pass", role=AUD)
+
+        state = _state(c)
+        case = Case(
+            case_id="case-feedback-rbac",
+            cluster_signature="sig-feedback-rbac",
+            source_surface=SourceSurface.AUTOMATED_SCAN,
+            entity=Entity(type=EntityType.IP, value="198.51.100.44"),
+            status=CaseStatus.OPEN,
+        )
+        c.portal.call(state.cases.save, case)
+
+        c.cookies.clear()
+        _login(c, "feedback-auditor", "feedback-auditor-pass")
+        body = {
+            "analyst": "forged-admin",
+            "assessment": "agree",
+            "actual_outcome": "false_positive",
+        }
+        assert c.post(f"/api/cases/{case.case_id}/feedback", json=body).status_code == 403
+
+        c.cookies.clear()
+        _login(c)
+        assert c.put(
+            "/api/users/feedback-auditor/roles",
+            json={"custom_roles": ["case_grader"]},
+        ).status_code == 200
+
+        c.cookies.clear()
+        _login(c, "feedback-auditor", "feedback-auditor-pass")
+        accepted = c.post(f"/api/cases/{case.case_id}/feedback", json=body)
+        assert accepted.status_code == 200, accepted.text
+        assert accepted.json()["feedback"][-1]["analyst"] == "feedback-auditor"
+        assert accepted.json()["feedback"][-1]["actual_outcome"] == "false_positive"
+
+        invalid = c.post(
+            f"/api/cases/{case.case_id}/feedback",
+            json={**body, "actual_outcome": "model_agreed"},
+        )
+        assert invalid.status_code == 422
+
+        records = c.portal.call(state.audit.records_for_case, case.case_id)
+        feedback_rows = [
+            row for row in records
+            if (
+                row.get("action_type") if isinstance(row, dict)
+                else getattr(row, "action_type", "")
+            ) == "feedback"
+        ]
+        assert feedback_rows
+        last = feedback_rows[-1]
+        assert (
+            last.get("actor") if isinstance(last, dict) else getattr(last, "actor", "")
+        ) == "feedback-auditor"
+
+
+def test_proposal_routes_enforce_read_and_approval_permissions() -> None:
+    """The real review queue is broadly readable but decisions stay role-gated.
+
+    This exercises the actual ``/api/proposals`` routes rather than a permission
+    probe, including an approval and rejection by the default Responder role.
+    """
+    from app.models import Proposal
+
+    with TestClient(_make_app()) as c:
+        _login(c)
+        _mk_user(c, "proposal-t1", "proposal-t1-pass", role=T1)
+        _mk_user(c, "proposal-auditor", "proposal-auditor-pass", role=AUD)
+        _mk_user(c, "proposal-responder", "proposal-responder-pass", role=RESP)
+
+        state = _state(c)
+        approve_me = Proposal(
+            kind="tuning",
+            payload={
+                "tuning": True,
+                "action": "collect_evidence",
+                "reason_code": "insufficient_analyst_evidence",
+                "reason": "More independent analyst labels are required.",
+                "recommended_action": "Grade more cases for this rule.",
+                "rule_id": "demo_rule",
+                "target": "evidence_collection",
+                "before": 3,
+                "after": 3,
+            },
+            created_by="threshold_tuner",
+        )
+        reject_me = approve_me.model_copy(update={"id": "prop-rbac-reject"})
+        c.portal.call(state.proposals.add, approve_me)
+        c.portal.call(state.proposals.add, reject_me)
+
+        for username, password in (
+            ("proposal-t1", "proposal-t1-pass"),
+            ("proposal-auditor", "proposal-auditor-pass"),
+        ):
+            c.cookies.clear()
+            _login(c, username, password)
+            assert c.get("/api/proposals?status=pending").status_code == 200
+            assert c.post(f"/api/proposals/{approve_me.id}/approve").status_code == 403
+            assert c.post(f"/api/proposals/{reject_me.id}/reject").status_code == 403
+
+        c.cookies.clear()
+        _login(c, "proposal-responder", "proposal-responder-pass")
+        assert c.get("/api/proposals?status=pending").status_code == 200
+        assert c.post(f"/api/proposals/{approve_me.id}/approve").status_code == 200
+        assert c.post(f"/api/proposals/{reject_me.id}/reject").status_code == 200
+
+
+def test_rag_and_memory_gets_require_and_honor_custom_read_grants() -> None:
+    """Every knowledge GET denies without its narrow grant and accepts it via role."""
+    with TestClient(_make_app()) as c:
+        _login(c)
+        state = _state(c)
+        roles = dict(state.prefs.rbac.roles)
+        roles[T1] = {"rag": [], "memory": []}
+        rbac = state.prefs.rbac.model_copy(update={"roles": roles})
+        c.portal.call(
+            state.update_prefs,
+            state.prefs.model_copy(update={"rbac": rbac}),
+        )
+        assert c.post("/api/roles", json={
+            "name": "knowledge_reader",
+            "grants": {"rag": ["read"], "memory": ["read"]},
+        }).status_code == 200
+        _mk_user(c, "knowledge-user", "knowledge-user-pass", role=T1)
+
+        paths = (
+            "/api/rag/stats",
+            "/api/rag/documents",
+            "/api/rag/documents/missing-document",
+            "/api/rag/search?q=",
+            "/api/memory",
+        )
+        c.cookies.clear()
+        _login(c, "knowledge-user", "knowledge-user-pass")
+        for path in paths:
+            response = c.get(path)
+            assert response.status_code == 403, (path, response.text)
+
+        c.cookies.clear()
+        _login(c)
+        assert c.put(
+            "/api/users/knowledge-user/roles",
+            json={"custom_roles": ["knowledge_reader"]},
+        ).status_code == 200
+
+        c.cookies.clear()
+        _login(c, "knowledge-user", "knowledge-user-pass")
+        assert c.get("/api/rag/stats").status_code == 200
+        assert c.get("/api/rag/documents").status_code == 200
+        assert c.get("/api/rag/documents/missing-document").status_code == 404
+        assert c.get("/api/rag/search?q=").status_code == 200
+        assert c.get("/api/memory").status_code == 200
 
 
 # --------------------------------------------------------------------------- #

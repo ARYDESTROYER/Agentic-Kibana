@@ -454,6 +454,17 @@
             "title": "Ocsf Version",
             "type": "string"
           },
+          "provenance_complete": {
+            "title": "Provenance Complete",
+            "type": "boolean"
+          },
+          "provenance_missing": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Provenance Missing",
+            "type": "array"
+          },
           "release_channel": {
             "title": "Release Channel",
             "type": "string"
@@ -478,7 +489,9 @@
           "commit_sha",
           "build_time",
           "state_backend",
-          "ocsf_version"
+          "ocsf_version",
+          "provenance_complete",
+          "provenance_missing"
         ],
         "title": "BuildInfoResponse",
         "type": "object"
@@ -1958,6 +1971,76 @@
         "title": "DataExportRequest",
         "type": "object"
       },
+      "DataExportSegmentCancelRequest": {
+        "description": "Release a still-open point-in-time cursor after operator cancellation.",
+        "properties": {
+          "cursor": {
+            "maxLength": 32768,
+            "minLength": 1,
+            "title": "Cursor",
+            "type": "string"
+          },
+          "scope": {
+            "enum": [
+              "cases",
+              "audit",
+              "usage",
+              "configuration",
+              "automation",
+              "knowledge"
+            ],
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "cursor"
+        ],
+        "title": "DataExportSegmentCancelRequest",
+        "type": "object"
+      },
+      "DataExportSegmentRequest": {
+        "description": "One bounded continuation segment of a complete, scope-specific export.",
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "maxLength": 32768,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cursor"
+          },
+          "page_size": {
+            "default": 1000,
+            "maximum": 5000.0,
+            "minimum": 1.0,
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "scope": {
+            "enum": [
+              "cases",
+              "audit",
+              "usage",
+              "configuration",
+              "automation",
+              "knowledge"
+            ],
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope"
+        ],
+        "title": "DataExportSegmentRequest",
+        "type": "object"
+      },
       "DecisionBy": {
         "enum": [
           "agent",
@@ -2265,9 +2348,12 @@
             "type": "number"
           },
           "actual_outcome": {
-            "default": "",
-            "title": "Actual Outcome",
-            "type": "string"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/FeedbackOutcome"
+              }
+            ],
+            "default": "unknown"
           },
           "analyst": {
             "default": "",
@@ -2359,6 +2445,18 @@
         "title": "FeedbackEntry",
         "type": "object"
       },
+      "FeedbackOutcome": {
+        "description": "Human-confirmed outcome accepted by the analyst feedback endpoint.\n\nThis is deliberately broader than :class:`Disposition`: evaluation can record a\ntrue/false negative even when that classification is not a live case disposition.\nKeeping the vocabulary here makes the HTTP contract explicit and prevents arbitrary\nstrings from silently becoming tuner ground truth.",
+        "enum": [
+          "true_positive",
+          "false_positive",
+          "true_negative",
+          "false_negative",
+          "unknown"
+        ],
+        "title": "FeedbackOutcome",
+        "type": "string"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -2373,14 +2471,25 @@
         "type": "object"
       },
       "HealthResponse": {
-        "description": "The public health envelope (also read by the webui to detect an in-memory\nstore, ``store_type``). Exact shape — keys are stable and the webui depends on\n``status``/``version``/``es_connected``/``store_type``/``setup_complete``.",
+        "description": "The public health envelope (also read by the webui to detect an in-memory\nstore, ``store_type``).\n\n``es_connected`` is a compatibility-stable alias that historically named the\nonly supported state backend. New clients must use ``state_store_connected``;\nboth fields deliberately carry the same own-state readiness result.",
         "properties": {
           "es_connected": {
+            "description": "Compatibility alias for state_store_connected; this does not describe log-source Elasticsearch connectivity.",
             "title": "Es Connected",
             "type": "boolean"
           },
           "setup_complete": {
             "title": "Setup Complete",
+            "type": "boolean"
+          },
+          "state_backend": {
+            "description": "Configured owned-state backend: elasticsearch, postgres, or sqlite.",
+            "title": "State Backend",
+            "type": "string"
+          },
+          "state_store_connected": {
+            "description": "Whether the selected owned-state backend passed its write-path probe.",
+            "title": "State Store Connected",
             "type": "boolean"
           },
           "status": {
@@ -2400,6 +2509,8 @@
           "status",
           "version",
           "es_connected",
+          "state_store_connected",
+          "state_backend",
           "store_type",
           "setup_complete"
         ],
@@ -2596,6 +2707,18 @@
               }
             ],
             "title": "Category"
+          },
+          "review_status": {
+            "anyOf": [
+              {
+                "pattern": "^(approved|pending)$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Status"
           },
           "tags": {
             "anyOf": [
@@ -2976,6 +3099,36 @@
         "title": "PlaybookCreateRequest",
         "type": "object"
       },
+      "PlaybookDryRunRequest": {
+        "description": "Synthetic cluster attributes for deterministic procedure diagnostics.",
+        "properties": {
+          "entity_type": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EntityType"
+              }
+            ],
+            "default": "rule"
+          },
+          "event_count": {
+            "default": 1,
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Event Count",
+            "type": "integer"
+          },
+          "rule_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Rule Ids",
+            "type": "array"
+          }
+        },
+        "title": "PlaybookDryRunRequest",
+        "type": "object"
+      },
       "PlaybookUpdateRequest": {
         "description": "Replace one operator-owned Markdown playbook; the id remains immutable.",
         "properties": {
@@ -2984,6 +3137,18 @@
             "minLength": 1,
             "title": "Content",
             "type": "string"
+          },
+          "expected_revision": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Revision"
           }
         },
         "required": [
@@ -4501,8 +4666,13 @@
         "type": "object"
       },
       "ThresholdTuningConfig": {
-        "description": "Nightly threshold auto-TUNING policy (Round 4). When enabled it observes per-rule FP rates and\nPROPOSES bounded threshold adjustments (never applies them silently — the decision\nstays deterministic, #3). ``min_samples`` is the minimum observations before a\nsuggestion is considered; ``max_n_step`` caps how far a correlation ``n`` may move\nper cadence; ``fp_rate_target`` is the target false-positive rate; ``wilson_z`` is\nthe z-score for the Wilson confidence interval on the observed FP rate; ``ewma_alpha``\nsmooths the running FP-rate estimate; ``cadence`` is when the tuner runs; and\n``shadow_eval`` (default ON) means a suggestion is EVALUATED against recent data\nbefore it can be applied.\n\nDefaults ON (Autopilot overhaul) — the flagship \"self-tunes over time\" engine, safe\non because it is a config-writer only (never imports ``decide()``): Wilson-lower-bound\n+ ``min_samples`` gate + a bounded ``±1`` (``max_n_step``) nudge + mandatory\n``shadow_eval`` (never hides a confirmed TP) + suppression DROPs routed to a HITL\nProposal. A cold tenant with < ``min_samples`` closed cases per rule simply proposes\nnothing. Defaults follow ``STANDARDS.md``: ``min_samples=30`` (Wilson-stable; hard\nfloor 10), ``fp_rate_target=0.10`` (world-class SOC < 10% FP), ``wilson_z=1.96``\n(0.95 confidence, lower bound), ``max_n_step=1`` (bounded nudge).",
+        "description": "Nightly threshold auto-TUNING policy (Round 4). When enabled it observes per-rule FP rates and\nPROPOSES bounded threshold adjustments (never applies them silently — the decision\nstays deterministic, #3). ``min_samples`` is the minimum observations before a\nsuggestion is considered; ``max_n_step`` caps how far a correlation ``n`` may move\nper cadence; ``fp_rate_target`` is the target false-positive rate; ``wilson_z`` is\nthe z-score for the Wilson confidence interval on the observed FP rate; ``ewma_alpha``\nsmooths the running FP-rate estimate; ``cadence`` is when the tuner runs; and\n``shadow_eval`` (default ON) means a suggestion is EVALUATED against recent data\nbefore it can be applied.\n\nObservation defaults ON (Autopilot overhaul), while automatic writes default OFF.\nThe engine accepts only independent analyst outcomes, uses a Wilson lower bound plus\n``min_samples``, proposes a bounded +1 (``max_n_step``) nudge, and runs mandatory\n``shadow_eval`` before review or an explicitly enabled automatic application. A\nsuppression drop always routes to HITL. Rules with enough observed volume but too few\nanalyst labels produce an evidence-collection work item rather than silently training\non model output. Defaults follow ``STANDARDS.md``: ``min_samples=30`` (Wilson-stable;\nhard floor 10), ``fp_rate_target=0.10`` (world-class SOC < 10% FP),\n``wilson_z=1.96`` (0.95 confidence, lower bound), ``max_n_step=1`` (bounded nudge).",
         "properties": {
+          "auto_apply_confirmed": {
+            "default": false,
+            "title": "Auto Apply Confirmed",
+            "type": "boolean"
+          },
           "cadence": {
             "default": "nightly",
             "enum": [
@@ -5062,7 +5232,7 @@
   "info": {
     "description": "Vendor-neutral Agentic SOC API. It consumes source data read-only and owns only Agentic SOC application state.",
     "title": "Agentic SOC API",
-    "version": "0.1.1"
+    "version": "0.1.2"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -5245,6 +5415,86 @@
           }
         },
         "summary": "Export Application Data"
+      }
+    },
+    "/api/admin/export/segment": {
+      "post": {
+        "description": "Download one resumable segment of a scope's complete history.\n\nThe 5,000-record setting is deliberately a per-segment memory/response bound,\nnot a lifetime ceiling. The Console follows ``next_cursor`` until ``complete``;\neach accepted response remains below 25 MiB. Elasticsearch-backed ledgers/cases\nuse one PIT carried in the opaque cursor across requests, while other backends\ndisclose their weaker consistency mode rather than claiming an exact snapshot.",
+        "operationId": "export_application_data_segment_api_admin_export_segment_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DataExportSegmentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Application Data Segment"
+      }
+    },
+    "/api/admin/export/segment/cancel": {
+      "post": {
+        "description": "Best-effort release of a PIT when an operator cancels a segmented export.",
+        "operationId": "cancel_application_data_segment_api_admin_export_segment_cancel_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DataExportSegmentCancelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Cancel Application Data Segment Api Admin Export Segment Cancel Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Application Data Segment"
       }
     },
     "/api/admin/reset": {
@@ -7102,7 +7352,7 @@
     },
     "/api/cases/{case_id}/feedback": {
       "post": {
-        "description": "Record an analyst's grade of the AI verdict (the eval/quality loop).",
+        "description": "Record an authenticated analyst's grade of the AI verdict.\n\n``body.analyst`` remains a compatibility input for auth-disabled/direct-test\ncallers. Over HTTP with auth enabled, the persisted analyst and audit actor always\ncome from the verified principal; a client cannot spoof another operator. The\nnarrow ``cases:write`` grant is enforced inline so assigned custom roles work the\nsame way as every other case mutation.",
         "operationId": "case_feedback_api_cases__case_id__feedback_post",
         "parameters": [
           {
@@ -10739,6 +10989,66 @@
         "summary": "Playbooks Create"
       }
     },
+    "/api/playbooks/coverage": {
+      "get": {
+        "description": "Coverage over the stored case population, paged without a 200-row cap.",
+        "operationId": "playbooks_coverage_api_playbooks_coverage_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Playbooks Coverage Api Playbooks Coverage Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Playbooks Coverage"
+      }
+    },
+    "/api/playbooks/dry-run": {
+      "post": {
+        "description": "Explain exact match and no-match reasons without running an investigation.",
+        "operationId": "playbooks_dry_run_api_playbooks_dry_run_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlaybookDryRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Playbooks Dry Run Api Playbooks Dry Run Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Playbooks Dry Run"
+      }
+    },
     "/api/playbooks/reload": {
       "post": {
         "description": "Hot-reload playbooks from disk (atomic; a broken file never replaces a good\nlive set). Returns the load summary.",
@@ -11145,7 +11455,7 @@
     },
     "/api/proposals/{proposal_id}/approve": {
       "post": {
-        "description": "Approve a pending proposal — the ONLY path that writes a live rule / memory.\n\nsuppression → materialise a ``SuppressionRule`` from the payload and append it to\n``Preferences.suppression_rules`` via the settings write path so the cost gate\npicks it up LIVE. memory → append a human-injectable agent fact. Then mark the\nproposal approved + audit. 404 if missing; 409 if not pending.",
+        "description": "Approve or acknowledge a pending proposal through its kind-specific path.\n\nsuppression → materialise a ``SuppressionRule`` from the payload and append it to\n``Preferences.suppression_rules`` via the settings write path so the cost gate\npicks it up LIVE. memory → append a human-injectable agent fact. tuning →\nrevalidate and, where eligible, materialise the bounded change. ``automation_ack``\nrecords review only and never mutates configuration, Memory, suppression, or case\nstate. A strict CAS claim is persisted before any effect, every effect is keyed by\nproposal id, and finalisation is strict so concurrent/retried requests cannot apply\nthe same proposal twice. 404 if missing; 409 if already decided/in progress.",
         "operationId": "approve_proposal_api_proposals__proposal_id__approve_post",
         "parameters": [
           {
@@ -11186,7 +11496,7 @@
     },
     "/api/proposals/{proposal_id}/reject": {
       "post": {
-        "description": "Reject a pending proposal. Preferences / memory are UNCHANGED — only the\nproposal status flips to rejected. 404 if missing; 409 if not pending.",
+        "description": "Reject a pending proposal through the same durable decision boundary.\n\nPreferences / memory are unchanged. A strict CAS claim and idempotent\nappend-only audit row must both succeed before the proposal can be finalised as\nrejected. 404 if missing; 409 if already decided/in progress.",
         "operationId": "reject_proposal_api_proposals__proposal_id__reject_post",
         "parameters": [
           {
@@ -12597,6 +12907,26 @@
           }
         },
         "summary": "Scan Notifications"
+      }
+    },
+    "/api/schedulers/health": {
+      "get": {
+        "description": "Enabled/gated/runtime status plus truthful last attempt/success/error.",
+        "operationId": "scheduler_health_api_schedulers_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Scheduler Health Api Schedulers Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Scheduler Health"
       }
     },
     "/api/search": {
@@ -14140,9 +14470,29 @@
         "summary": "Tuning Recommendations"
       }
     },
+    "/api/tuning/source-recommendations": {
+      "get": {
+        "description": "Recommend sources only after stored query evidence proves a telemetry gap.",
+        "operationId": "source_recommendations_api_tuning_source_recommendations_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Source Recommendations Api Tuning Source Recommendations Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Source Recommendations"
+      }
+    },
     "/api/tuning/{rule_id}/apply": {
       "post": {
-        "description": "Recompute and process every current proposed change for ONE rule.\n\nReuses the engine's SAFE per-proposal router (``_handle_proposal``): a bounded\n``correlation_n`` / ``severity_floor`` raise is auto-applied (after shadow-eval) +\nrecorded in the ledger; a suppression DROP or a shadow-blocked raise is routed to\nthe existing HITL Proposal queue and is NEVER auto-applied here. The router never\ncalls ``decide()`` (#3). Returns the applied, queued, and shadow-blocked outcomes.\n\n404 when no proposal exists for ``rule_id`` (the rule isn't noisy / cleared the\nbar) so the caller gets an honest signal rather than a silent no-op.",
+        "description": "Recompute and process every current proposed change for ONE rule.\n\nReuses the engine's SAFE per-proposal router (``_handle_proposal``): bounded\nchanges enter the HITL Proposal queue by default after shadow evaluation. An\nexplicitly enabled automatic policy still requires sufficient independent analyst\nevidence; suppression drops are never applied automatically. The router never\ncalls ``decide()`` (#3). Returns the applied, queued, and shadow-blocked outcomes.\n\n404 when no proposal exists for ``rule_id`` (the rule isn't noisy / cleared the\nbar) so the caller gets an honest signal rather than a silent no-op.",
         "operationId": "apply_tuning_api_tuning__rule_id__apply_post",
         "parameters": [
           {

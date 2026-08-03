@@ -52,6 +52,13 @@ MEMORY_DOC_ID = "memory"      # ES doc id within CONFIG_INDEX
 RUNBOOKS_NS = "runbooks"
 RUNBOOKS_KEY = "documents"
 
+# Operator-managed PLAYBOOK Markdown. Packaged procedures stay immutable files;
+# Console-authored procedures live in this backend-agnostic KV document so image
+# replacement/container recreation cannot silently discard them. The exact wire
+# namespace is new application-owned state (no new ES index / SQL migration).
+PLAYBOOKS_NS = "playbooks"
+PLAYBOOKS_KEY = "documents"
+
 # Agent-DRAFTED proposals awaiting human approval (HITL). Stored exactly like the
 # operator MEMORY set — one KV document (a single JSON list) under this namespace/
 # key — so it needs NO new ES index / SQL table / migration. The ES backend stores
@@ -300,6 +307,22 @@ class Disposition(str, Enum):
     SUSPICIOUS = "suspicious"
     DUPLICATE = "duplicate"
     UNDETERMINED = "undetermined"
+
+
+class FeedbackOutcome(str, Enum):
+    """Human-confirmed outcome accepted by the analyst feedback endpoint.
+
+    This is deliberately broader than :class:`Disposition`: evaluation can record a
+    true/false negative even when that classification is not a live case disposition.
+    Keeping the vocabulary here makes the HTTP contract explicit and prevents arbitrary
+    strings from silently becoming tuner ground truth.
+    """
+
+    TRUE_POSITIVE = "true_positive"
+    FALSE_POSITIVE = "false_positive"
+    TRUE_NEGATIVE = "true_negative"
+    FALSE_NEGATIVE = "false_negative"
+    UNKNOWN = "unknown"
 
 
 class SourceSurface(str, Enum):

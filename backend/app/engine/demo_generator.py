@@ -47,6 +47,7 @@ from ..models import (
     CaseComment,
     Entity,
     EvidenceItem,
+    FeedbackEntry,
     RawEvent,
     RiskBreakdown,
     StatusHistoryEntry,
@@ -1079,6 +1080,7 @@ def generate_capability_seed_cases(
     tuner_iso = _iso(now_millis - 60_000)
     tuner_cases: list[Case] = []
     for i in range(max(0, tuner_fp_count)):
+        confidence = round(0.6 + rng.random() * 0.3, 2)
         tuner_cases.append(Case(
             case_id=f"demo-tune-{tag8}-{i:04d}",
             cluster_signature=f"demo-cap-tune-{i}",
@@ -1092,7 +1094,7 @@ def generate_capability_seed_cases(
             member_event_ids=[f"demo-tune-{i}-0"],
             risk_score=16.0,
             risk_breakdown=_demo_risk_breakdown(16.0),
-            verdict=Verdict.FALSE_POSITIVE, confidence=round(0.6 + rng.random() * 0.3, 2),
+            verdict=Verdict.FALSE_POSITIVE, confidence=confidence,
             evidence=[EvidenceItem(summary="Benign scanner noise (auto-closed).", event_ids=[])],
             recommended_action="No action required.",
             status=CaseStatus.CLOSED, disposition=Disposition.FALSE_POSITIVE,
@@ -1101,6 +1103,21 @@ def generate_capability_seed_cases(
                 from_status="new", to_status=CaseStatus.CLOSED.value,
                 by=DecisionBy.AGENT.value, at=tuner_iso,
                 reason="demo: FALSE_POSITIVE noisy scanner",
+            )],
+            # Explicit synthetic analyst evidence keeps the demo honest under the
+            # production tuner's independent-outcome requirement.  The model verdict
+            # alone is never used to train a threshold change.
+            feedback=[FeedbackEntry(
+                ts=tuner_iso,
+                analyst="demo.analyst",
+                assessment="agree",
+                accuracy=1.0,
+                reasoning_quality=1.0,
+                action_appropriateness=1.0,
+                actual_outcome="false_positive",
+                comment="Synthetic analyst-confirmed demo outcome.",
+                ai_verdict=Verdict.FALSE_POSITIVE.value,
+                ai_confidence=confidence,
             )],
             severity_band="low",
             tags=["demo", "noise"],

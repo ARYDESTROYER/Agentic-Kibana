@@ -1,0 +1,106 @@
+name: Bug report
+description: Report a reproducible Agentic SOC defect or regression.
+title: "[Bug]: "
+labels: []
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for helping improve Agentic SOC. Search existing issues first and remove secrets, credentials, customer data, and raw security events from every field and attachment.
+
+        **Do not report vulnerabilities here.** Follow the private process in [SECURITY.md](https://github.com/ARYDESTROYER/Agentic-Kibana/blob/main/SECURITY.md#8-responsible-disclosure).
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight
+      options:
+        - label: I searched existing issues and did not find the same problem.
+          required: true
+        - label: This report does not disclose a vulnerability, credential, customer record, private alert, or other sensitive data.
+          required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version and channel
+      description: Copy the version and Stable or Testing channel from the top-right release badge.
+      placeholder: "vX.Y.Z · Testing"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment shape
+      description: Select the environment where the problem occurs.
+      options:
+        - Standalone evaluation or local demo
+        - Agnostic Docker Compose stack
+        - Existing ELK attachment
+        - Custom deployment
+        - Documentation site only
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected area
+      options:
+        - Console or interaction design
+        - Case Manager or case lifecycle
+        - Ingestion, connector, or OCSF mapping
+        - Intelligence, auto-tuning, runbook, or playbook
+        - Model gateway, provider, or cost ledger
+        - Authentication, RBAC, sessions, or notifications
+        - State store, export, backup, or retention
+        - Deployment, release, or update discovery
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the observed behaviour and its operator impact.
+      placeholder: Tell us what is broken and why it matters.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Provide the smallest reliable sequence. Use synthetic or redacted values only.
+      placeholder: |
+        1. Open ...
+        2. Configure ...
+        3. Select ...
+        4. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      placeholder: What should have happened instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Sanitised evidence
+      description: Add screenshots, browser and operating-system details, or short logs. Redact source data, tokens, hostnames, and identifiers.
+      placeholder: Drag screenshots here or paste a short redacted excerpt.
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Include relevant configuration decisions or recent changes. Never paste an export containing live data.

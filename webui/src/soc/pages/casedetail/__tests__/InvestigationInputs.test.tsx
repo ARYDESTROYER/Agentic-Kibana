@@ -22,6 +22,21 @@ const RATIONALE: CaseRationale = {
     reason: 'matched auth activity',
     consulted: true,
   },
+  procedure_provenance: {
+    persona: {
+      selected_id: 'network_specialist',
+      selection_reason: 'entity_type=ip',
+      consulted: true,
+    },
+    playbook: {
+      selected_id: 'credential-response',
+      selection_reason: 'exact rule match',
+      consulted: true,
+    },
+    consultation_path: 'strong_investigator',
+    retrieval_query_groups: [],
+    knowledge: [],
+  },
   platform_tuning_status: 'recorded',
   platform_tuning: [
     {
@@ -45,12 +60,17 @@ describe('InvestigationInputs', () => {
     expect(screen.getByText('2 approved operator facts')).toBeInTheDocument();
     expect(screen.getByText('2 retrieved references')).toBeInTheDocument();
     expect(screen.getByText('1 retrieved reference')).toBeInTheDocument();
-    expect(screen.getByText('credential-response · v3')).toBeInTheDocument();
+    expect(screen.getByText('network_specialist · Consulted')).toBeInTheDocument();
+    expect(screen.getByText('credential-response · v3 · Consulted')).toBeInTheDocument();
     expect(screen.getByText('Correlation threshold 2 → 3')).toBeInTheDocument();
     expect(screen.getByText(/Deterministic policy still made the final route/)).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: 'Review inputs' }));
     expect(onReview).toHaveBeenCalledOnce();
+    expect(screen.getByLabelText(/Persona: network_specialist/)).toHaveAttribute(
+      'aria-label',
+      expect.stringMatching(/latest run actually consulted this persona/i),
+    );
     expect(await axe(container)).toHaveNoViolations();
   });
 
@@ -67,6 +87,37 @@ describe('InvestigationInputs', () => {
 
     expect(screen.queryByText('selected-only')).toBeNull();
     expect(screen.getByText('Runbook')).toBeInTheDocument();
+  });
+
+  it('discloses selected-only procedures in the Investigation view without calling them inputs', () => {
+    render(
+      <InvestigationInputs
+        showSelectionStatus
+        rationale={{
+          case_id: 'case-selected-only',
+          procedure_provenance: {
+            persona: {
+              selected_id: 'network_specialist',
+              selection_reason: 'entity_type=ip',
+              consulted: false,
+            },
+            playbook: {
+              selected_id: 'scanner-response',
+              selection_reason: 'exact rule match',
+              consulted: false,
+            },
+            consultation_path: 'router_benign_shortcut',
+            retrieval_query_groups: [],
+            knowledge: [],
+          },
+          playbook: { id: '', consulted: false },
+        }}
+      />,
+    );
+
+    expect(screen.getByText('network_specialist · Selected only')).toBeInTheDocument();
+    expect(screen.getByText('scanner-response · Selected only')).toBeInTheDocument();
+    expect(screen.queryByText(/These inputs informed preprocessing/)).toBeNull();
   });
 
   it('stays absent when the latest run recorded no supplemental inputs', () => {

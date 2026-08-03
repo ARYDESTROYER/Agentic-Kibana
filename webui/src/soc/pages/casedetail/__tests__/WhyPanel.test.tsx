@@ -97,6 +97,57 @@ describe('WhyPanel — latest-run investigation input provenance', () => {
     expect(screen.queryByText('selected-only')).toBeNull();
   });
 
+  it('shows exact selected-versus-consulted procedure facts and retrieval attribution', () => {
+    const rationale = {
+      verdict: 'true_positive',
+      status: 'open',
+      procedure_provenance: {
+        persona: {
+          selected_id: 'network_specialist',
+          selection_reason: 'entity_type=ip',
+          consulted: true,
+        },
+        playbook: {
+          selected_id: 'web-scanner-activity',
+          selection_reason: 'exact rule match',
+          consulted: false,
+        },
+        consultation_path: 'router_benign_shortcut',
+        retrieval_query_groups: [
+          { group: 'cluster', query: 'scanner source ownership evidence' },
+        ],
+        knowledge: [],
+      },
+      knowledge: [
+        {
+          source: 'operator-runbook',
+          snippet: 'Validate the scanner owner and approved change window.',
+          score: 0.9123,
+          document_id: 'runbook:web_scanner',
+          revision: 4,
+          query_groups: ['cluster'],
+        },
+      ],
+      playbook: { id: '', consulted: false },
+    } as unknown as CaseRationale;
+
+    render(
+      <WhyPanel c={CASE} rationale={rationale} loading={false} error={null} onRetry={vi.fn()} />,
+    );
+
+    expect(screen.getByText('Investigation procedure')).toBeInTheDocument();
+    expect(screen.getByText('network_specialist')).toBeInTheDocument();
+    expect(screen.getByText('web-scanner-activity')).toBeInTheDocument();
+    expect(screen.getByText('Consulted')).toBeInTheDocument();
+    expect(screen.getByText('Selected only')).toBeInTheDocument();
+    expect(screen.getByText('router_benign_shortcut')).toBeInTheDocument();
+    expect(screen.getByText('scanner source ownership evidence')).toBeInTheDocument();
+    expect(screen.getByText('Runbook references')).toBeInTheDocument();
+    expect(screen.getByText('runbook:web_scanner · rev 4')).toBeInTheDocument();
+    expect(screen.getByText('0.912')).toBeInTheDocument();
+    expect(screen.queryByText('Playbook consulted')).toBeNull();
+  });
+
   it('explains the applied platform threshold without calling it model fine-tuning', () => {
     const rationale = {
       verdict: 'true_positive',
@@ -118,7 +169,7 @@ describe('WhyPanel — latest-run investigation input provenance', () => {
       <WhyPanel c={CASE} rationale={rationale} loading={false} error={null} onRetry={vi.fn()} />,
     );
 
-    expect(screen.getByText('Platform tuning')).toBeInTheDocument();
+    expect(screen.getByText('Threshold tuning applied to this path')).toBeInTheDocument();
     expect(screen.getByText('Correlation threshold')).toBeInTheDocument();
     expect(screen.getByText('2 → 3')).toBeInTheDocument();
     expect(screen.getByText(/threshold tuning, not model fine-tuning/i)).toBeInTheDocument();

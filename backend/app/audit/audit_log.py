@@ -26,10 +26,31 @@ class AuditLogger(AuditRepository):
 
     async def write(self, doc: AuditDoc) -> None:
         try:
-            await self._es.index_doc(AUDIT_WRITE_ALIAS, doc.model_dump(mode="json"))
+            await self.write_strict(doc)
         except Exception as exc:  # noqa: BLE001
             logger.error("AUDIT WRITE FAILED (action=%s case=%s): %s",
                          doc.action_type, doc.case_id, exc)
+
+    async def write_strict(self, doc: AuditDoc) -> None:
+        """Append one row and propagate failure for privileged durability gates.
+
+        A deterministic ``event_id`` is reserved for retryable privileged events.
+        Confirm an existing byte-equivalent row before returning; otherwise write
+        it under that id so concurrent/retried proposal decisions converge on one
+        immutable evidence document.
+        """
+        payload = doc.model_dump(mode="json")
+        if doc.event_id:
+            existing = await self._es.get_doc_strict(AUDIT_WRITE_ALIAS, doc.event_id)
+            if existing is not None:
+                if existing != payload:
+                    raise RuntimeError(f"audit event id collision: {doc.event_id}")
+                return
+            await self._es.index_doc(
+                AUDIT_WRITE_ALIAS, payload, doc_id=doc.event_id
+            )
+            return
+        await self._es.index_doc(AUDIT_WRITE_ALIAS, payload)
 
     async def record(
         self,
@@ -154,3 +175,42 @@ class AuditLogger(AuditRepository):
         except Exception as exc:  # noqa: BLE001
             logger.warning("Audit records read failed: %s", exc)
             return []
+
+    async def export_page(
+        self, *, limit: int = 1000, cursor: Any = None,
+    ) -> tuple[list[dict[str, Any]], Any | None, int | None, str]:
+        """PIT + ``_shard_doc`` page for an exact append-only ledger snapshot."""
+        cap = max(1, min(int(limit or 1000), 5000))
+        pit_id = str(cursor.get("pit", "")) if isinstance(cursor, dict) else ""
+        after = cursor.get("after") if isinstance(cursor, dict) else None
+        seen = max(0, int(cursor.get("seen", 0) or 0)) if isinstance(cursor, dict) else 0
+        if not pit_id:
+            pit_id = str(await self._es.open_state_pit(AUDIT_READ_PATTERN, "10m") or "")
+        body: dict[str, Any] = {
+            "size": cap,
+            "track_total_hits": True,
+            "query": {"match_all": {}},
+            "sort": ["_shard_doc"] if pit_id else [{"ts": {"order": "asc", "missing": "_first"}}],
+        }
+        if pit_id:
+            body["pit"] = {"id": pit_id, "keep_alive": "10m"}
+            if isinstance(after, list) and len(after) == 1:
+                body["search_after"] = after
+        resp = await self._es.search(AUDIT_READ_PATTERN, body)
+        if pit_id:
+            pit_id = str(resp.get("pit_id") or pit_id)
+        raw_hits = resp.get("hits", {}).get("hits", [])
+        rows = [hit.get("_source", {}) or {} for hit in raw_hits]
+        total_raw = resp.get("hits", {}).get("total", {})
+        total = int(total_raw.get("value", len(rows))) if isinstance(total_raw, dict) else int(total_raw)
+        if not pit_id:
+            # ``_id`` is not sortable by default on modern Elasticsearch. Without
+            # PIT there is no safe unique lifetime cursor, so do not pretend this
+            # compatibility page can continue or has a proven total.
+            return rows, None, None, "unverified"
+        marker = raw_hits[-1].get("sort") if raw_hits else after
+        return rows, {"pit": pit_id, "after": marker, "seen": seen + len(rows)}, total, "point_in_time"
+
+    async def close_export_cursor(self, cursor: Any) -> None:
+        if isinstance(cursor, dict) and cursor.get("pit"):
+            await self._es.close_state_pit(str(cursor["pit"]))

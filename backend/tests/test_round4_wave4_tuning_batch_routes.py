@@ -40,12 +40,13 @@ from app.constants import (
 )
 from app.es.fake import InMemoryESClient
 from app.llm.providers import MockProvider
-from app.models import BatchJob, Case, Entity, TriggerReason
+from app.models import BatchJob, Case, Entity, FeedbackEntry, TriggerReason
 from app.state import AppState
 
 _ENT = Entity(type=EntityType.IP, value="203.0.113.9")
 _TUNE_CFG = ThresholdTuningConfig(
     enabled=True, min_samples=3, fp_rate_target=0.3, max_n_step=1, shadow_eval=True,
+    auto_apply_confirmed=True,
 )
 
 
@@ -55,6 +56,7 @@ def _fp_case(i: int, rule: str = "noisy_rule") -> Case:
         source_surface=SourceSurface.AUTOMATED_SCAN, entity=_ENT, rule_ids=[rule],
         verdict=Verdict.FALSE_POSITIVE, disposition=Disposition.FALSE_POSITIVE,
         status=CaseStatus.CLOSED,
+        feedback=[FeedbackEntry(analyst="analyst", actual_outcome="false_positive")],
     )
 
 
@@ -67,6 +69,7 @@ def _tp_case(rule: str = "noisy_rule", observed: int = 2) -> Case:
         verdict=Verdict.TRUE_POSITIVE, disposition=Disposition.TRUE_POSITIVE,
         status=CaseStatus.CLOSED, member_event_ids=[f"e{n}" for n in range(observed)],
         trigger_reason=TriggerReason(observed_count=observed),
+        feedback=[FeedbackEntry(analyst="analyst", actual_outcome="true_positive")],
     )
 
 
@@ -154,6 +157,17 @@ def test_config_get_and_put_roundtrip(state_and_client) -> None:
     assert state.prefs.threshold_tuning.max_n_step == 2
 
 
+def test_config_rejects_auto_apply_without_shadow_evaluation(state_and_client) -> None:
+    _state, client = state_and_client
+    response = client.put("/api/tuning/config", json={
+        "enabled": True,
+        "shadow_eval": False,
+        "auto_apply_confirmed": True,
+    })
+    assert response.status_code == 422
+    assert "auto_apply_confirmed requires shadow_eval" in response.text
+
+
 # --------------------------------------------------------------------------- #
 # routes_tuning — apply auto-applies + audits an ActionType.TUNING record
 # --------------------------------------------------------------------------- #
@@ -180,6 +194,24 @@ def test_apply_auto_applies_and_audits_tuning(state_and_client) -> None:
     rows = _run(client, state._real_audit.records(action_type=ActionType.TUNING.value))
     assert rows, "an ActionType.TUNING audit row must be written on apply"
     assert any("tuning_apply" in (r.get("result_summary") or "") for r in rows)
+
+
+def test_apply_ledger_outage_compensates_and_reports_503(
+    state_and_client, monkeypatch,
+) -> None:
+    state, client = state_and_client
+    _run(client, _seed_noisy(state))
+    before_n = state.prefs.correlation_for("noisy_rule").n
+    async def unavailable(_records):  # noqa: ANN001
+        raise RuntimeError("ledger unavailable")
+
+    monkeypatch.setattr(state.tuning_store, "add_many_strict", unavailable)
+    response = client.post("/api/tuning/noisy_rule/apply")
+
+    assert response.status_code == 503
+    assert "no success was reported" in response.json()["detail"]
+    assert state.prefs.correlation_for("noisy_rule").n == before_n
+    assert _run(client, state.tuning_store.list_strict(active_only=True)) == []
 
 
 # --------------------------------------------------------------------------- #
@@ -223,6 +255,22 @@ def test_rollback_restores_prior_threshold(state_and_client) -> None:
     assert state.prefs.correlation_for("noisy_rule").n == before_n
     # A second rollback finds no active record → 404.
     assert client.post("/api/tuning/noisy_rule/rollback").status_code == 404
+
+
+def test_rollback_ledger_outage_is_503_not_a_false_404(
+    state_and_client, monkeypatch,
+) -> None:
+    state, client = state_and_client
+    _run(client, _seed_noisy(state))
+    assert client.post("/api/tuning/noisy_rule/apply").status_code == 200
+
+    async def unavailable(*_args, **_kwargs):
+        raise RuntimeError("ledger unavailable")
+
+    monkeypatch.setattr(state.tuning_store, "list_strict", unavailable)
+    response = client.post("/api/tuning/noisy_rule/rollback")
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Tuning rollback ledger is temporarily unavailable"
 
 
 def test_apply_unknown_rule_is_404(state_and_client) -> None:

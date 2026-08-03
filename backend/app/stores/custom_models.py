@@ -22,8 +22,9 @@ Backend-agnostic by construction (the SAME single-KV-document pattern as
 table / migration. The SQL backend uses ``SqlKVStore``; the ES backend uses the thin
 :class:`app.stores.memory.EsKVStore` adapter.
 
-Reads + writes are read-modify-write and NEVER raise on a backend failure: a load
-glitch degrades to an empty set, a write is best-effort. ``add`` raises ValueError
+Ordinary reads + writes are fail-soft on a backend failure: a load glitch degrades to
+an empty set and a write is best-effort; evidence export uses a strict read seam.
+``add`` raises ValueError
 only on a caller error (empty id / empty base_url). This store holds ONLY plain
 config data — it NEVER feeds ``case_manager.decide()`` (#3); every string it persists
 is bounded + PLAIN, so the UI render-escapes it (#9).
@@ -118,6 +119,22 @@ class CustomModelStore:
             return {}
         return self._decode(doc)
 
+    async def _load_all_strict(self) -> dict[str, dict[str, Any]]:
+        """Load every registered model or raise when completeness is unknown."""
+        getter = getattr(self._kv, "get_strict", None) or self._kv.get
+        doc = await getter(CUSTOM_MODELS_NS, CUSTOM_MODELS_KEY)
+        if doc is None:
+            return {}
+        if not isinstance(doc, dict):
+            raise ValueError("custom-model registry is not a JSON object")
+        raw = doc.get("models", {})
+        if not isinstance(raw, dict):
+            raise ValueError("custom-model registry entries are not an object")
+        decoded = self._decode(doc)
+        if len(decoded) != len(raw):
+            raise ValueError("custom-model registry contains an invalid entry")
+        return decoded
+
     async def _mutate(self, change: Callable[[dict[str, dict[str, Any]]], _T]) -> _T:
         """Atomic read-modify-write over the shared doc (lost-update safe)."""
         box: dict[str, _T] = {}
@@ -152,6 +169,13 @@ class CustomModelStore:
         models = await self._load_all()
         rows = [{"id": mid, **row} for mid, row in models.items()]
         rows.sort(key=lambda r: str(r["id"]))
+        return rows
+
+    async def list_models_strict(self) -> list[dict[str, Any]]:
+        """Sorted model rows, raising on unavailable or malformed persistence."""
+        models = await self._load_all_strict()
+        rows = [{"id": mid, **row} for mid, row in models.items()]
+        rows.sort(key=lambda row: str(row["id"]))
         return rows
 
     # ---- writes ----

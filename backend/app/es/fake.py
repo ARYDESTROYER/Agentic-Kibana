@@ -9,6 +9,7 @@ it is a faithful stand-in for the structures this codebase actually issues.
 
 from __future__ import annotations
 
+import copy
 import fnmatch
 import re
 from typing import Any
@@ -44,6 +45,7 @@ class InMemoryESClient(BaseESClient):
         self.templates: dict[str, dict[str, Any]] = {}
         self.lifecycle_policies: dict[str, dict[str, Any]] = {}
         self.index_settings: dict[str, dict[str, Any]] = {}
+        self._state_pits: dict[str, list[tuple[str, str, dict[str, Any]]]] = {}
         self.lifecycle_capabilities: dict[str, Any] = {
             "supported": True,
             "can_manage": True,
@@ -96,6 +98,17 @@ class InMemoryESClient(BaseESClient):
 
     async def close_log_pit(self, pit_id: str) -> None:
         return None
+
+    async def open_state_pit(self, index: str, keep_alive: str = "10m") -> str | None:
+        del keep_alive
+        pit_id = f"fake-state-pit:{new_id()}"
+        # Deep-copy the source payloads: case documents are mutable, so retaining
+        # references would not model Elasticsearch PIT snapshot semantics.
+        self._state_pits[pit_id] = copy.deepcopy(self._all_hits(index))
+        return pit_id
+
+    async def close_state_pit(self, pit_id: str) -> None:
+        self._state_pits.pop(pit_id, None)
 
     async def index_template_exists(self, name: str) -> bool:
         return name in self.templates
@@ -266,7 +279,14 @@ class InMemoryESClient(BaseESClient):
 
     def _evaluate(self, pattern: str, body: dict[str, Any]) -> dict[str, Any]:
         query = body.get("query", {"match_all": {}})
-        candidates = self._all_hits(pattern)
+        pit = body.get("pit") or {}
+        pit_id = pit.get("id") if isinstance(pit, dict) else None
+        if pit_id and str(pit_id).startswith("fake-state-pit:"):
+            if str(pit_id) not in self._state_pits:
+                raise RuntimeError("point-in-time snapshot was not found or has expired")
+            candidates = self._state_pits[str(pit_id)]
+        else:
+            candidates = self._all_hits(pattern)
         matched = [
             (idx, did, src)
             for (idx, did, src) in candidates

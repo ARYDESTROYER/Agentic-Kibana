@@ -58,16 +58,19 @@ Chat, standup, per-log overview, embeddings, and provider/model tests remain sta
 Unsupported combinations are routed to standard service before a provider call and
 are never labelled or priced as discounted.
 
-Fresh installations assign official OpenAI `gpt-5.6-luna` to every completion role,
+Fresh installations assign the bundled OpenAI model ID `gpt-5.6-luna` to every completion role,
 so eligible alert/case calls can use Flex without a separate model reassignment.
 Embeddings remain on the dedicated `text-embedding-3-small` model. Existing stored
 role assignments are not rewritten, and every alternate provider/model remains
 available in Settings.
 
-The bundled short-context Luna Standard ledger rate is the current official
-[$0.20/M input, $0.02/M cached input, $0.25/M cache write, and $1.20/M output](https://developers.openai.com/api/docs/pricing).
-OpenAI currently lists Luna Batch and Flex at half those rates. Agentic SOC applies
-that half-rate only to an asynchronous Batch result or a live response whose returned
+The bundled short-context Luna Standard ledger rate is configured as $0.20/M input,
+$0.02/M cached input, $0.25/M cache write, and $1.20/M output. The bundled Batch and
+Flex multipliers are one half of those values. Treat these as release catalog values,
+not a provider invoice or timeless pricing claim: compare them with the current
+[OpenAI pricing documentation](https://developers.openai.com/api/docs/pricing) and
+your account contract before production use. Agentic SOC applies the configured
+half-rate only to an asynchronous Batch result or a live response whose returned
 service tier is Flex; a request or attempted route alone never earns the discount.
 
 Agentic SOC sends Luna through the existing Chat Completions adapter with

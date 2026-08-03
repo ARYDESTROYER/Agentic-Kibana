@@ -11,8 +11,9 @@ on:
       - "scripts/check_docs.py"
       - ".github/workflows/docs.yml"
   push:
-    # Testing is the integration gate. Only main publishes Stable documentation.
+    # Branches validate previews. Only an exact immutable release tag publishes.
     branches: [main, Testing]
+    tags: ["v*"]
     paths:
       - "docs/**"
       - "overrides/**"
@@ -29,7 +30,7 @@ permissions:
 concurrency:
   group: docs-${{ github.ref }}
   # Preview builds may be superseded. A Stable publication must finish atomically.
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/v') }}
 
 jobs:
   validate:
@@ -51,6 +52,9 @@ jobs:
         run: python -m pip install --requirement docs/requirements.txt
 
       - name: Check canonical product and documentation versions
+        env:
+          TLSOC_SOURCE_REF: ${{ github.ref }}
+          TLSOC_RELEASE_CHANNEL: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && 'stable' || 'testing' }}
         run: python scripts/check_version.py
 
       - name: Check documentation structure and links
@@ -58,8 +62,8 @@ jobs:
 
       - name: Build documentation
         env:
-          TLSOC_DOCS_CHANNEL: ${{ github.ref == 'refs/heads/main' && 'Stable' || 'Testing' }}
-          TLSOC_DOCS_EDIT_URI: ${{ github.ref == 'refs/heads/main' && 'edit/main/docs/' || 'edit/Testing/docs/' }}
+          TLSOC_DOCS_CHANNEL: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && 'Stable' || 'Testing' }}
+          TLSOC_DOCS_EDIT_URI: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && 'edit/main/docs/' || 'edit/Testing/docs/' }}
         run: mkdocs build --strict
 
       - name: Upload documentation preview
@@ -73,7 +77,7 @@ jobs:
   publish:
     name: Assemble Stable documentation
     if: >-
-      github.ref == 'refs/heads/main' &&
+      startsWith(github.ref, 'refs/tags/v') &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: validate
     runs-on: ubuntu-latest
@@ -102,7 +106,24 @@ jobs:
         run: |
           set -Eeuo pipefail
           product_version="$(tr -d '[:space:]' < VERSION)"
+          expected_tag="v${product_version}"
           docs_version="$(printf '%s' "$product_version" | cut -d. -f1-2)"
+          if [[ "${GITHUB_REF_NAME}" != "$expected_tag" ]]; then
+            echo "Release tag ${GITHUB_REF_NAME} does not match VERSION ${product_version}." >&2
+            exit 1
+          fi
+          if [[ "$(git cat-file -t "$expected_tag")" != "tag" ]]; then
+            echo "Stable documentation requires an annotated tag: $expected_tag" >&2
+            exit 1
+          fi
+          git fetch --no-tags origin main
+          tag_commit="$(git rev-parse "${expected_tag}^{commit}")"
+          main_commit="$(git rev-parse origin/main)"
+          if [[ "$tag_commit" != "$main_commit" ]]; then
+            echo "Release tag must resolve to the current verified main commit." >&2
+            echo "tag=$tag_commit main=$main_commit" >&2
+            exit 1
+          fi
           if [[ ! "$docs_version" =~ ^[0-9]+\.[0-9]+$ ]]; then
             echo "Invalid documentation version derived from VERSION: $docs_version" >&2
             exit 1
@@ -152,7 +173,7 @@ jobs:
   deploy:
     name: Deploy Stable documentation
     if: >-
-      github.ref == 'refs/heads/main' &&
+      startsWith(github.ref, 'refs/tags/v') &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: publish
     runs-on: ubuntu-latest

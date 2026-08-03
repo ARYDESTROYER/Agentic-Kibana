@@ -31,7 +31,7 @@ flowchart LR
   T --> G["Full release gate"]
   G -->|promotion PR; same source tree| M["main / Stable"]
   M --> V["vX.Y.Z tag"]
-  M --> D["Versioned documentation"]
+  V --> D["Versioned documentation"]
 ```
 
 The branch names and channel names are deliberately different kinds of label:
@@ -58,16 +58,17 @@ already-deployed Console manifest that exactly matches a healthy backend build.
 
 ## Version 0.1 nomenclature
 
-The first standardized release line is documentation version **0.1** and product
-version **0.1.1**.
+The first standardized release line is documentation version **0.1**. The current
+beta patch candidate is product version **0.1.2**; `v0.1.1` remains the published
+Stable tag until the accepted candidate is promoted, re-verified, and tagged.
 
 | Surface | Canonical value |
 | --- | --- |
 | Product | Agentic SOC |
 | Operator interface | Agentic SOC Console |
 | Backend service/API | Agentic SOC API |
-| SemVer package and image version | `0.1.1` |
-| Git release tag | `v0.1.1` |
+| SemVer package and image version | `0.1.2` |
+| Git release tag | `v0.1.2` after verified `main` promotion; `v0.1.1` remains the prior Stable tag |
 | Documentation selector and URL line | `0.1` and `/0.1/` |
 | Integration branch/channel | `Testing` |
 | Stable branch/channel | `main` / Stable |
@@ -94,19 +95,33 @@ Every release starts with a candidate commit on `Testing`:
 6. Let the documentation workflow publish the matching major.minor line and move
    the `stable` and `latest` aliases to it.
 
+The Documentation workflow validates `Testing` and `main`, but publication is gated
+on the exact annotated `vX.Y.Z` tag. Its tag must match `VERSION` and resolve to the
+current `origin/main` commit. Configure the `github-pages` environment to admit the
+`v*` release-tag pattern, and keep **Settings → Pages → Source** set to **GitHub
+Actions**. A `main` push alone must never move the public Stable aliases.
+
 Use an annotated tag and verify it before pushing:
 
 ```bash
 git switch main
 git pull --ff-only origin main
 test "$(cat VERSION)" = "X.Y.Z"
-git tag -a "vX.Y.Z" -m "Agentic SOC X.Y.Z"
+test -z "$(git status --porcelain)"
+git tag -a "vX.Y.Z" \
+  -m "Agentic SOC X.Y.Z" \
+  -m "<operator-relevant release summary>. Detailed notes: docs/releases/X.Y.Z.md; CHANGELOG.md."
+test "$(git cat-file -t 'vX.Y.Z')" = "tag"
+test "$(git rev-parse 'vX.Y.Z^{commit}')" = "$(git rev-parse HEAD)"
 git show --no-patch "vX.Y.Z"
 git push origin "vX.Y.Z"
 ```
 
-Replace `X.Y.Z` with the real `VERSION` value. Published tags are immutable; never
-force-update one.
+Replace `X.Y.Z` with the real `VERSION` value and replace the summary placeholder
+with the release's concrete operator-visible scope. Publish the GitHub Release from
+that existing tag with the versioned release page and changelog as canonical notes;
+`.github/release.yml` adds the categorized reviewed-PR inventory. Published tags are
+immutable; never force-update one.
 
 ### Changelog discipline
 
@@ -160,8 +175,8 @@ is not a Console acceptance receipt.
 
 ## Build and badge provenance
 
-SemVer and channel are independent. A Testing candidate and the accepted Stable
-build can both report version `0.1.1`; the channel says where that build sits in
+SemVer and channel are independent. The 0.1.2 Testing candidate and its accepted
+Stable build can both report version `0.1.2`; the channel says where that build sits in
 the acceptance lifecycle. Stamp the mutable provenance fields explicitly; keep or
 override the Dockerfile's canonical source URL as appropriate:
 

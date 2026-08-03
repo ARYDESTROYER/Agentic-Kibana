@@ -38,6 +38,8 @@ def test_health(client):
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
     assert r.json()["version"] == __version__
+    assert r.json()["state_store_connected"] is True
+    assert r.json()["state_backend"] == "elasticsearch"
 
 
 def test_health_live_ready_and_build_info(client, monkeypatch):
@@ -66,9 +68,11 @@ def test_health_live_ready_and_build_info(client, monkeypatch):
         "build_time": "2026-07-11T00:00:00Z",
         "state_backend": "elasticsearch",
         "ocsf_version": "1.4.0",
+        "provenance_complete": True,
+        "provenance_missing": [],
     }
 
-    # Channel is stamped independently from SemVer so the same 0.1.1 candidate
+    # Channel is stamped independently from SemVer so the same version candidate
     # reports Testing until its accepted main/tag build is explicitly Stable.
     monkeypatch.setenv("TLSOC_RELEASE_CHANNEL", "Stable")
     promoted = client.get("/api/health/build-info")
@@ -95,6 +99,7 @@ def test_health_readiness_is_truthful_when_state_store_is_down(client, monkeypat
     assert legacy.status_code == 200
     assert legacy.json()["status"] == "degraded"
     assert legacy.json()["es_connected"] is False
+    assert legacy.json()["state_store_connected"] is False
 
     ready = client.get("/api/health/ready")
     assert ready.status_code == 503
@@ -112,6 +117,19 @@ def test_setup_status(client):
     assert r.status_code == 200
     body = r.json()
     assert "configured" in body and "data_view_pattern" in body
+    assert body["state_backend"] == "elasticsearch"
+    assert body["es_required_for_state"] is True
+    assert body["es_connection_role"] == "owned_state_and_log_source"
+
+
+def test_build_info_reports_missing_provenance_explicitly(client, monkeypatch):
+    monkeypatch.setenv("TLSOC_BUILD_SHA", "")
+    monkeypatch.setenv("TLSOC_BUILD_DATE", "Unknown")
+    body = client.get("/api/health/build-info").json()
+    assert body["commit_sha"] == "unknown"
+    assert body["build_time"] == "unknown"
+    assert body["provenance_complete"] is False
+    assert body["provenance_missing"] == ["commit_sha", "build_time"]
 
 
 def test_get_and_put_settings(client):

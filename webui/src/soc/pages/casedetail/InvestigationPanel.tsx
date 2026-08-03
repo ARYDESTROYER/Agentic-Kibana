@@ -244,6 +244,7 @@ export const InvestigationPanel: React.FC<InvestigationPanelProps> = ({
           error={rationaleError}
           onRetry={onRetryRationale}
           onReview={() => setEvidenceOpen(true)}
+          showSelectionStatus
         />
 
         <section aria-labelledby="case-manager-trace-title" className="space-y-3">

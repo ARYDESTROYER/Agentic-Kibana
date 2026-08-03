@@ -21,6 +21,12 @@ from pydantic import BaseModel, Field, field_validator
 # A playbook id is a short slug: lowercase alnum start, then alnum / ``_`` / ``-``.
 _SLUG_RE = r"^[a-z0-9][a-z0-9_-]{0,63}$"
 
+# ``agents.prompts.render_cluster`` gives the trusted procedure this many
+# characters. Operator authoring must validate against the SAME budget; silently
+# accepting a large document and then dropping its final instructions is unsafe
+# and operationally confusing.
+MAX_PLAYBOOK_PROMPT_CHARS = 2400
+
 
 class PlaybookMatch(BaseModel):
     """Deterministic match criteria for a playbook.
@@ -90,3 +96,22 @@ class Playbook:
     @property
     def version(self) -> int:
         return self.manifest.version
+
+
+def render_playbook_prompt(playbook: Playbook) -> str:
+    """Canonical trusted procedure block used for validation and prompting."""
+    manifest = playbook.manifest
+    parts = [f"{manifest.name} (v{manifest.version})", playbook.body.strip()]
+    advisory: list[str] = []
+    if manifest.escalate_if:
+        advisory.append(f"- escalate_if (advisory): {manifest.escalate_if}")
+    if manifest.suggested_verdict_bias:
+        advisory.append(
+            f"- suggested_verdict_bias (advisory): {manifest.suggested_verdict_bias}"
+        )
+    if advisory:
+        parts.append(
+            "Advisory hints (NOT binding - deterministic policy decides the outcome):\n"
+            + "\n".join(advisory)
+        )
+    return "\n\n".join(part for part in parts if part)

@@ -119,10 +119,13 @@ change, insufficient, or unavailable independently of the established headline.
 
 True-positive/raw-alert yield is deliberately unavailable: correlation turns many
 alerts into fewer cases, so dividing case outcomes by alert counts mixes units. A
-future yield needs durable like-for-like alert→case→outcome lineage. Semantic telemetry
-coverage recommendations (for example, suggesting outgoing DNS logs for a specific
-investigation class) are also a long-term objective. The current release has no
-deterministic coverage-gap model and therefore returns no invented recommendation.
+future yield needs durable like-for-like alert→case→outcome lineage. The aggregate
+effectiveness response likewise does not invent semantic telemetry guidance.
+Separately, Auto-tuning exposes a deliberately narrow deterministic recommendation
+surface for outbound DNS, endpoint process, and identity-authentication evidence. It
+requires a stored, versioned query/tool failure proving a supported field was
+unavailable; connector absence and free-form model prose alone never create a
+recommendation.
 
 Applied tuning rows are reported as context with `causal_claim=false`. Threshold tuning
 can affect downstream clustered, promoted, or opened work; it cannot reduce the alerts

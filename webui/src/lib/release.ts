@@ -31,6 +31,8 @@ export interface ReleasePresentation {
   console: ReleaseIdentity;
   backend: ReleaseIdentity | null;
   mismatch: boolean;
+  /** False when either visible build identity lacks a commit or build-time stamp. */
+  provenanceComplete: boolean;
 }
 
 function text(value: unknown, fallback = 'unknown'): string {
@@ -56,6 +58,13 @@ function normalizeIdentity(value: {
     commitSha: text(value.commitSha),
     buildTime: text(value.buildTime),
   };
+}
+
+function identityHasProvenance(identity: ReleaseIdentity): boolean {
+  return (
+    identity.commitSha.trim().toLowerCase() !== 'unknown' &&
+    identity.buildTime.trim().toLowerCase() !== 'unknown'
+  );
 }
 
 export const CONSOLE_RELEASE_IDENTITY: Readonly<ReleaseIdentity> = Object.freeze(
@@ -88,12 +97,18 @@ export function resolveReleasePresentation(
         consoleBuild.channel !== backendBuild.channel ||
         knownShaMismatch),
   );
+  const provenanceComplete = Boolean(
+    identityHasProvenance(consoleBuild) &&
+      (!backendBuild || identityHasProvenance(backendBuild)),
+  );
 
   // A runtime pair is Stable only when BOTH halves say Stable and their known
-  // provenance agrees. Before build-info resolves, the immutable Console stamp is
-  // still shown; a later mismatch immediately downgrades it to Testing.
+  // provenance is complete and agrees. Before build-info resolves, a fully stamped
+  // immutable Console identity may still be shown as Stable; an incomplete stamp or
+  // later mismatch always downgrades it to Testing.
   const channel: ReleaseChannel =
     consoleBuild.channel === 'stable' &&
+    provenanceComplete &&
     (!backendBuild ||
       (backendBuild.channel === 'stable' &&
         backendBuild.version === consoleBuild.version &&
@@ -110,5 +125,6 @@ export function resolveReleasePresentation(
     console: consoleBuild,
     backend: backendBuild,
     mismatch,
+    provenanceComplete,
   };
 }

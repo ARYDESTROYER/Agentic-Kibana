@@ -73,8 +73,9 @@ class VectorStore(ABC):
     # Document management (see + manage the RAG corpus). A "document" is the
     # set of chunks sharing ``metadata["document_id"]``. Seed/legacy chunks
     # with no ``document_id`` are grouped under a synthetic ``seed:<source>``
-    # pseudo-document so they stay visible. All FAIL-SAFE: never raise, empty
-    # store → empty result.
+    # pseudo-document so they stay visible. Concrete persistence methods are strict;
+    # user-facing services decide where an outage may degrade to an empty result,
+    # while export and reconciliation paths can distinguish failure from emptiness.
     # --------------------------------------------------------------------- #
     @abstractmethod
     async def list_documents(self) -> list[dict[str, Any]]:
@@ -293,6 +294,7 @@ class ESVectorStore(VectorStore):
                 embedding=list(src.get("embedding", []) or []),
                 embedding_model=str(src.get("embedding_model", "")),
                 dim=int(src.get("dim", 0) or 0),
+                doc_id=str(hit.get("_id", "")) or None,
             )
             # ES kNN cosine score is in [0, 1] (cosine remapped); pass it through.
             out.append((chunk, float(hit.get("_score") or 0.0)))
@@ -327,29 +329,32 @@ class ESVectorStore(VectorStore):
         return (str(src.get("embedding_model", "")), dim)
 
     async def _scan_all(self, *, with_ids: bool = False) -> list[tuple[str, StoredChunk]]:
-        """Return all stored chunks (and their ES ``_id``). Never raises."""
+        """Return all stored chunks (and their ES ``_id``), or raise on outage.
+
+        Presentation-oriented callers catch at the service boundary. Export and
+        corpus reconciliation intentionally need a failed read to stay different
+        from a confirmed empty corpus.
+        """
         out: list[tuple[str, StoredChunk]] = []
-        try:
-            if not await self._es.index_exists(self._index):
-                return out
-            # The corpus is small (seeds + a handful of imported docs); a single
-            # large match_all page is sufficient and avoids a scroll dependency.
-            resp = await self._es.search(
-                self._index, {"size": 10000, "query": {"match_all": {}}}
+        if not await self._es.index_exists(self._index):
+            return out
+        # The corpus is small (seeds + a handful of imported docs); a single
+        # large match_all page is sufficient and avoids a scroll dependency.
+        resp = await self._es.search(
+            self._index, {"size": 10000, "query": {"match_all": {}}}
+        )
+        for hit in resp.get("hits", {}).get("hits", []):
+            src = hit.get("_source", {}) or {}
+            chunk = StoredChunk(
+                text=str(src.get("text", "")),
+                source=str(src.get("source", "unknown")),
+                metadata=dict(src.get("metadata", {}) or {}),
+                embedding=list(src.get("embedding", []) or []),
+                embedding_model=str(src.get("embedding_model", "")),
+                dim=int(src.get("dim", 0) or 0),
+                doc_id=str(hit.get("_id", "")) or None,
             )
-            for hit in resp.get("hits", {}).get("hits", []):
-                src = hit.get("_source", {}) or {}
-                chunk = StoredChunk(
-                    text=str(src.get("text", "")),
-                    source=str(src.get("source", "unknown")),
-                    metadata=dict(src.get("metadata", {}) or {}),
-                    embedding=list(src.get("embedding", []) or []),
-                    embedding_model=str(src.get("embedding_model", "")),
-                    dim=int(src.get("dim", 0) or 0),
-                )
-                out.append((str(hit.get("_id", "")), chunk))
-        except Exception as exc:  # noqa: BLE001 — management must never raise
-            logger.warning("RAG ES scan failed: %s", exc)
+            out.append((str(hit.get("_id", "")), chunk))
         return out
 
     async def list_documents(self) -> list[dict[str, Any]]:

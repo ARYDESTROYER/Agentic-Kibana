@@ -280,7 +280,15 @@ class DemoStack:
         force = bool(getattr(demo, "force_capabilities", True)) if demo is not None else True
         if force:
             # Force the capability blocks ON in the SANDBOX only (real prefs untouched).
-            updates["threshold_tuning"] = prefs.threshold_tuning.model_copy(update={"enabled": True})
+            # The synthetic tenant deliberately demonstrates one completed tuning
+            # observation as well as the separate HITL approval queue.  Its seeded
+            # outcomes carry explicit synthetic analyst grades (never model
+            # self-grades), so it may auto-apply inside this throwaway sandbox while
+            # the real tenant remains review-first by default.
+            updates["threshold_tuning"] = prefs.threshold_tuning.model_copy(update={
+                "enabled": True,
+                "auto_apply_confirmed": True,
+            })
             updates["baseline"] = prefs.baseline.model_copy(update={"enabled": True})
             updates["campaign"] = prefs.campaign.model_copy(update={"enabled": True})
             # The EVENT funnel gates on BOTH batch.enabled AND baseline.enabled; force
@@ -462,22 +470,9 @@ class DemoStack:
         """An async ``read(limit, offset) -> list[Case]`` pager over the DEMO terminal
         cases (CLOSED + RESOLVED) for the threshold-tuner. Mirrors AppState's, bound to
         the demo case store. Best-effort per status."""
-        from ..constants import TERMINAL_CASE_STATUSES
+        from ..engine.threshold_tuner import terminal_case_reader
 
-        async def _read(limit: int, offset: int):
-            collected = []
-            for status in TERMINAL_CASE_STATUSES:
-                try:
-                    page, _total = await self.cases.list(
-                        status=status, limit=limit, offset=offset,
-                        sort_field="updated_at", sort_order="desc",
-                    )
-                except Exception:  # noqa: BLE001 — a read glitch never breaks tuning
-                    continue
-                collected.extend(page)
-            return collected
-
-        return _read
+        return terminal_case_reader(self.cases)
 
     async def _demo_write_prefs(self, new_prefs: Preferences) -> Preferences:
         """The tuner's config-writer, ISOLATED: it NEVER calls state.update_prefs (which
@@ -494,6 +489,12 @@ class DemoStack:
         """Apply an operator change to this throwaway run without durable writes."""
         self._prefs_override = new_prefs.model_copy(deep=True)
         return self._prefs_override
+
+    async def mutate_execution_prefs(
+        self, mutate: Callable[[Preferences], Preferences]
+    ) -> Preferences:
+        """Apply a pure preference delta to the current isolated demo snapshot."""
+        return await self._demo_write_prefs(mutate(self._demo_prefs()))
 
     async def run_capability_pass(self) -> None:
         """One demo-local capability pass: threshold-tuning + campaign correlation, both
@@ -516,6 +517,7 @@ class DemoStack:
                 self.proposals, self.audit,
                 tuning_store=self.tuning_store,
                 write_prefs=self._demo_write_prefs,
+                mutate_prefs=self.mutate_execution_prefs,
             )
         except Exception as exc:  # noqa: BLE001 — tuning must never break the pass
             logger.debug("demo tuning pass failed: %s", exc)

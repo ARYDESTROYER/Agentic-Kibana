@@ -6,7 +6,7 @@ description: Curated Agentic SOC API endpoint groups, authentication, pagination
 # API reference
 
 The **Agentic SOC API** is the FastAPI service behind the Agentic SOC Console. This page covers
-the public HTTP surface in application version **0.1.1** and documentation line
+the public HTTP surface in application version **0.1.2** and documentation line
 **0.1**. The API is mounted at `/api`; the service root is `/`.
 
 ## Interactive and machine-readable specifications
@@ -19,10 +19,10 @@ Each running API publishes:
 
 Build information reports the application version, independent release channel,
 commit SHA, build time, state backend, and OCSF version. A Testing candidate and its
-Stable promotion both remain `0.1.1`; `TLSOC_RELEASE_CHANNEL` distinguishes
+Stable promotion both remain `0.1.2`; `TLSOC_RELEASE_CHANNEL` distinguishes
 `testing` from the accepted `stable` build.
 
-The committed 0.1 OpenAPI snapshot contains 202 paths and 243 operations. It is the
+The committed 0.1 OpenAPI snapshot contains 210 paths and 251 operations. It is the
 best source for current request-body models, enums, parameters, and operation IDs.
 Some handlers return plain dictionaries without a FastAPI `response_model`, so their
 generated response schema is intentionally less specific than the runtime payload.
@@ -95,8 +95,8 @@ the exact request model and every operation under a prefix.
 | Case investigation | `/api/cases/{case_id}/triage`, `/timeline`, `/trace`, `/stages`, `/rationale`, `/threat-context`, `/forwarding`; `POST /investigate`, `/reinvestigate`, `/feedback` | Explain evidence, agent work, deterministic routing, and analyst feedback |
 | Case collaboration | `/api/cases/{case_id}/thread*`, `/tasks*`, `/activity`, `/comment`, `/assign`, `/tags`, `/notify` | Discussion, reactions, tasks, ownership, activity, and manual notification |
 | Workspace | `POST /api/chat`, `/api/chat/conversations*`, `POST /api/investigate`, `POST /api/overview`, `GET /api/search`, `/scans`, `/personas` | Console chat with per-user history, entity investigation, cross-surface search, scan queues, and personas |
-| Detection and automation | `/api/rules*`, `/api/tuning*`, `/api/baseline*`, `/api/campaigns*`, `/api/batch*`, `/api/proposals*` | Rule lifecycle, safe preview/version rollback, recommendations, baselines, campaigns, batch jobs, and approvals |
-| Playbooks | `GET/POST /api/playbooks`, `GET/PUT /api/playbooks/{playbook_id}`, `POST /api/playbooks/reload`, `GET /api/playbooks/selection/{case_id}`, `POST /api/cases/{case_id}/run-playbook` | Catalog/open, protected operator-file management, deterministic selection, hot reload, and case execution |
+| Detection and automation | `/api/rules*`, `/api/tuning*`, `/api/baseline*`, `/api/campaigns*`, `/api/batch*`, `/api/proposals*` | Rule lifecycle, safe preview/version rollback, analyst-grounded recommendations, baselines, reconciled campaigns, batch jobs, and approvals |
+| Playbooks | `GET/POST /api/playbooks`, `GET/PUT /api/playbooks/{playbook_id}`, `POST /api/playbooks/reload`, `/dry-run`, `GET /coverage`, `/selection/{case_id}`, `POST /api/cases/{case_id}/run-playbook` | Durable catalog/open/edit, deterministic diagnostics and coverage, selection provenance, and case execution |
 | Knowledge and memory | `/api/rag/*`, `/api/memory*`, `/api/runbooks*`, `POST /api/threat-context/import` | Import/search/delete knowledge, manage operator memory, and manage protected/owned runbooks |
 | Enrichment and MITRE | `/api/enrichment/*`, `/api/mitre/coverage*`, `GET /api/cases/{case_id}/threat-context` | IOC enrichment, provider configuration, ATT&CK coverage, and Navigator export |
 | Dashboards and metrics | `/api/dashboards*`, `/api/metrics*`, `/api/feedback/stats`, `/api/usage/summary`, `/api/cost/estimate` | Personal dashboards, posture/noise/improvement metrics, usage, feedback, and cost estimates |
@@ -104,8 +104,12 @@ the exact request model and every operation under a prefix.
 | Notifications | `/api/notifications/providers`, `/channels/*`, `/preview`, `/test`, `/prefs`, `/inbox*` | Channel catalog/secrets, safe previews, tests, per-user preferences, and in-app inbox |
 | Preferences and presentation | `/api/settings*`, `/api/prefs/*`, `/api/branding`, `/api/terminology`, `/api/views*`, `/api/budget*`, `/api/llm/*`, `/api/models` | Organization/user preferences, saved views, model routing/pricing, branding, and budget controls |
 | Release-source discovery | `GET /api/releases/upstream`, `POST /api/releases/upstream/check` | Read cached or force a cooldown-bounded refresh of public Stable/Testing source metadata; never deploys or activates code |
+| Improvement worker health | `GET /api/schedulers/health` | Process-local tuner, campaign, and batch enabled/gated/running plus last attempt/success/error |
+| Telemetry-gap evidence | `GET /api/tuning/source-recommendations` | Query-backed supported missing-evidence recommendations; connector absence alone is never proof |
 | Own-state storage lifecycle | `GET/PUT /api/storage/lifecycle`, `POST /api/storage/lifecycle/preview`, `POST /api/storage/lifecycle/apply` | Inspect/save desired Hot/Warm/archive policy, preview capabilities, and explicitly apply the supported Elasticsearch ILM subset |
-| Portable data export | `POST /api/admin/export` | Download selected, bounded, secret-free application state for offline analysis (`data_export:export`) |
+| Portable data export | `POST /api/admin/export` | Legacy single-file, bounded, secret-free application-state snapshot (`data_export:export`) |
+| Full-history export segment | `POST /api/admin/export/segment` | Continue one supported safe scope past 5,000 records using an opaque cursor (fresh auth + `data_export:export`) |
+| Cancel export segment | `POST /api/admin/export/segment/cancel` | Release the PIT carried by an unfinished cursor (fresh auth + `data_export:export`) |
 | Audit and realtime | `GET /api/audit`, `GET /api/events` | Append-only action history and server-sent event updates |
 | Demo and reset | `/api/demo/*`, `POST /api/admin/reset` | Isolated synthetic demonstration lifecycle and privileged tiered reset |
 
@@ -182,6 +186,105 @@ so alternate authoring clients can present the same guidance.
 Runbook content is trusted operator-controlled knowledge and is projected under a
 stable `runbook:<id>` document identity. These routes never execute it as a playbook
 and never call or modify deterministic case-policy authority.
+
+## Threshold tuning and approvals
+
+`GET /api/tuning/recommendations` (`automation:read`) distinguishes the full observed
+population from independently confirmed learning evidence. Per-rule output includes
+`observed`, `analyst_samples`/`total`, `unconfirmed`, `fp`, `tp`, Wilson FP estimates,
+EWMA volume, and proposal reason. Model verdicts, inferred terminal dispositions, and
+auto-closed outcomes are excluded from the learning denominator. Reason values include
+`insufficient_analyst_evidence`, `suppression_drop`,
+`shadow_eval_would_hide_confirmed_tp`, `policy_requires_approval`, and
+`confirmed_evidence_candidate`.
+
+The observer is enabled by default, but `auto_apply_confirmed` defaults to `false`.
+`POST /api/tuning/{rule_id}/apply` (`automation:manage`) recomputes the rule and routes
+eligible bounded changes to a HITL proposal under that safe default. Explicit automatic
+application additionally requires the configuration opt-in, sufficient independent
+analyst evidence, and a clean shadow replay. Suppression is never auto-applied.
+`GET`/`PUT /api/tuning/config` use `automation:read/manage`; rollback uses
+`automation:manage`.
+
+`GET /api/proposals` requires `proposals:read`; approve/reject requires
+`proposals:approve`. Approval recomputes/materializes the tuning change rather than
+trusting stale proposal text. A stale threshold returns `409`; rejection leaves
+preferences unchanged and proposal history remains available. Built-in Analyst Tier 1,
+Analyst Tier 2, Responder, and Auditor roles can read proposals; Responder and
+management roles with the approve grant can decide them.
+Proposal kinds are `suppression`, `memory`, `tuning`, and acknowledgement-only
+`automation_ack`. Generic automation reviews use the last kind and never materialise
+trusted Memory or mutate a case. Approvals use a strict CAS
+`pending -> applying -> approved` lifecycle and proposal-id idempotency; concurrent
+decisions return `409`, storage failures remain visible/retryable, and a trusted
+Memory approval succeeds only after confirmed persistence. Approve and reject both
+require strict append-only control-audit evidence keyed by proposal id before final
+status, so an unavailable audit ledger fails closed and a retry reuses the same row.
+
+## Memory and RAG trust
+
+Only memory entries that are both active and `review_status=approved` are injected as
+trusted operator context. Agent-authored memory starts `pending` and remains fenced as
+an untrusted review candidate. Legacy agent memory without review metadata migrates to
+pending on read; legacy human memory remains approved. Direct `POST`, `PUT`, and
+`DELETE /api/memory*` mutations require `memory:manage`; an authorized direct POST is
+human/approved, while authorized Chat creation is agent/pending. Unauthorized Chat
+requests do not write. An authorized PUT can approve pending memory and records its
+approver/time. Memory writes use strict compare-and-swap storage.
+
+Managed RAG projection follows the saved `rag.enabled`, runbook, MITRE, resolved-case,
+suppression, and threat-context source toggles and reconciles when they change; imported
+operator documents remain untouched. Only independently analyst-confirmed terminal
+cases enter the managed resolved-case corpus. Completion-only assignments are rejected
+for the embedding role. Cardinality mismatch, empty/all-zero vectors, and mixed
+dimensions fail before partial indexing; an embedding-space change clears/reseeds
+rather than mixing dimensions. Local fallback records the actual provider/model and
+`embedding_fallback=true`.
+
+## Playbook catalog and procedure provenance
+
+Bundled playbooks are immutable package data. Operator playbooks are strict-CAS
+StateStore records across Elasticsearch, PostgreSQL, and SQLite; no separate index or
+table is required. Management is `playbooks:manage`; reads, dry-run, and coverage use
+`playbooks:read`; case selection explanation uses `cases:read`. A successful write is
+durable and atomically refreshed into the active catalog. The limits are 100 operator
+playbooks, 2 MiB aggregate operator content, 256 KiB per document, and 2,400 characters
+of rendered trusted procedure context. Send the current `expected_revision` on PUT;
+a stale update returns `409`. There is no delete route.
+
+`POST /api/playbooks/dry-run` accepts at most 100 `rule_ids`, one `entity_type`, and
+`event_count` from 0 through 1,000,000. It explains exact deterministic match/no-match
+without an LLM, investigation, or decision call. `GET /api/playbooks/coverage` scans at
+most 20,000 stored cases and reports covered/uncovered cases, selected counts,
+`truncated`, and the top 100 unmatched rule families. Matching is exact—not fuzzy or
+model-selected.
+
+The latest investigation's `procedure_provenance` audit row distinguishes selected
+from consulted persona/playbook state, selection reason, consultation path, retrieval
+query groups, and retrieved knowledge source/score/document id/revision/content hash
+with a bounded snippet. Rationale and Case Manager Overview project the latest run;
+selected-only inputs are never presented as consulted/applied.
+
+## Scheduler and telemetry evidence
+
+`GET /api/schedulers/health` (`settings:read`) returns
+`scheduler_runtime_running` plus `workers` for `threshold_tuner`,
+`campaign_correlation`, and `batch_jobs`. Each worker reports `enabled`, `gated`,
+`running`, `cadence`, `last_attempt_at`, `last_success_at`, `last_error`, and
+`processed`. Tuner/campaign success anchors recover from durable state after restart;
+the runtime is still process-local and has no distributed lease. `manual` is reported
+as gated, and a push/queue-only deployment is not marked gated merely because pull
+polling is disabled.
+
+`GET /api/tuning/source-recommendations` (`cases:read`) scans at most 20,000 cases and
+returns `status`, `recommendations`, `scanned_cases`, `truncated`,
+`evidence_schema="agentic-soc.telemetry-gap/v1"`, and an explicit
+`not_available_reason`. It accepts only stored structured history from controlled
+producers after a bounded query/tool attempt with result `field_missing`,
+`query_unsupported`, or `source_unqueryable`. The v1 allowlist maps outbound DNS,
+endpoint process, and identity-authentication evidence; unknown fields/sources and
+connector absence are ignored. Each recommendation exposes affected count, up to 50
+case ids, and up to 10 bounded proofs.
 
 ## Common query behavior
 
@@ -289,7 +392,7 @@ An additive `outcomes` object is reported separately and never changes the headl
 | `true_positive_alert_yield` | Always `unavailable` in this release. Case outcomes and raw-alert counters are different units and alert-level confirmed-outcome lineage is not persisted. `supported_alternative` points to `confirmed_positive_case_rate`. |
 | `alert_volume` | Durable `ingested_alerts` and `after_clustering_alerts`, plus clustering-reduction count/rate, per-day readings, and deltas. Counter coverage must span both complete-UTC windows and is bounded by the retained 90-day hourly counter history. Lower ingress can mean a source outage; the response does not grade it as improvement. |
 | `tuning_context` | Applied/rolled-back threshold-change counts beside aggregate post-clustering movement. `causal_claim=false` and `model_fine_tuning_evidence=false`; this is context, not attribution. |
-| `source_guidance` | `not_available`, empty `items`, and `long_term_objective=true`. The current schema cannot support alert-specific missing-source advice without a governed coverage model. |
+| `source_guidance` | Remains `not_available`, with empty `items` and `long_term_objective=true`, in this aggregate response. Query-proven supported gaps are exposed separately by `/api/tuning/source-recommendations`; they are not folded into this outcome contract. |
 
 `period_comparisons.week_over_week` compares seven complete UTC days with the prior
 seven. The compatibility wire key `period_comparisons.month_over_month` is labelled
@@ -407,13 +510,40 @@ only configured booleans or configured field names. See the
 default 1000). It returns a canonical `application/json` attachment with a per-scope
 count/total/truncation manifest. `limit_per_scope` caps the whole selected scope;
 grouped automation and knowledge collections are sampled fairly within that cap. The
-server never traverses environment/source credentials,
-users, sessions, password/MFA material, browser tokens, or upstream raw logs; a final
-recursive sanitizer removes credential-shaped fields and common token/private-key
-patterns. Raw knowledge chunks are also excluded. Exports are hard-limited to 25 MiB;
+Knowledge includes an exact runbook/playbook catalog-count manifest, sanitized full
+Markdown for operator-owned procedures, and safe metadata/manifests (without source
+content or filesystem paths) for versioned bundled procedures. The server never
+traverses environment/source credentials, users, sessions, password/MFA material,
+browser tokens, or upstream raw logs; a final recursive sanitizer removes
+credential-shaped fields and common token/private-key patterns. Raw knowledge chunks
+are also excluded. Exports are hard-limited to 25 MiB;
 use fewer scopes or a lower item cap when the server returns HTTP 413. The response is
 not an import/restore format. The default permission is limited to `super_admin` and
 `soc_manager` through `data_export:export`, and each request is audited.
+
+For all records in a selected supported safe scope, use
+`POST /api/admin/export/segment` with `scope`, optional opaque `cursor`, and
+`page_size` (1–5000). The 5,000 value is a per-response/segment safety bound, not a
+lifetime cap. Follow `segment.next_cursor` until `segment.complete` is `true`; never
+infer completion from a short page. Compact JSON responses are individually capped at
+25 MiB and may reduce `actual_page_size`; the Console saves that compact payload rather
+than inflating it with display whitespace. `consistency` declares whether the scope is an exact
+Elasticsearch point-in-time snapshot or a weaker bounded/live read. Elasticsearch
+PIT cursors are renewed per page with a ten-minute keep-alive. Every continuation is
+HMAC-authenticated, bound to the requesting operator, scope, and snapshot, and checked
+for internally monotonic counters/position. A cursor is not transferable. Expiration,
+backend restart, or an invalid cursor requires restarting that scope. Call
+`POST /api/admin/export/segment/cancel` with the scope and last cursor on cancellation.
+
+The segment route requires both `data_export:export` and fresh authentication.
+Knowledge/automation registry reads and the delivery audit write are strict: an
+unavailable or malformed backing collection returns HTTP 503, releases an active PIT,
+and never emits a truthful-looking `complete` response.
+Cases, audit, and usage are store-paginated; automation and knowledge remain KV-backed
+collections that are materialized before the response page is sliced. That is a known
+large-catalog memory limitation. These routes cover only the documented safe scopes,
+not chat history, collaboration, user preferences, identity/session state, raw RAG
+chunks, credentials, or upstream logs; they are not a whole-application backup.
 
 ## Compatibility expectations
 

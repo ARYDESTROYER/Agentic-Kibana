@@ -134,17 +134,27 @@ exists, warm data remains retained and the Console reports Archive as not config
 ## Export portable application state
 
 Open **Settings → Organization → Data export** when support or offline analysis
-needs a bounded JSON snapshot. Select all safe scopes or any combination of cases,
-audit, usage, configuration, automation, and knowledge. `limit_per_scope` is an
-aggregate cap for each selected scope (1–5000, default 1000); the returned manifest
-states count, known total, and truncation.
+needs all records from selected supported safe scopes. Select cases, audit, usage,
+configuration, automation, and/or knowledge. **Records per file** (up to 5,000) is a
+bounded response size, not a full-history ceiling: the Console follows authenticated
+opaque cursors and downloads numbered files until each scope explicitly reports
+complete. A cursor is bound to its requesting operator, scope, and snapshot; do not
+edit or share it. The Console shows record/file progress and supports cancellation.
 
-The export excludes environment/source credentials, users and sessions,
+The Knowledge scope includes exact catalog counts, sanitized authoritative Markdown
+for operator-owned runbooks and playbooks, and metadata-only references/manifests for
+bundled procedures. It excludes environment/source credentials, users and sessions,
 password/MFA material, browser tokens, upstream raw logs, and raw knowledge chunks.
-It is capped at 25 MiB and is not an import format or backup/restore mechanism. Every
-request is audited and requires `data_export:export`, granted by default to
-`super_admin` and `soc_manager`. Use a custom role only after reviewing the exact
-data that the selected scopes disclose.
+Each compact server response and compact Console-downloaded segment is capped at
+25 MiB, and this is not an import format, whole-application
+export, or backup/restore mechanism. Every segment is audited and requires
+`data_export:export` plus a fresh sign-in, granted by default to `super_admin` and
+`soc_manager`. Exact point-in-time consistency is available on the bundled
+Elasticsearch state path; other backends disclose weaker consistency. A cursor that
+expires (ten-minute PIT keep-alive), crosses a backend restart, or is invalid must be
+restarted for that scope.
+Unavailable/malformed registry data or an unavailable append-only audit store aborts
+the scope with an error; the Console never turns that failure into a completed export.
 
 ## Secrets
 

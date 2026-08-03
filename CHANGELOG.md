@@ -12,9 +12,14 @@ History is reconstructed from `git log`.
 
 ## [Unreleased]
 
-**Current development snapshot (2026-07-30): Security Command Center, canonical
-Case Manager detail, durable Workspace Chat, minimal identity and setup workspaces,
-portable export, and a version-matched Help Center.**
+No changes yet.
+
+## [0.1.2] - 2026-08-03
+
+**Beta patch release candidate: Security Command Center, canonical Case Manager
+detail, governed continuous-improvement inputs, durable Intelligence catalogs and
+Workspace Chat, portable export, safer in-app release activation, and a
+version-matched Help Center.**
 
 ### Added
 
@@ -67,7 +72,7 @@ portable export, and a version-matched Help Center.**
 - A canonical `webui/src/design-system/` boundary with one centered,
   reduced-motion-safe loading grammar, original theme-adaptive source marks for the
   connector catalog, and a JSON-serializable component/token/asset catalog. The
-  catalog is future agent/MCP input only; 0.1.1 does not ship an MCP server.
+  catalog is future agent/MCP input only; 0.1.2 does not ship an MCP server.
 - Additive aggregate-only `GET /api/metrics/agent-improvement` reporting behind
   `metrics:view`: the last seven complete UTC days are compared with the preceding
   28 through weighted analyst-reported agreement, material correction rate, and human
@@ -106,11 +111,17 @@ portable export, and a version-matched Help Center.**
   Threat Context tab. It projects persisted input counts, opaque stable references,
   source breakdown, matched rule/window/grouping/threshold, opened-case status, and
   related cases without returning raw source identifiers or payloads.
-- A bounded **Settings → Organization → Data export** workflow and
-  `POST /api/admin/export` for a canonical, selectable application-state JSON bundle.
-  The dedicated `data_export:export` permission defaults to `super_admin` and
-  `soc_manager`; every request is audited, while credentials, users/sessions,
-  password/MFA material, upstream raw logs, and raw knowledge chunks are excluded.
+- A **Settings → Organization → Data export** workflow that keeps the legacy bounded
+  `POST /api/admin/export` contract and adds fresh-auth, resumable
+  `/api/admin/export/segment` plus `/cancel`. The Console follows every selected safe
+  scope past 5,000 records using numbered response-bounded files, progress, and
+  cancellation; Elasticsearch cases/audit/usage use one PIT per scope while weaker
+  backends disclose their consistency instead of claiming an exact backup. The
+  dedicated `data_export:export` permission defaults to `super_admin` and
+  `soc_manager`; strict registry reads and fail-closed audit persistence prevent a
+  partial scope from looking complete, every delivered compact segment is audited, while credentials,
+  users/sessions, password/MFA material, upstream raw logs, and raw knowledge chunks
+  remain excluded.
 - A capability-aware **Settings → Organization → Storage & retention** policy:
   desired Hot 180 days, Warm 90 days, then AWS S3 Glacier Flexible Retrieval from
   day 270, with deletion always off. Explicit preview/apply can enforce Elasticsearch
@@ -124,15 +135,18 @@ portable export, and a version-matched Help Center.**
 
 ### Changed
 
-- The current **Unreleased Testing candidate** is versioned **0.1.1**. Patch
-  releases continue to bundle the existing **0.1** Help Center line; this
-  candidate metadata does not imply that a Stable tag exists.
-- Fresh workspaces now use official OpenAI `gpt-5.6-luna` for every completion
-  role, with `reasoning_effort: none` preserving the existing Chat Completions
+- The accepted beta patch candidate is versioned **0.1.2**. Patch releases continue
+  to bundle the existing **0.1** Help Center line. The `v0.1.2` tag is created only
+  from the fully verified `main` commit after Testing promotion; the version string
+  alone never implies Stable provenance or a completed deployment.
+- Fresh workspaces now use the bundled OpenAI model ID `gpt-5.6-luna` for every
+  completion role, with `reasoning_effort: none` preserving the existing Chat Completions
   latency/tool contract. Embeddings remain on `text-embedding-3-small`; persisted
   role assignments and all alternate providers/models remain available and are
-  never rewritten by the default change. Luna's bundled catalog and cost ledger use
-  the current $1/M input, $0.10/M cached-input, and $6/M output rates.
+  never rewritten by the default change. The bundled release catalog records
+  $0.20/M input, $0.02/M cached input, $0.25/M cache write, and $1.20/M output;
+  operators must compare configured catalog values with their provider contract,
+  and a discounted ledger rate is applied only to a provider-confirmed tier.
 - The shared Console shell and explicitly migrated reference surfaces now use one
   visual grammar: consistent page anatomy, flat telemetry and control bands, compact
   squared controls, restrained section boundaries, responsive tables/tabs, shared
@@ -193,9 +207,15 @@ portable export, and a version-matched Help Center.**
   verdict/confidence, and pulses only the Case Manager terminal marker.
 - The case Take Action menu no longer repeats the visible Timeline and Investigation
   tabs.
-- Release documentation now distinguishes the intended permanent
-  `Testing` → protected `main` / Stable contract from the current remote topology
-  (`Testing` + legacy/default `claude/main`, with no literal `main`).
+- Release documentation now codifies the permanent `Testing` → protected `main`
+  promotion path, immutable annotated Stable tags, detailed per-patch release pages,
+  and version-matched Help Center aliases. Stable Pages publication is now gated on
+  the exact annotated version tag resolving to current `main`, so a branch push cannot
+  publish release documentation prematurely.
+- GitHub community hygiene now includes a Code of Conduct, structured bug/feature/
+  documentation/support issue forms, support routing, a pull-request checklist, and
+  generated release-note categories. Repository description and licensing remain
+  owner/legal metadata decisions.
 - The redundant Automated Scans page has left primary navigation (its route/API remain
   compatible for bookmarked links); Workspace now calls the targeted workflow
   **Entity investigation** and explains its scope → analysis → case lifecycle.
@@ -248,6 +268,12 @@ portable export, and a version-matched Help Center.**
 
 ### Fixed
 
+- Auto-tuning now normalizes rule identifiers before evidence aggregation,
+  recommendation, proposal, ledger, and rollback work, preventing trailing source
+  whitespace from repeating the same canonical `1 -> 2` change. Automatic application
+  requires explicit opt-in plus shadow evaluation; scheduler, manual, approval, and
+  rollback paths use strict idempotent ledger persistence with exact preference
+  compensation if that persistence fails.
 - Final UI-standard hardening removed nested table-row activation, restored named
   row actions and visible chat-composer focus, protected dirty Settings drafts during
   Console navigation and page exit, corrected Scans focus/heading semantics, and

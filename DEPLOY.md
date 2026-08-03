@@ -5,14 +5,15 @@ The product is a read-only triage layer that consumes alerts from
 **any** SIEM / EDR / XDR and turns raw alert volume into audited, cost-metered,
 human-reviewable cases.
 
-The current artifact version is `0.1.1` (documentation line `0.1`). Source builds
+The current beta patch candidate is `0.1.2` (documentation line `0.1`). Source builds
 default to `TLSOC_RELEASE_CHANNEL=testing`; set `stable` only while building the
-exact accepted `main` / `v0.1.1` commit. Version and channel are independent so a
+exact accepted `main` / `v0.1.2` commit after promotion. Version and channel are independent so a
 Testing candidate cannot report itself as Stable merely because it already carries
 the final SemVer.
 
 > **Release topology:** the remote uses `Testing` for integration and default
-> `main` for accepted Stable source, and it has the `v0.1.1` release tag. Branch
+> `main` for accepted Stable source. `v0.1.1` remains the prior Stable tag until the
+> verified 0.1.2 promotion receives the immutable `v0.1.2` tag. Branch
 > protections, required checks, and release-environment policies are repository
 > administration controls; verify them independently rather than inferring
 > acceptance from a branch or tag name.
@@ -317,7 +318,7 @@ organization deliberately publishes the `core` target under a site-specific imag
 name, add only the required clients in a derived image, for example:
 
 ```dockerfile
-FROM registry.example/tlsoc-backend-core:0.1.1
+FROM registry.example/tlsoc-backend-core:0.1.2
 RUN pip install --no-cache-dir confluent-kafka boto3   # only what you need
 ```
 
@@ -443,7 +444,7 @@ independently. Back up first and follow
 ```bash
 cd <repo-root>
 git fetch --tags origin
-git checkout v0.1.1   # replace with the exact accepted release tag
+git checkout v0.1.2   # replace with the exact accepted release tag
 docker compose -f deploy/docker-compose.agnostic.yml up -d --build
 ```
 
@@ -562,7 +563,7 @@ Mode A PostgreSQL reports the desired policy as advisory until timestamp partiti
 and an operator-managed scheduler/tablespace/archive workflow exist. SQLite reports
 export-only. Connected source indices and buckets are always external/read-only.
 
-The 0.1.1 Apply operation does not configure Glacier and never adds an ILM delete
+The 0.1.2 Apply operation does not configure Glacier and never adds an ILM delete
 phase. To archive safely, write a separate immutable export, manifest and checksums,
 verify restore, then apply S3 lifecycle to that **independent archive prefix**. Never
 transition the Elasticsearch snapshot-repository prefix itself.

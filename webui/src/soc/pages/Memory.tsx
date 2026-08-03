@@ -18,6 +18,7 @@
 import * as React from 'react';
 import {
   Bot,
+  CircleAlert,
   CircleCheck,
   Folder,
   Info,
@@ -66,6 +67,7 @@ import {
 } from '@/ui/dialog';
 
 import { PageHeader } from '@/soc/components/PageHeader';
+import { useCan } from '@/soc/components/Can';
 import { KpiTile } from '@/soc/components/KpiTile';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
@@ -104,6 +106,14 @@ function isAgentEntry(e: MemoryEntry): boolean {
   return (e.source || '').toLowerCase() === 'agent';
 }
 
+function isApprovedEntry(e: MemoryEntry): boolean {
+  return (e.review_status || (isAgentEntry(e) ? 'pending' : 'approved')) === 'approved';
+}
+
+function isEffectiveActive(e: MemoryEntry): boolean {
+  return Boolean(e.active && isApprovedEntry(e));
+}
+
 /**
  * Merge a typed-but-uncommitted tag into the committed list (trimmed, de-duplicated),
  * so a tag typed into the box but not Enter-committed isn't silently dropped on save.
@@ -115,7 +125,7 @@ export function mergePendingTag(tags: string[], pending: string): string[] {
 
 /* --------------------------------------------------------------- source badge -- */
 
-/** A small author pill — human (operator) vs agent (conversationally added). */
+/** A small author pill — human operator vs agent-authored suggestion. */
 function SourceBadge({ source, author }: { source?: string; author?: string }) {
   const agent = (source || '').toLowerCase() === 'agent';
   const Icon = agent ? Bot : User;
@@ -133,8 +143,8 @@ function SourceBadge({ source, author }: { source?: string; author?: string }) {
         </TooltipTrigger>
         <TooltipContent>
           {agent
-            ? 'Authored by an agent (conversationally, in Chat). Treated as untrusted text.'
-            : 'Authored by a human operator.'}
+            ? 'Authored by an agent. It remains untrusted until an authorized operator approves it.'
+            : 'Authored by a human operator and approved at creation.'}
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
@@ -289,13 +299,17 @@ function MemoryRow({
   busy,
   onSave,
   onToggleActive,
+  onApprove,
   onDelete,
+  canManage,
 }: {
   entry: MemoryEntry;
   busy: boolean;
   onSave: (id: string, patch: MemoryPatch) => Promise<void>;
   onToggleActive: (entry: MemoryEntry) => void;
+  onApprove: (entry: MemoryEntry) => void;
   onDelete: (entry: MemoryEntry) => void;
+  canManage: boolean;
 }) {
   const [editing, setEditing] = React.useState(false);
   const [text, setText] = React.useState(entry.text);
@@ -303,6 +317,7 @@ function MemoryRow({
   const [tagInput, setTagInput] = React.useState('');
   const [tags, setTags] = React.useState<string[]>(entry.tags || []);
   const [saving, setSaving] = React.useState(false);
+  const approved = isApprovedEntry(entry);
 
   // Re-seed local edit buffers when the underlying entry changes (e.g. refresh),
   // unless the user is actively editing.
@@ -424,7 +439,7 @@ function MemoryRow({
           <span
             className={cn(
               'mt-0.5 w-0.5 shrink-0 self-stretch rounded-full',
-              entry.active ? 'bg-success/70' : 'bg-border',
+              isEffectiveActive(entry) ? 'bg-success/70' : 'bg-border',
             )}
             aria-hidden
           />
@@ -440,6 +455,21 @@ function MemoryRow({
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
               <SourceBadge source={entry.source} author={entry.author} />
+              {!approved ? (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Badge variant="warning" className="gap-1" tabIndex={0}>
+                        <CircleAlert className="h-3 w-3" aria-hidden />
+                        Pending review
+                      </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-xs">
+                      This suggestion is fenced as untrusted and is not injected as operator memory.
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              ) : null}
               {entry.category ? (
                 <Badge variant="outline" className="gap-1">
                   <Folder className="h-3 w-3" aria-hidden />
@@ -474,35 +504,60 @@ function MemoryRow({
                     <Switch
                       checked={entry.active}
                       onCheckedChange={() => onToggleActive(entry)}
-                      disabled={busy}
-                      aria-label={entry.active ? 'Deactivate memory' : 'Activate memory'}
+                      disabled={busy || !approved || !canManage}
+                      aria-label={
+                        !approved
+                          ? 'Memory pending review'
+                          : entry.active
+                            ? 'Deactivate memory'
+                            : 'Activate memory'
+                      }
                     />
                   </span>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {entry.active ? 'Active — injected into prompts' : 'Inactive — retained, not injected'}
+                  {!approved
+                    ? 'Pending review — retained as untrusted text, not injected as operator context'
+                    : entry.active
+                      ? 'Active — injected into prompts as approved operator context'
+                      : 'Inactive — retained, not injected'}
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="Edit memory"
-              disabled={busy}
-              onClick={() => setEditing(true)}
-            >
-              <Pencil className="h-4 w-4" aria-hidden />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="Delete memory"
-              disabled={busy}
-              className="text-critical hover:text-critical"
-              onClick={() => onDelete(entry)}
-            >
-              <Trash2 className="h-4 w-4" aria-hidden />
-            </Button>
+            {!approved && canManage ? (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                onClick={() => onApprove(entry)}
+              >
+                <CircleCheck className="h-4 w-4" aria-hidden />
+                Approve
+              </Button>
+            ) : null}
+            {canManage ? (
+              <>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Edit memory"
+                  disabled={busy}
+                  onClick={() => setEditing(true)}
+                >
+                  <Pencil className="h-4 w-4" aria-hidden />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Delete memory"
+                  disabled={busy}
+                  className="text-critical hover:text-critical"
+                  onClick={() => onDelete(entry)}
+                >
+                  <Trash2 className="h-4 w-4" aria-hidden />
+                </Button>
+              </>
+            ) : null}
           </div>
         </div>
       </CardContent>
@@ -523,6 +578,7 @@ export interface MemoryPageProps {
 }
 
 export default function Memory({ embedded = false }: MemoryPageProps = {}) {
+  const canManage = useCan('memory', 'manage');
   const [entries, setEntries] = React.useState<MemoryEntry[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<unknown>(null);
@@ -605,6 +661,22 @@ export default function Memory({ embedded = false }: MemoryPageProps = {}) {
     [upsertLocal],
   );
 
+  const onApprove = React.useCallback(
+    async (entry: MemoryEntry) => {
+      setBusyId(entry.id);
+      try {
+        const next = await api.updateMemory(entry.id, { review_status: 'approved' });
+        upsertLocal(next);
+        toast.success('Memory approved as trusted operator context.');
+      } catch (e) {
+        toast.error(errorMessage(e, 'Could not approve memory.'));
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [upsertLocal],
+  );
+
   const runDelete = React.useCallback(async () => {
     if (!pendingDelete) return;
     setDeleting(true);
@@ -626,12 +698,14 @@ export default function Memory({ embedded = false }: MemoryPageProps = {}) {
     let active = 0;
     let operator = 0;
     let agent = 0;
+    let pending = 0;
     for (const e of entries) {
-      if (e.active) active += 1;
+      if (isEffectiveActive(e)) active += 1;
       if (isAgentEntry(e)) agent += 1;
       else operator += 1;
+      if (!isApprovedEntry(e)) pending += 1;
     }
-    return { total: entries.length, active, operator, agent };
+    return { total: entries.length, active, operator, agent, pending };
   }, [entries]);
 
   const categoryFacet = React.useMemo(() => {
@@ -653,8 +727,8 @@ export default function Memory({ embedded = false }: MemoryPageProps = {}) {
       const agent = isAgentEntry(e);
       if (sourceFilter === 'agent' && !agent) return false;
       if (sourceFilter === 'human' && agent) return false;
-      if (activeFilter === 'active' && !e.active) return false;
-      if (activeFilter === 'inactive' && e.active) return false;
+      if (activeFilter === 'active' && !isEffectiveActive(e)) return false;
+      if (activeFilter === 'inactive' && isEffectiveActive(e)) return false;
       if (categoryFilter !== ANY && e.category !== categoryFilter) return false;
       if (!q) return true;
       const hay = `${e.text} ${e.category || ''} ${(e.tags || []).join(' ')} ${
@@ -669,7 +743,7 @@ export default function Memory({ embedded = false }: MemoryPageProps = {}) {
         case 'created':
           return byTime(b, false).localeCompare(byTime(a, false));
         case 'active':
-          if (a.active !== b.active) return a.active ? -1 : 1;
+          if (isEffectiveActive(a) !== isEffectiveActive(b)) return isEffectiveActive(a) ? -1 : 1;
           return byTime(b, true).localeCompare(byTime(a, true));
         case 'category':
           return (
@@ -719,7 +793,9 @@ export default function Memory({ embedded = false }: MemoryPageProps = {}) {
       busy={busyId === entry.id}
       onSave={onSave}
       onToggleActive={(e) => void onToggleActive(e)}
+      onApprove={(e) => void onApprove(e)}
       onDelete={(e) => setPendingDelete(e)}
+      canManage={canManage}
     />
   );
 
@@ -744,7 +820,7 @@ export default function Memory({ embedded = false }: MemoryPageProps = {}) {
           icon={Brain}
           eyebrow="Platform"
           title="Memory"
-          description="Durable facts the agents always know — injected into every investigation and chat turn as trusted operator context."
+          description="Operator-approved durable facts used across investigations and chat."
           actions={refreshAction}
         />
       )}
@@ -753,15 +829,16 @@ export default function Memory({ embedded = false }: MemoryPageProps = {}) {
         <Info className="h-4 w-4" aria-hidden />
         <AlertTitle>What is memory?</AlertTitle>
         <AlertDescription>
-          A curated set of durable facts the agents always know — internal IP ranges, known
-          scanners, naming conventions, standing exceptions. Active facts are injected into
-          investigations and chat as a trusted operator block; they inform the LLM but{' '}
+          A curated set of durable facts the agents can use — internal IP ranges, known scanners,
+          naming conventions, and standing exceptions. Only active, operator-approved facts are
+          injected as trusted context; pending agent suggestions stay fenced as untrusted text.
+          Memory can inform the LLM but{' '}
           <strong className="font-semibold text-foreground">
             never override the deterministic close/escalate decision
           </strong>
-          . You can also say <strong className="font-semibold text-foreground">“remember: …”</strong>{' '}
-          or <strong className="font-semibold text-foreground">“forget …”</strong> in Chat and the
-          agent will manage memory for you.
+          . Authorized operators can manage it here or use{' '}
+          <strong className="font-semibold text-foreground">“remember: …”</strong> and{' '}
+          <strong className="font-semibold text-foreground">“forget …”</strong> in Chat.
         </AlertDescription>
       </Alert>
 
@@ -781,7 +858,7 @@ export default function Memory({ embedded = false }: MemoryPageProps = {}) {
             value={fmtNumber(stats.active)}
             icon={CircleCheck}
             accent="success"
-            sub={stats.total > 0 ? `${fmtNumber(stats.total - stats.active)} inactive` : undefined}
+            sub={stats.total > 0 ? `${fmtNumber(stats.total - stats.active)} not injected` : undefined}
             variant="strip"
             className="border-b border-border/70 lg:border-b-0 lg:border-r"
           />
@@ -798,12 +875,13 @@ export default function Memory({ embedded = false }: MemoryPageProps = {}) {
             value={fmtNumber(stats.agent)}
             icon={Bot}
             accent="medium"
+            sub={stats.pending > 0 ? `${fmtNumber(stats.pending)} pending review` : 'All reviewed'}
             variant="strip"
           />
         </div>
       )}
 
-      {showLoadFail || initialLoading ? null : (
+      {showLoadFail || initialLoading || !canManage ? null : (
         <AddMemoryCard categories={categoryFacet} onAdded={onAdded} />
       )}
 
@@ -922,7 +1000,11 @@ export default function Memory({ embedded = false }: MemoryPageProps = {}) {
         <EmptyState
           icon={Brain}
           title="No memories yet"
-          description="Add a durable fact above, or teach the agent one conversationally in Chat with “remember: …”."
+          description={
+            canManage
+              ? 'Add a durable fact above, or teach the agent one conversationally in Chat with “remember: …”.'
+              : 'No operator-approved memory is available yet.'
+          }
         />
       ) : filteredSorted.length === 0 ? (
         <EmptyState
@@ -962,8 +1044,8 @@ export default function Memory({ embedded = false }: MemoryPageProps = {}) {
         <p className="border-t border-border pt-4 text-xs text-muted-foreground">
           Inactive memories are retained but not injected into prompts — toggle{' '}
           <strong className="font-semibold text-foreground">Active</strong> off to retire a fact
-          without deleting it. Agent-authored facts are treated as untrusted text and rendered as
-          plain text.
+          without deleting it. Agent-authored facts remain fenced and excluded until an authorized
+          operator explicitly approves them.
         </p>
       )}
 

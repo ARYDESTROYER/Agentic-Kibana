@@ -189,8 +189,11 @@ jobs:
                   with urllib.request.urlopen(ready_url, timeout=1) as response:
                       ready = json.load(response)
                   assert response.status == 200
-                  assert ready["ready"] is True
-                  assert ready["checks"] == {"state_store": True}
+                  assert ready["status"] == "ready", ready
+                  assert ready["ready"] is True, ready
+                  assert ready["version"] == expected_version, ready
+                  assert ready["store_type"] == "SQLiteStateStore", ready
+                  assert ready["checks"] == {"state_store": True}, ready
                   with urllib.request.urlopen(live_url, timeout=1) as response:
                       live = json.load(response)
                   assert response.status == 200

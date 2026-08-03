@@ -12,13 +12,15 @@ feature branches → Testing → main (Stable)
 ```
 
 `Testing` is the integration and acceptance branch. `main` is the supported Stable
-branch. Version 0.1 is represented as `0.1.1` in packages/images and `v0.1.1` as an
-immutable release tag; its documentation line is `0.1`.
+branch. The current beta patch is represented as `0.1.2` in packages/images and
+`v0.1.2` as an immutable release tag after verified promotion; its documentation
+line remains `0.1`.
 
 !!! note "Canonical topology and administrative controls"
 
     The remote now uses `Testing` for integration and default `main` for accepted
-    Stable source, and it has the `v0.1.1` release tag. Pull-request protections,
+    Stable source. `v0.1.1` is the prior Stable tag; the 0.1.2 candidate receives
+    `v0.1.2` only after verified promotion. Pull-request protections,
     required checks, and release-environment policy are repository settings rather
     than source-code guarantees. Administrators must verify them independently;
     branch and tag names alone do not prove acceptance.
@@ -37,7 +39,7 @@ Before promoting `Testing` to `main`:
 - ensure every package, image, OpenAPI document, and documentation page uses the same
   release identity.
 
-Promote through a reviewed pull request. Tag the accepted `main` commit `v0.1.1` and
+Promote through a reviewed pull request. Tag the accepted `main` commit `v0.1.2` and
 publish artifacts identified by digest. Do not move a release tag.
 
 ### Version and promotion checklist
@@ -63,7 +65,7 @@ publish artifacts identified by digest. Do not move a release tag.
    publish by digest, and let the docs workflow move `stable`/`latest`.
 
 `TLSOC_VERSION` and `TLSOC_RELEASE_CHANNEL` answer different questions. Promoting
-`0.1.1` from Testing to Stable changes provenance, not its SemVer.
+`0.1.2` from Testing to Stable changes provenance, not its SemVer.
 
 ## Deployment upgrade procedure
 

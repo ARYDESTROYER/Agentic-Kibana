@@ -1,0 +1,89 @@
+name: Feature request
+description: Propose an outcome-focused improvement to Agentic SOC.
+title: "[Feature]: "
+labels: []
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the operator problem before prescribing an implementation. Agentic SOC must preserve deterministic case authority, read-only source access, complete auditing, measured model spend, and untrusted-data fencing.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight
+      options:
+        - label: I searched existing issues and the roadmap for this request.
+          required: true
+        - label: I removed secrets, customer data, and private security evidence.
+          required: true
+
+  - type: dropdown
+    id: audience
+    attributes:
+      label: Primary user
+      options:
+        - SOC analyst
+        - SOC lead or manager
+        - Security engineer
+        - Platform or deployment operator
+        - Administrator
+        - Developer or integrator
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: What workflow, decision, or operational outcome is difficult today?
+      placeholder: When ..., operators cannot ..., which causes ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe observable success without assuming a particular UI or architecture.
+      placeholder: An operator should be able to ... while preserving ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Suggested approach
+      description: Optional implementation or interaction ideas.
+
+  - type: textarea
+    id: safety
+    attributes:
+      label: Safety, data, and compatibility considerations
+      description: Note effects on deterministic decisions, source permissions, audit, privacy, model cost, existing API fields, or state backends.
+      placeholder: This must not allow ...; existing ... must remain compatible.
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Supporting evidence or alternatives
+      description: Add sanitised workflow examples, research, mockups, or approaches already considered.
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Expected scope
+      options:
+        - Small focused improvement
+        - Cross-surface feature
+        - Connector or integration
+        - Architecture or deployment capability
+        - Documentation or developer experience
+        - Unsure
+    validations:
+      required: true
+

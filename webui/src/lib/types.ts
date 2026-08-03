@@ -363,6 +363,14 @@ export interface Playbook {
   protected: boolean;
   editable: boolean;
   file_name: string;
+  /** Operator catalog revision used for optimistic concurrency. */
+  revision: number;
+  /** Bundled package data or durable application StateStore data. */
+  storage: 'package' | 'state';
+  created_at?: string;
+  updated_at?: string;
+  created_by?: string;
+  updated_by?: string;
 }
 
 /** One opened Markdown document. Render as plain text; never as raw HTML. */
@@ -385,6 +393,67 @@ export interface PlaybookMutationResponse {
     skipped: { file: string; reason: string }[];
     ids: string[];
   };
+}
+
+/** Aggregate deterministic playbook coverage over the stored case population. */
+export interface PlaybookCoverageResponse {
+  scanned_cases: number;
+  covered_cases: number;
+  uncovered_cases: number;
+  coverage_percent: number | null;
+  scan_limit: number;
+  truncated: boolean;
+  selected_playbooks: Array<{ playbook_id: string; case_count: number }>;
+  unmatched_rule_families: Array<{ rule_id: string; case_count: number }>;
+}
+
+export interface PlaybookDryRunInput {
+  rule_ids: string[];
+  entity_type: EntityTypeFull;
+  event_count: number;
+}
+
+export interface PlaybookDryRunCheck {
+  criterion: string;
+  passed: boolean;
+  expected: unknown;
+  actual: unknown;
+  reason: string;
+}
+
+export interface PlaybookDryRunCandidate {
+  playbook_id: string;
+  playbook_name: string;
+  priority: number;
+  version: number;
+  matched: boolean;
+  checks: PlaybookDryRunCheck[];
+  failed_criteria: string[];
+}
+
+/** Pure, read-only explanation of the registry's exact selection predicate. */
+export interface PlaybookDryRunResponse {
+  selected_playbook_id: string | null;
+  selection_reason: string;
+  matched_count: number;
+  candidate_count: number;
+  candidates: PlaybookDryRunCandidate[];
+}
+
+export interface SchedulerWorkerHealth {
+  enabled: boolean;
+  gated: boolean;
+  running: boolean;
+  cadence: string;
+  last_attempt_at: string;
+  last_success_at: string;
+  last_error: string;
+  processed: number;
+}
+
+export interface SchedulerHealthResponse {
+  scheduler_runtime_running: boolean;
+  workers: Record<string, SchedulerWorkerHealth>;
 }
 
 /**
@@ -910,13 +979,21 @@ export interface SetupStatus {
     user_field?: string;
     host_field?: string;
   };
+  /** Historical Elasticsearch/log-surface probe; not the SQL owned-state probe. */
   es_connected?: boolean;
+  /** Whether the configured owned-state backend itself depends on Elasticsearch. */
+  es_required_for_state?: boolean;
+  es_connection_role?: 'owned_state_and_log_source' | 'log_source_only';
+  state_backend?: 'elasticsearch' | 'postgres' | 'sqlite' | string;
 }
 
 export interface HealthResponse {
   status: string;
   version?: string;
+  /** Compatibility alias for state_store_connected. */
   es_connected?: boolean;
+  state_store_connected?: boolean;
+  state_backend?: 'elasticsearch' | 'postgres' | 'sqlite' | string;
   store_type?: string;
   setup_complete?: boolean;
 }
@@ -930,6 +1007,8 @@ export interface BuildInfoResponse {
   build_time: string;
   state_backend: string;
   ocsf_version: string;
+  provenance_complete?: boolean;
+  provenance_missing?: string[];
 }
 
 // --------------------------------------------------------------------------- //
@@ -3139,6 +3218,10 @@ export interface MemoryEntry {
   /** Who authored the memory — a human operator, or an agent (conversationally). */
   source: 'human' | 'agent' | string;
   author?: string;
+  /** Only approved entries may be injected as trusted operator context. */
+  review_status?: 'approved' | 'pending';
+  approved_by?: string | null;
+  approved_at?: string | null;
   created_at?: string;
   updated_at?: string;
   /** Inactive entries are retained but not injected into prompts. */
@@ -3156,10 +3239,10 @@ export interface MemoryResponse {
 // Approval queue — agent-drafted proposals (GET/POST /api/proposals/*).
 // --------------------------------------------------------------------------- //
 /** The kinds of recommendation the agent can draft for human approval. */
-export type ProposalKind = 'suppression' | 'memory' | string;
+export type ProposalKind = 'suppression' | 'memory' | 'tuning' | 'automation_ack' | string;
 
 /** The lifecycle state of a drafted proposal. */
-export type ProposalStatus = 'pending' | 'approved' | 'rejected' | string;
+export type ProposalStatus = 'pending' | 'applying' | 'approved' | 'rejected' | string;
 
 /**
  * One agent-drafted recommendation awaiting human approval.
@@ -3174,6 +3257,11 @@ export type ProposalStatus = 'pending' | 'approved' | 'rejected' | string;
  *   candidate `field == value` rule).
  * - `kind === 'memory'` → `payload` carries `{ text, category? }` (the candidate
  *   durable fact).
+ * - `kind === 'tuning'` → `payload` carries a bounded threshold change or a
+ *   review-only evidence/history acknowledgement. The payload explains why the
+ *   proposal exists and the exact recommended operator action.
+ * - `kind === 'automation_ack'` → `payload` carries the automation rule/checkpoint
+ *   context. Approval records acknowledgement only and materialises nothing.
  */
 export interface Proposal {
   id: string;
@@ -3191,6 +3279,13 @@ export interface Proposal {
   created_at: string;
   decided_by?: string | null;
   decided_at?: string | null;
+  /** Durable first decision intent; retries cannot switch approve/reject. */
+  decision_intent?: 'approve' | 'reject' | null;
+  /** Stable append-only audit timestamp reused by a retry. */
+  decision_audit_at?: string | null;
+  applying_at?: string | null;
+  /** Last failed materialisation/finalisation attempt, surfaced for a safe retry. */
+  approval_error?: string | null;
   expires_at?: string | null;
   [key: string]: unknown;
 }
@@ -3216,6 +3311,36 @@ export interface MemoryPayload {
   [key: string]: unknown;
 }
 
+/** Well-known fields on an acknowledgement-only automation proposal. */
+export interface AutomationAcknowledgementPayload {
+  rule_id?: string;
+  requested_kind?: string;
+  reason?: string;
+  requested_action?: string;
+  [key: string]: unknown;
+}
+
+/** Well-known fields on an evidence-grounded tuning proposal. */
+export interface TuningProposalPayload {
+  tuning?: true;
+  action?: 'apply_change' | 'collect_evidence' | 'review_history' | string;
+  reason_code?: string;
+  reason?: string;
+  recommended_action?: string;
+  rule_id?: string;
+  target?: string;
+  before?: unknown;
+  after?: unknown;
+  analyst_samples?: number;
+  observed_cases?: number;
+  unconfirmed_cases?: number;
+  confirmed_false_positives?: number;
+  confirmed_true_positives?: number;
+  evidence_basis?: string;
+  record_id?: string;
+  [key: string]: unknown;
+}
+
 // --------------------------------------------------------------------------- //
 // Case decision rationale (GET /api/cases/{id}/rationale).
 // --------------------------------------------------------------------------- //
@@ -3223,6 +3348,14 @@ export interface MemoryPayload {
 export interface RationaleKnowledge {
   source: string;
   snippet: string;
+  /** Retrieval score recorded for this immutable investigation run, when available. */
+  score?: number | null;
+  /** Durable document identity and revision used by the retriever. */
+  document_id?: string;
+  revision?: number | string | null;
+  content_hash?: string;
+  /** Exact query groups that returned this reference. */
+  query_groups?: string[];
 }
 
 /** A tool invocation the investigator ran during this case. */
@@ -3238,6 +3371,28 @@ export interface RationalePlaybook {
   version?: string;
   reason?: string;
   consulted?: boolean;
+}
+
+/** One procedure selected for the latest run, kept distinct from consultation. */
+export interface RationaleProcedureSelection {
+  selected_id: string;
+  selection_reason: string;
+  consulted: boolean;
+}
+
+/** One exact retrieval query issued by the latest investigation run. */
+export interface RationaleRetrievalQueryGroup {
+  group: string;
+  query: string;
+}
+
+/** Append-only latest-run projection of selected and actually consulted procedures. */
+export interface RationaleProcedureProvenance {
+  persona: RationaleProcedureSelection;
+  playbook: RationaleProcedureSelection;
+  consultation_path: string;
+  retrieval_query_groups: RationaleRetrievalQueryGroup[];
+  knowledge: RationaleKnowledge[];
 }
 
 /** One immutable adaptive-threshold snapshot on this case's processing path. */
@@ -3270,7 +3425,10 @@ export interface CaseRationale {
   confidence?: number;
   status?: string;
   decision_by?: string;
+  /** Selected persona retained for backward compatibility; it does not prove use. */
   persona?: string;
+  /** Exact selected-vs-consulted facts from the latest procedure-provenance audit row. */
+  procedure_provenance?: RationaleProcedureProvenance;
   playbook?: RationalePlaybook | null;
   /** Operator memories the investigation drew on. */
   memory_used?: string[];

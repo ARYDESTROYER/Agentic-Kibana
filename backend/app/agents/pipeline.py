@@ -38,7 +38,7 @@ from .common import entity_kql, normalize_kql
 from .formatter import Formatter
 from .graph import run_investigation
 from .investigator import Investigator
-from .personas import select_persona
+from .personas import select_persona_with_reason
 from .router import Router
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -484,7 +484,7 @@ class InvestigationPipeline:
             # selected deterministically from the cluster. The persona specialises
             # the investigator; the matched playbook is injected as TRUSTED operator
             # procedure (it can only RECOMMEND — code/settings decide close/escalate).
-            persona = select_persona(cluster, prefs)
+            persona, persona_reason = select_persona_with_reason(cluster, prefs)
             playbook = None
             playbook_reason = "playbooks_disabled"
             if force_playbook_id and self._playbooks is not None:
@@ -519,6 +519,10 @@ class InvestigationPipeline:
                         if playbook is not None
                         else None
                     ),
+                    "persona_selection": {
+                        "id": persona.id,
+                        "reason": persona_reason,
+                    },
                     "platform_tuning": platform_tuning,
                 },
             )
@@ -540,12 +544,25 @@ class InvestigationPipeline:
                     memory_entries = []
 
             if budget.kill_switch:
+                procedure_provenance: dict[str, Any] = {
+                    "consultation_path": "kill_switch",
+                    "persona_consulted": False,
+                    "playbook_consulted": False,
+                    "knowledge": [],
+                    "retrieval_query_groups": [],
+                }
                 verdict = VerdictResult(
                     verdict=Verdict.NEEDS_HUMAN,
                     recommended_action="Kill switch engaged; investigation skipped.",
                     reproduce_query=entity_kql(cluster, prefs),
                 )
             else:
+                procedure_provenance = {
+                    "persona_consulted": False,
+                    "playbook_consulted": False,
+                    "knowledge": [],
+                    "retrieval_query_groups": [],
+                }
                 # Live progress: handing off to the tool-using investigation graph.
                 self._emit_step(case_id, "tools", status="running",
                                 detail="investigation running")
@@ -565,6 +582,7 @@ class InvestigationPipeline:
                             prefs, budget, source_surface.value, case_id,
                             persona=persona, playbook=playbook, memory=memory_entries,
                             cost_sink=cost_accum,
+                            provenance_sink=procedure_provenance,
                         ),
                         timeout=prefs.caps.timeout_seconds,
                     )
@@ -598,6 +616,37 @@ class InvestigationPipeline:
                         reproduce_query=entity_kql(cluster, prefs),
                     )
 
+            # Selected and consulted are different facts. The cheap router path,
+            # kill switch, or a timeout may select a procedure without ever injecting
+            # it. Preserve both explicitly so operator UI never overclaims usage.
+            await self._audit.record(
+                action_type=ActionType.CONTEXT,
+                surface=source_surface.value,
+                actor="procedure_provenance",
+                case_id=case_id,
+                result_summary=(
+                    f"persona selected={persona.id} consulted="
+                    f"{bool(procedure_provenance.get('persona_consulted'))}; "
+                    f"playbook selected={playbook.id if playbook else 'none'} consulted="
+                    f"{bool(procedure_provenance.get('playbook_consulted'))}"
+                ),
+                tool_input={
+                    "persona": {
+                        "selected_id": persona.id,
+                        "selection_reason": persona_reason,
+                        "consulted": bool(procedure_provenance.get("persona_consulted")),
+                    },
+                    "playbook": {
+                        "selected_id": playbook.id if playbook else None,
+                        "selection_reason": playbook_reason,
+                        "consulted": bool(procedure_provenance.get("playbook_consulted")),
+                    },
+                    "consultation_path": procedure_provenance.get("consultation_path", ""),
+                    "retrieval_query_groups": procedure_provenance.get("retrieval_query_groups", []),
+                    "knowledge": procedure_provenance.get("knowledge", []),
+                },
+            )
+
             # Live progress: a verdict exists (from the kill-switch, the timeout cap,
             # or the investigation graph). The DETERMINISTIC close/escalate decision
             # has NOT been made yet — that is the next step.
@@ -609,6 +658,7 @@ class InvestigationPipeline:
                 case_id, cluster, verdict, source_surface, existing, cost, prefs,
                 persona_id=persona.id, playbook_id=(playbook.id if playbook else ""),
                 case_number=case_number,
+                knowledge_used=list(procedure_provenance.get("knowledge", []) or []),
             )
             # ``Case.token_cost`` is a rounded cumulative presentation field. Adding
             # a new raw run cost to the previously rounded value can drift by a
@@ -775,6 +825,7 @@ class InvestigationPipeline:
         persona_id: str = "",
         playbook_id: str = "",
         case_number: str = "",
+        knowledge_used: list[dict[str, Any]] | None = None,
     ) -> Case:
         member_ids = list(dict.fromkeys(
             (existing.member_event_ids if existing else []) + cluster.member_event_ids
@@ -803,6 +854,19 @@ class InvestigationPipeline:
         # entity_kql fallback is already correct; normalize_kql is idempotent on it.
         raw_reproduce = verdict.reproduce_query or entity_kql(cluster, prefs)
         reproduce_query = normalize_kql(raw_reproduce, prefs)
+        prior_knowledge = list(existing.knowledge_used) if existing else []
+        merged_knowledge: list[dict[str, Any]] = []
+        seen_knowledge: set[tuple[str, str, str]] = set()
+        for item in [*prior_knowledge, *(knowledge_used or [])]:
+            key = (
+                str(item.get("source") or ""),
+                str(item.get("document_id") or ""),
+                str(item.get("content_hash") or item.get("snippet") or ""),
+            )
+            if key in seen_knowledge:
+                continue
+            seen_knowledge.add(key)
+            merged_knowledge.append(dict(item))
         return Case(
             case_id=case_id,
             case_number=(existing.case_number if existing and existing.case_number else case_number),
@@ -834,6 +898,7 @@ class InvestigationPipeline:
             trigger_reason=_trigger(existing, cluster),
             agent_persona=persona_id or (existing.agent_persona if existing else ""),
             playbook_id=playbook_id or (existing.playbook_id if existing else ""),
+            knowledge_used=merged_knowledge[-100:],
         )
 
 

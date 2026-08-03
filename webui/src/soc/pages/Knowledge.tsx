@@ -119,9 +119,9 @@ import {
 
 /* ------------------------------------------------------------- constants ----- */
 
-/** Soft per-import size guard (mirrors the backend's oversized-document 400). */
-const MAX_IMPORT_BYTES = 256 * 1024; // ~256 KB
-const MAX_IMPORT_KB = Math.round(MAX_IMPORT_BYTES / 1024);
+/** Per-import size guard — exactly mirrors routes_rag._RAG_MAX_TEXT. */
+const MAX_IMPORT_BYTES = 1_000_000;
+const MAX_IMPORT_LABEL = '1 MB';
 const IMPORT_ACCEPT = '.txt,.md,.json,.csv,text/*';
 
 const TOP_K_DEFAULT = 5;
@@ -479,7 +479,7 @@ export const ImportCard: React.FC<{ onImported: () => void }> = ({ onImported })
           const qf = await readFile(list[0]);
           if (qf.tooBig) {
             setFileError(
-              `"${qf.name}" is ${fmtNumber(qf.bytes)} bytes — keep documents under ${MAX_IMPORT_KB} KB.`,
+              `"${qf.name}" is ${fmtNumber(qf.bytes)} bytes — keep documents under ${MAX_IMPORT_LABEL}.`,
             );
             return;
           }
@@ -620,7 +620,7 @@ export const ImportCard: React.FC<{ onImported: () => void }> = ({ onImported })
             {batching
               ? 'Disabled while files are queued.'
               : tooBig
-                ? `Too large — keep documents under ${MAX_IMPORT_KB} KB.`
+                ? `Too large — keep documents under ${MAX_IMPORT_LABEL}.`
                 : `${fmtNumber(bytes)} bytes`}
           </p>
         </div>
@@ -663,7 +663,7 @@ export const ImportCard: React.FC<{ onImported: () => void }> = ({ onImported })
             </ul>
             {!queueValid ? (
               <p className="mt-2 text-xs text-critical">
-                Some files exceed {MAX_IMPORT_KB} KB — remove them and re-select.
+                Some files exceed {MAX_IMPORT_LABEL} — remove them and re-select.
               </p>
             ) : null}
           </div>
@@ -822,7 +822,7 @@ export const ThreatIntelImportCard: React.FC<{ onImported: () => void }> = ({ on
             className={cn(tooBig && 'border-critical focus-visible:ring-critical')}
           />
           <p className={cn('text-xs', tooBig ? 'text-critical' : 'text-muted-foreground')}>
-            {tooBig ? `Too large — keep notes under ${MAX_IMPORT_KB} KB.` : `${fmtNumber(bytes)} bytes`}
+            {tooBig ? `Too large — keep notes under ${MAX_IMPORT_LABEL}.` : `${fmtNumber(bytes)} bytes`}
           </p>
         </div>
         <div className="space-y-1.5">

@@ -1,0 +1,64 @@
+name: Documentation correction
+description: Report missing, unclear, incorrect, or outdated Agentic SOC documentation.
+title: "[Docs]: "
+labels: []
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The Help Center bundled with the running Console is authoritative for that installed version. Tell us which version you were reading and do not include credentials or live security data.
+
+  - type: input
+    id: location
+    attributes:
+      label: Page or file
+      description: Link the public page or enter the repository path.
+      placeholder: "https://arydestroyer.github.io/Agentic-Kibana/stable/... or docs/..."
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Product or documentation version
+      placeholder: "vX.Y.Z · Stable, vX.Y.Z · Testing, or repository commit"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Issue type
+      options:
+        - Incorrect behaviour or command
+        - Missing information
+        - Unclear explanation
+        - Broken link or navigation
+        - Version or release mismatch
+        - Typo or formatting
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What needs correction?
+      description: Quote only the minimum text needed to identify the problem.
+    validations:
+      required: true
+
+  - type: textarea
+    id: correction
+    attributes:
+      label: Suggested correction
+      description: Explain what the page should say or where the missing information belongs.
+
+  - type: checkboxes
+    id: sensitive
+    attributes:
+      label: Data handling
+      options:
+        - label: This report contains no secrets, customer data, private alerts, or vulnerability details.
+          required: true

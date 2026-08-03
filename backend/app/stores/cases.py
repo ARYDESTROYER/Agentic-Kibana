@@ -111,6 +111,63 @@ class CaseStore(CaseRepository):
         }
         return await self._es.count(CASES_READ_PATTERN, body)
 
+    async def export_page(
+        self, *, limit: int = 1000, cursor: Any = None,
+    ) -> tuple[list[Case], Any | None, int | None, str]:
+        """PIT + ``_shard_doc`` page for a fixed, lifetime-safe case snapshot."""
+        cap = max(1, min(int(limit or 1000), 5000))
+        pit_id = str(cursor.get("pit", "")) if isinstance(cursor, dict) else ""
+        after = cursor.get("after") if isinstance(cursor, dict) else None
+        seen = max(0, int(cursor.get("seen", 0) or 0)) if isinstance(cursor, dict) else 0
+        if not pit_id:
+            pit_id = str(await self._es.open_state_pit(CASES_READ_PATTERN, "10m") or "")
+        if pit_id:
+            body: dict[str, Any] = {
+                "size": cap,
+                "track_total_hits": True,
+                "query": {"match_all": {}},
+                "pit": {"id": pit_id, "keep_alive": "10m"},
+                "sort": ["_shard_doc"],
+            }
+            if isinstance(after, list) and len(after) == 1:
+                body["search_after"] = after
+            consistency = "point_in_time"
+        else:
+            # Compatibility clients without PIT keep a stable immutable-field order,
+            # but case values may change between pages; the API labels that honestly.
+            body = {
+                "size": cap,
+                "track_total_hits": True,
+                "query": {"match_all": {}},
+                "sort": [
+                    {"created_at": {"order": "asc", "missing": "_first"}},
+                    {"case_id": {"order": "asc"}},
+                ],
+            }
+            if isinstance(cursor, list) and len(cursor) == 2:
+                body["search_after"] = cursor
+            consistency = "bounded_at_start"
+        resp = await self._es.search(CASES_READ_PATTERN, body)
+        if pit_id:
+            pit_id = str(resp.get("pit_id") or pit_id)
+        raw_hits = resp.get("hits", {}).get("hits", [])
+        rows = [Case.model_validate(hit.get("_source", {})) for hit in raw_hits]
+        total_raw = resp.get("hits", {}).get("total", {})
+        total = int(total_raw.get("value", len(rows))) if isinstance(total_raw, dict) else int(total_raw)
+        marker = raw_hits[-1].get("sort") if raw_hits else after
+        next_cursor: Any | None
+        if pit_id:
+            # Return the handle even on the last page. The API closes it only after
+            # the serialized segment is known to fit, allowing adaptive page shrink.
+            next_cursor = {"pit": pit_id, "after": marker, "seen": seen + len(rows)}
+        else:
+            next_cursor = marker if raw_hits and len(raw_hits) >= cap else None
+        return rows, next_cursor, total, consistency
+
+    async def close_export_cursor(self, cursor: Any) -> None:
+        if isinstance(cursor, dict) and cursor.get("pit"):
+            await self._es.close_state_pit(str(cursor["pit"]))
+
 
 def _first_case(resp: dict[str, Any]) -> Case | None:
     hits = resp.get("hits", {}).get("hits", [])

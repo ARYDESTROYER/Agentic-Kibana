@@ -22,7 +22,7 @@ from pathlib import Path
 
 from ..models import Cluster
 from .loader import load_playbooks, parse_playbook
-from .manifest import Playbook
+from .manifest import MAX_PLAYBOOK_PROMPT_CHARS, Playbook, render_playbook_prompt
 
 logger = logging.getLogger("tlsoc.playbooks.registry")
 
@@ -38,6 +38,9 @@ DEFAULT_BUNDLED_PLAYBOOK_FILES = frozenset(
         "brute_force_login.md",
         "phishing_reported_email.md",
         "suspicious_outbound_connection.md",
+        "moodle_application_abuse.md",
+        "privileged_web_access.md",
+        "web_scanner_activity.md",
     }
 )
 
@@ -64,11 +67,111 @@ class PlaybookNotFoundError(PlaybookManagementError):
 
 def _cluster_rule_set(cluster: Cluster) -> set[str]:
     """The cluster's rule identifiers: declared rule values + the primary rule."""
-    rules: set[str] = {r for r in (cluster.rule_values or []) if r}
+    # Source products occasionally pad rule names (the live export contains one
+    # such family).  Whitespace is not semantic, but case and punctuation are:
+    # selection remains an exact, deterministic contract after trimming edges.
+    rules: set[str] = {str(r).strip() for r in (cluster.rule_values or []) if str(r).strip()}
     primary = cluster.primary_rule()
     if primary:
-        rules.add(primary)
+        rules.add(str(primary).strip())
     return rules
+
+
+def diagnose_playbook(cluster: Cluster, playbook: Playbook) -> dict[str, object]:
+    """Explain every declared match criterion for one playbook.
+
+    This is deliberately the same deterministic predicate as selection.  It is
+    suitable for dry-run/coverage UI and never calls an LLM or mutates state.
+    """
+    rule_set = _cluster_rule_set(cluster)
+    rule_set_l = {r.lower() for r in rule_set}
+    entity_type = cluster.entity.type.value
+    count = cluster.count
+    match = playbook.manifest.match
+    checks: list[dict[str, object]] = []
+
+    def add(criterion: str, passed: bool, expected: object, actual: object, reason: str) -> None:
+        checks.append({
+            "criterion": criterion,
+            "passed": passed,
+            "expected": expected,
+            "actual": actual,
+            "reason": reason,
+        })
+
+    hard_passed = True
+    if match.rule_ids:
+        expected = sorted({str(value).strip() for value in match.rule_ids if str(value).strip()})
+        intersection = sorted(set(expected).intersection(rule_set))
+        passed = bool(intersection)
+        hard_passed = hard_passed and passed
+        add("rule_ids", passed, expected, sorted(rule_set),
+            f"matched exact rule(s): {', '.join(intersection)}" if passed else "no exact rule id matched")
+    if match.entity_types:
+        expected = sorted(set(match.entity_types))
+        passed = entity_type in expected
+        hard_passed = hard_passed and passed
+        add("entity_types", passed, expected, entity_type,
+            f"entity type {entity_type!r} matched" if passed else f"entity type {entity_type!r} is not allowed")
+    if match.min_event_count is not None:
+        passed = count >= match.min_event_count
+        hard_passed = hard_passed and passed
+        add("min_event_count", passed, match.min_event_count, count,
+            f"event count {count} meets minimum" if passed else f"event count {count} is below minimum")
+
+    soft_hit = False
+    if match.mitre:
+        hits = sorted({value for value in match.mitre if value.lower() in rule_set_l})
+        soft_hit = soft_hit or bool(hits)
+        add("mitre", bool(hits), sorted(match.mitre), sorted(rule_set),
+            f"advisory signal(s): {', '.join(hits)}" if hits else "advisory signal unavailable before investigation")
+    if match.any_tags:
+        hits = sorted({value for value in match.any_tags if value.lower() in rule_set_l})
+        soft_hit = soft_hit or bool(hits)
+        add("any_tags", bool(hits), sorted(match.any_tags), sorted(rule_set),
+            f"advisory tag(s): {', '.join(hits)}" if hits else "advisory tag unavailable before investigation")
+
+    no_hard = not (match.rule_ids or match.entity_types or match.min_event_count is not None)
+    declared_soft = bool(match.mitre or match.any_tags)
+    matched = hard_passed and not (no_hard and declared_soft and not soft_hit)
+    if not checks:
+        checks.append({
+            "criterion": "unconstrained",
+            "passed": True,
+            "expected": None,
+            "actual": None,
+            "reason": "playbook declares no match constraints",
+        })
+    return {
+        "playbook_id": playbook.id,
+        "playbook_name": playbook.name,
+        "priority": playbook.manifest.priority,
+        "version": playbook.manifest.version,
+        "matched": matched,
+        "checks": checks,
+        "failed_criteria": [c["criterion"] for c in checks if not c["passed"] and c["criterion"] not in {"mitre", "any_tags"}],
+    }
+
+
+def selection_diagnostics(cluster: Cluster, playbooks: list[Playbook]) -> dict[str, object]:
+    """Return the selected procedure plus bounded, ordered no-match evidence."""
+    rows = [diagnose_playbook(cluster, playbook) for playbook in playbooks]
+    selected, reason = select_playbook(cluster, playbooks)
+    rows.sort(
+        key=lambda row: (
+            not bool(row["matched"]),
+            -int(row["priority"]),
+            -int(row["version"]),
+            str(row["playbook_id"]),
+        )
+    )
+    return {
+        "selected_playbook_id": selected.id if selected else None,
+        "selection_reason": reason,
+        "matched_count": sum(1 for row in rows if row["matched"]),
+        "candidate_count": len(rows),
+        "candidates": rows,
+    }
 
 
 def select_playbook(cluster: Cluster, playbooks: list[Playbook]) -> tuple[Playbook | None, str]:
@@ -97,7 +200,7 @@ def select_playbook(cluster: Cluster, playbooks: list[Playbook]) -> tuple[Playbo
         reasons: list[str] = []
 
         if m.rule_ids:
-            inter = {r for r in m.rule_ids if r in rule_set}
+            inter = {str(r).strip() for r in m.rule_ids if str(r).strip() in rule_set}
             if not inter:
                 continue
             reasons.append("rule_ids∩{" + ",".join(sorted(inter)) + "}")
@@ -394,6 +497,13 @@ class PlaybookRegistry:
             raise PlaybookManagementError(
                 f"front-matter id {candidate.id!r} must match {playbook_id!r}"
             )
+        prompt_chars = len(render_playbook_prompt(candidate))
+        if prompt_chars > MAX_PLAYBOOK_PROMPT_CHARS:
+            raise PlaybookManagementError(
+                "playbook trusted procedure exceeds the "
+                f"{MAX_PLAYBOOK_PROMPT_CHARS}-character prompt budget "
+                f"({prompt_chars} characters); shorten the procedure or advisory fields"
+            )
         return candidate
 
     def _atomic_write(self, target: Path, content: str) -> None:
@@ -424,6 +534,10 @@ class PlaybookRegistry:
 
     def select(self, cluster: Cluster) -> tuple[Playbook | None, str]:
         return select_playbook(cluster, self.all())
+
+    def diagnose(self, cluster: Cluster) -> dict[str, object]:
+        """Deterministic selection/no-match evidence for operator dry-runs."""
+        return selection_diagnostics(cluster, self.all())
 
     async def run(
         self, pipeline, cluster, source_surface, prefs, playbook_id: str, *, query_source=...

@@ -240,15 +240,17 @@ async def recorrelate_campaigns(
     audited (#2). NEVER raises — a store glitch degrades to an empty result."""
     try:
         campaigns = await state.campaign_correlator(None, state.execution_prefs)
-    except Exception as exc:  # noqa: BLE001 — best-effort; degrade to empty
-        logger.warning("campaign recorrelate failed (%s); returning empty", exc)
-        campaigns = []
-    stored: list[Campaign] = list(campaigns or [])
-    try:
-        if stored:
-            stored = await state.campaign_store.upsert_many(stored)
-    except Exception as exc:  # noqa: BLE001 — persistence is best-effort
-        logger.warning("campaign upsert failed (%s)", exc)
+        # A full pass is authoritative. Persist the exact set even when it is empty,
+        # otherwise stale campaigns survive forever after their graph disappears.
+        stored: list[Campaign] = await state.campaign_store.replace_all(
+            list(campaigns or [])
+        )
+    except Exception as exc:  # noqa: BLE001 — return truthful failure, never false success
+        logger.warning("campaign recorrelate failed (%s)", exc)
+        raise HTTPException(
+            status_code=503,
+            detail="campaign reconciliation could not be completed or persisted",
+        ) from exc
     await _audit(
         state, request, "campaigns_recorrelate",
         f"built {len(stored)} campaign(s) over {sum(len(c.case_ids) for c in stored)} case-links",

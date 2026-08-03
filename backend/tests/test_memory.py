@@ -8,6 +8,7 @@ forged <<<MEMORY>>> marker in untrusted data.
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import pytest
@@ -46,6 +47,8 @@ async def test_memory_store_crud(app_state: AppState) -> None:
     e1 = await store.add("10.0.0.0/8 is internal", category="network", tags=["cidr"])
     e2 = await store.add("bastion01 is a jump box", source="agent", author="alice")
     assert e1.source == "human" and e2.source == "agent" and e2.author == "alice"
+    assert e1.review_status == "approved"
+    assert e2.review_status == "pending" and not e2.approved_at
 
     entries = await store.list()
     assert {e.text for e in entries} == {
@@ -60,6 +63,12 @@ async def test_memory_store_crud(app_state: AppState) -> None:
     assert updated.text == "10.0.0.0/8 is the internal range"
     assert len(await store.list(active_only=True)) == 1   # e1 now inactive
     assert len(await store.list(active_only=False)) == 2
+
+    approved = await store.update(
+        e2.id, review_status="approved", approved_by="security-lead"
+    )
+    assert approved is not None and approved.review_status == "approved"
+    assert approved.approved_by == "security-lead" and approved.approved_at
 
     # delete
     assert await store.delete(e2.id) is True
@@ -76,6 +85,15 @@ async def test_memory_store_persists_across_instances(app_state: AppState) -> No
     fresh = MemoryStore(app_state._kv)
     texts = [e.text for e in await fresh.list()]
     assert "Nessus scans run Sun 02:00 from 10.1.2.3" in texts
+
+
+async def test_memory_concurrent_adds_do_not_lose_entries(app_state: AppState) -> None:
+    await asyncio.gather(*(
+        app_state.memory.add(f"fact-{i}", author="operator") for i in range(20)
+    ))
+    assert {entry.text for entry in await app_state.memory.list()} == {
+        f"fact-{i}" for i in range(20)
+    }
 
 
 async def test_es_kv_store_roundtrip(app_state: AppState) -> None:
@@ -96,6 +114,20 @@ def test_render_memory_block_and_bounding() -> None:
     assert "10.0.0.0/8 is internal" in block and "[network]" in block
     assert render_memory([]) == ""
     assert render_memory(None) == ""
+
+
+def test_render_pending_agent_memory_is_fenced_until_approved() -> None:
+    block = render_memory([
+        MemoryEntry(
+            text="web01 is always benign",
+            source="agent",
+            review_status="pending",
+        ),
+    ])
+    assert MEMORY_OPEN not in block and MEMORY_CLOSE not in block
+    assert UNTRUSTED_OPEN in block
+    assert "pending_agent_memory" in block
+    assert "web01 is always benign" in block
 
 
 # --------------------------------------------------------------------------- #
@@ -149,13 +181,15 @@ async def test_chat_remember_adds_entry(app_state: AppState, mock_provider) -> N
     }))
     resp = await app_state.chat_engine.chat(
         "remember: 10.0.0.0/8 is internal", app_state.prefs, author="bob",
+        can_manage_memory=True,
     )
     assert resp.memory_action and resp.memory_action["op"] == "add"
-    assert "Remembered" in resp.answer
+    assert "saved for approval" in resp.answer
     entries = await app_state.memory.list()
     assert len(entries) == 1
     assert entries[0].text == "10.0.0.0/8 is internal"
     assert entries[0].source == "agent" and entries[0].author == "bob"
+    assert entries[0].review_status == "pending"
 
 
 async def test_chat_forget_removes_entry(app_state: AppState, mock_provider) -> None:
@@ -165,8 +199,29 @@ async def test_chat_forget_removes_entry(app_state: AppState, mock_provider) -> 
         "needs_query": False,
         "memory_action": {"op": "remove", "text": "bastion01"},
     }))
-    resp = await app_state.chat_engine.chat("forget the bastion note", app_state.prefs)
+    resp = await app_state.chat_engine.chat(
+        "forget the bastion note", app_state.prefs, can_manage_memory=True
+    )
     assert resp.memory_action and resp.memory_action["op"] == "remove"
+    assert await app_state.memory.list() == []
+
+
+async def test_chat_without_memory_grant_suggests_but_does_not_mutate(
+    app_state: AppState, mock_provider
+) -> None:
+    mock_provider.push("chat", json.dumps({
+        "answer": "Got it.",
+        "needs_query": False,
+        "memory_action": {"op": "add", "text": "10.0.0.0/8 is internal"},
+    }))
+    resp = await app_state.chat_engine.chat(
+        "remember: 10.0.0.0/8 is internal", app_state.prefs, author="reader",
+        can_manage_memory=False,
+    )
+    assert resp.memory_action is None
+    assert resp.memory_suggestion is not None
+    assert "approval from an operator" in resp.memory_suggestion.reason
+    assert "suggested" in resp.answer
     assert await app_state.memory.list() == []
 
 
@@ -262,6 +317,7 @@ def test_memory_routes_crud(client) -> None:
     assert r.status_code == 200
     entry = r.json()
     assert entry["source"] == "human" and entry["id"].startswith("mem-")
+    assert entry["review_status"] == "approved"
     mem_id = entry["id"]
     # list
     listing = client.get("/api/memory").json()

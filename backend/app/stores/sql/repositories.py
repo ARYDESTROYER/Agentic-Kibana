@@ -17,6 +17,7 @@ import logging
 from typing import Any
 
 from sqlalchemy import Float, Integer, cast, func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from ...config import Preferences
@@ -185,20 +186,46 @@ class SqlAuditRepository(AuditRepository):
 
     async def write(self, doc: AuditDoc) -> None:
         try:
-            payload = doc.model_dump(mode="json")
-            async with self._sm() as session:
-                session.add(
-                    AuditRow(
-                        ts=payload.get("ts", "") or "",
-                        case_id=payload.get("case_id"),
-                        action_type=payload.get("action_type", "") or "",
-                        doc=payload,
-                    )
-                )
-                await session.commit()
+            await self.write_strict(doc)
         except Exception as exc:  # noqa: BLE001
             logger.error("AUDIT WRITE FAILED (action=%s case=%s): %s",
                          doc.action_type, doc.case_id, exc)
+
+    async def write_strict(self, doc: AuditDoc) -> None:
+        """Append one row and propagate failure for privileged durability gates.
+
+        Privileged events may supply a deterministic ``event_id``. Map it to a
+        negative surrogate key (ordinary autoincrement rows are positive) so the
+        database primary key provides cross-process exactly-once insertion without
+        a schema migration. A duplicate is accepted only when the stored payload is
+        byte-equivalent; a hash collision fails closed.
+        """
+        payload = doc.model_dump(mode="json")
+        row_id: int | None = None
+        if doc.event_id:
+            digest = hashlib.sha256(doc.event_id.encode("utf-8")).digest()
+            row_id = -(int.from_bytes(digest[:8], "big") & ((1 << 63) - 1) or 1)
+        async with self._sm() as session:
+            session.add(
+                AuditRow(
+                    **({"id": row_id} if row_id is not None else {}),
+                    ts=payload.get("ts", "") or "",
+                    case_id=payload.get("case_id"),
+                    action_type=payload.get("action_type", "") or "",
+                    doc=payload,
+                )
+            )
+            try:
+                await session.commit()
+            except IntegrityError:
+                await session.rollback()
+                if row_id is None:
+                    raise
+                existing = await session.get(AuditRow, row_id)
+                if existing is None or dict(existing.doc or {}) != payload:
+                    raise RuntimeError(
+                        f"audit event id collision: {doc.event_id}"
+                    )
 
     async def record(
         self,
@@ -345,6 +372,30 @@ class SqlAuditRepository(AuditRepository):
             logger.warning("Audit records read failed: %s", exc)
             return []
 
+    async def export_page(
+        self, *, limit: int = 1000, cursor: Any = None,
+    ) -> tuple[list[dict[str, Any]], Any | None, int | None, str]:
+        """Oldest-first bounded page plus an exact ledger snapshot count."""
+        cap = max(1, min(int(limit or 1000), 5000))
+        try:
+            offset = max(0, int(cursor or 0))
+        except (TypeError, ValueError):
+            offset = 0
+        stmt = (
+            select(AuditRow)
+            .order_by(AuditRow.ts.asc(), AuditRow.id.asc())
+            .limit(cap)
+            .offset(offset)
+        )
+        async with self._sm() as session:
+            rows = (await session.execute(stmt)).scalars().all()
+            total = int(
+                (await session.execute(select(func.count()).select_from(AuditRow))).scalar()
+                or 0
+            )
+        next_cursor = offset + len(rows) if offset + len(rows) < total else None
+        return [dict(row.doc or {}) for row in rows], next_cursor, total, "bounded_at_start"
+
 
 class SqlUsageRepository(UsageRepository):
     """Cost/token ledger. Summary aggregates in Python (same as the ES store)."""
@@ -437,6 +488,30 @@ class SqlUsageRepository(UsageRepository):
         async with self._sm() as session:
             rows = (await session.execute(stmt)).scalars().all()
         return [dict(row.doc or {}) for row in rows]
+
+    async def export_page(
+        self, *, limit: int = 1000, cursor: Any = None,
+    ) -> tuple[list[dict[str, Any]], Any | None, int | None, str]:
+        """Oldest-first bounded page plus an exact usage-ledger snapshot count."""
+        cap = max(1, min(int(limit or 1000), 5000))
+        try:
+            offset = max(0, int(cursor or 0))
+        except (TypeError, ValueError):
+            offset = 0
+        stmt = (
+            select(UsageRow)
+            .order_by(UsageRow.ts.asc(), UsageRow.id.asc())
+            .limit(cap)
+            .offset(offset)
+        )
+        async with self._sm() as session:
+            rows = (await session.execute(stmt)).scalars().all()
+            total = int(
+                (await session.execute(select(func.count()).select_from(UsageRow))).scalar()
+                or 0
+            )
+        next_cursor = offset + len(rows) if offset + len(rows) < total else None
+        return [dict(row.doc or {}) for row in rows], next_cursor, total, "bounded_at_start"
 
     async def total_pipeline_cost_for_case(self, case_id: str) -> float | None:
         """Return all-time router/investigator/formatter spend for one case."""

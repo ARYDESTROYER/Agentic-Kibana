@@ -728,12 +728,18 @@ or stable.
 The product deliberately does **not** divide confirmed-positive cases by raw alerts and
 call the result a true-positive yield: clustering means those are different units.
 That measurement is explicitly unavailable until durable alert-to-case lineage can
-support a like-for-like denominator. Likewise, semantic recommendations such as
-"add outgoing DNS logs for this investigation class" remain a long-term objective;
-the current release does not invent a source recommendation from missing telemetry.
-The outcome map explains which supported observation concerns decision quality,
-closure speed, processing cost, or downstream volume without claiming that the AI
-caused the change.
+support a like-for-like denominator. The Agent Effectiveness response also keeps
+`source_guidance` unavailable because that aggregate contract has no governed
+case-specific proof. Separately, **Auto-tuning → Telemetry recommendations** reads
+`GET /api/tuning/source-recommendations` and reports only versioned, stored query/tool
+failures proving that a supported field was unavailable. The v1 mapping is deliberately
+narrow: outbound DNS (`dns.question.name`), endpoint process
+(`process.command_line`), and identity-authentication method
+(`user.authentication_method`). Missing connector configuration and free-form model
+prose are never evidence; an empty evidence set returns `not_available`, not a guessed
+recommendation. The outcome map explains which supported observation concerns decision
+quality, closure speed, processing cost, or downstream volume without claiming that the
+AI caused the change.
 
 **Platform → Auto-tuning → Outcomes** shows a focused summary of the same report. It
 adds the durable volume comparison and applied-change chronology, always marked
@@ -802,12 +808,27 @@ source (`runbook` / `mitre` / `suppression` / `resolved_case`).
 | Delete a document | `DELETE /api/rag/documents/{id}?force=` | seeds need `force=true` (see below) |
 | Run a live test retrieval | `GET /api/rag/search?q=&top_k=` | shows EXACTLY what RAG returns for a query |
 
+The managed corpus follows the saved RAG source switches, not just the state that
+existed at first seed. Changes to `rag.enabled`, `rag.use_runbooks`,
+`runbooks.enabled`, `rag.use_mitre`, `rag.use_resolved_cases`,
+`rag.use_suppression_rules`, or `rag.use_threat_context` reconcile the corresponding
+managed projections while leaving operator-imported documents untouched. Live
+retrieval enforces the same switches, so a disabled source cannot remain effective
+because an older chunk still exists.
+
 **Import a document.** On the Knowledge page, paste text into the import textarea or
 upload a `.txt` / `.md` / `.json` / `.csv` file (read client-side, then sent as
 text). Give it a title (and optional tags); the backend chunks it
 (`engine/chunking.chunk_text` — dependency-free paragraph-pack with overlap),
 embeds each chunk through the single gateway, and indexes it into the same vector
 store the investigator retrieves from. Imported docs are immediately retrievable.
+The embedding role is capability-validated and defaults to the dedicated
+`text-embedding-3-small` assignment. Empty, all-zero, mixed-dimension, and
+cardinality-mismatched vectors fail before a partial write. Changing embedding space
+clears and reseeds the managed corpus rather than mixing dimensions. If the explicit
+local hash fallback is used, stats/chunk provenance records its actual provider/model
+and `embedding_fallback=true`; fallback vectors are not represented as provider
+embeddings.
 
 **Browse + inspect chunks.** The documents table lists every document with its
 source, tags, and chunk count; open one to see its individual chunks in a flyout (so
@@ -834,44 +855,46 @@ for the force confirmation). This prevents accidentally wiping the baseline corp
 
 ## 10. Agent memory — durable operator facts
 
-The suite carries a small, durable **memory** of operator-supplied facts
-(Claude.ai-style: "remember this"), so the agent applies your standing context to
-every investigation and chat without you repeating it. Each `MemoryEntry` has
-`text`, an optional `category` and `tags`, a `source` (`human` when you edit it
-directly, `agent` when you told the agent to remember it in chat), an `author`, and
-an **`active`** flag. Memory is stored via the existing KV layer (no new index /
-migration) in whatever `STATE_BACKEND` you run.
+The suite carries a small, durable **memory** of human-governed operator facts so an
+approved standing fact can inform later investigations and chat without being repeated.
+Each `MemoryEntry` has `text`, optional `category`/`tags`, a `source` (`human` or
+`agent`), an `author`, an `active` flag, and a `review_status` of `approved` or
+`pending`. Memory uses the existing strict-CAS KV layer in the selected
+`STATE_BACKEND`; a successful mutation is durable and concurrent updates cannot
+silently overwrite one another.
 
-**How it's used (and its limits).** Active memory is injected into BOTH automated
-investigations and chat as a **DISTINCT `<<<MEMORY>>>` TRUSTED block** — separate
-from the fenced UNTRUSTED evidence, with the precedence
-`policy > base-prompt > playbook > MEMORY > untrusted`. Critically, **memory only
-informs the LLM; it can NEVER override the deterministic Case Manager** (the
-close/escalate decision stays code-controlled — non-negotiable #3). Forged
-`<<<MEMORY>>>` markers in event data are neutralised by `fence()`.
+**How it is used (and its limits).** Only entries that are both **active and approved**
+enter the distinct TRUSTED `<<<MEMORY>>>` block in investigations and chat, with the
+precedence `policy > base-prompt > playbook > MEMORY > untrusted`. Pending
+agent-authored suggestions are review candidates and remain UNTRUSTED-fenced; they do
+not become standing instructions merely because a model proposed them. Legacy
+`source=agent` entries without review metadata migrate to pending on read, while legacy
+human entries remain approved. Memory can inform the LLM but can never override the
+deterministic Case Manager (non-negotiable #3). Forged `<<<MEMORY>>>` markers in event
+data are neutralised by `fence()`.
 
-**Add / edit / remove on the Memory page** (`webui/src/soc/pages/Memory.tsx`, under
-the **Intelligence** nav group): add a fact, inline-edit its text, toggle it
-**active/inactive**, or delete it. A human-vs-agent **source badge** shows where
-each fact came from.
+**Add / review / edit / remove on the Memory page**
+(`webui/src/soc/pages/Memory.tsx`, under **Intelligence**) requires `memory:manage` for
+mutations. A direct authorized `POST /api/memory` creates approved human memory. An
+authorized `PUT /api/memory/{id}` can edit/toggle it or approve a pending entry and
+records the approver/time; `DELETE` removes it. Readers can distinguish source and
+review state. The Approvals queue can also materialize an approved memory proposal.
 
-**…or in Chat.** Say **"remember: <fact>"** to store a fact (saved with
-`source=agent`, audited) or **"forget …"** to deactivate one. Chat surfaces two
-distinct things in its JSON: a `memory_action` that was **executed** deterministically
-(you see a calm confirmation echo), and a `memory_suggestion` — a dismissible
-"remember this?" prompt that is **never auto-saved**; clicking it calls
-`POST /api/memory`.
+**…or in Chat.** Chat never bypasses RBAC. An authorized **"remember: <fact>"** stores
+an audited `source=agent`, **pending** entry; an unauthorized request becomes a
+non-persisted suggestion, and an unauthorized forget request is a no-op. A human with
+`memory:manage` must approve the pending entry before it can enter trusted context.
 
 | Action | Endpoint |
 |---|---|
 | List memory facts | `GET /api/memory` |
-| Add a fact | `POST /api/memory` (`{ text, category?, tags? }`, `source=human`) |
-| Edit / toggle active | `PUT /api/memory/{id}` |
+| Add an approved human fact (`memory:manage`) | `POST /api/memory` (`{ text, category?, tags? }`) |
+| Edit, toggle active, or approve pending (`memory:manage`) | `PUT /api/memory/{id}` |
 | Delete a fact | `DELETE /api/memory/{id}` |
 
-**Active vs inactive.** Only **active** facts are injected into prompts; toggling a
-fact inactive keeps it for the record but stops it influencing the agent — the
-non-destructive way to retire guidance.
+**Active vs review state.** `active` controls whether an approved fact is currently in
+use; `review_status` controls whether it is trusted at all. An inactive approved fact
+is retained but not injected. A pending fact is not trusted regardless of `active`.
 
 ---
 
@@ -890,9 +913,11 @@ Every case can explain itself, right where you're already looking: `CaseDetail`'
   everything it was handed; the rationale object — assembled defensively from the
   case + audit trail — surfaces: the investigator's **reasoning** excerpt; **RAG
   knowledge retrieved** and separately labelled **runbook references retrieved**
-  (each with its source + snippet); approved operator **memory consulted** (§10);
+  (each with source, bounded snippet, document id, revision/content hash, score, and
+  the retrieval query groups that produced it); approved operator **memory consulted** (§10);
   the exact **tool calls / ES queries** run; **enrichment** pulled; and the routed
-  **persona**, **playbook actually injected and consulted** (+ version/why), **MITRE**
+  **persona** and **playbook** with explicit selected-versus-consulted state,
+  selection reason and consultation path (+ version/why), **MITRE**
   techniques, and evidence list. When the case traversed a threshold previously
   changed by Agentic SOC, it also shows the immutable platform tuning snapshot
   (scope, before/after values, rationale, and applied time). This is deterministic
@@ -905,9 +930,10 @@ Every case can explain itself, right where you're already looking: `CaseDetail`'
 
 The rationale projection is scoped to the **latest investigation run**. An earlier
 run's memory, retrievals, playbook, tools, or tuning snapshot cannot leak into a later
-re-investigation. A playbook being selected for a case is not enough to display it:
-the Console shows it only when that run actually injected it into investigator
-context. These inputs may inform preprocessing or the model assessment; deterministic
+re-investigation. Overview defaults to inputs actually consulted/applied; Investigation
+may additionally disclose a persona or playbook that the router selected but a cheap
+route or kill switch prevented from being consulted. It never promotes selected-only
+procedure metadata into consulted provenance. These inputs may inform preprocessing or the model assessment; deterministic
 case policy remains the final close/escalate route authority.
 
 The separate **Timeline** tab is deliberately narrower: it is ONLY the "what
@@ -939,10 +965,25 @@ resulting re-investigation renders in place.
 Manage procedures under **Intelligence → Playbooks**. Any user with
 `playbooks:read` can browse and open the plain Markdown source. Bundled procedures
 are visibly protected; `playbooks:manage` adds **New playbook** and **Edit** for
-operator-owned files. Creates and updates are slug/path constrained, bounded to
-256 KiB UTF-8, atomically written, hot-reloaded, and append-only audited. There is
-no runtime delete endpoint in v0.1. Editing guidance never changes the deterministic
-case-decision authority.
+operator-owned records. Bundled procedures are immutable package data; operator
+procedures are strict-CAS StateStore records, so they survive image replacement on
+Elasticsearch, PostgreSQL, or SQLite without a new table/index. A successful create or
+update means the durable write was confirmed and the active catalog was atomically
+refreshed. Creates/updates are slug constrained, individually bounded to 256 KiB,
+limited to 100 operator procedures and 2 MiB aggregate content, hot-reloaded, and
+append-only audited. Send the current `expected_revision` on update; a stale save is
+rejected with `409`, after which the client must reload. There is no runtime delete
+endpoint in v0.1. The rendered trusted procedure context is independently bounded to
+2,400 characters. Editing guidance never changes deterministic case-decision authority.
+
+`POST /api/playbooks/dry-run` accepts up to 100 `rule_ids`, one `entity_type`, and an
+`event_count` from 0 through 1,000,000, then explains the exact deterministic match or
+no-match reason. It never invokes an LLM, investigation, or `decide()`. `GET
+/api/playbooks/coverage` scans up to 20,000 stored cases and reports covered/uncovered
+counts, selected procedure counts, truncation, and the top 100 unmatched rule families.
+Selection is exact/deterministic—there is no fuzzy or model-selected fallback. `GET
+/api/playbooks/selection/{case_id}` exposes the persisted selection explanation for a
+case.
 
 **Threat context** (`GET /api/cases/{id}/threat-context`) assembles a defensive,
 **fail-open** panel for the case (each section degrades independently if its source
@@ -960,14 +1001,16 @@ is missing), shown as the **Threat** tab (§3):
 All untrusted log / intel text renders as plain text / code blocks (#9). You can
 grow the intel corpus with `POST /api/threat-context/import` (admin) — `{ title,
 content, tags? }` — which chunks the doc into RAG as `source="threat_context"` and
-injects it as a fenced TRUSTED block at investigation time.
+injects retrieved text as fenced UNTRUSTED context at investigation time.
 
-**Resolved-case knowledge loop.** When a case transitions to `closed`/`resolved`,
-the suite auto-chunks it into the RAG corpus (`source="resolved_case"`, best-effort,
-never blocks the action) so future investigations retrieve *"we've seen this
-before."* Gated by `rag.enabled` + `threat_context.reuse_resolved_cases` /
-`rag.use_resolved_cases`. (Resolved-case text is UNTRUSTED-fenced when retrieved —
-see §9.)
+**Resolved-case knowledge loop.** A terminal case is eligible for the reusable RAG
+corpus only when its outcome was independently analyst-confirmed. Model-only verdicts,
+inferred terminal dispositions, and auto-closed outcomes are excluded, preventing the
+agent from training its retrieval context on its own prior inference. Eligible cases
+are best-effort chunked as `source="resolved_case"`; indexing never blocks the action
+and remains gated by `rag.enabled` + `threat_context.reuse_resolved_cases` /
+`rag.use_resolved_cases`. Resolved-case text is still UNTRUSTED-fenced when retrieved
+(§9); analyst confirmation makes it eligible evidence, not trusted instructions.
 
 ---
 
@@ -1024,7 +1067,11 @@ the engine reads, replacing the old scattered per-rule editors:
   order **after** the Case Manager decides — `tag` (add a tag), `recommend`
   (attach a recommendation), `notify` (fire a notification, §23), `run_playbook`
   (queue a context-only re-investigation, §12), or `request_approval` (raise a
-  HITL `Proposal` — the admin-gated approve/reject queue). `PUT
+  HITL `Proposal` — the permission-gated approve/reject queue). A complete
+  suppression payload remains a suppression proposal and an explicit Memory payload
+  remains governed Memory. A generic, partial, or unknown approval request is an
+  `automation_ack`: approving it records operator acknowledgement only and does not
+  change configuration, create Memory, add suppression, or move a case. `PUT
   /rules/case-automation/{rule_id}`, `POST /rules/case-automation/{rule_id}/
   enabled`, `DELETE /rules/case-automation/{rule_id}`.
 
@@ -1064,19 +1111,24 @@ per-rule editor left inside it.
 ## 15. Adaptive threshold auto-tuning
 
 **Auto-tuning** (top-level **Platform** nav item, backed by
-`engine/threshold_tuner.py`) is a nightly, deterministic observer — default **ON**
-since Round 10 (§33; `shadow_eval` is **forced on**, even for a migrated tenant) —
-that measures each detection rule's noise (a Wilson-lower-bound false-positive
-rate + a minimum-sample gate + EWMA smoothing) and proposes a **bounded +1** nudge
-to a rule's correlation `n` or a feed's `severity_floor`. A cold tenant under the
-`min_samples` gate (default 30) simply proposes nothing yet.
+`engine/threshold_tuner.py`) is a nightly deterministic observer—default **ON**
+since Round 10 (§33; `shadow_eval` is **forced on**, even for a migrated tenant).
+Its learning denominator is deliberately narrower than the cases it observes: only
+the latest valid independent analyst outcome/adjudication can count as FP or confirmed
+TP evidence. Model verdicts, inferred terminal dispositions, and auto-closed outcomes
+are recorded as **unconfirmed** and cannot authorize a tuning write. It applies the
+minimum-sample gate, Wilson lower bound, EWMA, and shadow replay to propose a bounded
+`+1` nudge to correlation `n` or a feed's `severity_floor`. A cold tenant under
+`min_samples` (default 30 analyst-confirmed outcomes) remains Collecting.
 
 | Action | Endpoint |
 |---|---|
-| Recommendations (current noise + the proposed change + the ledger) | `GET /api/tuning/recommendations` |
-| Read / update the tuner config | `GET`/`PUT /api/tuning/config` |
-| Process every current proposal for one rule | `POST /api/tuning/{rule_id}/apply` |
-| Roll back the latest applied change | `POST /api/tuning/{rule_id}/rollback` |
+| Recommendations (observed, analyst-confirmed/unconfirmed split, proposal, ledger) | `GET /api/tuning/recommendations` (`automation:read`) |
+| Read / update policy, including `auto_apply_confirmed` | `GET`/`PUT /api/tuning/config` (`automation:read/manage`) |
+| Recompute and process every current proposal for one rule | `POST /api/tuning/{rule_id}/apply` (`automation:manage`) |
+| Roll back the latest applied change | `POST /api/tuning/{rule_id}/rollback` (`automation:manage`) |
+| Query-backed telemetry gaps | `GET /api/tuning/source-recommendations` (`cases:read`) |
+| Worker attempt/success/error health | `GET /api/schedulers/health` (`settings:read`) |
 
 The page separates work into **Operations**, **Outcomes**, and **Policy & history**.
 Operations is the default rule/recommendation workflow. Outcomes reads the
@@ -1085,24 +1137,44 @@ reporting-only `GET /api/metrics/agent-improvement` aggregate for operators with
 tuning controls. Policy & history holds the append-only ledger and tuner policy.
 
 Operations separates rules into **Collecting**, **Within target**, and **Needs
-attention**. Collecting means the rule has fewer than `min_samples`; Within target and
-Needs attention are assigned only after that sample threshold is met, using the Wilson
-lower-bound rate against policy. The UI names both measurements: the **observed FP
-ratio** is the raw `fp / verdict-bearing closed cases` context, while the
-**conservative FP estimate** is the Wilson lower bound that gates policy. A gap from
-the policy target is shown in **percentage points**, not as percentage change.
+attention**. Collecting means the rule has fewer than `min_samples` independently
+confirmed labels; Within target and Needs attention are assigned only after that
+threshold, using the Wilson lower-bound rate against policy. The API distinguishes all
+`observed` cases from `analyst_samples`, `unconfirmed`, `fp`, and `tp`. The UI names
+both measurements: the **observed FP ratio** is `fp / analyst-confirmed outcomes`, while
+the **conservative FP estimate** is the Wilson lower bound that gates policy. A gap
+from target is shown in **percentage points**, not as percentage change.
 
 The Review queue is grouped by rule because Apply is rule-scoped, not
 recommendation-kind-scoped. One request recomputes every current proposal for that
-rule, applies eligible bounded changes, and queues suppression or replay-blocked changes
-for human review. Each queued row and the selected-rule inspector answer, in order:
+rule. With the safe default `auto_apply_confirmed=false`, eligible bounded changes
+enter the HITL **Approvals** queue; suppression always enters it. Explicit auto-apply
+requires an authorized configuration opt-in plus sufficient analyst evidence and a
+clean shadow replay. Each queued row and the selected-rule inspector answer, in order:
 **why it needs attention**, **recommended action**, **expected operational effect**,
 and **safety replay**. **Eligible after replay** means the evidence and safeguards will
 be recomputed before any write; it is not a guarantee that the change will apply. The
 All monitored rules list supports search and state filtering; selecting a rule opens an
 in-context inspector at 1536px+ or a focus-managed Sheet below that width. Policy &
 history presents the editable tuner policy first and the append-only ledger after it;
-rollback is offered only for the newest active reversible change for a rule.
+rollback is offered only for the newest active reversible change for a rule. Historical
+auto-applied tuner rows remain visible for review/rollback rather than being silently
+reversed during migration to the review-first default.
+
+Approvals is independently RBAC-gated: `GET /api/proposals` requires
+`proposals:read`; approve/reject requires `proposals:approve`. Built-in Analyst Tier 1,
+Analyst Tier 2, Responder, and Auditor roles can read; Responder and management roles
+with the approve grant can decide. Tuning approval recomputes/materializes the bounded
+change rather than trusting stale proposal text; a stale threshold returns `409` and
+must be reviewed again. Reject leaves preferences unchanged and history remains
+auditable. Approval first acquires a strict `pending -> applying` compare-and-set
+claim, materialises at most once using the proposal id, then strictly finalises the
+status. Concurrent decisions return `409`; a storage failure is shown and remains
+retryable rather than being reported as success. An approved Memory proposal is not
+reported successful until its trusted fact is durably confirmed. Approve and reject
+also write strict append-only control-audit evidence before final status; a stable
+per-proposal event id makes that evidence retry-idempotent, and no successful response
+is returned when the audit ledger cannot confirm the row.
 
 In Outcomes, agreement and correction remain one analyst-grade quality domain; human
 review turnaround is the independent second domain, and evaluable safety guardrails
@@ -1117,14 +1189,14 @@ The same workspace can show durable **ingested** and **after clustering** counts
 applied tuning events inside the comparison horizon. Those rows are observational and
 carry `causal_claim=false`: a tune can change correlation or downstream promotion, not
 raw source emission. A lower clustered/opened workload after a change is therefore
-useful review context, not a causal result. True-positive/raw-alert yield and semantic
-"add this log source" guidance remain explicitly unavailable in this release.
+useful review context, not a causal result. True-positive/raw-alert yield remains
+unavailable. Telemetry-source advice is a separate evidence-only surface (§7): it
+supports three controlled v1 mappings and returns nothing until a stored query/tool
+attempt proves a gap. It never infers advice from connector absence.
 
 The tuner **never imports `case_manager`/`decide()`, risk weights, or
-signatures** — it only moves detection-*volume* knobs the pipeline already reads
-live. A proposed **suppression DROP is never auto-applied**: it is always routed
-to the HITL `Proposal` queue (the **Approvals** page under **Triage**) for a
-human to accept. Every
+signatures**—it only moves detection-*volume* knobs the pipeline already reads live.
+A proposed **suppression DROP is never auto-applied**. Every
 apply/rollback/config change is shadow-evaluated first and writes an append-only
 `ActionType.TUNING` audit row, so a bad tune is always visible and always
 reversible.
@@ -1134,10 +1206,13 @@ reversible.
 ## 16. Campaigns — cross-case shared-entity correlation
 
 **Campaigns** (a top-level **Triage** nav item, backed by `engine/campaigns.py`,
-default **ON** since Round 10, §33) runs a **daily deterministic** pass over shared
-entities across already-created cases and groups related ones into a `Campaign`
-object — the same idea as §13's cross-source linkage, but running over the whole
-case store rather than a live correlation window.
+default **ON** since Round 10, §33) runs a deterministic pass over shared entities
+across already-created cases and groups related ones into a `Campaign` object—the
+same idea as §13's cross-source linkage, but over the case store rather than a live
+correlation window. The worker enforces the configured hourly/daily/weekly cadence;
+`manual` never runs in the background. Each completed pass performs full-set active
+reconciliation, removes campaigns that disappeared from the latest snapshot, and
+records a durable `last_reconciled_at` success anchor.
 
 | Action | Endpoint |
 |---|---|
@@ -1151,6 +1226,10 @@ A campaign only **references** `case_ids`; it never recomputes or mutates a
 case's `cluster_signature`, and it can never close or escalate a member case — a
 `NEEDS_HUMAN` case that joins a campaign stays `NEEDS_HUMAN` (non-negotiable #3,
 #4). The CaseDetail Overview tab shows a campaign chip when a case belongs to one.
+Campaign operation is still single-replica/process-local: there is no distributed
+lease or immutable split/merge lifecycle history, and the pass remains bounded. Use
+`GET /api/schedulers/health` to distinguish disabled, manual/gated, running, failed,
+and last-success states for the tuner, campaign correlation, and batch worker.
 
 ---
 
@@ -1667,29 +1746,39 @@ source.
 
 ### Portable application-state export
 
-**Settings → Organization → Data export** downloads a bounded, canonical JSON
-snapshot for offline support or analysis. Choose all safe scopes or a subset of
-`cases`, `audit`, `usage`, `configuration`, `automation`, and `knowledge`, then set
-`limit_per_scope` from 1–5000 (default 1000). For grouped scopes the cap applies to
-the whole scope: automation fairly samples proposals, tuning state, campaigns,
-Batch jobs, and rule versions; knowledge fairly samples operator memory, document
-metadata, and custom-model metadata. The manifest reports count, total when known,
-and truncation for each scope.
+**Settings → Organization → Data export** downloads all records in selected supported
+safe scopes as canonical, numbered JSON segments. Choose `cases`, `audit`, `usage`,
+`configuration`, `automation`, and/or `knowledge`, then set **Records per file** from
+500–5000. This is a per-response safety bound, not a full-history ceiling. The Console
+continues automatically until every scope explicitly reports complete, shows progress,
+and can cancel an unfinished export.
 
 This export intentionally excludes environment/source credentials, users and
 sessions, password/MFA material, browser tokens, upstream raw logs, and raw knowledge
 chunks; a final recursive sanitizer also removes credential-shaped fields and common
-secret patterns. The response is capped at 25 MiB. It is **not** an import format,
-database dump, or backup/restore substitute. Every request is audited and requires
-`data_export:export`, granted by default to `super_admin` and `soc_manager` and
-available to a deliberately configured custom role.
+secret patterns. Each compact response—and the compact segment file the Console saves
+from it—is capped at 25 MiB. It is **not** a whole-application
+export, import format, database dump, or backup/restore substitute; chat,
+collaboration, identity/session state, user preferences, and raw RAG chunks are also
+outside its supported scopes. Every segment is audited and requires
+`data_export:export` plus fresh authentication. Elasticsearch scopes disclose an
+exact PIT snapshot; SQL/KV paths disclose their weaker bounded/live semantics.
+If any selected registry cannot be read completely, or the append-only delivery audit
+cannot be persisted, the server returns an error and the Console stops without claiming
+that scope is complete.
 
 ```bash
-curl -sS -b cookies.txt -X POST localhost:8088/api/admin/export \
+curl -sS -b cookies.txt -X POST localhost:8088/api/admin/export/segment \
   -H 'content-type: application/json' \
-  -d '{"scopes":["cases","audit","automation"],"limit_per_scope":1000}' \
-  --output agentic-soc-export.json
+  -d '{"scope":"audit","page_size":1000}' \
+  --output agentic-soc-audit-part-00001.json
 ```
+
+Pass the response's `segment.next_cursor` in the next request and continue until
+`segment.complete` is true. PIT cursors use a renewable ten-minute keep-alive; after
+expiration or backend restart, restart that scope. Automation and knowledge are
+currently materialized from their KV collections before being sliced into response
+segments, so exceptionally large catalogs have a known server-memory limitation.
 
 ### Polling & detection
 
@@ -2158,7 +2247,7 @@ curl -s -b cookies.txt "localhost:8088/api/audit?source_id=prod-es&limit=50"   #
 ## 32. Using the API directly (`curl`)
 
 Every surface is backed by an HTTP route under `/api` — the base monolith
-(`backend/app/api/routes.py`) plus 20 auto-discovered `routes_*.py` feature
+(`backend/app/api/routes.py`) plus 26 auto-discovered `routes_*.py` feature
 routers (`main.py::discover_feature_routers()`; no manual registration needed).
 You can drive them directly for ops/automation. Examples below hit the backend on
 `localhost:8088` (the agnostic stack publishes it); through the web UI's nginx,
@@ -2167,7 +2256,7 @@ the same paths work under the SPA origin (e.g. `http://localhost:8080/api/...`).
 ```bash
 # Health
 curl -s localhost:8088/api/health
-# -> {"status":"ok","version":"0.1.1","es_connected":true,"store_type":"...","setup_complete":true}
+# -> {"status":"ok","version":"0.1.2","es_connected":true,"store_type":"...","setup_complete":true}
 # NOTE: "store_type" is the log-surface ES CLIENT CLASS ("RealESClient" /
 # "InMemoryESClient") — it never reports your STATE_BACKEND (elasticsearch /
 # postgres / sqlite). "InMemoryESClient" with no pull source wired is expected,
@@ -2301,7 +2390,13 @@ curl -s -X POST localhost:8088/api/playbooks \
   -d '{"id":"credential_response","content":"---\nid: credential_response\nname: Credential response\nversion: 1\n---\n## Procedure\n1. Validate the signal.\n"}'
 curl -s -X PUT localhost:8088/api/playbooks/credential_response \
   -H 'content-type: application/json' \
-  -d '{"content":"---\nid: credential_response\nname: Credential response\nversion: 2\n---\n## Procedure\n1. Validate and contain.\n"}'
+  -d '{"content":"---\nid: credential_response\nname: Credential response\nversion: 2\n---\n## Procedure\n1. Validate and contain.\n","expected_revision":1}'
+
+# Exact-match diagnostics and bounded stored-case coverage (playbooks:read)
+curl -s -X POST localhost:8088/api/playbooks/dry-run \
+  -H 'content-type: application/json' \
+  -d '{"rule_ids":["sshd"],"entity_type":"ip","event_count":12}'
+curl -s localhost:8088/api/playbooks/coverage
 
 # Threat context for a case (IOC reputation + MITRE + related cases; fail-open)
 curl -s localhost:8088/api/cases/case-abc123/threat-context
@@ -2379,6 +2474,8 @@ curl -s localhost:8088/api/rules/detection/sshd/versions
 curl -s localhost:8088/api/campaigns
 curl -s localhost:8088/api/baseline/stats
 curl -s localhost:8088/api/tuning/recommendations
+curl -s localhost:8088/api/tuning/source-recommendations
+curl -s localhost:8088/api/schedulers/health
 curl -s localhost:8088/api/batch/jobs
 
 # Custom dashboards (§21)
@@ -2472,7 +2569,7 @@ curl -s -b cookies.txt localhost:8088/api/notifications/inbox
 
 ---
 
-## 33. Autopilot — smart defaults, self-tuning, and coverage
+## 33. Autopilot — smart defaults, governed tuning, and coverage
 
 **Round 10** flipped the suite's out-of-the-box posture: instead of waiting for an
 operator to opt every source and every detection knob in, the suite now **reads and
@@ -2533,13 +2630,14 @@ warning-only mode. A budget-blocked investigation fails safe to `NEEDS_HUMAN`
 ### What's ON by default now, and what's still opt-in
 
 **Default ON (Round 10):** background scan (above), the deterministic risk gate,
-the budget backstop, **adaptive threshold tuning** (§15, with `shadow_eval`
-**forced on** even for a migrated tenant), **campaigns** (§16), **cross-source
+the budget backstop, the **adaptive threshold observer** (§15, with `shadow_eval`
+**forced on** even for a migrated tenant but preference writes review-first unless
+`auto_apply_confirmed` is explicitly enabled), **campaigns** (§16), **cross-source
 correlation** (§13), the **SLA policy** and **priority matrix** (advisory
 badges/reporting), **realtime SSE** (the live-update plumbing behind §0's app
 shell), the **threshold-automation engine** (§14 — the engine runs, but ships with
 an empty `rules: []`, so it is a byte-identical no-op until an operator adds a
-rule), and **entity baseline** (§17) as a pure producer — it learns from day one
+rule), and **entity baseline** (§17) as a pure statistical producer—it accumulates from day one
 (the warm-up gauge + a silent-source/volume-flood detector) but still never
 triggers an investigation by itself.
 

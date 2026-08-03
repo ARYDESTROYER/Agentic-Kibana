@@ -13,7 +13,7 @@ reference, and release material live in the same searchable portal.
 
 !!! info "Matched to this app"
 
-    **Documentation 0.1** describes **Agentic SOC 0.1.1**. The application bundles this
+    **Documentation 0.1** describes **Agentic SOC 0.1.2**. The application bundles this
     Help Center from the same accepted source and serves it on the application
     origin under `/docs/0.1/`. Use it as the authority for the behavior and controls
     available in the running build. The channel badge identifies whether that build
@@ -142,12 +142,14 @@ does not replace the version-matched Help Center bundled with the application.
 
 Agentic SOC uses one promotion path: feature branches merge into **Testing**, and the
 accepted source tree promotes through a protected pull request to **`main` /
-Stable**. Code and images use SemVer `0.1.1`; compatible documentation uses the
+Stable**. The current beta patch candidate uses SemVer `0.1.2`; compatible documentation uses the
 major.minor line `0.1`.
 
 The repository now uses default `main` for accepted source, retains `Testing` for
-integration, and has the `v0.1.1` release tag. Repository protections and the native
-Pages deployment remain administrator-controlled and must be verified independently
-before treating a branch, workflow run, or public URL as accepted. Read
-[Agentic SOC 0.1](releases/0.1.md), [release channels and versioning](releases/channels.md),
-and [known limitations](releases/known-limitations.md) before deployment.
+integration, and has the prior `v0.1.1` Stable tag. The candidate becomes Stable
+only after verified `main` promotion and the immutable `v0.1.2` tag. Repository
+protections and the native Pages deployment remain administrator-controlled and
+must be verified independently before treating a branch, workflow run, or public
+URL as accepted. Read [Agentic SOC 0.1.2](releases/0.1.2.md),
+[release channels and versioning](releases/channels.md), and
+[known limitations](releases/known-limitations.md) before deployment.

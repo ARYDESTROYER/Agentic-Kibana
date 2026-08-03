@@ -7,9 +7,11 @@ over the fake ES, and chat grounding with/without RAG.
 
 from __future__ import annotations
 
+import pytest
+
 from app.agents.common import rag_query
 from app.config import Preferences, Secrets
-from app.constants import CaseStatus, EntityType, Verdict
+from app.constants import CaseStatus, DecisionBy, Disposition, EntityType, Verdict
 from app.es.fake import InMemoryESClient
 from app.llm.gateway import LLMGateway
 from app.llm.providers import EmbeddingResult, MockProvider
@@ -51,6 +53,44 @@ class _DimProvider(MockProvider):
         return EmbeddingResult(vectors=vectors, tokens=sum(len(t) for t in texts))
 
 
+class _ShortBatchProvider(MockProvider):
+    async def embed(self, texts: list[str], model: str) -> EmbeddingResult:
+        return EmbeddingResult(vectors=[[1.0, 0.0] for _ in texts[:-1]], tokens=1)
+
+
+class _FailEmbeddingProvider(MockProvider):
+    async def embed(self, texts: list[str], model: str) -> EmbeddingResult:
+        raise RuntimeError("embedding endpoint unavailable")
+
+
+class _SwitchingCardinalityProvider(MockProvider):
+    """Succeeds once, then returns a malformed batch for reconciliation tests."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.malformed = False
+
+    async def embed(self, texts: list[str], model: str) -> EmbeddingResult:
+        vectors = [[1.0, 0.0] for _ in texts]
+        if self.malformed and vectors:
+            vectors.pop()
+        return EmbeddingResult(vectors=vectors, tokens=max(1, len(texts)))
+
+
+class _DimThenMalformedProvider(_DimProvider):
+    """Change query space, then fail only the replacement corpus batch."""
+
+    def __init__(self, dim: int) -> None:
+        super().__init__(dim)
+        self.malformed_bulk = False
+
+    async def embed(self, texts: list[str], model: str) -> EmbeddingResult:
+        result = await super().embed(texts, model)
+        if self.malformed_bulk and len(texts) > 1:
+            result.vectors.pop()
+        return result
+
+
 def _gateway_with(provider: MockProvider) -> LLMGateway:
     secrets = Secrets(_env_file=None)  # type: ignore[call-arg]
     usage = UsageStore(InMemoryESClient())
@@ -72,6 +112,13 @@ def _closed_case(case_id: str, ip: str, verdict: Verdict) -> Case:
         evidence=[EvidenceItem(summary="Sustained SSH brute force burst across many users")],
         recommended_action="Block the source IP at the perimeter.",
         status=CaseStatus.CLOSED,
+        decision_by=DecisionBy.ANALYST,
+        disposition=(
+            Disposition.TRUE_POSITIVE
+            if verdict == Verdict.TRUE_POSITIVE
+            else Disposition.FALSE_POSITIVE
+        ),
+        history=[{"event": "analyst_action", "action": "set_disposition"}],
         created_at=iso_now(),
         updated_at=iso_now(),
     )
@@ -114,6 +161,67 @@ async def test_resolved_cases_disabled_when_pref_off() -> None:
     assert all(c.source != "resolved_case" for c in chunks)
 
 
+async def test_source_toggle_reconciles_after_service_was_seeded() -> None:
+    prefs = Preferences()
+    prefs.rag.min_score = 0.0
+    rag = RagService(_gateway(), prefs)
+    await rag.ensure_seeded()
+    assert (await rag.rag_stats())["by_source"].get("mitre", 0) > 0
+
+    disabled = prefs.model_copy(update={
+        "rag": prefs.rag.model_copy(update={"use_mitre": False}),
+    })
+    rag.set_prefs(disabled)
+    await rag.ensure_seeded()
+    assert (await rag.rag_stats())["by_source"].get("mitre", 0) == 0
+    assert all(c.source != "mitre" for c in await rag.retrieve("T1110", top_k=50))
+
+    rag.set_prefs(prefs)
+    await rag.ensure_seeded()
+    assert (await rag.rag_stats())["by_source"].get("mitre", 0) > 0
+
+
+async def test_runbook_master_toggle_is_an_exact_retrieval_disable() -> None:
+    prefs = Preferences()
+    prefs.rag.min_score = 0.0
+    prefs.runbooks.enabled = False
+    prefs.rag.use_runbooks = True
+    rag = RagService(_gateway(), prefs)
+    await rag.ensure_seeded()
+    stats = await rag.rag_stats()
+    assert stats["by_source"].get("runbook", 0) == 0
+    assert all(c.source != "runbook" for c in await rag.retrieve("ssh brute force", top_k=50))
+
+
+async def test_threat_context_toggle_filters_existing_imports_live() -> None:
+    prefs = Preferences()
+    prefs.rag.min_score = 0.0
+    rag = RagService(_gateway(), prefs)
+    await rag.import_threat_context(
+        "Rare DNS beacon",
+        "indicator quasar-test.invalid uses an unusual periodic DNS beacon",
+    )
+    assert any(
+        c.source == "threat_context"
+        for c in await rag.retrieve("quasar-test.invalid", top_k=50)
+    )
+
+    disabled = prefs.model_copy(update={
+        "rag": prefs.rag.model_copy(update={"use_threat_context": False}),
+    })
+    rag.set_prefs(disabled)
+    assert all(
+        c.source != "threat_context"
+        for c in await rag.retrieve("quasar-test.invalid", top_k=50)
+    )
+
+    rag.set_prefs(prefs)
+    assert any(
+        c.source == "threat_context"
+        for c in await rag.retrieve("quasar-test.invalid", top_k=50)
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Task 3: embedding-space guard — dim mismatch reseeds, never truncates
 # --------------------------------------------------------------------------- #
@@ -133,6 +241,90 @@ async def test_dim_mismatch_triggers_reseed_not_truncation() -> None:
     # No truncated/zero-padded vectors: every stored vector matches the new dim.
     for _chunk, score in await rag._store.search([0.0] * 64, 3):
         assert isinstance(score, float)
+
+
+async def test_embedding_cardinality_mismatch_fails_closed_without_partial_write() -> None:
+    rag = RagService(_gateway_with(_ShortBatchProvider()), Preferences())
+    await rag.ensure_seeded()
+    assert await rag._store.count() == 0
+    assert rag._seeded is False
+
+
+async def test_failed_source_reconciliation_preserves_last_known_good_corpus() -> None:
+    provider = _SwitchingCardinalityProvider()
+    prefs = Preferences()
+    rag = RagService(_gateway_with(provider), prefs)
+    await rag.ensure_seeded()
+    before_count = await rag._store.count()
+    before_docs = await rag._store.list_documents()
+    assert before_count > 0
+
+    # Force a source-signature reconciliation and fail while staging the complete
+    # replacement. The old projection must remain intact and queryable.
+    provider.malformed = True
+    rag.set_prefs(
+        prefs.model_copy(update={
+            "rag": prefs.rag.model_copy(update={"use_mitre": False}),
+        })
+    )
+    await rag.ensure_seeded()
+
+    assert rag._seeded is False
+    assert await rag._store.count() == before_count
+    assert await rag._store.list_documents() == before_docs
+
+
+async def test_embedding_space_reseed_preserves_operator_documents() -> None:
+    provider = _DimProvider(dim=8)
+    prefs = Preferences()
+    prefs.rag.min_score = 0.0
+    rag = RagService(_gateway_with(provider), prefs)
+    await rag.import_document(
+        "Operator DNS note",
+        "approved investigation note for beacon.example.invalid",
+        tags=["dns"],
+    )
+    before = await rag._store.count()
+    assert before > 0
+
+    provider.dim = 12
+    assert await rag.retrieve("beacon.example.invalid", top_k=50)
+    assert await rag._store.count() == before
+    assert any(
+        document["source"] == "imported"
+        for document in await rag._store.list_documents()
+    )
+    assert await rag._store.embedding_space() == ("text-embedding-3-small", 12)
+
+
+async def test_failed_embedding_space_reseed_rolls_back_prior_corpus() -> None:
+    provider = _DimThenMalformedProvider(dim=8)
+    prefs = Preferences()
+    rag = RagService(_gateway_with(provider), prefs)
+    await rag.ensure_seeded()
+    before_count = await rag._store.count()
+    before_docs = await rag._store.list_documents()
+
+    provider.dim = 12
+    provider.malformed_bulk = True
+    assert await rag.retrieve("ssh brute force", top_k=3) == []
+    assert await rag._store.count() == before_count
+    assert await rag._store.list_documents() == before_docs
+    assert await rag._store.embedding_space() == ("text-embedding-3-small", 8)
+
+
+async def test_fallback_embedding_space_records_actual_model_and_provider() -> None:
+    rag = RagService(_gateway_with(_FailEmbeddingProvider()), Preferences())
+    await rag.ensure_seeded()
+    assert await rag._store.count() > 0
+    space = await rag._store.embedding_space()
+    assert space is not None and space[0] == "mock-embed"
+    docs = await rag._store.list_documents()
+    runbook = next(doc for doc in docs if doc["source"] == "runbook")
+    chunk = (await rag._store.list_chunks(runbook["document_id"]))[0]
+    assert chunk.embedding_model == "mock-embed"
+    assert chunk.metadata["embedding_provider"] == "mock"
+    assert chunk.metadata["embedding_fallback"] is True
 
 
 def test_inmemory_store_raises_on_dim_mismatch() -> None:
@@ -206,6 +398,30 @@ async def test_es_vector_store_persists_and_counts() -> None:
     assert await store.embedding_space() == ("m", 2)
     await store.clear()
     assert await store.count() == 0
+
+
+async def test_es_vector_management_read_propagates_storage_failure(monkeypatch) -> None:
+    es = InMemoryESClient()
+    store = ESVectorStore(es)
+    await store.add([
+        StoredChunk(
+            text="alpha",
+            source="runbook",
+            embedding=[1.0, 0.0],
+            dim=2,
+            embedding_model="m",
+        ),
+    ])
+
+    async def fail_search(*_args, **_kwargs):
+        raise RuntimeError("vector backend unavailable")
+
+    monkeypatch.setattr(es, "search", fail_search)
+    with pytest.raises(RuntimeError, match="vector backend unavailable"):
+        await store.list_documents()
+    rag = RagService(_gateway(), Preferences(), store=store)
+    with pytest.raises(RuntimeError, match="vector backend unavailable"):
+        await rag.snapshot_documents_strict()
 
 
 # --------------------------------------------------------------------------- #

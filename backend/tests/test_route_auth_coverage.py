@@ -119,13 +119,13 @@ _AUTHZ_EXEMPT_AUTH_FLOW = frozenset({
 })
 # Bucket 2 — SELF-SERVICE: any signed-in principal edits ONLY their OWN bucket
 # (profile / avatar / personal prefs / saved views / their own sessions / their own
-# feedback grade). No cross-principal authority → no resource-grant needed.
+# personal preferences). Case feedback is intentionally NOT self-service: it becomes
+# tuning ground truth and therefore requires the narrow ``cases:write`` grant.
 _AUTHZ_EXEMPT_SELF_SERVICE = frozenset({
     "/api/account/me", "/api/me/avatar",
     "/api/prefs/user", "/api/prefs/user/tables/{table_id}",
     "/api/views", "/api/views/{view_id}", "/api/views/{view_id}/clone",
     "/api/sessions/{sid}/revoke", "/api/sessions/revoke-others",
-    "/api/cases/{case_id}/feedback",
 })
 # Bucket 3 — INGEST: the inbound receiver self-authenticates (bearer / HMAC inside
 # the receiver), matched by _PUBLIC_INGEST_RE — not an RBAC grant.

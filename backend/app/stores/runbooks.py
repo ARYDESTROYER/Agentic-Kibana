@@ -69,6 +69,73 @@ class RunbookStore:
         return out
 
     @staticmethod
+    def _decode_strict(doc: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+        """Decode every operator document or reject the enclosing CAS mutation.
+
+        Management reads may continue past one damaged row, but a strict mutation
+        must never rewrite the catalog from that partial projection and thereby
+        erase the damaged/forward-version sibling. Unknown fields on otherwise
+        valid rows are carried forward verbatim for rolling-upgrade compatibility.
+        """
+        if doc is None:
+            return {}
+        if not isinstance(doc, dict):
+            raise ValueError("operator runbook catalog is not a JSON object")
+        raw = doc.get("documents", {})
+        if not isinstance(raw, dict):
+            raise ValueError("operator runbook documents are not a JSON object")
+        out: dict[str, dict[str, Any]] = {}
+        for runbook_id, value in raw.items():
+            if (
+                not isinstance(runbook_id, str)
+                or not runbook_id
+                or runbook_id.strip() != runbook_id
+                or not isinstance(value, dict)
+            ):
+                raise ValueError("operator runbook catalog contains an invalid document")
+            content = value.get("content")
+            if not isinstance(content, str) or not content.strip():
+                raise ValueError("operator runbook catalog contains an invalid document")
+            try:
+                revision = max(1, int(value.get("revision", 1) or 1))
+                indexed_revision = max(
+                    0, int(value.get("indexed_revision", 0) or 0)
+                )
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    "operator runbook catalog contains an invalid document"
+                ) from exc
+            row = dict(value)
+            row.update({
+                "content": content,
+                "revision": revision,
+                "created_at": str(value.get("created_at") or ""),
+                "updated_at": str(value.get("updated_at") or ""),
+                "created_by": str(value.get("created_by") or ""),
+                "updated_by": str(value.get("updated_by") or ""),
+                "index_status": str(value.get("index_status") or "pending"),
+                "indexed_revision": indexed_revision,
+                "last_indexed_at": str(value.get("last_indexed_at") or ""),
+                "index_error": str(value.get("index_error") or ""),
+            })
+            out[runbook_id] = row
+        return out
+
+    @staticmethod
+    def _pending_deletes_strict(doc: dict[str, Any] | None) -> list[str]:
+        if doc is None:
+            return []
+        if not isinstance(doc, dict):
+            raise ValueError("operator runbook catalog is not a JSON object")
+        raw = doc.get("pending_deletes", [])
+        if not isinstance(raw, list) or any(
+            not isinstance(value, str) or not value or value.strip() != value
+            for value in raw
+        ):
+            raise ValueError("operator runbook pending deletes are invalid")
+        return list(raw)
+
+    @staticmethod
     def _encode(
         documents: dict[str, dict[str, Any]], pending_deletes: list[str]
     ) -> dict[str, Any]:
@@ -93,14 +160,14 @@ class RunbookStore:
         result: dict[str, _T] = {}
 
         def _change(current: dict[str, Any] | None) -> dict[str, Any]:
-            documents = self._decode(current)
-            pending = [
-                str(value)
-                for value in ((current or {}).get("pending_deletes", []) if isinstance(current, dict) else [])
-                if str(value or "").strip()
-            ]
+            documents = self._decode_strict(current)
+            pending = self._pending_deletes_strict(current)
             result["value"] = change(documents, pending)
-            return self._encode(documents, pending)
+            # Keep opaque top-level metadata from newer compatible writers. The
+            # strict decoders above guarantee no invalid child is silently dropped.
+            updated = dict(current or {})
+            updated.update(self._encode(documents, pending))
+            return updated
 
         await kv_mutate_strict(
             self._kv,
@@ -113,6 +180,11 @@ class RunbookStore:
 
     async def list(self) -> dict[str, dict[str, Any]]:
         return dict((await self._load_document())["documents"])
+
+    async def list_strict(self) -> dict[str, dict[str, Any]]:
+        """Return the complete catalog or fail instead of dropping damaged rows."""
+        getter = getattr(self._kv, "get_strict", None) or self._kv.get
+        return dict(self._decode_strict(await getter(RUNBOOKS_NS, RUNBOOKS_KEY)))
 
     async def get(self, runbook_id: str) -> dict[str, Any] | None:
         return (await self.list()).get(runbook_id)

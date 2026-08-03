@@ -11,7 +11,16 @@ from __future__ import annotations
 import pytest
 
 from app.agents.prompts import render_cluster
-from app.constants import UNTRUSTED_CLOSE, UNTRUSTED_OPEN, CaseStatus, EntityType, SourceSurface, Verdict
+from app.constants import (
+    UNTRUSTED_CLOSE,
+    UNTRUSTED_OPEN,
+    CaseStatus,
+    DecisionBy,
+    Disposition,
+    EntityType,
+    SourceSurface,
+    Verdict,
+)
 from app.engine.correlation import cluster_from_events
 from app.models import Case, Entity, RagChunk
 from app.state import AppState
@@ -30,6 +39,9 @@ def _closed_case(case_id: str = "rc1", *, ip: str = "203.0.113.50", rule: str = 
         confidence=0.9,
         risk_score=85.0,
         status=CaseStatus.CLOSED,
+        decision_by=DecisionBy.ANALYST,
+        disposition=Disposition.TRUE_POSITIVE,
+        history=[{"event": "analyst_action", "action": "set_disposition"}],
         recommended_action="Block the source IP at the perimeter.",
     )
 
@@ -85,8 +97,7 @@ async def test_resolved_case_indexing_is_idempotent(app_state: AppState) -> None
 
 @pytest.mark.asyncio
 async def test_pipeline_indexes_resolved_case_on_terminal_status(app_state: AppState, monkeypatch) -> None:
-    """The pipeline's post-save hook indexes a terminal case (best-effort, outside
-    the decision logic)."""
+    """A pipeline-only terminal result is not analyst-confirmed ground truth."""
     prefs = _prefs_with_resolved(app_state)
     await app_state.update_prefs(prefs)
 
@@ -94,8 +105,10 @@ async def test_pipeline_indexes_resolved_case_on_terminal_status(app_state: AppS
     orig = app_state.rag.index_resolved_case
 
     async def _spy(case, note=""):
-        calls.append(case.case_id)
-        return await orig(case, note=note)
+        added = await orig(case, note=note)
+        if added:
+            calls.append(case.case_id)
+        return added
 
     monkeypatch.setattr(app_state.rag, "index_resolved_case", _spy)
 
@@ -105,11 +118,85 @@ async def test_pipeline_indexes_resolved_case_on_terminal_status(app_state: AppS
         [make_raw_event(id=f"e{i}", ip="203.0.113.51", rule="benign_scan", severity=1.0) for i in range(3)],
     )
     case = await app_state.pipeline.investigate_cluster(cluster, SourceSurface.AUTOMATED_SCAN, prefs)
-    if case.status.value in ("closed", "resolved"):
-        assert case.case_id in calls
-    else:
-        # If decide() routed to human (mock LLM verdict), the hook correctly did NOT fire.
-        assert case.case_id not in calls
+    # Whether the mock verdict closed or routed to a human, no model-only outcome may
+    # enter institutional RAG memory before an analyst supplies ground truth.
+    assert case.case_id not in calls
+    chunks = await app_state.rag.retrieve(case.case_id, top_k=20)
+    assert all((chunk.metadata or {}).get("case_id") != case.case_id for chunk in chunks)
+
+
+@pytest.mark.asyncio
+async def test_model_only_closed_case_is_rejected_from_resolved_memory(app_state: AppState) -> None:
+    prefs = _prefs_with_resolved(app_state)
+    app_state.rag.set_prefs(prefs)
+    case = _closed_case(case_id="rc-model-only")
+    case.decision_by = DecisionBy.AGENT
+    case.disposition = Disposition.FALSE_POSITIVE
+    assert await app_state.rag.index_resolved_case(case) == 0
+    assert all(
+        (chunk.metadata or {}).get("case_id") != case.case_id
+        for chunk in await app_state.rag.retrieve(case.case_id, top_k=20)
+    )
+
+
+@pytest.mark.parametrize(
+    "action",
+    ["acknowledge", "close", "resolve", "hold", "set_status"],
+)
+@pytest.mark.asyncio
+async def test_lifecycle_only_analyst_action_is_not_resolved_case_ground_truth(
+    app_state: AppState, action: str,
+) -> None:
+    """Analyst ownership/lifecycle work must not bless a model-derived disposition."""
+    prefs = _prefs_with_resolved(app_state)
+    app_state.rag.set_prefs(prefs)
+    case = _closed_case(case_id=f"rc-lifecycle-{action}")
+    case.disposition = Disposition.FALSE_POSITIVE
+    case.history = [{"event": "analyst_action", "action": action}]
+    assert await app_state.rag.index_resolved_case(case) == 0
+    await app_state.cases.save(case)
+    items = await app_state.rag._resolved_case_items(limit=200)
+    assert all(item["metadata"]["case_id"] != case.case_id for item in items)
+
+
+@pytest.mark.asyncio
+async def test_confirm_fp_is_explicit_resolved_case_ground_truth(app_state: AppState) -> None:
+    prefs = _prefs_with_resolved(app_state)
+    app_state.rag.set_prefs(prefs)
+    case = _closed_case(case_id="rc-confirm-fp")
+    case.disposition = Disposition.FALSE_POSITIVE
+    case.history = [{"event": "analyst_action", "action": "confirm_fp"}]
+    assert await app_state.rag.index_resolved_case(case) == 1
+
+
+@pytest.mark.asyncio
+async def test_analyst_feedback_promotes_terminal_case_to_confirmed_memory(
+    app_state: AppState,
+) -> None:
+    from app.api.routes import FeedbackBody, case_feedback
+
+    prefs = _prefs_with_resolved(app_state)
+    app_state.rag.set_prefs(prefs)
+    case = _closed_case(case_id="rc-feedback")
+    case.decision_by = DecisionBy.AGENT
+    case.disposition = Disposition.FALSE_POSITIVE
+    await app_state.cases.save(case)
+
+    await case_feedback(
+        case.case_id,
+        FeedbackBody(
+            analyst="alice",
+            assessment="agree",
+            actual_outcome="false_positive",
+            comment="Confirmed scheduled scanner activity.",
+        ),
+        app_state,
+    )
+    chunks = await app_state.rag.retrieve(case.case_id, top_k=20)
+    learned = [c for c in chunks if (c.metadata or {}).get("case_id") == case.case_id]
+    assert learned
+    assert learned[0].metadata["ground_truth_source"] == "analyst_feedback"
+    assert learned[0].metadata["outcome"] == "false_positive"
 
 
 # --------------------------------------------------------------------------- #

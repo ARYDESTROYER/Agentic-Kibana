@@ -22,8 +22,8 @@ and re-running the pass upserts in place rather than spawning duplicates.
 ADVISORY: a campaign is presentation/reporting only. Nothing here mutates a case,
 touches ``cluster_signature`` (#4), calls ``case_manager.decide()`` (#3), or makes an
 LLM call (#6). Reads + writes are read-modify-write over the single dict via the
-lost-update-safe :func:`app.stores.base.kv_mutate` CAS. The store NEVER raises: a
-failure degrades to an empty list / best-effort write and is logged.
+lost-update-safe :func:`app.stores.base.kv_mutate` CAS. Ordinary reads remain
+fail-soft; evidence exports use the separate strict projection.
 """
 
 from __future__ import annotations
@@ -34,7 +34,8 @@ from typing import Callable, TypeVar
 
 from ..constants import CAMPAIGNS_KEY, CAMPAIGNS_NS
 from ..models import Campaign
-from .base import KVStore, kv_mutate
+from ..utils import iso_now
+from .base import KVStore, kv_mutate, kv_mutate_strict
 
 _T = TypeVar("_T")
 
@@ -45,8 +46,8 @@ class CampaignStore:
     """CRUD over the cross-case campaign list, persisted as one KV document.
 
     The KV value is ``{"campaigns": {"<campaign_id>": <Campaign json>}}``. Methods
-    are read-modify-write over the single dict; none raises (a failure logs +
-    degrades to a safe default). Keyed by ``Campaign.id`` (the content hash) so an
+    are read-modify-write over the single dict; ordinary reads degrade to a safe
+    default while :meth:`list_strict` propagates uncertainty. Keyed by ``Campaign.id`` (the content hash) so an
     idempotent re-run of the clustering pass upserts a campaign in place."""
 
     def __init__(self, kv: KVStore) -> None:
@@ -66,8 +67,13 @@ class CampaignStore:
         return out
 
     @staticmethod
-    def _encode(campaigns: dict[str, Campaign]) -> dict:
-        return {"campaigns": {cid: c.model_dump(mode="json") for cid, c in campaigns.items()}}
+    def _encode(
+        campaigns: dict[str, Campaign], *, last_reconciled_at: str = ""
+    ) -> dict:
+        value = {"campaigns": {cid: c.model_dump(mode="json") for cid, c in campaigns.items()}}
+        if last_reconciled_at:
+            value["last_reconciled_at"] = last_reconciled_at
+        return value
 
     async def _load_all(self) -> dict[str, Campaign]:
         try:
@@ -77,6 +83,22 @@ class CampaignStore:
             return {}
         return self._decode(doc)
 
+    async def _load_all_strict(self) -> dict[str, Campaign]:
+        """Load the complete campaign registry or raise on uncertainty/corruption."""
+        getter = getattr(self._kv, "get_strict", None) or self._kv.get
+        doc = await getter(CAMPAIGNS_NS, CAMPAIGNS_KEY)
+        if doc is None:
+            return {}
+        if not isinstance(doc, dict):
+            raise ValueError("campaign registry is not a JSON object")
+        raw = doc.get("campaigns", {})
+        if not isinstance(raw, dict):
+            raise ValueError("campaign registry entries are not an object")
+        decoded = self._decode(doc)
+        if len(decoded) != len(raw):
+            raise ValueError("campaign registry contains an invalid entry")
+        return decoded
+
     async def _mutate(self, change: Callable[[dict[str, Campaign]], _T]) -> _T:
         """Atomic read-modify-write over the shared campaigns doc (lost-update safe)."""
         box: dict[str, _T] = {}
@@ -84,7 +106,10 @@ class CampaignStore:
         def _mutator(current: dict | None) -> dict:
             campaigns = self._decode(current)
             box["r"] = change(campaigns)
-            return self._encode(campaigns)
+            return self._encode(
+                campaigns,
+                last_reconciled_at=str((current or {}).get("last_reconciled_at") or ""),
+            )
 
         await kv_mutate(self._kv, CAMPAIGNS_NS, CAMPAIGNS_KEY, _mutator, lock=self._lock)
         return box.get("r")  # type: ignore[return-value]
@@ -122,6 +147,37 @@ class CampaignStore:
         if limit and limit > 0:
             page = page[:limit]
         return page, total
+
+    async def list_strict(
+        self,
+        *,
+        status: str | None = None,
+        limit: int = 0,
+        offset: int = 0,
+    ) -> tuple[list[Campaign], int]:
+        """Page campaigns while propagating unavailable/malformed registry reads."""
+        campaigns = list((await self._load_all_strict()).values())
+        if status:
+            want = str(status)
+            campaigns = [
+                c for c in campaigns
+                if str(getattr(c.status, "value", c.status)) == want
+            ]
+        campaigns.sort(
+            key=lambda c: (c.last_seen or c.created_at or "", c.id), reverse=True
+        )
+        total = len(campaigns)
+        start = max(int(offset), 0)
+        page = campaigns[start:]
+        if limit and limit > 0:
+            page = page[:limit]
+        return page, total
+
+    async def get_last_reconciled_at(self) -> str:
+        """Timestamp of the last confirmed full-set reconciliation."""
+        getter = getattr(self._kv, "get_strict", None) or self._kv.get
+        doc = await getter(CAMPAIGNS_NS, CAMPAIGNS_KEY)
+        return str((doc or {}).get("last_reconciled_at") or "")
 
     # ---- writes ------------------------------------------------------------ #
     async def upsert(self, campaign: Campaign) -> Campaign:
@@ -165,6 +221,38 @@ class CampaignStore:
             return stored
 
         return await self._mutate(_change)
+
+    async def replace_all(self, campaigns: list[Campaign]) -> list[Campaign]:
+        """Durably reconcile the authoritative pass result, including an empty set.
+
+        Unlike an upsert, this removes campaigns whose member graph no longer
+        exists.  A successful return means the exact set was confirmed through the
+        strict KV CAS boundary; callers must surface failures rather than claiming
+        a successful reconciliation.
+        """
+        by_id = {(c.id or "").strip(): c for c in campaigns if (c.id or "").strip()}
+        stored: list[Campaign] = []
+
+        def _replace(current: dict | None) -> dict:
+            previous = self._decode(current)
+            reconciled: dict[str, Campaign] = {}
+            stored.clear()
+            for cid, campaign in sorted(by_id.items()):
+                existing = previous.get(cid)
+                if existing is not None and existing.created_at:
+                    campaign = campaign.model_copy(update={"created_at": existing.created_at})
+                reconciled[cid] = campaign
+                stored.append(campaign)
+            return self._encode(reconciled, last_reconciled_at=iso_now())
+
+        await kv_mutate_strict(
+            self._kv,
+            CAMPAIGNS_NS,
+            CAMPAIGNS_KEY,
+            _replace,
+            lock=self._lock,
+        )
+        return list(stored)
 
     async def delete(self, campaign_id: str | None) -> bool:
         """Drop one campaign (e.g. an operator dismiss). Returns True if it existed."""

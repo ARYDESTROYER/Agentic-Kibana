@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import dataclass
 from typing import Any, Callable
 
 from ..config import ModelConfig, Provider, Secrets
@@ -30,6 +31,22 @@ logger = logging.getLogger("tlsoc.gateway")
 
 class GatewayError(RuntimeError):
     """Raised when a model call cannot be completed. Triggers fail-to-human."""
+
+
+@dataclass(frozen=True)
+class EmbeddingBatch:
+    """Embedding vectors plus the provider/model that actually produced them.
+
+    The configured model is not necessarily the actual model: the gateway can
+    intentionally degrade to deterministic local hash embeddings. RAG persists
+    this provenance so the stored space is never mislabeled as the failed remote
+    model.
+    """
+
+    vectors: list[list[float]]
+    provider: str
+    model: str
+    fallback: bool = False
 
 
 # A plausible per-token blended rate for the Demo Mode cost page (Sonnet-ish).
@@ -331,6 +348,20 @@ class LLMGateway:
         surface: str = "rag",
         case_id: str | None = None,
     ) -> list[list[float]]:
+        """Back-compatible vector-only embedding API."""
+        batch = await self.embed_with_provenance(
+            texts, model_cfg, surface=surface, case_id=case_id
+        )
+        return batch.vectors
+
+    async def embed_with_provenance(
+        self,
+        texts: list[str],
+        model_cfg: ModelConfig,
+        *,
+        surface: str = "rag",
+        case_id: str | None = None,
+    ) -> EmbeddingBatch:
         """Embed ``texts`` through the provider (then the ledger, #6).
 
         NOTE: embeddings are METERED but deliberately NOT pre-flight-gated by the
@@ -345,6 +376,8 @@ class LLMGateway:
         """
         model_cfg = await self._resolve_endpoint(model_cfg)
         started = time.perf_counter()
+        provider_used = str(model_cfg.provider)
+        fallback = False
         try:
             provider = self._provider(model_cfg.provider, for_embedding=True,
                                        model=model_cfg.model, endpoint=model_cfg)
@@ -359,7 +392,9 @@ class LLMGateway:
                                int((time.perf_counter() - started) * 1000),
                                UsageOutcome.ERROR, 0.0)
             result = await self._mock_fallback.embed(texts, "mock-embed")
+            provider_used = "mock"
             model_used = "mock-embed"
+            fallback = True
         latency = int((time.perf_counter() - started) * 1000)
         if self._demo:
             # $0 mock run — embeddings are input-only, so the synthetic cost mirrors
@@ -372,7 +407,12 @@ class LLMGateway:
                             await self._effective_price_tuple(model_used))
         await self._record(Role.EMBEDDING.value, surface, case_id, model_used,
                            result.tokens, 0, latency, UsageOutcome.OK, cost)
-        return result.vectors
+        return EmbeddingBatch(
+            vectors=result.vectors,
+            provider=provider_used,
+            model=model_used,
+            fallback=fallback,
+        )
 
     # ----- endpoint (base_url) resolution for a runtime-added custom model -----
     async def _resolve_endpoint(self, model_cfg: ModelConfig) -> ModelConfig:

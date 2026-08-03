@@ -282,7 +282,13 @@ export const FEATURES: FeatureNode[] = [
     group: 'triage',
     hidden: true,
   },
-  { id: 'approvals', label: 'Approvals', icon: CheckCircle2, group: 'triage' },
+  {
+    id: 'approvals',
+    label: 'Approvals',
+    icon: CheckCircle2,
+    group: 'triage',
+    perm: { resource: 'proposals', action: 'read' },
+  },
 
   /* ---- Intelligence ---------------------------------------------------- */
   {
@@ -291,15 +297,30 @@ export const FEATURES: FeatureNode[] = [
     icon: Library,
     group: 'intelligence',
     children: [
-      { id: 'knowledge', label: 'Knowledge', icon: BookOpen },
+      {
+        id: 'knowledge',
+        label: 'Knowledge',
+        icon: BookOpen,
+        perm: { resource: 'rag', action: 'read' },
+      },
       {
         id: 'runbooks',
         label: 'Runbooks',
         icon: BookMarked,
         perm: { resource: 'runbooks', action: 'read' },
       },
-      { id: 'memory', label: 'Memory', icon: Brain },
-      { id: 'playbooks', label: 'Playbooks', icon: Workflow },
+      {
+        id: 'memory',
+        label: 'Memory',
+        icon: Brain,
+        perm: { resource: 'memory', action: 'read' },
+      },
+      {
+        id: 'playbooks',
+        label: 'Playbooks',
+        icon: Workflow,
+        perm: { resource: 'playbooks', action: 'read' },
+      },
     ],
   },
 
@@ -407,7 +428,14 @@ export const FEATURES: FeatureNode[] = [
   { id: 'cost', label: 'Cost', icon: DollarSign, group: 'analytics', hidden: true },
   { id: 'models', label: 'Models', icon: Cpu, group: 'analytics', hidden: true },
   { id: 'standup', label: 'Standup', icon: CalendarDays, group: 'overview', hidden: true },
-  { id: 'knowledge', label: 'Knowledge', icon: BookOpen, group: 'intelligence', hidden: true },
+  {
+    id: 'knowledge',
+    label: 'Knowledge',
+    icon: BookOpen,
+    group: 'intelligence',
+    hidden: true,
+    perm: { resource: 'rag', action: 'read' },
+  },
   {
     id: 'runbooks',
     label: 'Runbooks',
@@ -416,9 +444,30 @@ export const FEATURES: FeatureNode[] = [
     hidden: true,
     perm: { resource: 'runbooks', action: 'read' },
   },
-  { id: 'memory', label: 'Memory', icon: Brain, group: 'intelligence', hidden: true },
-  { id: 'catalog', label: 'Catalog', icon: Library, group: 'intelligence', hidden: true },
-  { id: 'playbooks', label: 'Playbooks', icon: Workflow, group: 'intelligence', hidden: true },
+  {
+    id: 'memory',
+    label: 'Memory',
+    icon: Brain,
+    group: 'intelligence',
+    hidden: true,
+    perm: { resource: 'memory', action: 'read' },
+  },
+  {
+    id: 'catalog',
+    label: 'Catalog',
+    icon: Library,
+    group: 'intelligence',
+    hidden: true,
+    perm: { resource: 'playbooks', action: 'read' },
+  },
+  {
+    id: 'playbooks',
+    label: 'Playbooks',
+    icon: Workflow,
+    group: 'intelligence',
+    hidden: true,
+    perm: { resource: 'playbooks', action: 'read' },
+  },
   // Round-5 Sett-B: the six formerly-standalone admin/account homes
   // (account/sessions/security/roles/users/admin_sessions) collapsed INTO Settings
   // sections. Their PageIds stay registered (deep-link back-compat) but the router

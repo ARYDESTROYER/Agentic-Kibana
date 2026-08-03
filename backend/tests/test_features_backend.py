@@ -19,6 +19,11 @@ def test_models_endpoint(client):
     body = r.json()
     assert "claude-sonnet-4-6" in body["providers"]["anthropic"]
     assert any(m.startswith("gpt-") for m in body["providers"]["openai"])
+    assert body["role_capabilities"]["embedding"] == ["embedding"]
+    assert "embedding" in body["capabilities"]["text-embedding-3-small"]
+    assert "chat" not in body["capabilities"]["text-embedding-3-small"]
+    assert "chat" in body["capabilities"]["gpt-5.6-luna"]
+    assert "embedding" not in body["capabilities"]["gpt-5.6-luna"]
     assert "anthropic_api_key" in body["configured"]
 
 

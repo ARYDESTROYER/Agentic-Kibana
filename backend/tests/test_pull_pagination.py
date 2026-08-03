@@ -1,4 +1,4 @@
-"""Pull pagination/cursor regressions for the Bleeding Edge ingest spine.
+"""Pull pagination/cursor regressions for the Testing ingest spine.
 
 These tests are deliberately offline.  They exercise the shared Elastic connector
 used by Elasticsearch, OpenSearch and Wazuh, including the no-PIT compatibility

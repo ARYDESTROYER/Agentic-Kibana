@@ -49,6 +49,7 @@ const RECS: TuningRecommendationsResponse = {
   cadence: 'nightly',
   fp_rate_target: 0.3,
   min_samples: 25,
+  auto_apply_confirmed: true,
   window_cases: 100,
   rule_noise: [],
   recommendations: [
@@ -85,6 +86,7 @@ const CONFIG = {
   config: {
     enabled: true, min_samples: 25, max_n_step: 1, fp_rate_target: 0.3,
     wilson_z: 1.96, ewma_alpha: 0.2, cadence: 'nightly' as const, shadow_eval: true,
+    auto_apply_confirmed: true,
   },
 };
 

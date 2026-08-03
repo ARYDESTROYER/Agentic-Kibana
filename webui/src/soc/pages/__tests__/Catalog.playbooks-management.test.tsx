@@ -7,6 +7,9 @@ const mocks = vi.hoisted(() => ({
   getPlaybook: vi.fn(),
   createPlaybook: vi.fn(),
   updatePlaybook: vi.fn(),
+  getPlaybookCoverage: vi.fn(),
+  dryRunPlaybookSelection: vi.fn(),
+  getSchedulerHealth: vi.fn(),
   getSettings: vi.fn(),
   canManage: true,
   toastSuccess: vi.fn(),
@@ -23,6 +26,9 @@ vi.mock('@/lib/api', async (importOriginal) => {
       getPlaybook: mocks.getPlaybook,
       createPlaybook: mocks.createPlaybook,
       updatePlaybook: mocks.updatePlaybook,
+      getPlaybookCoverage: mocks.getPlaybookCoverage,
+      dryRunPlaybookSelection: mocks.dryRunPlaybookSelection,
+      getSchedulerHealth: mocks.getSchedulerHealth,
       getSettings: mocks.getSettings,
     },
   };
@@ -62,6 +68,12 @@ function playbook(over: Partial<Playbook> = {}): Playbook {
     protected: false,
     editable: true,
     file_name: 'operator_response.md',
+    revision: 1,
+    storage: 'state',
+    created_at: '2026-08-01T10:00:00Z',
+    updated_at: '2026-08-02T10:00:00Z',
+    created_by: 'Admin',
+    updated_by: 'Admin',
     ...over,
   };
 }
@@ -90,11 +102,39 @@ describe('Playbooks Catalog management', () => {
     mocks.getPlaybook.mockReset();
     mocks.createPlaybook.mockReset();
     mocks.updatePlaybook.mockReset();
+    mocks.getPlaybookCoverage.mockReset();
+    mocks.dryRunPlaybookSelection.mockReset();
+    mocks.getSchedulerHealth.mockReset();
     mocks.getSettings.mockReset();
     mocks.toastSuccess.mockReset();
     mocks.toastError.mockReset();
     mocks.canManage = true;
     mocks.getSettings.mockResolvedValue({ prefs: { threshold_automation: { rules: [] } } });
+    mocks.getPlaybookCoverage.mockResolvedValue({
+      scanned_cases: 4,
+      covered_cases: 3,
+      uncovered_cases: 1,
+      coverage_percent: 75,
+      scan_limit: 20_000,
+      truncated: false,
+      selected_playbooks: [{ playbook_id: 'operator_response', case_count: 3 }],
+      unmatched_rule_families: [{ rule_id: 'uncovered_rule', case_count: 1 }],
+    });
+    mocks.getSchedulerHealth.mockResolvedValue({
+      scheduler_runtime_running: true,
+      workers: {
+        threshold_tuner: {
+          enabled: true,
+          gated: false,
+          running: true,
+          cadence: 'nightly',
+          last_attempt_at: '2026-08-02T10:00:00Z',
+          last_success_at: '2026-08-02T10:01:00Z',
+          last_error: '',
+          processed: 4,
+        },
+      },
+    });
   });
 
   it('opens bundled Markdown but never offers an edit action', async () => {
@@ -105,16 +145,18 @@ describe('Playbooks Catalog management', () => {
       protected: true,
       editable: false,
       file_name: 'brute_force_login.md',
+      revision: 1,
+      storage: 'package',
     });
     mocks.getPlaybooks.mockResolvedValue({ enabled: true, count: 1, playbooks: [bundled] });
     mocks.getPlaybook.mockResolvedValue(detail(bundled));
 
     renderCatalog();
     expect(await screen.findByText('Brute-force login')).toBeInTheDocument();
-    expect(screen.getByText('Bundled')).toBeInTheDocument();
+    expect(screen.getByText('Package')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /open source/i }));
 
-    expect(await screen.findByText('Bundled · protected')).toBeInTheDocument();
+    expect(await screen.findByText('Bundled · package')).toBeInTheDocument();
     expect(screen.getByText(/id: brute_force_login/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^edit$/i })).not.toBeInTheDocument();
   });
@@ -138,7 +180,9 @@ describe('Playbooks Catalog management', () => {
     fireEvent.change(editor, { target: { value: second.content } });
     fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
 
-    await waitFor(() => expect(mocks.updatePlaybook).toHaveBeenCalledWith(row.id, second.content));
+    await waitFor(() =>
+      expect(mocks.updatePlaybook).toHaveBeenCalledWith(row.id, second.content, row.revision),
+    );
     await waitFor(() => expect(mocks.getPlaybook).toHaveBeenCalledTimes(2));
     expect(await screen.findByText(/version: 2/)).toBeInTheDocument();
     expect(mocks.toastSuccess).toHaveBeenCalledWith('Playbook updated and loaded.');
@@ -209,7 +253,66 @@ describe('Playbooks Catalog management', () => {
     expect(await screen.findByText('Operator response')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /new playbook/i })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /open source/i }));
-    expect(await screen.findByText('Operator owned')).toBeInTheDocument();
+    expect(await screen.findByText('Operator · state-backed')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^edit$/i })).not.toBeInTheDocument();
+  });
+
+  it('shows bounded case coverage, uncovered rule families, and worker truth', async () => {
+    mocks.getPlaybooks.mockResolvedValue({ enabled: true, count: 1, playbooks: [playbook()] });
+
+    renderCatalog();
+
+    expect(await screen.findByText('75% covered')).toBeInTheDocument();
+    expect(screen.getByText('uncovered_rule')).toBeInTheDocument();
+    expect(screen.getByText('Threshold tuner · Running')).toBeInTheDocument();
+    expect(screen.getByRole('progressbar', { name: /playbook coverage 75%/i })).toBeInTheDocument();
+  });
+
+  it('explains the exact deterministic dry-run selection and failed criteria', async () => {
+    const row = playbook();
+    mocks.getPlaybooks.mockResolvedValue({ enabled: true, count: 1, playbooks: [row] });
+    mocks.dryRunPlaybookSelection.mockResolvedValue({
+      selected_playbook_id: null,
+      selection_reason: 'no playbook matched the cluster',
+      matched_count: 0,
+      candidate_count: 1,
+      candidates: [
+        {
+          playbook_id: row.id,
+          playbook_name: row.name,
+          priority: row.priority,
+          version: row.version,
+          matched: false,
+          failed_criteria: ['rule_ids'],
+          checks: [
+            {
+              criterion: 'rule_ids',
+              passed: false,
+              expected: ['operator_rule'],
+              actual: ['different_rule'],
+              reason: 'no exact rule id matched',
+            },
+          ],
+        },
+      ],
+    });
+
+    renderCatalog();
+    await screen.findByText('Operator response');
+    fireEvent.change(screen.getByLabelText('Rule IDs'), { target: { value: ' different_rule ' } });
+    fireEvent.change(screen.getByLabelText('Events'), { target: { value: '3' } });
+    fireEvent.click(screen.getByRole('button', { name: /test match/i }));
+
+    await waitFor(() =>
+      expect(mocks.dryRunPlaybookSelection).toHaveBeenCalledWith({
+        rule_ids: ['different_rule'],
+        entity_type: 'rule',
+        event_count: 3,
+      }),
+    );
+    expect(await screen.findByText('No playbook selected')).toBeInTheDocument();
+    expect(screen.getByText('no playbook matched the cluster')).toBeInTheDocument();
+    expect(screen.getByText('no exact rule id matched')).toBeInTheDocument();
+    expect(screen.getByText(/expected operator_rule · observed different_rule/)).toBeInTheDocument();
   });
 });

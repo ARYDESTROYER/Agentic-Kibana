@@ -14,15 +14,16 @@ Use a short-lived feature branch, merge accepted work into `Testing`, and promot
 the accepted source tree through a protected pull request to `main`, the Stable branch:
 
 ```text
-feature branch -> Testing -> main (Stable) -> v0.1.1
+feature branch -> Testing -> main (Stable) -> v0.1.2
 ```
 
 Do not develop directly on `main`. `Testing` is the integration and acceptance
 channel, not a different edition of the product. Package/API/image metadata uses
-Semantic Version **0.1.1**; public documentation uses the **0.1** line.
+Semantic Version **0.1.2**; public documentation uses the **0.1** line.
 
-The remote now uses `Testing` for integration and default `main` for accepted Stable
-source, and it has the `v0.1.1` release tag. Repository owners must independently
+The remote uses `Testing` for integration and default `main` for accepted Stable
+source. `v0.1.1` remains the prior Stable tag until the verified 0.1.2 promotion is
+tagged `v0.1.2`. Repository owners must independently
 verify pull-request protection, required checks, and release-environment policy;
 source topology alone does not prove that a change passed acceptance.
 

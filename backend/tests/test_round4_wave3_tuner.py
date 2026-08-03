@@ -17,6 +17,7 @@ Covers:
 from __future__ import annotations
 
 import inspect
+from collections import Counter
 from datetime import timedelta
 from typing import Any
 
@@ -31,6 +32,8 @@ from app.config import (
 )
 from app.constants import (
     ActionType,
+    CaseStatus,
+    DecisionBy,
     Disposition,
     EntityType,
     IngestMode,
@@ -48,9 +51,10 @@ from app.engine.threshold_tuner import (
     rollback,
     run_once,
     shadow_eval_hides_true_positive,
+    terminal_case_reader,
     wilson_lower_bound,
 )
-from app.models import Case, Entity, TriggerReason
+from app.models import Case, Entity, FeedbackEntry, TriggerReason
 from app.state import AppState
 from app.stores.tuning import TuningRecord, TuningStore
 from app.utils import iso_now, now_utc
@@ -110,6 +114,14 @@ def _closed_case(
         status="closed",  # type: ignore[arg-type]
         updated_at=closed_iso,
         trigger_reason=tr,
+        feedback=(
+            [FeedbackEntry(
+                analyst="analyst",
+                actual_outcome="true_positive" if tp else "false_positive",
+            )]
+            if (tp or fp)
+            else []
+        ),
     )
 
 
@@ -121,6 +133,7 @@ def _tuning_prefs(**over: Any) -> Preferences:
         max_n_step=over.pop("max_n_step", 1),
         shadow_eval=over.pop("shadow_eval", True),
         cadence=over.pop("cadence", "nightly"),
+        auto_apply_confirmed=over.pop("auto_apply_confirmed", True),
     )
     return Preferences(threshold_tuning=cfg, **over)
 
@@ -134,6 +147,98 @@ def _writer_capture():
         return p
 
     return _write, box
+
+
+def test_auto_apply_policy_requires_shadow_evaluation() -> None:
+    """An operator cannot persist automatic writes without the TP replay guard."""
+    with pytest.raises(ValueError, match="auto_apply_confirmed requires shadow_eval"):
+        ThresholdTuningConfig(
+            enabled=True,
+            shadow_eval=False,
+            auto_apply_confirmed=True,
+        )
+
+
+class _TerminalCaseRepository:
+    """Small status-partitioned repository used to exercise the scheduler pager."""
+
+    def __init__(self, rows: dict[str, list[Case]]) -> None:
+        self.rows = rows
+
+    async def list(
+        self, *, status: str, limit: int, offset: int,
+        sort_field: str, sort_order: str,
+    ) -> tuple[list[Case], int]:
+        assert sort_field == "updated_at" and sort_order == "desc"
+        source = self.rows.get(status, [])
+        return source[offset: offset + limit], len(source)
+
+
+class _FailingTerminalCaseRepository(_TerminalCaseRepository):
+    def __init__(self, rows: dict[str, list[Case]], fail_status: str) -> None:
+        super().__init__(rows)
+        self.fail_status = fail_status
+
+    async def list(self, **kwargs: Any) -> tuple[list[Case], int]:
+        if kwargs["status"] == self.fail_status:
+            raise RuntimeError("terminal partition unavailable")
+        return await super().list(**kwargs)
+
+
+class _UnconfirmedProposalStore:
+    """Fail-soft drafting seam: returns a row but never makes it readable."""
+
+    async def add_unique(self, proposal, _dedupe_key):  # noqa: ANN001
+        return proposal, True
+
+    async def get(self, _proposal_id):  # noqa: ANN001
+        return None
+
+
+async def test_terminal_case_reader_pages_two_statuses_as_one_sequence() -> None:
+    """700 CLOSED + 700 RESOLVED rows cross two 500-row scheduler pages safely."""
+    closed = [
+        _closed_case(case_id=f"closed-{index}", rule="paged")
+        for index in range(700)
+    ]
+    resolved = [
+        _closed_case(case_id=f"resolved-{index}", rule="paged").model_copy(
+            update={"status": CaseStatus.RESOLVED}
+        )
+        for index in range(700)
+    ]
+    repository = _TerminalCaseRepository({
+        CaseStatus.CLOSED.value: closed,
+        CaseStatus.RESOLVED.value: resolved,
+    })
+    cases = await tuner._read_window(
+        terminal_case_reader(repository),
+        window_start=now_utc() - timedelta(days=14),
+        page_size=500,
+    )
+    counts = Counter(case.case_id for case in cases)
+    assert len(cases) == 1400
+    assert len(counts) == 1400
+    assert set(counts.values()) == {1}
+    assert set(counts) == {
+        *(case.case_id for case in closed),
+        *(case.case_id for case in resolved),
+    }
+
+
+@pytest.mark.parametrize("failed", [CaseStatus.CLOSED.value, CaseStatus.RESOLVED.value])
+async def test_terminal_case_reader_aborts_when_either_partition_fails(failed: str) -> None:
+    rows = {
+        CaseStatus.CLOSED.value: [_closed_case(case_id="closed-ok", rule="r")],
+        CaseStatus.RESOLVED.value: [
+            _closed_case(case_id="resolved-ok", rule="r").model_copy(
+                update={"status": CaseStatus.RESOLVED}
+            )
+        ],
+    }
+    reader = terminal_case_reader(_FailingTerminalCaseRepository(rows, failed))
+    with pytest.raises(RuntimeError, match=f"status {failed}"):
+        await reader(500, 0)
 
 
 # --------------------------------------------------------------------------- #
@@ -274,9 +379,10 @@ async def test_scheduler_cadence_gate_skips_ticks_within_window(app_state: AppSt
     old = (now_utc() - timedelta(hours=25)).isoformat()
     await app_state.tuning_store.set_last_run_at(old)
     assert await app_state._tuner_cadence_elapsed(cfg) is True
-    # Manual cadence is always instant (window 0).
+    # Manual cadence is operator-triggered only; the background scheduler must not
+    # reinterpret it as "run on every tick".
     assert await app_state._tuner_cadence_elapsed(
-        ThresholdTuningConfig(enabled=True, cadence="manual")) is True
+        ThresholdTuningConfig(enabled=True, cadence="manual")) is False
 
 
 # --------------------------------------------------------------------------- #
@@ -334,7 +440,8 @@ async def test_change_hiding_true_positive_is_blocked_to_proposal(app_state: App
     p = pending[0]
     assert p.created_by == "tuner"
     assert p.payload.get("tuning") is True
-    assert p.payload.get("reason") == "shadow_eval_would_hide_tp"
+    assert p.payload.get("reason_code") == "shadow_eval_would_hide_confirmed_tp"
+    assert "analyst-confirmed true positive" in p.payload.get("reason", "")
     assert p.payload.get("rule_id") == "mixed_rule"
     # A PROPOSAL audit record (not a TUNING auto-apply record).
     assert audit.by_type(ActionType.TUNING) == []
@@ -370,7 +477,7 @@ async def test_suppression_drop_always_routes_to_proposal(app_state: AppState) -
     assert outcome.auto_applied == []
     pending = await app_state.proposals.list(status="pending")
     assert len(pending) == 1
-    assert pending[0].payload.get("reason") == "suppression_drop"
+    assert pending[0].payload.get("reason_code") == "suppression_drop"
     assert await store.list() == []  # nothing auto-applied
 
 
@@ -546,6 +653,360 @@ def test_derive_proposals_only_bounded_and_pure() -> None:
     assert all(p.kind != "suppression" for p in props)
     # Prefs are untouched (pure).
     assert prefs.correlation_for("noisy").n == 5
+
+
+# --------------------------------------------------------------------------- #
+# Outcome provenance + approval rails
+# --------------------------------------------------------------------------- #
+async def test_model_outputs_do_not_train_and_evidence_request_is_idempotent(
+    app_state: AppState,
+) -> None:
+    prefs = _tuning_prefs(min_samples=5, auto_apply_confirmed=False)
+    cases = [_closed_case(case_id=f"m{i}", rule="model_only") for i in range(8)]
+    for case in cases:
+        case.feedback = []  # verdict + automatic disposition remain, but no human label
+
+    store = TuningStore(app_state._kv)
+    write, box = _writer_capture()
+    first = await run_once(
+        prefs, cases, app_state.proposals, FakeAudit(),
+        tuning_store=store, write_prefs=write,
+    )
+    stat = first.rule_stats["model_only"]
+    assert (stat.observed, stat.total, stat.unconfirmed, stat.fp, stat.tp) == (8, 0, 8, 0, 0)
+    assert first.auto_applied == [] and "prefs" not in box
+    assert len(first.proposals) == 1
+    payload = first.proposals[0].payload
+    assert payload["action"] == "collect_evidence"
+    assert payload["reason_code"] == "insufficient_analyst_evidence"
+    assert payload["observed_cases"] == 8 and payload["analyst_samples"] == 0
+
+    second = await run_once(
+        prefs, cases, app_state.proposals, FakeAudit(),
+        tuning_store=store, write_prefs=write,
+    )
+    assert len(second.proposals) == 1  # existing row returned to the caller
+    assert len(await app_state.proposals.list()) == 1  # no scheduler spam
+
+
+async def test_confirmed_evidence_queues_apply_when_auto_apply_policy_is_off(
+    app_state: AppState,
+) -> None:
+    prefs = _tuning_prefs(min_samples=5, auto_apply_confirmed=False)
+    cases = [_closed_case(case_id=f"h{i}", rule="human_noise") for i in range(8)]
+    write, box = _writer_capture()
+    result = await run_once(
+        prefs, cases, app_state.proposals, FakeAudit(),
+        tuning_store=TuningStore(app_state._kv), write_prefs=write,
+    )
+    assert result.auto_applied == [] and "prefs" not in box
+    assert len(result.proposals) == 1
+    payload = result.proposals[0].payload
+    assert payload["action"] == "apply_change"
+    assert payload["reason_code"] == "policy_requires_approval"
+    assert payload["analyst_samples"] == 8
+
+
+def test_latest_feedback_wins_and_explicit_disposition_requires_classification_action() -> None:
+    case = _closed_case(case_id="graded", rule="r")
+    case.feedback = [
+        FeedbackEntry(ts="2026-01-01T00:00:00+00:00", analyst="a", actual_outcome="false_positive"),
+        FeedbackEntry(ts="2026-01-02T00:00:00+00:00", analyst="b", actual_outcome="true_positive"),
+    ]
+    assert tuner._analyst_outcome(case) == ("true_positive", "analyst_feedback")
+
+    case.feedback = []
+    case.decision_by = DecisionBy.ANALYST
+    case.disposition = Disposition.FALSE_POSITIVE
+    case.history = [{"event": "analyst_action", "action": "acknowledge"}]
+    assert tuner._analyst_outcome(case) == (None, None)
+    case.history.append({"event": "analyst_action", "action": "set_disposition"})
+    assert tuner._analyst_outcome(case) == (
+        "false_positive", "explicit_analyst_disposition",
+    )
+
+
+async def test_model_true_positive_does_not_shadow_block_but_confirmed_one_does(
+    app_state: AppState,
+) -> None:
+    prefs = _tuning_prefs(min_samples=5, auto_apply_confirmed=True)
+    false_positives = [_closed_case(case_id=f"fp{i}", rule="guard") for i in range(8)]
+    model_tp = _closed_case(
+        case_id="model-tp", rule="guard", fp=False, tp=True, observed_count=1,
+    )
+    model_tp.feedback = []
+    write, box = _writer_capture()
+    unblocked = await run_once(
+        prefs, [*false_positives, model_tp], app_state.proposals, FakeAudit(),
+        tuning_store=TuningStore(app_state._kv), write_prefs=write,
+    )
+    assert len(unblocked.auto_applied) == 1
+
+    confirmed_tp = model_tp.model_copy(update={
+        "case_id": "confirmed-tp",
+        "cluster_signature": "sig:confirmed-tp",
+        "feedback": [FeedbackEntry(analyst="human", actual_outcome="true_positive")],
+    })
+    prop = TuningProposal(
+        rule_id="guard", kind="correlation_n", before=5, after=6,
+        stat=RuleStat(rule_id="guard", observed=9, total=9, fp=8, tp=1),
+    )
+    assert shadow_eval_hides_true_positive(prop, [model_tp]) is False
+    assert shadow_eval_hides_true_positive(prop, [confirmed_tp]) is True
+
+
+def test_rule_ids_are_normalized_and_deduplicated_per_case() -> None:
+    case = _closed_case(case_id="norm", rule=" noisy_rule ")
+    case.rule_ids = [" noisy_rule ", "noisy_rule", ""]
+    stats = tuner._accumulate_rule_stats([case], ewma_alpha=0.2, z=1.96)
+    assert list(stats) == ["noisy_rule"]
+    assert stats["noisy_rule"].observed == 1
+    assert stats["noisy_rule"].total == 1
+
+
+def test_trailing_space_rule_uses_the_canonical_live_threshold() -> None:
+    """Regression for the live duplicate ``1->2`` record.
+
+    The case export contained ``"External ... ES|QL "`` while the preference key was
+    canonical and already at ``n=2``.  The old stats path kept the trailing space, so
+    proposal derivation read the default ``n=1`` on every pass and repeatedly wrote a
+    misleading ``1->2`` record.  Every stage now shares the stripped identity.
+    """
+    rule = "External Admin Panel Successful Access ES|QL"
+    cfg = ThresholdTuningConfig(
+        enabled=True,
+        min_samples=5,
+        fp_rate_target=0.3,
+        max_n_step=1,
+        shadow_eval=True,
+        auto_apply_confirmed=True,
+    )
+    prefs = Preferences(
+        default_correlation=CorrelationRule(n=1),
+        correlation_rules={rule: CorrelationRule(n=2)},
+        threshold_tuning=cfg,
+    )
+    cases = [
+        _closed_case(case_id=f"canonical-{index}", rule=f" {rule} ")
+        for index in range(8)
+    ]
+    stats = tuner._accumulate_rule_stats(cases, ewma_alpha=0.2, z=1.96)
+    proposals = derive_proposals(prefs, stats)
+
+    assert list(stats) == [rule]
+    assert len(proposals) == 1
+    assert proposals[0].rule_id == rule
+    assert (proposals[0].before, proposals[0].after) == (2, 3)
+    updated = apply_correlation_n(prefs, proposals[0])
+    assert updated is not None
+    assert set(updated.correlation_rules) == {rule}
+    assert updated.correlation_for(rule).n == 3
+
+
+async def test_auto_apply_ledger_failure_restores_the_exact_threshold(
+    app_state: AppState, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A config write without durable rollback provenance is compensated, not claimed."""
+    prefs = _tuning_prefs(min_samples=5, auto_apply_confirmed=True)
+    cases = [_closed_case(case_id=f"saga-{i}", rule="saga_rule") for i in range(8)]
+    store = TuningStore(app_state._kv)
+    writes: list[Preferences] = []
+
+    async def write(next_prefs: Preferences) -> Preferences:
+        writes.append(next_prefs)
+        return next_prefs
+
+    async def ledger_unavailable(_records):  # noqa: ANN001
+        raise RuntimeError("ledger unavailable")
+
+    monkeypatch.setattr(store, "add_many_strict", ledger_unavailable)
+    outcome = await run_once(
+        prefs,
+        cases,
+        app_state.proposals,
+        FakeAudit(),
+        tuning_store=store,
+        write_prefs=write,
+    )
+
+    assert outcome.auto_applied == []
+    assert outcome.persistence_errors
+    assert len(writes) == 2  # bounded write, then exact compensation
+    assert writes[0].correlation_for("saga_rule").n == 6
+    assert writes[-1].correlation_for("saga_rule").n == 5
+    assert await store.list_strict(active_only=True) == []
+
+
+async def test_rollback_retry_finalises_ledger_after_restore(
+    app_state: AppState, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A lost rollback-ledger write is retryable after the preference reached before."""
+    store = TuningStore(app_state._kv)
+    record = TuningRecord(
+        rule_id="retry_rule",
+        target="correlation_n",
+        before=5,
+        after=6,
+        evidence_source="analyst_confirmed",
+    )
+    await store.add_many_strict([record])
+    live = Preferences(correlation_rules={"retry_rule": CorrelationRule(n=6)})
+    writes: list[Preferences] = []
+
+    async def write(next_prefs: Preferences) -> Preferences:
+        writes.append(next_prefs)
+        return next_prefs
+
+    original_finalize = store.mark_rolled_back_strict
+
+    async def finalize_unavailable(_record_id: str):
+        raise RuntimeError("ledger unavailable")
+
+    monkeypatch.setattr(store, "mark_rolled_back_strict", finalize_unavailable)
+    assert await rollback(
+        record.id, live, tuning_store=store, write_prefs=write,
+    ) is False
+    assert writes[-1].correlation_for("retry_rule").n == 5
+    assert (await store.get_strict(record.id)).rolled_back is False  # type: ignore[union-attr]
+
+    monkeypatch.setattr(store, "mark_rolled_back_strict", original_finalize)
+    assert await rollback(
+        record.id, writes[-1], tuning_store=store, write_prefs=write,
+    ) is True
+    final = await store.get_strict(record.id)
+    assert final is not None and final.rolled_back is True
+
+
+async def test_legacy_applied_record_is_reviewable_without_automatic_rollback(
+    app_state: AppState,
+) -> None:
+    prefs = _tuning_prefs(min_samples=5, auto_apply_confirmed=False)
+    store = TuningStore(app_state._kv)
+    legacy = TuningRecord(
+        rule_id=" legacy_rule ", target="correlation_n", before=5, after=6,
+        fp_rate=0.8, samples=30,
+    )
+    await store.add(legacy)
+    write, box = _writer_capture()
+    first = await run_once(
+        prefs, [], app_state.proposals, FakeAudit(), tuning_store=store, write_prefs=write,
+    )
+    assert "prefs" not in box
+    assert len(first.proposals) == 1
+    payload = first.proposals[0].payload
+    assert payload["action"] == "review_history"
+    assert payload["record_id"] == legacy.id
+    assert payload["rule_id"] == "legacy_rule"
+    still_active = await store.get(legacy.id)
+    assert still_active is not None and still_active.rolled_back is False
+
+    await run_once(
+        prefs, [], app_state.proposals, FakeAudit(), tuning_store=store, write_prefs=write,
+    )
+    assert len(await app_state.proposals.list()) == 1
+
+
+async def test_tuner_never_claims_unconfirmed_proposal_and_scheduler_retries(
+    app_state: AppState,
+) -> None:
+    prefs = _tuning_prefs(min_samples=5, auto_apply_confirmed=False)
+    cases = [_closed_case(case_id=f"missing-{i}", rule="missing_queue") for i in range(8)]
+    write, box = _writer_capture()
+    outcome = await run_once(
+        prefs,
+        cases,
+        _UnconfirmedProposalStore(),
+        FakeAudit(),
+        tuning_store=TuningStore(app_state._kv),
+        write_prefs=write,
+    )
+    assert outcome.proposals == []
+    assert outcome.persistence_errors
+    assert "scheduler retry required" in outcome.reason
+    assert "prefs" not in box
+
+    # The same validator used immediately before the durable cadence stamp rejects the
+    # pass. The scheduler records the outage and leaves last_run empty, so the next
+    # minute remains eligible for retry rather than hiding the missing approval row.
+    with pytest.raises(RuntimeError, match="proposal persistence failed"):
+        app_state._require_tuner_success(outcome)
+    app_state._scheduler_failure("threshold_tuner", RuntimeError(outcome.reason))
+    health = await app_state.scheduler_health()
+    assert "proposal persistence failed" in health["workers"]["threshold_tuner"]["last_error"]
+    assert await app_state.tuning_store.get_last_run_at() is None
+
+
+async def test_atomic_tuning_mutator_preserves_unrelated_concurrent_preferences(
+    app_state: AppState,
+) -> None:
+    prefs = _tuning_prefs(min_samples=5, auto_apply_confirmed=True)
+    concurrent = prefs.model_copy(update={
+        "branding": prefs.branding.model_copy(update={"org_name": "Concurrent SOC"}),
+    })
+    cases = [_closed_case(case_id=f"atomic-{i}", rule="atomic_rule") for i in range(8)]
+    captured: dict[str, Preferences] = {}
+
+    async def mutate(transform):  # noqa: ANN001
+        captured["prefs"] = transform(concurrent)
+        return captured["prefs"]
+
+    async def stale_writer(_prefs):  # noqa: ANN001
+        raise AssertionError("production must prefer the atomic mutator")
+
+    outcome = await run_once(
+        prefs,
+        cases,
+        app_state.proposals,
+        FakeAudit(),
+        tuning_store=TuningStore(app_state._kv),
+        write_prefs=stale_writer,
+        mutate_prefs=mutate,
+    )
+    assert len(outcome.auto_applied) == 1
+    assert captured["prefs"].branding.org_name == "Concurrent SOC"
+    assert captured["prefs"].correlation_for("atomic_rule").n == 6
+
+
+async def test_legacy_review_is_queued_during_startup_without_mutating_record() -> None:
+    from app.config import Secrets
+    from app.es.fake import InMemoryESClient
+    from app.llm.providers import MockProvider
+
+    es = InMemoryESClient()
+    secrets = Secrets(
+        _env_file=None,
+        es_store_enabled=False,
+        redis_url="",
+        anthropic_api_key=None,
+        openai_api_key=None,
+    )
+    providers = {"anthropic": MockProvider(), "openai": MockProvider(), "mock": MockProvider()}
+    first = AppState.create(secrets=secrets, es=es, provider_overrides=providers)
+    await first.startup(start_poller=False)
+    legacy = TuningRecord(
+        rule_id="startup_legacy",
+        target="correlation_n",
+        before=5,
+        after=6,
+        fp_rate=0.81,
+        samples=31,
+    )
+    await first.tuning_store.add(legacy)
+    await first.shutdown()
+
+    restarted = AppState.create(secrets=secrets, es=es, provider_overrides=providers)
+    try:
+        await restarted.startup(start_poller=False)
+        queued = await restarted.proposals.list(status="pending")
+        matches = [p for p in queued if (p.payload or {}).get("record_id") == legacy.id]
+        assert len(matches) == 1
+        assert matches[0].payload["action"] == "review_history"
+        still_active = await restarted.tuning_store.get(legacy.id)
+        assert still_active is not None
+        assert still_active.rolled_back is False
+        assert still_active.before == 5 and still_active.after == 6
+    finally:
+        await restarted.shutdown()
 
 
 # --------------------------------------------------------------------------- #

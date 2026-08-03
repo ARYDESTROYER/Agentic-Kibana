@@ -123,6 +123,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/export/segment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Export Application Data Segment
+         * @description Download one resumable segment of a scope's complete history.
+         *
+         *     The 5,000-record setting is deliberately a per-segment memory/response bound,
+         *     not a lifetime ceiling. The Console follows ``next_cursor`` until ``complete``;
+         *     each accepted response remains below 25 MiB. Elasticsearch-backed ledgers/cases
+         *     use one PIT carried in the opaque cursor across requests, while other backends
+         *     disclose their weaker consistency mode rather than claiming an exact snapshot.
+         */
+        post: operations["export_application_data_segment_api_admin_export_segment_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/export/segment/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel Application Data Segment
+         * @description Best-effort release of a PIT when an operator cancels a segmented export.
+         */
+        post: operations["cancel_application_data_segment_api_admin_export_segment_cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/reset": {
         parameters: {
             query?: never;
@@ -1030,7 +1076,13 @@ export interface paths {
         put?: never;
         /**
          * Case Feedback
-         * @description Record an analyst's grade of the AI verdict (the eval/quality loop).
+         * @description Record an authenticated analyst's grade of the AI verdict.
+         *
+         *     ``body.analyst`` remains a compatibility input for auth-disabled/direct-test
+         *     callers. Over HTTP with auth enabled, the persisted analyst and audit actor always
+         *     come from the verified principal; a client cannot spoof another operator. The
+         *     narrow ``cases:write`` grant is enforced inline so assigned custom roles work the
+         *     same way as every other case mutation.
          */
         post: operations["case_feedback_api_cases__case_id__feedback_post"];
         delete?: never;
@@ -2790,6 +2842,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/playbooks/coverage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Playbooks Coverage
+         * @description Coverage over the stored case population, paged without a 200-row cap.
+         */
+        get: operations["playbooks_coverage_api_playbooks_coverage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/playbooks/dry-run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Playbooks Dry Run
+         * @description Explain exact match and no-match reasons without running an investigation.
+         */
+        post: operations["playbooks_dry_run_api_playbooks_dry_run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/playbooks/reload": {
         parameters: {
             query?: never;
@@ -2999,12 +3091,16 @@ export interface paths {
         put?: never;
         /**
          * Approve Proposal
-         * @description Approve a pending proposal — the ONLY path that writes a live rule / memory.
+         * @description Approve or acknowledge a pending proposal through its kind-specific path.
          *
          *     suppression → materialise a ``SuppressionRule`` from the payload and append it to
          *     ``Preferences.suppression_rules`` via the settings write path so the cost gate
-         *     picks it up LIVE. memory → append a human-injectable agent fact. Then mark the
-         *     proposal approved + audit. 404 if missing; 409 if not pending.
+         *     picks it up LIVE. memory → append a human-injectable agent fact. tuning →
+         *     revalidate and, where eligible, materialise the bounded change. ``automation_ack``
+         *     records review only and never mutates configuration, Memory, suppression, or case
+         *     state. A strict CAS claim is persisted before any effect, every effect is keyed by
+         *     proposal id, and finalisation is strict so concurrent/retried requests cannot apply
+         *     the same proposal twice. 404 if missing; 409 if already decided/in progress.
          */
         post: operations["approve_proposal_api_proposals__proposal_id__approve_post"];
         delete?: never;
@@ -3024,8 +3120,11 @@ export interface paths {
         put?: never;
         /**
          * Reject Proposal
-         * @description Reject a pending proposal. Preferences / memory are UNCHANGED — only the
-         *     proposal status flips to rejected. 404 if missing; 409 if not pending.
+         * @description Reject a pending proposal through the same durable decision boundary.
+         *
+         *     Preferences / memory are unchanged. A strict CAS claim and idempotent
+         *     append-only audit row must both succeed before the proposal can be finalised as
+         *     rejected. 404 if missing; 409 if already decided/in progress.
          */
         post: operations["reject_proposal_api_proposals__proposal_id__reject_post"];
         delete?: never;
@@ -3631,6 +3730,26 @@ export interface paths {
         };
         /** Scan Notifications */
         get: operations["scan_notifications_api_scans_notifications_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/schedulers/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Scheduler Health
+         * @description Enabled/gated/runtime status plus truthful last attempt/success/error.
+         */
+        get: operations["scheduler_health_api_schedulers_health_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4436,6 +4555,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tuning/source-recommendations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Source Recommendations
+         * @description Recommend sources only after stored query evidence proves a telemetry gap.
+         */
+        get: operations["source_recommendations_api_tuning_source_recommendations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tuning/{rule_id}/apply": {
         parameters: {
             query?: never;
@@ -4449,10 +4588,10 @@ export interface paths {
          * Apply Tuning
          * @description Recompute and process every current proposed change for ONE rule.
          *
-         *     Reuses the engine's SAFE per-proposal router (``_handle_proposal``): a bounded
-         *     ``correlation_n`` / ``severity_floor`` raise is auto-applied (after shadow-eval) +
-         *     recorded in the ledger; a suppression DROP or a shadow-blocked raise is routed to
-         *     the existing HITL Proposal queue and is NEVER auto-applied here. The router never
+         *     Reuses the engine's SAFE per-proposal router (``_handle_proposal``): bounded
+         *     changes enter the HITL Proposal queue by default after shadow evaluation. An
+         *     explicitly enabled automatic policy still requires sufficient independent analyst
+         *     evidence; suppression drops are never applied automatically. The router never
          *     calls ``decide()`` (#3). Returns the applied, queued, and shadow-blocked outcomes.
          *
          *     404 when no proposal exists for ``rule_id`` (the rule isn't noisy / cleared the
@@ -4941,6 +5080,10 @@ export interface components {
             commit_sha: string;
             /** Ocsf Version */
             ocsf_version: string;
+            /** Provenance Complete */
+            provenance_complete: boolean;
+            /** Provenance Missing */
+            provenance_missing: string[];
             /** Release Channel */
             release_channel: string;
             /** Service */
@@ -5664,6 +5807,37 @@ export interface components {
             scopes?: ("all" | "cases" | "audit" | "usage" | "configuration" | "automation" | "knowledge")[];
         };
         /**
+         * DataExportSegmentCancelRequest
+         * @description Release a still-open point-in-time cursor after operator cancellation.
+         */
+        DataExportSegmentCancelRequest: {
+            /** Cursor */
+            cursor: string;
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "cases" | "audit" | "usage" | "configuration" | "automation" | "knowledge";
+        };
+        /**
+         * DataExportSegmentRequest
+         * @description One bounded continuation segment of a complete, scope-specific export.
+         */
+        DataExportSegmentRequest: {
+            /** Cursor */
+            cursor?: string | null;
+            /**
+             * Page Size
+             * @default 1000
+             */
+            page_size: number;
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "cases" | "audit" | "usage" | "configuration" | "automation" | "knowledge";
+        };
+        /**
          * DecisionBy
          * @enum {string}
          */
@@ -5762,11 +5936,8 @@ export interface components {
              * @default 0
              */
             action_appropriateness: number;
-            /**
-             * Actual Outcome
-             * @default
-             */
-            actual_outcome: string;
+            /** @default unknown */
+            actual_outcome: components["schemas"]["FeedbackOutcome"];
             /**
              * Analyst
              * @default
@@ -5853,6 +6024,17 @@ export interface components {
             /** Ts */
             ts?: string;
         };
+        /**
+         * FeedbackOutcome
+         * @description Human-confirmed outcome accepted by the analyst feedback endpoint.
+         *
+         *     This is deliberately broader than :class:`Disposition`: evaluation can record a
+         *     true/false negative even when that classification is not a live case disposition.
+         *     Keeping the vocabulary here makes the HTTP contract explicit and prevents arbitrary
+         *     strings from silently becoming tuner ground truth.
+         * @enum {string}
+         */
+        FeedbackOutcome: "true_positive" | "false_positive" | "true_negative" | "false_negative" | "unknown";
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -5861,14 +6043,30 @@ export interface components {
         /**
          * HealthResponse
          * @description The public health envelope (also read by the webui to detect an in-memory
-         *     store, ``store_type``). Exact shape — keys are stable and the webui depends on
-         *     ``status``/``version``/``es_connected``/``store_type``/``setup_complete``.
+         *     store, ``store_type``).
+         *
+         *     ``es_connected`` is a compatibility-stable alias that historically named the
+         *     only supported state backend. New clients must use ``state_store_connected``;
+         *     both fields deliberately carry the same own-state readiness result.
          */
         HealthResponse: {
-            /** Es Connected */
+            /**
+             * Es Connected
+             * @description Compatibility alias for state_store_connected; this does not describe log-source Elasticsearch connectivity.
+             */
             es_connected: boolean;
             /** Setup Complete */
             setup_complete: boolean;
+            /**
+             * State Backend
+             * @description Configured owned-state backend: elasticsearch, postgres, or sqlite.
+             */
+            state_backend: string;
+            /**
+             * State Store Connected
+             * @description Whether the selected owned-state backend passed its write-path probe.
+             */
+            state_store_connected: boolean;
             /** Status */
             status: string;
             /** Store Type */
@@ -5946,6 +6144,8 @@ export interface components {
             active?: boolean | null;
             /** Category */
             category?: string | null;
+            /** Review Status */
+            review_status?: string | null;
             /** Tags */
             tags?: string[] | null;
             /** Text */
@@ -6096,12 +6296,29 @@ export interface components {
             id: string;
         };
         /**
+         * PlaybookDryRunRequest
+         * @description Synthetic cluster attributes for deterministic procedure diagnostics.
+         */
+        PlaybookDryRunRequest: {
+            /** @default rule */
+            entity_type: components["schemas"]["EntityType"];
+            /**
+             * Event Count
+             * @default 1
+             */
+            event_count: number;
+            /** Rule Ids */
+            rule_ids?: string[];
+        };
+        /**
          * PlaybookUpdateRequest
          * @description Replace one operator-owned Markdown playbook; the id remains immutable.
          */
         PlaybookUpdateRequest: {
             /** Content */
             content: string;
+            /** Expected Revision */
+            expected_revision?: number | null;
         };
         /** PricingBody */
         PricingBody: {
@@ -6907,16 +7124,22 @@ export interface components {
          *     ``shadow_eval`` (default ON) means a suggestion is EVALUATED against recent data
          *     before it can be applied.
          *
-         *     Defaults ON (Autopilot overhaul) — the flagship "self-tunes over time" engine, safe
-         *     on because it is a config-writer only (never imports ``decide()``): Wilson-lower-bound
-         *     + ``min_samples`` gate + a bounded ``±1`` (``max_n_step``) nudge + mandatory
-         *     ``shadow_eval`` (never hides a confirmed TP) + suppression DROPs routed to a HITL
-         *     Proposal. A cold tenant with < ``min_samples`` closed cases per rule simply proposes
-         *     nothing. Defaults follow ``STANDARDS.md``: ``min_samples=30`` (Wilson-stable; hard
-         *     floor 10), ``fp_rate_target=0.10`` (world-class SOC < 10% FP), ``wilson_z=1.96``
-         *     (0.95 confidence, lower bound), ``max_n_step=1`` (bounded nudge).
+         *     Observation defaults ON (Autopilot overhaul), while automatic writes default OFF.
+         *     The engine accepts only independent analyst outcomes, uses a Wilson lower bound plus
+         *     ``min_samples``, proposes a bounded +1 (``max_n_step``) nudge, and runs mandatory
+         *     ``shadow_eval`` before review or an explicitly enabled automatic application. A
+         *     suppression drop always routes to HITL. Rules with enough observed volume but too few
+         *     analyst labels produce an evidence-collection work item rather than silently training
+         *     on model output. Defaults follow ``STANDARDS.md``: ``min_samples=30`` (Wilson-stable;
+         *     hard floor 10), ``fp_rate_target=0.10`` (world-class SOC < 10% FP),
+         *     ``wilson_z=1.96`` (0.95 confidence, lower bound), ``max_n_step=1`` (bounded nudge).
          */
         ThresholdTuningConfig: {
+            /**
+             * Auto Apply Confirmed
+             * @default false
+             */
+            auto_apply_confirmed: boolean;
             /**
              * Cadence
              * @default nightly
@@ -7352,6 +7575,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_application_data_segment_api_admin_export_segment_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DataExportSegmentRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_application_data_segment_api_admin_export_segment_cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DataExportSegmentCancelRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: boolean;
+                    };
                 };
             };
             /** @description Validation Error */
@@ -11396,6 +11687,59 @@ export interface operations {
             };
         };
     };
+    playbooks_coverage_api_playbooks_coverage_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    playbooks_dry_run_api_playbooks_dry_run_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlaybookDryRunRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     playbooks_reload_api_playbooks_reload_post: {
         parameters: {
             query?: never;
@@ -12830,6 +13174,26 @@ export interface operations {
             };
         };
     };
+    scheduler_health_api_schedulers_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
     global_search_api_search_get: {
         parameters: {
             query?: {
@@ -13989,6 +14353,26 @@ export interface operations {
         };
     };
     tuning_recommendations_api_tuning_recommendations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    source_recommendations_api_tuning_source_recommendations_get: {
         parameters: {
             query?: never;
             header?: never;

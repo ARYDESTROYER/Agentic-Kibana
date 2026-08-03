@@ -8,7 +8,7 @@ risk-scores them deterministically, uses role-separated AI investigation, and ap
 operator policy through a deterministic case manager. The model can recommend a
 verdict; it cannot decide to close or escalate a case.
 
-> **Version 0.1.1 · Testing integration → `main` Stable**
+> **Version 0.1.2 beta patch · Testing integration → `main` Stable**
 > Start with the [Quickstart](docs/getting-started/quickstart.md), or open the
 > version-matched Help Center from inside the Console.
 
@@ -232,6 +232,7 @@ version. Public repository documentation may describe a different channel.
 
 - Contributions follow [CONTRIBUTING.md](CONTRIBUTING.md), including branch, test,
   documentation, and Journal requirements.
+- Community participation follows the [Code of Conduct](CODE_OF_CONDUCT.md).
 - Report vulnerabilities through the private responsible-disclosure process in
   [SECURITY.md](SECURITY.md). Do not open a public issue for an undisclosed weakness.
 - This repository does not currently publish a license file. Source availability does

@@ -23,11 +23,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from ..state import AppState
-from .deps import get_state, require_permission
+from .deps import current_username, get_state, require_permission
 
 logger = logging.getLogger("tlsoc.api.rag")
 
@@ -71,20 +71,30 @@ _RAG_MAX_TEXT = 1_000_000  # ~1MB cap on a single imported document body
 
 
 @router.get("/rag/stats")
-async def rag_stats(state: AppState = Depends(get_state)) -> dict[str, Any]:
+async def rag_stats(
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("rag", "read")),
+) -> dict[str, Any]:
     """Corpus stats: total chunks, count by source, embedding model/dim, doc count."""
     return await state.rag_service.rag_stats()
 
 
 @router.get("/rag/documents", response_model=RagDocumentsResponse)
-async def rag_documents(state: AppState = Depends(get_state)) -> dict[str, Any]:
+async def rag_documents(
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("rag", "read")),
+) -> dict[str, Any]:
     """List all documents in the RAG corpus (seeds grouped as seed:<source>)."""
     docs = await state.rag_service.list_documents()
     return {"documents": docs, "count": len(docs)}
 
 
 @router.get("/rag/documents/{document_id}")
-async def rag_document(document_id: str, state: AppState = Depends(get_state)) -> dict[str, Any]:
+async def rag_document(
+    document_id: str,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("rag", "read")),
+) -> dict[str, Any]:
     """A single document + its chunks. 404 if no such document."""
     doc = await state.rag_service.get_document(document_id)
     if doc is None:
@@ -139,6 +149,7 @@ async def rag_search(
     q: str,
     top_k: int = 5,
     state: AppState = Depends(get_state),
+    _=Depends(require_permission("rag", "read")),
 ) -> dict[str, Any]:
     """Run a retrieval against the live corpus and return the chunks RAG would feed
     an investigation — so an operator can SEE what the knowledge base returns."""
@@ -171,11 +182,14 @@ class MemoryUpdate(BaseModel):
     category: str | None = None
     tags: list[str] | None = None
     active: bool | None = None
+    review_status: str | None = Field(default=None, pattern=r"^(approved|pending)$")
 
 
 @router.get("/memory", response_model=MemoryListResponse)
 async def list_memory(
-    active_only: bool = False, state: AppState = Depends(get_state)
+    active_only: bool = False,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("memory", "read")),
 ) -> dict[str, Any]:
     """List operator memory entries (newest first). ``?active_only=true`` hides
     de-activated facts."""
@@ -189,6 +203,7 @@ async def list_memory(
 @router.post("/memory")
 async def add_memory(
     body: MemoryCreate,
+    request: Request,
     state: AppState = Depends(get_state),
     _=Depends(require_permission("memory", "manage")),
 ) -> dict[str, Any]:
@@ -198,7 +213,13 @@ async def add_memory(
     if not text:
         raise HTTPException(status_code=400, detail="text is required")
     entry = await state.memory.add(
-        text, category=body.category, tags=body.tags, source="human",
+        text,
+        category=body.category,
+        tags=body.tags,
+        source="human",
+        author=current_username(request),
+        review_status="approved",
+        approved_by=current_username(request),
     )
     return entry.model_dump(mode="json")
 
@@ -207,11 +228,15 @@ async def add_memory(
 async def update_memory(
     entry_id: str,
     body: MemoryUpdate,
+    request: Request,
     state: AppState = Depends(get_state),
     _=Depends(require_permission("memory", "manage")),
 ) -> dict[str, Any]:
     """Edit a memory entry (text/category/tags) or toggle ``active``."""
-    updated = await state.memory.update(entry_id, **body.model_dump(exclude_none=True))
+    patch = body.model_dump(exclude_none=True)
+    if patch.get("review_status") == "approved":
+        patch["approved_by"] = current_username(request) or "operator"
+    updated = await state.memory.update(entry_id, **patch)
     if updated is None:
         raise HTTPException(status_code=404, detail="memory entry not found")
     return updated.model_dump(mode="json")

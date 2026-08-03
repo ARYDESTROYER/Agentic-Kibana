@@ -63,6 +63,21 @@ class BaseESClient(ABC):
         """Close a PIT opened by :meth:`open_log_pit` (optional no-op)."""
         return None
 
+    async def open_state_pit(self, index: str, keep_alive: str = "10m") -> str | None:
+        """Open a point-in-time view over an OWN-state index pattern.
+
+        Full-history exports use this optional capability with ``search_after`` so
+        append-only ledgers can grow while an operator downloads them without
+        duplicates, omissions, or Elasticsearch's 10k result-window ceiling.
+        Third-party clients may return ``None``; callers must then describe their
+        result as bounded/best-effort rather than an exact point-in-time snapshot.
+        """
+        return None
+
+    async def close_state_pit(self, pit_id: str) -> None:
+        """Close an OWN-state PIT (optional no-op; PITs also expire server-side)."""
+        return None
+
     # --- MANAGEMENT: the suite's OWN indices (scoped management key) ---
     @abstractmethod
     async def index_template_exists(self, name: str) -> bool: ...
