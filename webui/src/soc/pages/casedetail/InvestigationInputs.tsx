@@ -13,6 +13,7 @@ import {
   Brain,
   RefreshCw,
   SlidersHorizontal,
+  UserRound,
   Workflow,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -21,12 +22,15 @@ import type { CaseRationale, RationalePlatformTuning } from '@/lib/types';
 import { cn } from '@/lib/cn';
 import { Button } from '@/ui/button';
 import { Skeleton } from '@/ui/skeleton';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/ui/tooltip';
 
 type InputItem = {
   key: string;
   label: string;
   value: string;
   icon: LucideIcon;
+  detail: string;
+  informed: boolean;
 };
 
 function plural(count: number, singular: string, multiple = `${singular}s`): string {
@@ -35,7 +39,7 @@ function plural(count: number, singular: string, multiple = `${singular}s`): str
 
 export function isRunbookSource(source?: string): boolean {
   const normalized = (source || '').trim().toLowerCase();
-  return normalized === 'runbook' || normalized.startsWith('runbook:');
+  return /(^|[-_:])runbook($|[-_:])/.test(normalized);
 }
 
 export function tuningSummary(records: RationalePlatformTuning[]): string {
@@ -55,13 +59,31 @@ export const InvestigationInputs: React.FC<{
   error?: unknown;
   onRetry?: () => void;
   onReview?: () => void;
+  /** Investigation view only: disclose selections that were not actually consulted. */
+  showSelectionStatus?: boolean;
   className?: string;
-}> = ({ rationale, loading = false, error, onRetry, onReview, className }) => {
+}> = ({
+  rationale,
+  loading = false,
+  error,
+  onRetry,
+  onReview,
+  showSelectionStatus = false,
+  className,
+}) => {
   const knowledge = rationale?.knowledge || [];
   const runbooks = knowledge.filter((item) => isRunbookSource(item.source));
   const otherKnowledge = knowledge.filter((item) => !isRunbookSource(item.source));
   const memories = (rationale?.memory_used || []).filter((item) => item.trim());
   const playbook = rationale?.playbook;
+  const procedure = rationale?.procedure_provenance;
+  const selectedPersona = procedure?.persona?.selected_id?.trim() || '';
+  const personaConsulted = Boolean(selectedPersona && procedure?.persona?.consulted === true);
+  const selectedPlaybook = procedure?.playbook?.selected_id?.trim() || playbook?.id?.trim() || '';
+  const playbookConsulted = Boolean(
+    selectedPlaybook &&
+      (procedure?.playbook?.consulted === true || playbook?.consulted === true),
+  );
   const tuning = rationale?.platform_tuning || [];
   const tuningUnavailable = rationale?.platform_tuning_status === 'unavailable';
 
@@ -72,6 +94,8 @@ export const InvestigationInputs: React.FC<{
       label: 'Memory',
       value: plural(memories.length, 'approved operator fact'),
       icon: Brain,
+      detail: 'Approved operator facts actually supplied to the latest investigation run.',
+      informed: true,
     });
   }
   if (otherKnowledge.length) {
@@ -80,6 +104,8 @@ export const InvestigationInputs: React.FC<{
       label: 'Knowledge',
       value: plural(otherKnowledge.length, 'retrieved reference'),
       icon: BookOpen,
+      detail: 'Knowledge references retrieved through RAG for the latest investigation run.',
+      informed: true,
     });
   }
   if (runbooks.length) {
@@ -88,34 +114,60 @@ export const InvestigationInputs: React.FC<{
       label: 'Runbook',
       value: plural(runbooks.length, 'retrieved reference'),
       icon: BookMarked,
+      detail: 'Runbook references retrieved through RAG for the latest investigation run.',
+      informed: true,
     });
   }
-  // New rationale rows set consulted explicitly.  Treat an omitted flag as true
-  // only for backward-compatible rows whose endpoint already returned a non-empty id.
-  if (playbook?.id && playbook.consulted !== false) {
+  if (personaConsulted || (showSelectionStatus && selectedPersona)) {
+    const reason = procedure?.persona?.selection_reason?.trim();
+    items.push({
+      key: 'persona',
+      label: 'Persona',
+      value: personaConsulted ? `${selectedPersona} · Consulted` : `${selectedPersona} · Selected only`,
+      icon: UserRound,
+      detail: personaConsulted
+        ? `The latest run actually consulted this persona.${reason ? ` Selected because: ${reason}` : ''}`
+        : `The latest run selected this persona but did not consult it.${reason ? ` Selected because: ${reason}` : ''}`,
+      informed: personaConsulted,
+    });
+  }
+  if (playbookConsulted || (showSelectionStatus && selectedPlaybook)) {
+    const version = playbookConsulted && playbook?.version ? ` · v${playbook.version}` : '';
+    const reason = procedure?.playbook?.selection_reason?.trim() || playbook?.reason?.trim();
     items.push({
       key: 'playbook',
       label: 'Playbook',
-      value: playbook.version ? `${playbook.id} · v${playbook.version}` : playbook.id,
+      value: playbookConsulted
+        ? `${selectedPlaybook}${version} · Consulted`
+        : `${selectedPlaybook} · Selected only`,
       icon: Workflow,
+      detail: playbookConsulted
+        ? `The latest run injected and consulted this playbook.${reason ? ` Selected because: ${reason}` : ''}`
+        : `The latest run selected this playbook but did not inject or consult it.${reason ? ` Selected because: ${reason}` : ''}`,
+      informed: playbookConsulted,
     });
   }
   if (tuning.length) {
     items.push({
       key: 'platform-tuning',
-      label: 'Platform tuning',
+      label: 'Threshold tuning',
       value: tuningSummary(tuning),
       icon: SlidersHorizontal,
+      detail: 'Immutable threshold values recorded on this case processing path. This is not model fine-tuning.',
+      informed: true,
     });
   } else if (tuningUnavailable) {
     items.push({
       key: 'platform-tuning-unavailable',
-      label: 'Platform tuning',
+      label: 'Threshold tuning',
       value: 'Provenance unavailable',
       icon: SlidersHorizontal,
+      detail: 'The latest run could not determine whether an adjusted threshold was on this case path.',
+      informed: false,
     });
   }
-  const recordedItemCount = items.filter(
+  const informedItemCount = items.filter((item) => item.informed).length;
+  const reviewableItemCount = items.filter(
     (item) => item.key !== 'platform-tuning-unavailable',
   ).length;
 
@@ -136,10 +188,12 @@ export const InvestigationInputs: React.FC<{
             Investigation inputs
           </h3>
           <p className="mt-1 text-sm text-muted-foreground">
-            Context and configuration recorded for this investigation.
+            {showSelectionStatus
+              ? 'Latest-run selections and the inputs actually consulted.'
+              : 'Only latest-run inputs actually consulted or applied to this case path.'}
           </p>
         </div>
-        {onReview && recordedItemCount ? (
+        {onReview && reviewableItemCount ? (
           <Button type="button" variant="outline" size="sm" onClick={onReview}>
             Review inputs
           </Button>
@@ -163,27 +217,46 @@ export const InvestigationInputs: React.FC<{
           ) : null}
         </div>
       ) : (
-        <ul className="flex list-none flex-wrap gap-x-8 gap-y-4" aria-label="Recorded investigation inputs">
-          {items.map((item) => {
-            const Icon = item.icon;
-            return (
-              <li key={item.key} className="flex min-w-[10rem] items-start gap-2.5">
-                <Icon className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
-                <div className="min-w-0">
-                  <div className="text-2xs font-semibold uppercase tracking-widest text-muted-foreground">
-                    {item.label}
-                  </div>
-                  <div className="mt-0.5 break-words text-sm font-medium text-foreground">
-                    {item.value}
-                  </div>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+        <TooltipProvider delayDuration={220}>
+          <ul className="flex list-none flex-wrap gap-x-8 gap-y-4" aria-label="Recorded investigation inputs">
+            {items.map((item) => {
+              const Icon = item.icon;
+              return (
+                <li key={item.key} className="min-w-[10rem]">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        className="flex w-full items-start gap-2.5 rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        aria-label={`${item.label}: ${item.value}. ${item.detail}`}
+                      >
+                        <Icon
+                          className={cn(
+                            'mt-0.5 h-4 w-4 shrink-0',
+                            item.informed ? 'text-primary' : 'text-muted-foreground',
+                          )}
+                          aria-hidden
+                        />
+                        <div className="min-w-0">
+                          <div className="text-2xs font-semibold uppercase tracking-widest text-muted-foreground">
+                            {item.label}
+                          </div>
+                          <div className="mt-0.5 break-words text-sm font-medium text-foreground">
+                            {item.value}
+                          </div>
+                        </div>
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-sm">{item.detail}</TooltipContent>
+                  </Tooltip>
+                </li>
+              );
+            })}
+          </ul>
+        </TooltipProvider>
       )}
 
-      {!loading && !error && recordedItemCount ? (
+      {!loading && !error && informedItemCount ? (
         <p className="flex items-start gap-2 text-xs leading-relaxed text-muted-foreground">
           <Workflow className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
           <span>

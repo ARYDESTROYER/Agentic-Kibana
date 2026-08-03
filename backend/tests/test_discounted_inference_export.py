@@ -2,16 +2,24 @@
 
 from __future__ import annotations
 
+import base64
 import json
 from contextlib import asynccontextmanager
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from app.api.routes_export import _limit_grouped_rows, _plain, router as export_router
+from app.api.routes_export import (
+    _MAX_EXPORT_BYTES,
+    _decode_cursor,
+    _encode_cursor,
+    _limit_grouped_rows,
+    _plain,
+    router as export_router,
+)
 from app.config import BatchConfig, ModelConfig, Secrets
-from app.constants import USAGE_READ_PATTERN, UserRole
+from app.constants import AUDIT_WRITE_ALIAS, USAGE_READ_PATTERN, UserRole
 from app.es.fake import InMemoryESClient
 from app.llm.gateway import LLMGateway
 from app.llm.providers import (
@@ -235,6 +243,70 @@ def test_grouped_export_limit_is_scope_wide_and_keeps_collections_represented():
     assert result == {"proposals": [1, 2], "campaigns": [4], "jobs": [6]}
 
 
+def test_segment_cursor_is_authenticated_subject_bound_and_monotonic():
+    key = b"portable-export-test-key" * 2
+    cursor = _encode_cursor(
+        scope="knowledge",
+        position=3,
+        snapshot_total=9,
+        exported=3,
+        segment=2,
+        actor="alice",
+        snapshot_id="snapshot_export_12345",
+        signing_key=key,
+    )
+    decoded = _decode_cursor(
+        "knowledge", cursor, actor="alice", signing_key=key,
+    )
+    assert decoded == {
+        "snapshot_id": "snapshot_export_12345",
+        "position": 3,
+        "snapshot_total": 9,
+        "exported": 3,
+        "segment": 2,
+    }
+
+    # The same opaque continuation cannot be replayed by another principal.
+    with pytest.raises(HTTPException) as wrong_subject:
+        _decode_cursor("knowledge", cursor, actor="bob", signing_key=key)
+    assert wrong_subject.value.status_code == 400
+
+    # Altering a signed payload to skip ahead fails before any repository read.
+    payload, signature = cursor.split(".", 1)
+    raw = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+    raw["exported"] = 8
+    raw["position"] = 8
+    tampered_payload = base64.urlsafe_b64encode(
+        json.dumps(raw, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).decode("ascii").rstrip("=")
+    with pytest.raises(HTTPException) as tampered:
+        _decode_cursor(
+            "knowledge",
+            f"{tampered_payload}.{signature}",
+            actor="alice",
+            signing_key=key,
+        )
+    assert tampered.value.status_code == 400
+    assert tampered.value.detail == "invalid export cursor"
+
+    # Even authenticated continuation state is rejected when its position does not
+    # agree with the cumulative count; this guards accidental non-monotonic issuance.
+    inconsistent = _encode_cursor(
+        scope="knowledge",
+        position=6,
+        snapshot_total=9,
+        exported=3,
+        segment=2,
+        actor="alice",
+        snapshot_id="snapshot_export_12345",
+        signing_key=key,
+    )
+    with pytest.raises(HTTPException) as skipped:
+        _decode_cursor("knowledge", inconsistent, actor="alice", signing_key=key)
+    assert skipped.value.status_code == 400
+    assert skipped.value.detail == "invalid export cursor position"
+
+
 def test_export_endpoint_is_downloadable_canonical_json(mock_provider):
     overrides = {"anthropic": mock_provider, "openai": mock_provider, "mock": mock_provider}
 
@@ -273,3 +345,422 @@ def test_export_endpoint_is_downloadable_canonical_json(mock_provider):
     assert response.content == json.dumps(
         body, ensure_ascii=False, sort_keys=True, separators=(",", ":")
     ).encode("utf-8")
+
+
+def _export_runbook_document() -> str:
+    return (
+        "---\n"
+        "id: export_triage\n"
+        "title: Export triage\n"
+        "summary: Validate a portable export finding.\n"
+        "persona: general\n"
+        "applies_to_rules: [export_rule]\n"
+        "applies_to_techniques: [T1005]\n"
+        "applies_to_entities: [host]\n"
+        "keywords: [export, archive]\n"
+        "---\n"
+        "SIGNAL\n"
+        "An export marker was observed with Bearer export-secret-12345678.\n\n"
+        "EVIDENCE REQUIRED\n"
+        "Confirm the actor, scope, timestamp, and destination.\n\n"
+        "INVESTIGATION STEPS\n"
+        "1. Confirm the export was approved.\n"
+        "2. Compare the selected scope with the stated purpose.\n\n"
+        "TRUE POSITIVE SIGNALS\n"
+        "An unapproved export to an external destination supports a true positive.\n\n"
+        "FALSE POSITIVE SIGNALS\n"
+        "A documented operator backup supports a false positive.\n\n"
+        "NEEDS HUMAN WHEN\n"
+        "Ownership or destination evidence is unavailable.\n\n"
+        "RECOMMENDED NEXT ACTION\n"
+        "Escalate an unapproved export and preserve its audit trail.\n\n"
+        "LIMITATIONS\n"
+        "Destination telemetry may be incomplete.\n"
+    )
+
+
+def _export_playbook_document() -> str:
+    return (
+        "---\n"
+        "id: export_playbook\n"
+        "name: Export review\n"
+        "version: 1\n"
+        "description: Review an application-state export.\n"
+        "rule_ids: [export_rule]\n"
+        "priority: 10\n"
+        "suggested_tools: [es_query]\n"
+        "rag_queries: [portable export approval]\n"
+        "---\n"
+        "Confirm authorization and never disclose sk-exportsecret123456789.\n"
+    )
+
+
+def test_intelligence_export_is_complete_sanitized_and_segmentable():
+    """Owning operator catalogs are exported; bundled assets stay references."""
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        state = AppState.create(secrets=Secrets(_env_file=None), es=InMemoryESClient())
+        await state.startup(start_poller=False)
+        await state.runbooks.store.create(
+            "export_triage", _export_runbook_document(), actor="alice",
+        )
+        await state.runbooks.store.create(
+            "legacy_large",
+            "x" * 260_100
+            + " Bearer oversized-export-secret-12345678 END-OF-DOCUMENT",
+            actor="alice",
+        )
+        playbook_store = getattr(state.playbooks, "store", None)
+        assert playbook_store is not None
+        await playbook_store.create(
+            "export_playbook", _export_playbook_document(), actor="alice",
+        )
+        app.state.tlsoc = state
+        yield
+        await state.shutdown()
+
+    api = FastAPI(lifespan=lifespan)
+    api.include_router(export_router)
+    with TestClient(api) as client:
+        legacy = client.post(
+            "/api/admin/export",
+            json={"scopes": ["knowledge"], "limit_per_scope": 1000},
+        )
+        assert legacy.status_code == 200
+        legacy_body = legacy.json()
+        knowledge = legacy_body["data"]["knowledge"]
+        manifest = knowledge["catalog_manifests"][0]
+        assert manifest["runbooks"]["operator"] == 2
+        assert manifest["runbooks"]["bundled"] >= 1
+        assert manifest["playbooks"]["operator"] == 1
+        assert manifest["playbooks"]["bundled"] >= 1
+
+        runbook = next(
+            row for row in knowledge["operator_runbooks"]
+            if row["id"] == "export_triage"
+        )
+        legacy_large = next(
+            row for row in knowledge["operator_runbooks"]
+            if row["id"] == "legacy_large"
+        )
+        playbook = knowledge["operator_playbooks"][0]
+        assert runbook["id"] == "export_triage" and runbook["valid"] is True
+        assert playbook["id"] == "export_playbook" and playbook["valid"] is True
+        assert "export-secret-12345678" not in runbook["content"]
+        assert "sk-exportsecret123456789" not in playbook["content"]
+        assert "[REDACTED]" in runbook["content"]
+        assert "[REDACTED]" in playbook["content"]
+        assert legacy_large["valid"] is False
+        assert len(legacy_large["content"]) > 250_000
+        assert legacy_large["content"].endswith("[REDACTED] END-OF-DOCUMENT")
+        assert all(
+            item["content_included"] is False and "content" not in item
+            for item in knowledge["bundled_runbooks"]
+        )
+        assert all(
+            item["content_included"] is False and "content" not in item
+            for item in knowledge["bundled_playbooks"]
+        )
+
+        parts: list[dict] = []
+        cursor = None
+        while True:
+            response = client.post(
+                "/api/admin/export/segment",
+                json={"scope": "knowledge", "cursor": cursor, "page_size": 2},
+            )
+            assert response.status_code == 200
+            assert len(response.content) <= _MAX_EXPORT_BYTES
+            part = response.json()
+            parts.append(part)
+            if part["segment"]["complete"]:
+                break
+            cursor = part["segment"]["next_cursor"]
+            assert cursor
+
+    segmented = {
+        (row["group"], row["record"].get("id")): row["record"]
+        for part in parts
+        for row in part["records"]
+        if isinstance(row.get("record"), dict)
+    }
+    segmented_manifests = [
+        row["record"]
+        for part in parts
+        for row in part["records"]
+        if row["group"] == "catalog_manifests"
+    ]
+    assert segmented_manifests == [manifest]
+    assert ("operator_runbooks", "export_triage") in segmented
+    assert ("operator_runbooks", "legacy_large") in segmented
+    assert ("operator_playbooks", "export_playbook") in segmented
+    assert "export-secret-12345678" not in json.dumps(parts)
+    assert "oversized-export-secret-12345678" not in json.dumps(parts)
+    assert "sk-exportsecret123456789" not in json.dumps(parts)
+    assert parts[-1]["segment"]["complete"] is True
+    assert parts[-1]["segment"]["status"] == "complete"
+    assert parts[-1]["segment"]["next_cursor"] is None
+    assert parts[-1]["segment"]["cumulative_count"] == sum(
+        len(part["records"]) for part in parts
+    )
+
+
+def test_segmented_export_walks_one_fixed_snapshot_past_the_page_limit():
+    """Per-file limits must never become a false lifetime ceiling."""
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        es = InMemoryESClient()
+        state = AppState.create(secrets=Secrets(_env_file=None), es=es)
+        await state.startup(start_poller=False)
+        for index in range(7):
+            await es.index_doc(
+                AUDIT_WRITE_ALIAS,
+                {
+                    "ts": f"2026-08-01T00:00:0{index}Z",
+                    "action_type": "tool_call",
+                    "result_summary": f"seed-{index}",
+                },
+                doc_id=f"seed-{index}",
+            )
+        app.state.tlsoc = state
+        yield
+        await state.shutdown()
+
+    api = FastAPI(lifespan=lifespan)
+    api.include_router(export_router)
+    parts: list[dict] = []
+    cursor = None
+    with TestClient(api) as client:
+        while True:
+            response = client.post(
+                "/api/admin/export/segment",
+                json={"scope": "audit", "cursor": cursor, "page_size": 3},
+            )
+            assert response.status_code == 200
+            part = response.json()
+            parts.append(part)
+            assert part["consistency"] == {
+                "mode": "point_in_time",
+                "exact": True,
+                "detail": "All segments read the same fixed Elasticsearch point-in-time snapshot.",
+            }
+            assert part["segment"]["snapshot_total"] == 7
+            if part["segment"]["complete"]:
+                break
+            cursor = part["segment"]["next_cursor"]
+            assert cursor
+
+    assert [part["segment"]["count"] for part in parts] == [3, 3, 1]
+    assert parts[-1]["segment"]["cumulative_count"] == 7
+    assert parts[-1]["segment"]["status"] == "complete"
+    assert parts[-1]["segment"]["next_cursor"] is None
+    assert [
+        row["record"]["result_summary"]
+        for part in parts
+        for row in part["records"]
+    ] == [f"seed-{index}" for index in range(7)]
+
+
+def test_segmented_export_crosses_the_legacy_5000_record_ceiling():
+    """Five thousand is a file bound; record 5,001 must remain exportable."""
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        es = InMemoryESClient()
+        state = AppState.create(secrets=Secrets(_env_file=None), es=es)
+        await state.startup(start_poller=False)
+        for index in range(5001):
+            marker = f"seed-{index:05d}"
+            await es.index_doc(
+                AUDIT_WRITE_ALIAS,
+                {
+                    "ts": f"2026-08-01T00:00:{index % 60:02d}Z",
+                    "action_type": "tool_call",
+                    "result_summary": marker,
+                },
+                doc_id=marker,
+            )
+        app.state.tlsoc = state
+        yield
+        await state.shutdown()
+
+    api = FastAPI(lifespan=lifespan)
+    api.include_router(export_router)
+    with TestClient(api) as client:
+        first = client.post(
+            "/api/admin/export/segment",
+            json={"scope": "audit", "page_size": 5000},
+        )
+        assert first.status_code == 200
+        first_body = first.json()
+        second = client.post(
+            "/api/admin/export/segment",
+            json={
+                "scope": "audit",
+                "cursor": first_body["segment"]["next_cursor"],
+                "page_size": 5000,
+            },
+        )
+
+    assert second.status_code == 200
+    second_body = second.json()
+    assert first_body["segment"]["count"] == 5000
+    assert first_body["segment"]["complete"] is False
+    assert second_body["segment"]["count"] == 1
+    assert second_body["segment"]["cumulative_count"] == 5001
+    assert second_body["segment"]["complete"] is True
+    assert second_body["segment"]["next_cursor"] is None
+    assert second_body["records"][0]["record"]["result_summary"] == "seed-05000"
+
+
+def test_segment_cancel_releases_snapshot_and_resume_fails_honestly():
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        es = InMemoryESClient()
+        state = AppState.create(secrets=Secrets(_env_file=None), es=es)
+        await state.startup(start_poller=False)
+        for index in range(3):
+            await es.index_doc(
+                AUDIT_WRITE_ALIAS,
+                {"ts": f"2026-08-01T00:00:0{index}Z", "result_summary": f"row-{index}"},
+                doc_id=f"cancel-{index}",
+            )
+        app.state.tlsoc = state
+        yield
+        await state.shutdown()
+
+    api = FastAPI(lifespan=lifespan)
+    api.include_router(export_router)
+    with TestClient(api) as client:
+        first = client.post(
+            "/api/admin/export/segment",
+            json={"scope": "audit", "page_size": 1},
+        )
+        cursor = first.json()["segment"]["next_cursor"]
+        assert cursor
+        cancelled = client.post(
+            "/api/admin/export/segment/cancel",
+            json={"scope": "audit", "cursor": cursor},
+        )
+        assert cancelled.status_code == 200 and cancelled.json() == {"ok": True}
+        resumed = client.post(
+            "/api/admin/export/segment",
+            json={"scope": "audit", "cursor": cursor, "page_size": 1},
+        )
+
+    assert resumed.status_code == 409
+    assert "restart this scope" in resumed.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "scope",
+    [
+        "automation",
+        "knowledge",
+    ],
+)
+def test_segmented_export_never_calls_a_failed_safe_scope_complete(
+    scope,
+):
+    """A swallowed registry outage must become 503, never an empty complete export."""
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        state = AppState.create(secrets=Secrets(_env_file=None), es=InMemoryESClient())
+        await state.startup(start_poller=False)
+
+        async def fail_strict_read(*_args, **_kwargs):
+            raise RuntimeError("injected export read failure")
+
+        if scope == "automation":
+            # The ordinary ES KV getter is intentionally fail-soft. Inject at its
+            # strict seam so this test proves export does not call the soft list().
+            state.proposals._kv.get_strict = fail_strict_read  # type: ignore[attr-defined]
+        else:
+            # RAG's regular snapshot wrapper also converts errors to []; export must
+            # call the strict, seed-free underlying read instead.
+            state.rag_service._store.list_documents = fail_strict_read  # type: ignore[attr-defined]
+        app.state.tlsoc = state
+        yield
+        await state.shutdown()
+
+    api = FastAPI(lifespan=lifespan)
+    api.include_router(export_router)
+    with TestClient(api) as client:
+        response = client.post(
+            "/api/admin/export/segment",
+            json={"scope": scope, "page_size": 1000},
+        )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == (
+        f"the {scope} export scope is temporarily unavailable"
+    )
+
+
+def test_segmented_knowledge_export_never_drops_a_corrupt_procedure_catalog():
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        state = AppState.create(secrets=Secrets(_env_file=None), es=InMemoryESClient())
+        await state.startup(start_poller=False)
+
+        async def fail_catalog_read():
+            raise ValueError("injected damaged operator catalog")
+
+        state.runbooks.store.list_strict = fail_catalog_read  # type: ignore[method-assign]
+        app.state.tlsoc = state
+        yield
+        await state.shutdown()
+
+    api = FastAPI(lifespan=lifespan)
+    api.include_router(export_router)
+    with TestClient(api) as client:
+        response = client.post(
+            "/api/admin/export/segment",
+            json={"scope": "knowledge", "page_size": 1000},
+        )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == (
+        "the knowledge export scope is temporarily unavailable"
+    )
+
+
+def test_segmented_export_fails_closed_and_releases_pit_when_audit_is_unavailable():
+    holder: dict[str, object] = {}
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        es = InMemoryESClient()
+        state = AppState.create(secrets=Secrets(_env_file=None), es=es)
+        await state.startup(start_poller=False)
+        for index in range(2):
+            await es.index_doc(
+                AUDIT_WRITE_ALIAS,
+                {"ts": f"2026-08-01T00:00:0{index}Z", "result_summary": f"row-{index}"},
+                doc_id=f"audit-failure-{index}",
+            )
+
+        async def fail_audit(*_args, **_kwargs):
+            raise RuntimeError("injected audit write failure")
+
+        state.control_audit.record_strict = fail_audit  # type: ignore[method-assign]
+        holder["es"] = es
+        app.state.tlsoc = state
+        yield
+        await state.shutdown()
+
+    api = FastAPI(lifespan=lifespan)
+    api.include_router(export_router)
+    with TestClient(api) as client:
+        response = client.post(
+            "/api/admin/export/segment",
+            json={"scope": "audit", "page_size": 1},
+        )
+        assert response.status_code == 503
+        assert response.json()["detail"] == (
+            "the export audit trail is unavailable; this segment was not delivered"
+        )
+        assert getattr(holder["es"], "_state_pits") == {}

@@ -1,11 +1,11 @@
 ---
 title: Known limitations
-description: Promotion blockers and explicit operating constraints for Agentic SOC 0.1.1.
+description: Promotion blockers and explicit operating constraints for Agentic SOC 0.1.2.
 ---
 
 # Known limitations
 
-This list is part of the product contract for Agentic SOC `0.1.1`. It distinguishes
+This list is part of the product contract for Agentic SOC `0.1.2`. It distinguishes
 blockers to Stable promotion from documented version 0.1 constraints so a green
 unit-test suite is never mistaken for production evidence.
 
@@ -234,9 +234,16 @@ buffers, and realtime delivery still lack distributed ownership.
 
 ### Portable export is not backup or tenant isolation
 
-The Data export workflow is bounded to 5,000 items per selected scope and 25 MiB,
-excludes secrets/users/sessions/raw logs/raw knowledge chunks, and has no import
-endpoint. It is suitable for support and offline analysis, not disaster recovery.
+The Data export workflow now continues through numbered files beyond 5,000 records;
+5,000 records and 25 MiB of compact JSON are per-segment bounds. It still covers only selected supported safe
+scopes, excludes secrets/users/sessions/chat/collaboration/user preferences/raw logs/
+raw knowledge chunks, and has no import endpoint. It is suitable for support and
+offline analysis, not disaster recovery. Elasticsearch cases/audit/usage use a PIT;
+SQL reports a bounded-at-start, non-exact view, and configuration/KV scopes report
+live-at-read semantics. PIT cursors expire after ten minutes without renewal and must
+be restarted after expiration or backend restart. Automation/knowledge collections
+are still materialized before response slicing, so very large catalogs can consume
+server memory even though responses stay bounded.
 `data_export:export` is also broad scope access rather than per-analyst row isolation;
 grant it to custom roles only after reviewing the disclosure boundary.
 
@@ -267,17 +274,34 @@ dual-run in shadow, monitor drift, or roll back automatically. Operators own fie
 validation and should start with synthetic data. The target workflow is documented
 under [the mapping assistant](../architecture/ingestion.md#normalisation-and-the-mapping-assistant).
 
-### Campaign scheduling and lifecycle are incomplete
+### Campaign operation is single-replica and active-view only
 
-Campaign correlation is deterministic and advisory, but the in-process scheduler
-wakes every six hours without enforcing the configured hourly/daily/weekly/manual
-cadence. It upserts campaigns returned by the latest trailing-window pass and does
-not reconcile campaigns that have expired, split, or disappeared from that snapshot.
+Campaign correlation now enforces configured hourly/daily/weekly/manual cadence,
+performs full-set active reconciliation, removes stale campaigns from the current
+view, and records a durable last-success anchor. It remains an in-process worker with
+no distributed lease or concurrent-replica ownership. Full-set replacement also does
+not preserve an immutable campaign split/merge/expiry lifecycle. Scans and component
+sizes remain bounded. Treat the result as the current advisory related-case view, not
+an incident-history ledger.
 
-Treat campaigns as an exploratory related-case view in version 0.1. Dependable
-scheduled operation requires scheduler leases/last-run state, enforcement of
-`manual`, active-membership reconciliation without erased history, and coverage for
-late cases, closed cases, split/merge, restart, and concurrent scheduler ownership.
+### Intelligence improvement evidence is deliberately bounded
+
+- Threshold tuning observes broadly but learns only from independently
+  analyst-confirmed outcomes. It is review-first by default; sparse labels produce
+  Collecting/proposals rather than an automatic-learning claim.
+- Telemetry recommendations require versioned query/tool proof and support only the
+  three v1 mappings for outbound DNS, endpoint process, and identity authentication.
+  The scan stops at 20,000 cases and reports truncation. Missing connectors alone are
+  never evidence.
+- Playbook coverage scans at most 20,000 cases, returns at most 100 unmatched rule
+  families, and uses exact deterministic matching. There is no operator-playbook
+  delete route in v0.1.
+- Scheduler health is process-local. Tuner/campaign success anchors recover from
+  durable state, but distributed ownership and a complete immutable attempt history
+  are not implemented.
+- Local embedding fallback is explicitly marked and is not equivalent to a provider
+  embedding. Changing embedding space requires managed-corpus reseeding, so retrieval
+  may be temporarily incomplete while that reconciliation runs.
 
 ### Connector-specific boundaries
 

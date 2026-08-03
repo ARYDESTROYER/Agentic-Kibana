@@ -19,6 +19,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
+  DatabaseZap,
   History,
   Info,
   Loader2,
@@ -100,6 +101,8 @@ import {
   type TuningLedgerRow,
   type TuningRecommendation,
   type TuningRecommendationsResponse,
+  type SchedulerHealthResponse,
+  type TelemetryRecommendationsResponse,
 } from './Tuning.api';
 
 const CADENCES: TuningCadence[] = ['hourly', 'nightly', 'weekly', 'manual'];
@@ -195,8 +198,8 @@ interface RecommendationExplanation {
   safety: string;
 }
 
-function verdictCaseLabel(count: number): string {
-  return `${fmtNumber(count)} verdict-bearing closed ${count === 1 ? 'case' : 'cases'}`;
+function analystCaseLabel(count: number): string {
+  return `${fmtNumber(count)} analyst-confirmed closed ${count === 1 ? 'case' : 'cases'}`;
 }
 
 function percentagePointLabel(rate: number): string {
@@ -217,7 +220,7 @@ function explainRuleState(
     return {
       heading: 'Why this rule needs attention',
       lead:
-        `${verdictCaseLabel(rule.total)} meet the ${fmtNumber(minSamples)}-case evidence minimum. ` +
+        `${analystCaseLabel(rule.total)} meet the ${fmtNumber(minSamples)}-case evidence minimum. ` +
         `The conservative false-positive estimate is ${fmtPercent(rule.fp_rate)} — ` +
         `${percentagePointLabel(gap)} above the ${fmtPercent(target)} policy target.`,
       support:
@@ -231,7 +234,7 @@ function explainRuleState(
     return {
       heading: 'Why this rule is still collecting evidence',
       lead:
-        `${fmtNumber(rule.total)} of ${fmtNumber(minSamples)} verdict-bearing closed cases ` +
+        `${fmtNumber(rule.total)} of ${fmtNumber(minSamples)} analyst-confirmed closed cases ` +
         `have been collected. ${fmtNumber(remaining)} more ${remaining === 1 ? 'is' : 'are'} ` +
         'required before tuning can recommend a change.',
       support:
@@ -244,7 +247,7 @@ function explainRuleState(
     heading: 'Why this rule is within target',
     lead:
       `The conservative false-positive estimate is ${fmtPercent(rule.fp_rate)}, at or below ` +
-      `the ${fmtPercent(target)} policy target across ${verdictCaseLabel(rule.total)}.`,
+      `the ${fmtPercent(target)} policy target across ${analystCaseLabel(rule.total)}.`,
     support: 'No tuning action is indicated by the current evidence.',
   };
 }
@@ -286,6 +289,12 @@ function explainRecommendation(
   } else if (recommendation.shadow_blocked) {
     safety =
       'Retrospective replay could not prove this change safe. It requires a human decision in Approvals.';
+  } else if (recommendation.reason === 'policy_requires_approval') {
+    safety =
+      'Independent analyst evidence supports this bounded change, but review-first policy requires an explicit approval.';
+  } else if (recommendation.reason === 'insufficient_analyst_evidence') {
+    safety =
+      'Model verdicts and automatic dispositions are excluded. More analyst-confirmed outcomes are required.';
   }
 
   return { title, instruction, effect, safety };
@@ -300,7 +309,7 @@ function explainNoRecommendation(
     const remaining = Math.max(0, minSamples - rule.total);
     return {
       title: 'Keep collecting feedback',
-      instruction: `${fmtNumber(remaining)} more verdict-bearing closed ${remaining === 1 ? 'case is' : 'cases are'} needed.`,
+      instruction: `${fmtNumber(remaining)} more analyst-confirmed closed ${remaining === 1 ? 'case is' : 'cases are'} needed.`,
       effect: 'No threshold change is proposed before the evidence minimum is met.',
       safety: 'The rule remains unchanged.',
     };
@@ -374,6 +383,9 @@ export function TuningInner({ onNavigate }: TuningProps) {
   const [draft, setDraft] = React.useState<TuningConfig>(DEFAULT_TUNING_CONFIG);
   const [savingCfg, setSavingCfg] = React.useState(false);
   const [effectivenessRefreshKey, setEffectivenessRefreshKey] = React.useState(0);
+  const [schedulerHealth, setSchedulerHealth] = React.useState<SchedulerHealthResponse | null>(null);
+  const [telemetryRecommendations, setTelemetryRecommendations] =
+    React.useState<TelemetryRecommendationsResponse | null>(null);
   const [workspaceTab, setWorkspaceTab] = React.useState<
     'operations' | 'outcomes' | 'policy'
   >('operations');
@@ -407,6 +419,16 @@ export function TuningInner({ onNavigate }: TuningProps) {
         JSON.stringify(draftRef.current) !== JSON.stringify(savedRef.current);
       if (!wasDirty) setDraft(next);
       setLoadedOnce(true);
+      const [healthResult, telemetryResult] = await Promise.allSettled([
+        tuningApi.schedulerHealth?.() ?? Promise.resolve(null),
+        tuningApi.sourceRecommendations?.() ?? Promise.resolve(null),
+      ]);
+      setSchedulerHealth(
+        healthResult.status === 'fulfilled' ? healthResult.value : null,
+      );
+      setTelemetryRecommendations(
+        telemetryResult.status === 'fulfilled' ? telemetryResult.value : null,
+      );
     } catch (nextError) {
       setError(nextError);
     } finally {
@@ -795,7 +817,7 @@ export function TuningInner({ onNavigate }: TuningProps) {
                 </p>
                 <p className="mt-0.5 max-w-4xl text-xs leading-relaxed text-muted-foreground">
                   Tuning only changes what gets investigated — never how a case is decided.
-                  Suppression and changes that do not pass safety replay always require approval.
+                  It learns only from analyst-confirmed outcomes; review-first is the default.
                 </p>
               </div>
             </div>
@@ -805,6 +827,14 @@ export function TuningInner({ onNavigate }: TuningProps) {
                 <dd>
                   <Badge variant={data.enabled ? 'success' : 'secondary'}>
                     {data.enabled ? 'Active' : 'Paused'}
+                  </Badge>
+                </dd>
+              </div>
+              <div className="flex items-center gap-2">
+                <dt className="text-muted-foreground">Writes</dt>
+                <dd>
+                  <Badge variant={data.auto_apply_confirmed ? 'warning' : 'info'}>
+                    {data.auto_apply_confirmed ? 'Confirmed auto-apply' : 'Approval required'}
                   </Badge>
                 </dd>
               </div>
@@ -891,7 +921,7 @@ export function TuningInner({ onNavigate }: TuningProps) {
                 </span>
                 <span>
                   <strong className="font-medium text-foreground">Collecting</strong>{' '}
-                  needs more verdict feedback.
+                  needs more analyst feedback.
                 </span>
                 <span>
                   <strong className="font-medium text-foreground">Within target</strong>{' '}
@@ -907,6 +937,7 @@ export function TuningInner({ onNavigate }: TuningProps) {
                 minSamples={data.min_samples}
                 target={data.fp_rate_target}
                 shadowEvalEnabled={saved.shadow_eval}
+                autoApplyConfirmed={saved.auto_apply_confirmed}
                 onApplyRule={(ruleId) => void applyRule(ruleId)}
                 onOpenApprovals={() => navigate('approvals')}
               />
@@ -991,6 +1022,7 @@ export function TuningInner({ onNavigate }: TuningProps) {
                       minSamples={data.min_samples}
                       target={data.fp_rate_target}
                       shadowEvalEnabled={saved.shadow_eval}
+                      autoApplyConfirmed={saved.auto_apply_confirmed}
                       processing={busyKeys.has(`rule:${selectedRule.rule_id}`)}
                       onApplyRule={(ruleId) => void applyRule(ruleId)}
                       onOpenApprovals={() => navigate('approvals')}
@@ -1038,6 +1070,7 @@ export function TuningInner({ onNavigate }: TuningProps) {
                           minSamples={data.min_samples}
                           target={data.fp_rate_target}
                           shadowEvalEnabled={saved.shadow_eval}
+                          autoApplyConfirmed={saved.auto_apply_confirmed}
                           processing={busyKeys.has(`rule:${selectedRule.rule_id}`)}
                           onApplyRule={(ruleId) => void applyRule(ruleId)}
                           onOpenApprovals={() => navigate('approvals')}
@@ -1086,11 +1119,14 @@ export function TuningInner({ onNavigate }: TuningProps) {
 
             <Can resource="metrics" action="view">
               <TabsContent value="outcomes" className="mt-5">
-                <AgentEffectivenessSummary
-                  refreshKey={effectivenessRefreshKey}
-                  changes={outcomeChanges}
-                  onOpenFull={() => navigate('metrics', { tab: 'effectiveness' })}
-                />
+                <div className="space-y-8">
+                  <AgentEffectivenessSummary
+                    refreshKey={effectivenessRefreshKey}
+                    changes={outcomeChanges}
+                    onOpenFull={() => navigate('metrics', { tab: 'effectiveness' })}
+                  />
+                  <TelemetryOpportunities data={telemetryRecommendations} />
+                </div>
               </TabsContent>
             </Can>
 
@@ -1102,6 +1138,8 @@ export function TuningInner({ onNavigate }: TuningProps) {
                   onChange={setDraft}
                 />
               ) : null}
+
+              <SchedulerHealth health={schedulerHealth} />
 
               <section className="space-y-3" aria-label="Tuning audit history">
                 <div>
@@ -1153,6 +1191,7 @@ function ReviewQueue({
   minSamples,
   target,
   shadowEvalEnabled,
+  autoApplyConfirmed,
   onApplyRule,
   onOpenApprovals,
 }: {
@@ -1163,16 +1202,17 @@ function ReviewQueue({
   minSamples: number;
   target: number;
   shadowEvalEnabled: boolean;
+  autoApplyConfirmed: boolean;
   onApplyRule: (ruleId: string) => void;
   onOpenApprovals: () => void;
 }) {
-  const safeRules = groups.filter((group) =>
+  const eligibleRules = groups.filter((group) =>
     group.recommendations.some((row) => row.auto_apply),
   ).length;
-  const humanChanges = groups.reduce(
-    (total, group) => total + group.recommendations.filter((row) => !row.auto_apply).length,
-    0,
-  );
+  const humanChanges = groups.reduce((total, group) => {
+    if (!autoApplyConfirmed) return total + group.recommendations.length;
+    return total + group.recommendations.filter((row) => !row.auto_apply).length;
+  }, 0);
 
   return (
     <section className="space-y-3" aria-label="Review queue">
@@ -1184,7 +1224,7 @@ function ReviewQueue({
             </h2>
             <HelpTip
               label="How recommendations are processed"
-              text="Recommendations are processed per rule. One action rechecks every eligible bounded change for that rule and routes restricted changes to Approvals. Safety replay runs again before a write."
+              text="Recommendations are processed per rule. One action rechecks every bounded change. Review-first policy queues it in Approvals; explicit confirmed auto-apply still reruns safety replay before a write."
             />
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -1192,8 +1232,8 @@ function ReviewQueue({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Badge variant={safeRules ? 'info' : 'secondary'}>
-            {fmtNumber(safeRules)} eligible to process
+          <Badge variant={eligibleRules ? 'info' : 'secondary'}>
+            {fmtNumber(eligibleRules)} shadow-safe
           </Badge>
           <Badge variant={humanChanges ? 'warning' : 'secondary'}>
             {fmtNumber(humanChanges)} human review
@@ -1205,7 +1245,6 @@ function ReviewQueue({
         <div className="divide-y divide-border/70 border-y border-border/70">
           {groups.map((group) => {
             const safe = group.recommendations.filter((row) => row.auto_apply);
-            const restricted = group.recommendations.filter((row) => !row.auto_apply);
             const rule = rules.find((candidate) => candidate.rule_id === group.ruleId);
             const explanation = rule
               ? explainRuleState(rule, minSamples, target)
@@ -1267,10 +1306,12 @@ function ReviewQueue({
                             <span className="text-sm font-semibold text-foreground">
                               {action.title}
                             </span>
-                            <Badge variant={recommendation.auto_apply ? 'info' : 'warning'}>
-                              {recommendation.auto_apply
+                            <Badge
+                              variant={recommendation.auto_apply && autoApplyConfirmed ? 'info' : 'warning'}
+                            >
+                              {recommendation.auto_apply && autoApplyConfirmed
                                 ? 'Eligible after replay'
-                                : 'Human decision'}
+                                : 'Approval required'}
                             </Badge>
                           </div>
                           <p className="mt-1 text-xs font-medium text-foreground">
@@ -1289,7 +1330,7 @@ function ReviewQueue({
                 </div>
 
                 <div className="flex justify-start lg:justify-end lg:pt-5">
-                  {safe.length ? (
+                  {group.recommendations.length ? (
                     <Can resource="automation" action="manage">
                       <Button
                         size="sm"
@@ -1303,27 +1344,9 @@ function ReviewQueue({
                         ) : (
                           <Play className="mr-1 size-3.5" aria-hidden />
                         )}
-                        Apply after recheck
-                      </Button>
-                    </Can>
-                  ) : restricted.length ? (
-                    <Can
-                      resource="proposals"
-                      action="read"
-                      fallback={(
-                        <span className="text-xs text-muted-foreground">
-                          Requires Approvals access
-                        </span>
-                      )}
-                    >
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        aria-label={`Open Approvals for ${group.ruleId}`}
-                        onClick={onOpenApprovals}
-                      >
-                        Open Approvals
-                        <ArrowRight className="ml-1 size-3.5" aria-hidden />
+                        {safe.length && autoApplyConfirmed
+                          ? 'Apply after recheck'
+                          : 'Send to Approvals'}
                       </Button>
                     </Can>
                   ) : null}
@@ -1345,10 +1368,18 @@ function ReviewQueue({
           aria-label="Pending human proposals"
         >
           <p className="text-xs text-muted-foreground">
-            {fmtNumber(humanChanges)} restricted {humanChanges === 1 ? 'change needs' : 'changes need'}
-            {' '}a human decision. Nothing restricted is auto-applied.
+            {fmtNumber(humanChanges)} {humanChanges === 1 ? 'change is' : 'changes are'}
+            {' '}routed through human review. Process a rule to create its deduplicated approval item.
           </p>
-          <Can resource="proposals" action="read">
+          <Can
+            resource="proposals"
+            action="read"
+            fallback={(
+              <span className="text-xs text-muted-foreground">
+                Requires Approvals access
+              </span>
+            )}
+          >
             <Button size="sm" variant="ghost" onClick={onOpenApprovals}>
               Review in Approvals
               <ArrowRight className="ml-1 size-3.5" aria-hidden />
@@ -1456,7 +1487,7 @@ function RuleList({
                     {rule.rule_id}
                   </span>
                   <span className="mt-1 block text-xs tabular-nums text-muted-foreground">
-                    {fmtNumber(rule.total)} feedback cases
+                    {fmtNumber(rule.total)} analyst-confirmed cases
                     {lastTunedByRule.get(rule.rule_id)
                       ? ` · tuned ${humanizeAge(lastTunedByRule.get(rule.rule_id))}`
                       : ''}
@@ -1562,6 +1593,7 @@ function RuleDetailPanel({
   minSamples,
   target,
   shadowEvalEnabled,
+  autoApplyConfirmed,
   processing,
   onApplyRule,
   onOpenApprovals,
@@ -1575,6 +1607,7 @@ function RuleDetailPanel({
   minSamples: number;
   target: number;
   shadowEvalEnabled: boolean;
+  autoApplyConfirmed: boolean;
   processing: boolean;
   onApplyRule: (ruleId: string) => void;
   onOpenApprovals: () => void;
@@ -1592,9 +1625,11 @@ function RuleDetailPanel({
   const hasEligibleChange = recommendations.some((recommendation) => recommendation.auto_apply);
   const hasRestrictedChange = recommendations.some((recommendation) => !recommendation.auto_apply);
   const stats = [
-    { label: 'Verdict feedback', value: fmtNumber(rule.total) },
+    { label: 'Analyst outcomes', value: fmtNumber(rule.total) },
+    { label: 'Observed cases', value: fmtNumber(rule.observed ?? rule.total) },
     { label: 'Observed FP ratio', value: fmtPercent(observedFpRate(rule.total, rule.fp)) },
     { label: 'Conservative estimate', value: fmtPercent(rule.fp_rate) },
+    { label: 'Unconfirmed', value: fmtNumber(rule.unconfirmed ?? 0) },
     { label: 'Policy target', value: fmtPercent(target) },
   ];
 
@@ -1664,8 +1699,12 @@ function RuleDetailPanel({
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-sm font-semibold text-foreground">{copy.title}</p>
                   {recommendation ? (
-                    <Badge variant={recommendation.auto_apply ? 'info' : 'warning'}>
-                      {recommendation.auto_apply ? 'Eligible after replay' : 'Human decision'}
+                    <Badge
+                      variant={recommendation.auto_apply && autoApplyConfirmed ? 'info' : 'warning'}
+                    >
+                      {recommendation.auto_apply && autoApplyConfirmed
+                        ? 'Eligible after replay'
+                        : 'Approval required'}
                     </Badge>
                   ) : null}
                 </div>
@@ -1695,27 +1734,30 @@ function RuleDetailPanel({
           ))}
         </ul>
 
-        {hasEligibleChange ? (
+        {hasEligibleChange || hasRestrictedChange ? (
           <Can resource="automation" action="manage">
             <Button
               size="sm"
               variant="outline"
               disabled={processing}
               onClick={() => onApplyRule(rule.rule_id)}
-              aria-label={`Apply recommended change for ${rule.rule_id} after recheck`}
+              aria-label={`Process all changes for ${rule.rule_id}`}
             >
               {processing ? (
                 <Loader2 className="mr-1 size-3.5 animate-spin" aria-hidden />
               ) : (
                 <Play className="mr-1 size-3.5" aria-hidden />
               )}
-              Apply after recheck
+              {hasEligibleChange && autoApplyConfirmed
+                ? 'Apply after recheck'
+                : 'Send to Approvals'}
             </Button>
           </Can>
-        ) : hasRestrictedChange ? (
+        ) : null}
+        {hasRestrictedChange ? (
           <Can resource="proposals" action="read">
-            <Button size="sm" variant="outline" onClick={onOpenApprovals}>
-              Review in Approvals
+            <Button size="sm" variant="ghost" onClick={onOpenApprovals}>
+              Open Approvals
               <ArrowRight className="ml-1 size-3.5" aria-hidden />
             </Button>
           </Can>
@@ -1732,7 +1774,7 @@ function RuleDetailPanel({
           </h3>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
             Policy compares the conservative estimate after at least{' '}
-            {fmtNumber(minSamples)} verdict-bearing closed cases. The observed ratio is
+            {fmtNumber(minSamples)} analyst-confirmed closed cases. The observed ratio is
             context, not the gate by itself.
           </p>
         </div>
@@ -1764,7 +1806,7 @@ function RuleDetailPanel({
             <span className="font-medium tabular-nums text-foreground">
               {rule.volume_ewma == null ? DASH : rule.volume_ewma.toFixed(1)}
             </span>
-            . This advisory EWMA uses dated verdict-bearing closed-case activity and never
+            . This advisory EWMA uses dated analyst-confirmed closed-case activity and never
             controls a recommendation.
           </p>
         </details>
@@ -1798,6 +1840,203 @@ function RuleDetailPanel({
   );
 }
 
+function TelemetryOpportunities({
+  data,
+}: {
+  data: TelemetryRecommendationsResponse | null;
+}) {
+  return (
+    <section className="space-y-3" aria-label="Telemetry opportunities">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <h2 className="text-base font-semibold tracking-tight text-foreground">
+              Telemetry opportunities
+            </h2>
+            <HelpTip
+              label="How telemetry opportunities are found"
+              text="Recommendations require query-backed evidence from recent analyst-confirmed cases. A connector being absent is never enough to create a recommendation."
+            />
+          </div>
+          <p className="mt-1 max-w-3xl text-xs leading-relaxed text-muted-foreground">
+            Missing fields that materially limited a recent investigation, with the cases
+            and evidence query that support each recommendation.
+          </p>
+        </div>
+        {data ? (
+          <Badge variant={data.recommendations.length ? 'info' : 'secondary'}>
+            {fmtNumber(data.recommendations.length)} evidence-backed
+          </Badge>
+        ) : null}
+      </div>
+
+      {!data ? (
+        <div className="flex items-start gap-3 border-y border-border/70 py-4 text-sm text-muted-foreground">
+          <Info className="mt-0.5 size-4 shrink-0" aria-hidden />
+          Telemetry analysis is unavailable. Tuning remains usable; no source recommendation
+          is inferred from connector inventory alone.
+        </div>
+      ) : data.status === 'not_available' || !data.recommendations.length ? (
+        <div className="flex items-start gap-3 border-y border-border/70 py-4">
+          <ShieldCheck className="mt-0.5 size-4 shrink-0 text-success-text" aria-hidden />
+          <div>
+            <p className="text-sm font-medium text-foreground">No evidence-backed gap found</p>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              {data.not_available_reason ||
+                `No qualifying field gap was found across ${fmtNumber(data.scanned_cases)} recent cases.`}
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="divide-y divide-border/70 border-y border-border/70">
+          {data.recommendations.map((row) => (
+            <article
+              key={`${row.source_type}:${row.field}`}
+              className="grid gap-4 py-4 lg:grid-cols-[minmax(11rem,0.55fr)_minmax(18rem,1fr)_minmax(18rem,1.15fr)]"
+            >
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                  <DatabaseZap className="size-4 shrink-0 text-primary" aria-hidden />
+                  <span>{row.source_label}</span>
+                </div>
+                <p className="mt-1 font-mono text-xs text-muted-foreground">{row.field}</p>
+                <Badge className="mt-2" variant="secondary">
+                  {fmtNumber(row.affected_case_count)} affected cases
+                </Badge>
+              </div>
+              <div>
+                <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Expected investigation benefit
+                </p>
+                <p className="mt-1.5 text-sm leading-relaxed text-foreground">{row.benefit}</p>
+                {row.case_ids.length ? (
+                  <p className="mt-2 break-words font-mono text-xs text-muted-foreground">
+                    Cases: {row.case_ids.slice(0, 5).join(', ')}
+                    {row.case_ids.length > 5 ? ` +${row.case_ids.length - 5}` : ''}
+                  </p>
+                ) : null}
+              </div>
+              <div>
+                <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Evidence
+                </p>
+                <ul className="mt-1.5 space-y-2">
+                  {row.evidence.map((item, index) => (
+                    <li key={`${item.query}:${index}`} className="text-xs leading-relaxed">
+                      <p className="text-foreground">{item.result}</p>
+                      <p className="mt-0.5 break-all font-mono text-muted-foreground">
+                        {item.query}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+
+      {data?.truncated ? (
+        <p className="text-xs text-muted-foreground">
+          This view is bounded to the most recent qualifying cases; export remains the
+          complete evidence path.
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+function SchedulerHealth({ health }: { health: SchedulerHealthResponse | null }) {
+  const rows = health ? Object.entries(health.workers) : [];
+  const workerLabel = (key: string) => {
+    if (key === 'threshold_tuner') return 'Threshold tuner';
+    if (key === 'campaign_correlation') return 'Campaign correlation';
+    if (key === 'batch_jobs') return 'Batch jobs';
+    return humanizeToken(key);
+  };
+
+  return (
+    <section className="space-y-3" aria-label="Continuous-improvement worker health">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="text-base font-semibold tracking-tight text-foreground">
+            Continuous-improvement workers
+          </h2>
+          <p className="mt-1 max-w-3xl text-xs leading-relaxed text-muted-foreground">
+            Runtime evidence for the jobs that learn from feedback, reconcile campaigns,
+            and retrieve asynchronous inference results.
+          </p>
+        </div>
+        <Badge variant={health?.scheduler_runtime_running ? 'success' : 'secondary'}>
+          {health?.scheduler_runtime_running ? 'Scheduler running' : 'Scheduler unavailable'}
+        </Badge>
+      </div>
+
+      {!health ? (
+        <div className="flex items-start gap-3 border-y border-border/70 py-4 text-sm text-muted-foreground">
+          <Info className="mt-0.5 size-4 shrink-0" aria-hidden />
+          Worker health could not be read. This does not prove that a scheduled job ran.
+        </div>
+      ) : (
+        <div className="divide-y divide-border/70 border-y border-border/70">
+          {rows.map(([key, worker]) => {
+            const state = worker.last_error
+              ? 'Error'
+              : worker.running
+                ? 'Running'
+                : !worker.enabled
+                  ? 'Disabled'
+                  : worker.gated
+                    ? 'Waiting'
+                    : 'Ready';
+            const variant = worker.last_error
+              ? 'critical'
+              : worker.running
+                ? 'success'
+                : worker.enabled
+                  ? 'info'
+                  : 'secondary';
+            return (
+              <article
+                key={key}
+                className="grid gap-3 py-4 md:grid-cols-[minmax(12rem,0.8fr)_minmax(8rem,0.45fr)_minmax(15rem,1fr)_auto] md:items-center"
+              >
+                <div>
+                  <p className="text-sm font-semibold text-foreground">{workerLabel(key)}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {humanizeToken(worker.cadence || 'manual')} cadence
+                  </p>
+                </div>
+                <Badge variant={variant}>{state}</Badge>
+                <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                  <div>
+                    <dt className="text-muted-foreground">Last success</dt>
+                    <dd className="mt-0.5 tabular-nums text-foreground">
+                      {fmtUtc(worker.last_success_at)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Processed</dt>
+                    <dd className="mt-0.5 tabular-nums text-foreground">
+                      {fmtNumber(worker.processed)}
+                    </dd>
+                  </div>
+                </dl>
+                <p className="max-w-xs text-xs leading-relaxed text-muted-foreground md:text-right">
+                  {worker.last_error ||
+                    (worker.last_attempt_at
+                      ? `Last attempted ${humanizeAge(worker.last_attempt_at)}`
+                      : 'No attempt recorded yet')}
+                </p>
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function TuningPolicy({
   draft,
   canManage,
@@ -1815,8 +2054,8 @@ function TuningPolicy({
             Tuning policy
           </h2>
           <p className="mt-1 max-w-3xl text-xs leading-relaxed text-muted-foreground">
-            Define when enough evidence exists and how far an automatic adjustment may move.
-            Restricted changes still route to Approvals.
+            Define when enough analyst-confirmed evidence exists and how far a bounded
+            adjustment may move. Review-first is the default.
           </p>
         </div>
         <Badge variant={draft.enabled ? 'success' : 'secondary'}>
@@ -1833,8 +2072,8 @@ function TuningPolicy({
                   Enable auto-tuning
                 </Label>
                 <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground">
-                  Run on the selected cadence. Only bounded changes that pass the latest
-                  evidence and safety checks can be applied automatically.
+                  Run on the selected cadence. Recommendations use analyst-confirmed
+                  outcomes and never determine a case verdict or disposition.
                 </p>
               </div>
               <Switch
@@ -1909,7 +2148,14 @@ function TuningPolicy({
                   id="tuning-shadow"
                   checked={draft.shadow_eval}
                   onCheckedChange={(shadow_eval) =>
-                    onChange((current) => ({ ...current, shadow_eval }))
+                    onChange((current) => ({
+                      ...current,
+                      shadow_eval,
+                      // Automatic writes are never valid without the shadow guard.
+                      auto_apply_confirmed: shadow_eval
+                        ? current.auto_apply_confirmed
+                        : false,
+                    }))
                   }
                 />
               </div>
@@ -1923,6 +2169,31 @@ function TuningPolicy({
                 Conservative defaults are recommended unless you are calibrating against a known baseline.
               </p>
               <div className="mt-5 grid gap-5 sm:grid-cols-2">
+                <div className="flex items-start justify-between gap-4 sm:col-span-2">
+                  <div>
+                    <Label htmlFor="tuning-auto-apply" className="text-sm">
+                      Auto-apply confirmed bounded changes
+                    </Label>
+                    <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground">
+                      Off by default. When enabled, only independently analyst-confirmed,
+                      shadow-safe bounded changes can write without an approval. Suppression
+                      and safety conflicts always require human review.
+                    </p>
+                  </div>
+                  <Switch
+                    id="tuning-auto-apply"
+                    checked={draft.auto_apply_confirmed}
+                    onCheckedChange={(auto_apply_confirmed) =>
+                      onChange((current) => ({
+                        ...current,
+                        auto_apply_confirmed,
+                        // Enabling the exceptional write policy also enables its
+                        // mandatory true-positive shadow check.
+                        shadow_eval: auto_apply_confirmed ? true : current.shadow_eval,
+                      }))
+                    }
+                  />
+                </div>
                 <NumberField
                   label="Max correlation-n step"
                   description="Maximum integer movement in one cadence."
@@ -1978,8 +2249,14 @@ function TuningPolicy({
               { label: 'Minimum evidence', value: fmtNumber(draft.min_samples) },
               { label: 'Maximum step', value: `+${fmtNumber(draft.max_n_step)}` },
               { label: 'Shadow check', value: draft.shadow_eval ? 'Required' : 'Disabled' },
+              {
+                label: 'Write mode',
+                value: draft.auto_apply_confirmed
+                  ? 'Confirmed auto-apply'
+                  : 'Approval required',
+              },
             ]}
-            noteText="Suppression is never auto-applied. A severity floor affects forwarding only; it never discards a candidate."
+            noteText="Suppression and safety conflicts are never auto-applied. A severity floor affects forwarding only; it never discards a candidate."
           />
         </div>
       </fieldset>

@@ -119,7 +119,7 @@ def test_built_wheel_contains_all_python_modules_and_runtime_data(tmp_path: Path
         "root=Path(app.__file__).resolve().parent; "
         "assert len(load_runbooks(root / 'runbooks')) == 7; "
         "summary=PlaybookRegistry(root.parent / 'playbooks').load(); "
-        "assert summary['loaded'] == 3"
+            "assert summary['loaded'] == 6"
     )
     subprocess.run(
         [sys.executable, "-c", smoke],

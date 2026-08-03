@@ -126,5 +126,6 @@ def test_health_response_model_matches_shape() -> None:
     from app.api.routes import HealthResponse
 
     assert set(HealthResponse.model_fields) == {
-        "status", "version", "es_connected", "store_type", "setup_complete",
+        "status", "version", "es_connected", "state_store_connected",
+        "state_backend", "store_type", "setup_complete",
     }

@@ -6,20 +6,21 @@
 > source of truth for *where we are*, *how to run it*, *what's done*, and *what's next*.
 > Everything in here is verified against the repo as of the date below — not from memory.
 
-- **Repo:** `ARYDESTROYER/Agentic-Kibana`  ·  **Working branch:** `Testing`  ·  **Date:** 2026-08-01
+- **Repo:** `ARYDESTROYER/Agentic-Kibana`  ·  **Working branch:** `Testing`  ·  **Date:** 2026-08-03
 - **Status:** Round 10 and the additive Security Command Center / Case Manager work are
   integrated on `Testing`. A **backend deep-audit hardening pass
   (2026-07-14/15)** fixed **47 verified findings** (0 crit / 10 high / 24 med / 13 low)
   from a 24-auditor + adversarial-verify Workflow — **one atomic commit per finding, no
   co-author**, on `Testing` (`c5516e5`→`abd0385`).
-  The current product version is **`0.1.1`**. `Testing` is the permanent integration and
+  The current product version is the **`0.1.2` beta patch candidate**. `Testing` is the permanent integration and
   acceptance branch; accepted changes are promoted through a pull request to the Stable
   `main` branch and re-verified there. The remote now uses `main` as its default, retains
-  `Testing` for integration, and has the `v0.1.1` release tag; see
+  `Testing` for integration, and has the prior `v0.1.1` Stable tag. The immutable
+  `v0.1.2` tag is created only from the fully verified promoted commit; see
   `docs/releases/channels.md`. Repository administrators remain responsible for enforcing
   the documented branch and environment protections.
 - **Release identity UI:** the top-right badge always reads
-  `v0.1.1 · Testing|Stable`; its popover reconciles build-time Console and public backend
+  `v0.1.2 · Testing|Stable`; its popover reconciles build-time Console and public backend
   build-info. Any known version/channel/SHA mismatch downgrades to Testing. Local demo auto-
   derives Stable only on literal `main`; Docker release builds must stamp channel/SHA/date.
   When a different static Console release has already been deployed, a separate
@@ -64,6 +65,18 @@
   guidance, and resolved-case memory. Runbooks remain reference knowledge only;
   Playbooks are the separate selected procedure layer and deterministic case policy is
   still the sole close/escalate authority.
+- **Intelligence evidence contract:** the threshold tuner observes by default but
+  learns only from independently analyst-confirmed outcomes and sends eligible writes
+  to Approvals by default; confirmed-evidence auto-apply is an explicit opt-in and
+  suppression always requires approval. Agent-authored memory starts pending and is
+  fenced until an authorized human approves it. Resolved-case RAG excludes inferred
+  model-only/auto-close outcomes, RAG source toggles reconcile their managed projections,
+  and embedding changes validate capability/dimension before replacing a vector space.
+  Operator Playbooks are durable strict-CAS StateStore records layered over immutable
+  bundled procedures, with deterministic dry-run and bounded coverage reporting.
+  `/api/schedulers/health` reports process-local worker state, and telemetry-source
+  recommendations appear only from versioned query/tool evidence—never merely because a
+  connector is absent.
 - **Current feature integration:** Cases is still the table-oriented list, but an
   opened row hands the exact case to the canonical Case Manager detail workspace;
   its desktop split is accessible and persisted. Case Manager Overview now
@@ -77,14 +90,17 @@
   bounded redacted alert→cluster→case→outcome drill-down beneath the aggregate flow.
   Threat Context exposes a redacted persisted cluster-formation explanation. Demo
   Mode has five sources including Entra ID. The API also provides audited,
-  permission-gated portable analysis export and guarded default-preference OpenAI
+  permission-gated portable analysis export with actor/scope/snapshot-bound signed
+  continuations; its Intelligence scope carries exact catalog counts, sanitized
+  operator runbook/playbook source, and safe bundled references. It also provides
+  guarded default-preference OpenAI
   Flex for supported live case/alert work, with truthful standard fallback. Fresh
-  workspaces now assign official OpenAI `gpt-5.6-luna` to router, investigator,
+  workspaces now assign the bundled OpenAI model ID `gpt-5.6-luna` to router, investigator,
   formatter, standup, Workspace chat, and overview; embeddings remain on
   `text-embedding-3-small`, while persisted assignments and alternate providers stay
-  authoritative. The current official short-context Luna Standard rate is catalogued
+  authoritative. The release catalog configures the short-context Luna Standard rate
   at $0.20/M input, $0.02/M cached input, and $1.20/M output; Batch/Flex is recorded
-  only from provider-confirmed execution and priced at the official half-rate. Cost now
+  only from provider-confirmed execution and applies the configured half-rate. Cost now
   reports the execution tier actually recorded by the gateway in fixed Standard,
   Flex, Batch, and Unconfirmed buckets; it never infers that a standard row was a
   Flex fallback when the ledger cannot prove that history. Storage
@@ -123,7 +139,10 @@
   `causal_claim=false`. It exposes true 7-day versus prior-7-day and rolling-28-day
   versus prior-28-day trends without calling the latter a calendar month. A
   true-positive/raw-alert yield is explicitly unavailable because cases and alerts are
-  different units, and semantic source-gap guidance remains a long-term objective.
+  different units. That aggregate report still returns source guidance as unavailable;
+  separately, Auto-tuning can aggregate a deliberately narrow v1 set of query-proven
+  telemetry gaps (outbound DNS, endpoint process, or identity-authentication evidence).
+  Missing connectors and free-form model prose never create a recommendation.
   Every missing or undersized cohort remains insufficient/unavailable rather than zero.
   Operations groups recommendations by rule, separates **Collecting**, **Within
   target**, and **Needs attention**, and replaces the wide rules table with a
@@ -131,12 +150,14 @@
   states the evidence minimum, conservative estimate, policy gap in percentage points,
   recommended action, expected effect, and replay status before supporting statistics.
   Processing is represented at its real rule scope: eligible bounded changes are
-  rechecked before applying and restricted changes route to Approvals, while Policy &
-  history shows policy before the append-only ledger. These are Console
+  rechecked and routed to Approvals by default, while Policy & history shows policy
+  before the append-only ledger. An authorized operator can explicitly enable
+  `auto_apply_confirmed`, but only independently confirmed evidence that passes the
+  sample and shadow gates qualifies; suppression remains approval-only. These are Console
   changes only; deterministic tuning and `decide()` authority remain unchanged.
-- **Verification:** the latest fully recorded suites are green at **2,174 backend tests**
-  and **1,828 web tests across 277 files**,
-  with production build, lint/design gates, packaging, version, Compose, and strict docs
+- **Verification:** the latest fully recorded suites are green; the exact frozen
+  acceptance receipt is in `docs/development/testing.md` and the latest `Journal.md`
+  milestone. Production build, lint/design gates, packaging, version, Compose, and strict docs
   checks passing. Read the latest `Journal.md` entry, the active `CHANGELOG.md`
   `[Unreleased]` section, and the dated Development snapshots for command-level
   evidence + the finding list. The
@@ -169,7 +190,7 @@ can never override.
 cd backend
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt        # greenlet is pinned, so a fresh install is green
-python -m pytest -q                         # latest recorded full run: 2,174 passed; see Journal.md
+python -m pytest -q                         # latest recorded full run: 2,254 passed; see Journal.md
 ```
 
 ### WebUI build + tests + lint
@@ -178,7 +199,7 @@ cd webui
 npm ci
 npm run check:types # hard-fail API drift in CI with TLSOC_REQUIRE_TYPEGEN=1
 npm run gates       # tokens, contrast, CVD, and raw-style regression guards
-npm test            # latest recorded full run: 1,828 passed / 277 files
+npm test            # latest recorded full run: 1,853 passed / 280 files
 npm run lint -- --max-warnings=0
 npm run build      # version-matched MkDocs Help Center + tsc --noEmit + Vite
 npm run docs:check # verify the generated docs artifact matches VERSION
@@ -215,12 +236,13 @@ manual MkDocs install.
 backend/app/
   config.py        Secrets (env-only) + Preferences (UI-editable). EVERY new setting lands here.
   constants.py     enums (CaseStatus/Disposition, Verdict, UserRole, IndexRole incl. ignore, ...)
-  models.py        Pydantic contracts (Case, User(+profile/MFA/SSO), Session, SavedView, ...)
+  models.py        Pydantic contracts (Case, User(+profile/MFA/SSO), Session, SavedView,
+                   MemoryEntry with approved/pending review state, ...)
   api/routes.py    THE base FastAPI router (incl. /sources, /auth+/users, /sessions,
                    /account/me, /demo/*, /proposals, /settings/schema, `/chat`, and
                    per-user `/chat/conversations` list/detail/rename/delete).
                    api/deps.py =
-                   auth/RBAC gates (+ custom-role union). **22 `routes_*.py` feature
+                   auth/RBAC gates (+ custom-role union). **26 `routes_*.py` feature
                    routers total**, ALL auto-discovered at boot
                    (`main.py::discover_feature_routers()` walks `app.api.routes_*`, needs
                    only a top-level `router: APIRouter` — no manual registration):
@@ -240,19 +262,28 @@ backend/app/
                    `/terminology`, `/views*`), routes_rag (`/rag/*`, `/memory*`),
                    routes_search (`/search`, `/audit`). None of those paths remain in
                    `routes.py`, and there is no `/branding/presets` endpoint. Current
-                   integration adds routes_export (`POST /api/admin/export`,
+                   integration adds routes_export (legacy bounded `POST
+                   /api/admin/export` plus fresh-auth resumable
+                   `/api/admin/export/segment` + `/cancel`, all under
                    `data_export:export`) + routes_storage (desired own-state lifecycle,
-                   pure capability preview, and explicit fresh-auth Elasticsearch apply).
+                   pure capability preview, and explicit fresh-auth Elasticsearch apply)
+                   + routes_runbooks (durable runbook catalog/reconciliation) +
+                   routes_releases (public source discovery) + routes_schedulers
+                   (read-only worker health) + routes_telemetry (query-backed telemetry
+                   gaps; connector absence is never evidence).
   auth/            passwords (PBKDF2) · tokens (stdlib HS256 JWT, sid/tv claims) · service ·
                    mfa (RFC-6238 TOTP) · oidc (SSO code-exchange)
   rbac/policy.py   the role->resource->action permission matrix + can()
-  stores/          backend-agnostic KV-doc stores: users · sessions · user_prefs · memory ·
+  stores/          backend-agnostic KV-doc stores: users · sessions · user_prefs · memory
+                   (strict-CAS; only approved active entries become trusted context) ·
                    chat_conversations (bounded, idempotent, per-user-partitioned Workspace
                    transcripts + lazy migration from the legacy shared document) ·
-                   cases/usage/config/cursor · proposals · sql/ (SQLite/Postgres) +
+                   cases/usage/config/cursor · proposals · runbooks · playbooks
+                   (strict-CAS durable operator catalogs) · sql/ (SQLite/Postgres) +
                    Round-3: case_thread/case_activity/case_tasks · inbox · notif_prefs ·
                    custom_roles · price_overlay · shift_handoff +
-                   Round-4: tuning · campaigns · baseline · batch_jobs +
+                   Round-4: tuning · campaigns (full-set active reconciliation + durable
+                   success anchor) · baseline · batch_jobs +
                    Round-5: dashboards (per-user custom-dashboard layouts) · rule_versions
                    (detection-rule version ledger + rollback) — NO new index/table needed
   notifications/   channel SPI · email (SMTP+SES) · resend · webhook/slack/teams · templates · dispatch ·
@@ -267,8 +298,10 @@ backend/app/
                    poller_manager (Round-4 — fans out over EVERY enabled PULL source) · ingest ·
                    metrics (+ Round-3 posture) · mitre_coverage · shift_report · priority ·
                    budget (BudgetGate) · threshold_automation · threat_context · mitre · demo_generator/runtime +
-                   Round-4: threshold_tuner (nightly deterministic auto-tuner, default ON) ·
-                   campaigns (daily shared-entity graph) · baseline (online EWMA/EWMV entity baseline) ·
+                   Round-4: threshold_tuner (nightly deterministic observer, default ON;
+                   analyst-confirmed evidence only and review-first writes) · campaigns
+                   (cadence-enforced, full-set reconciled shared-entity graph) · baseline
+                   (online EWMA/EWMV entity baseline) ·
                    event_detection (EVENT-feed batched agent-driven detection funnel) ·
                    forwarding (explain_forwarding) · reset (tiered danger-zone reset) ·
                    storage_lifecycle (capability-aware append-only ledger ILM; no deletion) ·
@@ -426,17 +459,18 @@ what-shipped: `docs/research/2026-07-round4/`.
 
 **The 12 requests (new engine modules, all default-OFF):**
 - **Adaptive threshold auto-tuning** — `engine/threshold_tuner.py` + `stores/tuning.py`: a
-  nightly deterministic observer (Wilson lower-bound + min-samples + EWMA + shadow-eval)
-  that bounded-bumps a rule's `n` / a feed's `severity_floor` with audit + rollback;
-  suppression DROPs route to a HITL Proposal. It is a config-writer only — it **never**
-  imports `decide()` / risk / signatures.
+  nightly deterministic observer over independent analyst-confirmed outcomes (Wilson
+  lower-bound + min-samples + EWMA + shadow-eval). Bounded `n` / `severity_floor`
+  changes route to a HITL Proposal by default; suppression always does, while explicit
+  confirmed-evidence auto-apply is opt-in. Every applied change is audited and reversible.
+  It is a config-writer only — it **never** imports `decide()` / risk / signatures.
 - **Two-tier alert/event ingestion** — ALERT feeds run realtime per-alert; EVENT feeds run a
   cheap-first `engine/event_detection.py` funnel (pre-aggregate → rules → anomaly → batched
   Haiku detection) whose survivors **re-enter the SAME correlate/decide pipeline** (#3/#4),
   #9-fenced, #7 aggregate-only.
 - **Daily campaign correlation** — `engine/campaigns.py` + `stores/campaigns.py`: a
-  deterministic shared-entity graph producing `Campaign` objects that only *reference*
-  `case_ids` (never re-clusters or closes, #4).
+  deterministic shared-entity graph producing full-set reconciled `Campaign` objects
+  that only *reference* `case_ids` (never re-clusters or closes, #4).
 - **Entity baseline** — `engine/baseline.py` + `stores/baseline.py`: online EWMA/EWMV over
   168 hour-of-week buckets + a bounded t-digest + modified-z |M|>3.5 (warm-up 3× period,
   H=14d); a pure producer.

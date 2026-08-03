@@ -18,10 +18,12 @@ import asyncio
 import logging
 import math
 import re
+from collections import Counter
 from typing import TYPE_CHECKING, Any
 
 from ..config import Preferences
 from ..constants import CaseStatus
+from ..engine.analyst_outcomes import analyst_confirmed_outcome
 from ..engine.chunking import chunk_text
 from ..engine.runbooks import corpus_items as runbook_corpus_items
 from ..llm.gateway import LLMGateway
@@ -69,7 +71,6 @@ THREAT_CONTEXT_SOURCE = "threat_context"
 # attacker-influenceable, so it is fenced as an UNTRUSTED baseline at render time.
 TRUSTED_KNOWLEDGE_SOURCES = frozenset({"runbook", "mitre", "suppression"})
 
-
 def is_trusted_knowledge(source: str | None) -> bool:
     """Whether a retrieved RAG chunk's ``source`` is in the TRUSTED allowlist.
 
@@ -77,6 +78,7 @@ def is_trusted_knowledge(source: str | None) -> bool:
     threat-intel, unknown/future sources) is UNTRUSTED and must be fenced before it
     reaches a model prompt (#9 / OWASP LLM01)."""
     return source in TRUSTED_KNOWLEDGE_SOURCES
+
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 
@@ -273,6 +275,7 @@ class RagService:
         self._cases = cases
         self._runbooks = runbooks
         self._seeded = False
+        self._seed_signature: tuple[bool, ...] | None = None
         self._seed_lock = asyncio.Lock()
 
     def set_prefs(self, prefs: Preferences) -> None:
@@ -280,6 +283,51 @@ class RagService:
         (e.g. toggling rag.enabled / use_resolved_cases / min_score) takes effect
         without a full rewire."""
         self._prefs = prefs
+
+    def _source_signature(self) -> tuple[bool, ...]:
+        cfg = self._prefs.rag
+        runbooks = getattr(self._prefs, "runbooks", None)
+        return (
+            bool(cfg.enabled),
+            bool(cfg.use_runbooks),
+            bool(runbooks is None or runbooks.enabled),
+            bool(cfg.use_mitre),
+            bool(cfg.use_resolved_cases),
+            bool(cfg.use_suppression_rules),
+            bool(cfg.use_threat_context),
+        )
+
+    def _source_enabled(self, source: str) -> bool:
+        cfg = self._prefs.rag
+        runbooks = getattr(self._prefs, "runbooks", None)
+        if source == "runbook":
+            return bool(cfg.use_runbooks and (runbooks is None or runbooks.enabled))
+        if source == "mitre":
+            return bool(cfg.use_mitre)
+        if source == "suppression":
+            return bool(cfg.use_suppression_rules)
+        if source == "resolved_case":
+            return bool(cfg.use_resolved_cases)
+        if source == THREAT_CONTEXT_SOURCE:
+            return bool(cfg.use_threat_context)
+        return True
+
+    async def _drop_stale_managed_projection(self, expected: set[str]) -> int:
+        """Delete stale system projections after their replacements are durable.
+
+        ``expected`` contains the document ids that were embedded, written, and
+        verified for the new projection.  This method is intentionally called only
+        after that verification so an embedding/provider failure can never erase
+        the last known-good corpus.  Operator imports are never considered here.
+        """
+        removed = 0
+        for document in await self._store.list_documents():
+            if str(document.get("source") or "") not in SEED_SOURCES:
+                continue
+            document_id = str(document.get("document_id") or "")
+            if document_id and document_id not in expected:
+                removed += await self._store.delete_document(document_id)
+        return removed
 
     def _embedding_space(self) -> tuple[str, int]:
         cfg = self._prefs.model_for("embedding")
@@ -294,16 +342,16 @@ class RagService:
     async def _enabled_seeds(self) -> list[dict[str, Any]]:
         cfg = self._prefs.rag
         seeds: list[dict[str, Any]] = []
-        if cfg.use_runbooks:
+        runbooks = getattr(self._prefs, "runbooks", None)
+        if cfg.use_runbooks and (runbooks is None or runbooks.enabled):
             # Prefer the plain-text runbook FILES (Vigil's "playbooks are files")
             # when runbooks are enabled and present; fall back to the in-code seed
             # snippets so RAG always has runbook coverage.
             file_items: list[dict[str, Any]] = []
-            if getattr(self._prefs, "runbooks", None) is None or self._prefs.runbooks.enabled:
-                try:
-                    file_items = await self._runbook_seed_items()
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("Runbook corpus load failed; using seed runbooks: %s", exc)
+            try:
+                file_items = await self._runbook_seed_items()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Runbook corpus load failed; using seed runbooks: %s", exc)
             seeds.extend(file_items or SEED_RUNBOOKS)
         if cfg.use_mitre:
             seeds.extend(SEED_MITRE)
@@ -313,54 +361,173 @@ class RagService:
         # because it requires an async load from the CaseStore.
         return seeds
 
-    async def _embed_and_add(self, items: list[dict[str, Any]]) -> int:
-        """Embed ``items`` (each {text, source, metadata}) and add to the store.
+    @staticmethod
+    def _managed_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Give every managed seed a stable document and chunk identity.
 
-        Tags each chunk with the active embedding model + dim. Returns the count
-        added. Caller handles failures."""
+        Older projections grouped anonymous seeds under ``seed:<source>``. Stable
+        ids let every concrete store upsert the replacement before stale documents
+        are removed, while preserving the same document grouping in the UI.
+        """
+        out: list[dict[str, Any]] = []
+        for raw in items:
+            item = dict(raw)
+            source = str(item.get("source") or "unknown")
+            metadata = dict(item.get("metadata") or {})
+            explicit_chunk_id = str(item.get("doc_id") or "")
+            document_id = str(metadata.get("document_id") or "")
+            if not document_id:
+                document_id = explicit_chunk_id or f"seed:{source}"
+            if not explicit_chunk_id:
+                identity = "\0".join(
+                    (
+                        document_id,
+                        source,
+                        str(item.get("embedding_text") or ""),
+                        str(item.get("text") or ""),
+                    )
+                )
+                explicit_chunk_id = (
+                    f"{document_id}:{hashlib.sha256(identity.encode('utf-8', 'replace')).hexdigest()[:20]}"
+                )
+            metadata["document_id"] = document_id
+            item["metadata"] = metadata
+            item["doc_id"] = explicit_chunk_id
+            out.append(item)
+        return out
+
+    async def _embed_items(self, items: list[dict[str, Any]]) -> list[StoredChunk]:
+        """Embed and validate items without mutating the vector store."""
         if not items:
-            return 0
+            return []
         # A source may provide a compact retrieval representation while retaining a
         # fuller stored/rendered chunk. Runbooks use this to avoid a duplicate
         # descriptor-only prompt chunk without diluting their retrieval vector.
         texts = [str(s.get("embedding_text") or s["text"]) for s in items]
-        model_id = self._prefs.model_for("embedding").model
-        vectors = await self._gateway.embed(
+        configured_model = self._prefs.model_for("embedding").model
+        batch = await self._gateway.embed_with_provenance(
             texts, self._prefs.model_for("embedding"), surface="rag"
         )
-        chunks = [
+        vectors = batch.vectors
+        if len(vectors) != len(items):
+            raise EmbeddingSpaceMismatch(
+                f"embedding cardinality {len(vectors)} != input cardinality {len(items)}"
+            )
+        dims = {len(vector) for vector in vectors}
+        if not vectors or 0 in dims or len(dims) != 1:
+            raise EmbeddingSpaceMismatch(
+                f"embedding batch has invalid or inconsistent dimensions: {sorted(dims)}"
+            )
+        return [
             StoredChunk(
                 text=s["text"],
                 source=s.get("source", "unknown"),
-                metadata=dict(s.get("metadata", {})),
+                metadata={
+                    **dict(s.get("metadata", {})),
+                    "embedding_provider": batch.provider,
+                    "embedding_fallback": batch.fallback,
+                    "configured_embedding_model": configured_model,
+                },
                 embedding=vec,
-                embedding_model=model_id,
+                embedding_model=batch.model,
                 dim=len(vec),
                 doc_id=s.get("doc_id"),
             )
             for s, vec in zip(items, vectors)
         ]
+
+    async def _embed_and_add(self, items: list[dict[str, Any]]) -> int:
+        """Embed ``items`` and add them after full batch validation."""
+        chunks = await self._embed_items(items)
+        if not chunks:
+            return 0
         await self._store.add(chunks)
         return len(chunks)
+
+    async def _verify_projection(self, chunks: list[StoredChunk]) -> set[str]:
+        """Read back every expected managed document before stale deletion."""
+        expected_counts = Counter(
+            str((chunk.metadata or {}).get("document_id") or "") for chunk in chunks
+        )
+        expected_counts.pop("", None)
+        documents = {
+            str(document.get("document_id") or ""): int(document.get("chunk_count") or 0)
+            for document in await self._store.list_documents()
+        }
+        missing = {
+            document_id: count
+            for document_id, count in expected_counts.items()
+            if documents.get(document_id, 0) < count
+        }
+        if missing:
+            raise RuntimeError(f"managed RAG projection read-back failed: {missing}")
+        return set(expected_counts)
+
+    async def _snapshot_store_chunks(self) -> list[StoredChunk]:
+        """Read a complete rollback snapshot before replacing a vector space.
+
+        A model/dimension migration is the only reconciliation path that must replace
+        the physical vector space. Refuse to begin that destructive swap unless the
+        management API returned every stored chunk; an empty or partial fail-soft read
+        must never be mistaken for a safe snapshot.
+        """
+        expected = await self._store.count()
+        chunks: list[StoredChunk] = []
+        for document in await self._store.list_documents():
+            document_id = str(document.get("document_id") or "")
+            if document_id:
+                chunks.extend(await self._store.list_chunks(document_id))
+        if len(chunks) != expected:
+            raise RuntimeError(
+                f"RAG migration snapshot incomplete: read {len(chunks)} of {expected} chunks"
+            )
+        return chunks
+
+    @staticmethod
+    def _operator_items_from_snapshot(chunks: list[StoredChunk]) -> list[dict[str, Any]]:
+        """Project non-managed documents for re-embedding in a new vector space."""
+        return [
+            {
+                "text": chunk.text,
+                "embedding_text": chunk.text,
+                "source": chunk.source,
+                "metadata": dict(chunk.metadata or {}),
+                "doc_id": chunk.doc_id,
+            }
+            for chunk in chunks
+            if chunk.source not in SEED_SOURCES
+        ]
 
     async def ensure_seeded(self) -> None:
         """Idempotently embed and store the enabled sources. Fails closed.
 
         Includes resolved-case memory when ``prefs.rag.use_resolved_cases``."""
         async with self._seed_lock:
-            if self._seeded:
+            signature = self._source_signature()
+            if self._seeded and self._seed_signature == signature:
                 return
-            self._seeded = True  # guard first so a failure does not loop on retry
             try:
+                # Stage and validate the complete managed projection before ANY
+                # old document is removed. This preserves the last known-good
+                # corpus when loading, embedding, or persistence fails.
                 seeds = await self._enabled_seeds()
-                added = await self._embed_and_add(seeds)
                 if self._prefs.rag.use_resolved_cases:
-                    added += await self.index_resolved_cases()
+                    seeds.extend(await self._resolved_case_items())
+                managed = self._managed_items(seeds)
+                chunks = await self._embed_items(managed)
+                if chunks:
+                    await self._store.add(chunks)
+                expected = await self._verify_projection(chunks)
+                await self._drop_stale_managed_projection(expected)
                 if self._runbooks is not None:
                     for record in await self._runbooks.list():
                         await self._runbooks.mark_indexed(record.runbook.id, record.revision)
-                logger.info("RAG seeded with %d chunk(s)", added)
+                self._seeded = True
+                self._seed_signature = signature
+                logger.info("RAG seeded with %d chunk(s)", len(chunks))
             except Exception as exc:  # noqa: BLE001
+                self._seeded = False
+                self._seed_signature = None
                 logger.warning("RAG seeding failed; store left as-is: %s", exc)
 
     async def reindex_runbooks(self, ids: set[str] | None = None) -> dict[str, Any]:
@@ -403,27 +570,28 @@ class RagService:
             errors: list[str] = []
             try:
                 documents = await self._store.list_documents()
-                # Upgrade a legacy projection that grouped every runbook under one
-                # ``seed:runbook`` pseudo-document by rebuilding the complete set.
-                if any(
-                    doc.get("document_id") == "seed:runbook" and doc.get("source") == "runbook"
-                    for doc in documents
-                ):
-                    target_ids = set(active) | pending
-                    deleted += await self._store.delete_document("seed:runbook")
-                elif ids is None:
-                    for doc in documents:
-                        if doc.get("source") == "runbook":
-                            deleted += await self._store.delete_document(
-                                str(doc.get("document_id") or "")
-                            )
-                else:
-                    for runbook_id in sorted(target_ids):
-                        deleted += await self._store.delete_document(f"runbook:{runbook_id}")
-
                 selected = set(active) if ids is None else requested & set(active)
-                items = await self._runbooks.corpus_items(selected)
-                indexed = await self._embed_and_add(items)
+                items = self._managed_items(await self._runbooks.corpus_items(selected))
+                chunks = await self._embed_items(items)
+                if chunks:
+                    await self._store.add(chunks)
+                expected_selected = await self._verify_projection(chunks)
+
+                # Only remove stale/withdrawn runbook documents after every selected
+                # replacement has been written and read back successfully.
+                for document in documents:
+                    if document.get("source") != "runbook":
+                        continue
+                    document_id = str(document.get("document_id") or "")
+                    should_remove = (
+                        document_id == "seed:runbook"
+                        or document_id in {f"runbook:{rid}" for rid in pending & target_ids}
+                        or (ids is None and document_id not in expected_selected)
+                    )
+                    if should_remove and document_id:
+                        deleted += await self._store.delete_document(document_id)
+
+                indexed = len(chunks)
                 for runbook_id in sorted(selected):
                     record = active[runbook_id]
                     await self._runbooks.mark_indexed(runbook_id, record.revision)
@@ -478,6 +646,56 @@ class RagService:
             logger.warning("Reading runbook projection status failed: %s", exc)
         return out
 
+    async def _resolved_case_items(self, limit: int = 200) -> list[dict[str, Any]]:
+        if self._cases is None:
+            return []
+        cases: list["Case"] = []
+        seen: set[str] = set()
+        for status in (CaseStatus.CLOSED.value, CaseStatus.RESOLVED.value):
+            offset = 0
+            while len(cases) < limit:
+                page_size = min(200, limit - len(cases))
+                page, total = await self._cases.list(
+                    status=status, limit=page_size, offset=offset
+                )
+                for case in page:
+                    if case.case_id not in seen:
+                        seen.add(case.case_id)
+                        cases.append(case)
+                offset += len(page)
+                if not page or offset >= total:
+                    break
+        items: list[dict[str, Any]] = []
+        for case in cases:
+            confirmed = analyst_confirmed_outcome(case)
+            if confirmed[0] is None:
+                continue
+            outcome, ground_truth_source = confirmed
+            entity = f"{case.entity.type.value}:{case.entity.value}"
+            rules = ", ".join(case.rule_ids) or "n/a"
+            evidence = "; ".join(e.summary for e in case.evidence[:3]) or "n/a"
+            verdict = case.verdict.value if case.verdict else "n/a"
+            text = (
+                f"Resolved case {case.case_id}: analyst-confirmed outcome {outcome}; "
+                f"model verdict {verdict}; entity {entity}. Rules: {rules}. "
+                f"Evidence: {evidence}. Recommended action: "
+                f"{case.recommended_action or 'n/a'}."
+            )
+            items.append({
+                "text": text,
+                "source": "resolved_case",
+                "doc_id": f"resolved_case:{case.case_id}",
+                "metadata": {
+                    "case_id": case.case_id,
+                    "verdict": verdict,
+                    "outcome": outcome,
+                    "entity": entity,
+                    "ground_truth_source": ground_truth_source,
+                    "trust_class": "analyst_confirmed",
+                },
+            })
+        return items
+
     async def index_resolved_cases(self, limit: int = 200) -> int:
         """Load CLOSED cases and index one chunk per case as institutional memory.
 
@@ -488,32 +706,7 @@ class RagService:
         if self._cases is None:
             return 0
         try:
-            cases, _total = await self._cases.list(
-                status=CaseStatus.CLOSED.value, limit=limit
-            )
-            items: list[dict[str, Any]] = []
-            for case in cases:
-                entity = f"{case.entity.type.value}:{case.entity.value}"
-                rules = ", ".join(case.rule_ids) or "n/a"
-                evidence = "; ".join(e.summary for e in case.evidence[:3]) or "n/a"
-                verdict = case.verdict.value if case.verdict else "n/a"
-                text = (
-                    f"Resolved case {case.case_id}: verdict {verdict} for entity {entity}. "
-                    f"Rules: {rules}. Evidence: {evidence}. "
-                    f"Recommended action: {case.recommended_action or 'n/a'}."
-                )
-                items.append(
-                    {
-                        "text": text,
-                        "source": "resolved_case",
-                        "metadata": {
-                            "case_id": case.case_id,
-                            "verdict": verdict,
-                            "entity": entity,
-                        },
-                    }
-                )
-            return await self._embed_and_add(items)
+            return await self._embed_and_add(await self._resolved_case_items(limit))
         except Exception as exc:  # noqa: BLE001
             logger.warning("Indexing resolved cases failed: %s", exc)
             return 0
@@ -532,6 +725,10 @@ class RagService:
         if not (cfg.enabled and cfg.use_resolved_cases):
             return 0
         try:
+            confirmed = analyst_confirmed_outcome(case)
+            if confirmed[0] is None:
+                return 0
+            outcome, ground_truth_source = confirmed
             entity = f"{case.entity.type.value}:{case.entity.value}"
             rules = ", ".join(case.rule_ids) or "n/a"
             verdict = case.verdict.value if case.verdict else "n/a"
@@ -542,7 +739,8 @@ class RagService:
             )
             note = (note or "").strip()
             text = (
-                f"Resolved case {case.case_id}: verdict {verdict} for entity {entity}. "
+                f"Resolved case {case.case_id}: analyst-confirmed outcome {outcome}; "
+                f"model verdict {verdict}; entity {entity}. "
                 f"Rules: {rules}. Risk: {round(case.risk_score, 1)}. "
                 f"Trigger: {reason or 'n/a'}. Analyst note: {note or 'n/a'}."
             )
@@ -553,9 +751,12 @@ class RagService:
                 "metadata": {
                     "case_id": case.case_id,
                     "verdict": verdict,
+                    "outcome": outcome,
                     "entity": entity,
                     "status": case.status.value if case.status else "",
                     "note": note,
+                    "ground_truth_source": ground_truth_source,
+                    "trust_class": "analyst_confirmed",
                 },
             }
             return await self._embed_and_add([item])
@@ -662,6 +863,18 @@ class RagService:
             logger.warning("RAG snapshot failed: %s", exc)
             return []
 
+    async def snapshot_documents_strict(self) -> list[dict[str, Any]]:
+        """Read persisted document metadata or propagate availability failures.
+
+        This remains seed-free and embedding-free like :meth:`snapshot_documents`,
+        but is reserved for evidence/export paths where ``[]`` must mean a confirmed
+        empty corpus rather than a swallowed backend outage.
+        """
+        rows = await self._store.list_documents()
+        if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+            raise ValueError("RAG document metadata is malformed")
+        return rows
+
     async def get_document(self, document_id: str) -> dict[str, Any] | None:
         """A document + its chunks (as dicts), or None if no such document. Never raises."""
         try:
@@ -752,18 +965,30 @@ class RagService:
         if not cfg.enabled:
             return []
         try:
-            if await self._store.count() == 0:
+            await self.ensure_seeded()
+            store_count = await self._store.count()
+            if store_count == 0:
                 return []
             k = top_k or cfg.top_k
             # Over-fetch a candidate pool for hybrid re-ranking; identical to ``k``
-            # when hybrid is disabled.
+            # when hybrid is disabled. Source filtering gets a small bounded cushion
+            # so a disabled imported source cannot crowd every useful result, without
+            # ever turning one retrieval into an unbounded full-corpus scan.
             pool_k = max(k * cfg.hybrid_overfetch, k) if cfg.hybrid else k
-            vectors = await self._gateway.embed(
+            pool_k = min(store_count, max(pool_k, k * 4))
+            batch = await self._gateway.embed_with_provenance(
                 [query], self._prefs.model_for("embedding"), surface="rag"
             )
+            vectors = batch.vectors
             if not vectors:
                 return []
             try:
+                space = await self._store.embedding_space()
+                query_space = (batch.model, len(vectors[0]))
+                if space is not None and space != query_space:
+                    raise EmbeddingSpaceMismatch(
+                        f"query space {query_space} != stored space {space}"
+                    )
                 results = await self._store.search(vectors[0], pool_k)
             except EmbeddingSpaceMismatch as exc:
                 logger.warning("Embedding-space mismatch (%s); clearing + reseeding", exc)
@@ -773,7 +998,11 @@ class RagService:
                 results = await self._store.search(vectors[0], pool_k)
             # min_score gates on the RAW vector score (so disabling hybrid, or a
             # too-strict threshold, behaves exactly as before).
-            survivors = [(c, float(s)) for c, s in results if float(s) >= cfg.min_score]
+            survivors = [
+                (c, float(s))
+                for c, s in results
+                if self._source_enabled(c.source) and float(s) >= cfg.min_score
+            ]
             if not survivors:
                 return []
             if cfg.hybrid and len(survivors) > 1:
@@ -794,10 +1023,56 @@ class RagService:
             return []
 
     async def _reseed(self) -> None:
-        """Clear the store and re-run seeding (used after an embedding-space change)."""
-        await self._store.clear()
-        self._seeded = False
-        await self.ensure_seeded()
+        """Migrate the corpus safely after an embedding-space change.
+
+        Replacement embeddings are staged before the existing space is cleared.
+        Operator imports are re-embedded alongside the managed corpus, and a complete
+        old-space snapshot is restored if the replacement write or read-back fails.
+        """
+        async with self._seed_lock:
+            backup = await self._snapshot_store_chunks()
+            cleared = False
+            try:
+                seeds = await self._enabled_seeds()
+                if self._prefs.rag.use_resolved_cases:
+                    seeds.extend(await self._resolved_case_items())
+                seeds.extend(self._operator_items_from_snapshot(backup))
+                replacement = await self._embed_items(self._managed_items(seeds))
+
+                await self._store.clear()
+                cleared = True
+                if await self._store.count() != 0:
+                    raise RuntimeError("RAG vector space could not be cleared for migration")
+                if replacement:
+                    await self._store.add(replacement)
+                if await self._store.count() != len(replacement):
+                    raise RuntimeError("RAG vector-space replacement was only partially persisted")
+                await self._verify_projection(replacement)
+                if self._runbooks is not None:
+                    for record in await self._runbooks.list():
+                        await self._runbooks.mark_indexed(record.runbook.id, record.revision)
+                self._seeded = True
+                self._seed_signature = self._source_signature()
+            except Exception as exc:
+                self._seeded = False
+                self._seed_signature = None
+                if cleared:
+                    try:
+                        await self._store.clear()
+                        if await self._store.count() != 0:
+                            raise RuntimeError("replacement vector space did not clear")
+                        if backup:
+                            await self._store.add(backup)
+                        if await self._store.count() != len(backup):
+                            raise RuntimeError("rollback vector space was only partially restored")
+                    except Exception as restore_exc:  # noqa: BLE001
+                        logger.error("RAG vector-space rollback failed: %s", restore_exc)
+                        raise RuntimeError(
+                            "RAG vector-space migration and rollback both failed"
+                        ) from restore_exc
+                raise RuntimeError(
+                    "RAG vector-space migration failed; prior corpus preserved"
+                ) from exc
 
 
 # --------------------------------------------------------------------------- #

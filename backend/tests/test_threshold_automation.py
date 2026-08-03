@@ -16,7 +16,15 @@ from app.config import (
     Preferences,
     ThresholdAutomationConfig,
 )
-from app.constants import ActionType, CaseStatus, DecisionBy, EntityType, SourceSurface, Verdict
+from app.constants import (
+    AUDIT_WRITE_ALIAS,
+    ActionType,
+    CaseStatus,
+    DecisionBy,
+    EntityType,
+    SourceSurface,
+    Verdict,
+)
 from app.engine.case_manager import decide
 from app.engine.threshold_automation import ThresholdAutomation, evaluate
 from app.models import Case, Entity
@@ -188,9 +196,9 @@ async def test_request_approval_creates_pending_proposal_no_live_write(app_state
 #
 # Before: a generic ``request_approval`` (no field/value) forced kind="suppression",
 # so approving it 400'd ("invalid suppression payload") — a dead end. Now the kind is
-# resolved to one the approve path can materialise: a COMPLETE suppression stays
-# suppression; anything else becomes an operator-acknowledged ``memory`` note that
-# always approves cleanly.
+# resolved to one the approve path can process: a COMPLETE suppression stays
+# suppression; explicit Memory stays Memory; anything else becomes an
+# acknowledgement-only automation review that always approves cleanly.
 # --------------------------------------------------------------------------- #
 def test_resolve_proposal_kind_round_trips() -> None:
     from app.engine.threshold_automation import _resolve_proposal_kind
@@ -200,22 +208,25 @@ def test_resolve_proposal_kind_round_trips() -> None:
     assert _resolve_proposal_kind(
         {"kind": "suppression", "field": "f", "value": "v"}
     ) == "suppression"
-    # A PARTIAL suppression (kind says suppression but no value) degrades to memory —
-    # never emit a kind the approve path would 400 on.
-    assert _resolve_proposal_kind({"kind": "suppression", "field": "f"}) == "memory"
-    assert _resolve_proposal_kind({"kind": "suppression"}) == "memory"
-    # An explicit memory stays memory; a generic gate defaults to memory.
+    # A PARTIAL suppression becomes review-only acknowledgement — never emit a kind
+    # the approve path would 400 on or materialise it as something stronger.
+    assert _resolve_proposal_kind(
+        {"kind": "suppression", "field": "f"}
+    ) == "automation_ack"
+    assert _resolve_proposal_kind({"kind": "suppression"}) == "automation_ack"
+    # An explicit Memory stays Memory; a generic gate is acknowledgement-only.
     assert _resolve_proposal_kind({"kind": "memory", "text": "note"}) == "memory"
-    assert _resolve_proposal_kind({}) == "memory"
-    # An unknown kind is never emitted (approve path only handles suppression+memory).
-    assert _resolve_proposal_kind({"kind": "escalate"}) == "memory"
+    assert _resolve_proposal_kind({}) == "automation_ack"
+    # An unknown requested kind remains safely reviewable without acquiring Memory
+    # semantics.
+    assert _resolve_proposal_kind({"kind": "escalate"}) == "automation_ack"
 
 
 @pytest.mark.asyncio
 async def test_generic_request_approval_proposal_is_approvable(app_state: AppState) -> None:
     """A generic ``request_approval`` (no suppression shape) must be APPROVABLE — not a
-    dead end. It becomes a memory-kind note and round-trips through the REAL approve
-    route without a 400."""
+    dead end. It becomes an acknowledgement-only review and round-trips through the
+    REAL approve route without a 400 or unrelated materialisation."""
     from app.api.routes import approve_proposal
 
     case = _case(case_id="approvable")
@@ -229,18 +240,356 @@ async def test_generic_request_approval_proposal_is_approvable(app_state: AppSta
 
     pending = await app_state.proposals.list(status="pending")
     prop = next(p for p in pending if p.source_case_ids == ["approvable"])
-    # It resolved to a memory-kind note (the approve path CAN materialise it).
-    assert prop.kind == "memory"
-    assert (prop.payload or {}).get("text")  # non-empty text guaranteed
+    assert prop.kind == "automation_ack"
+    assert (prop.payload or {}).get("rule_id") == "gate"
+    assert not (prop.payload or {}).get("text")
 
-    # The full round-trip: approving it succeeds (no HTTPException / 400) and marks it
-    # approved. The memory note is written; the case is NEVER transitioned by approval (#3).
+    # The full round-trip: approval marks the checkpoint reviewed, but creates no
+    # Memory, suppression, preference, or case-lifecycle side effect.
     status_before = case.status
+    memories_before = [m.model_dump(mode="json") for m in await app_state.memory.list(False)]
+    prefs_before = app_state.execution_prefs.model_dump(mode="json")
     res = await approve_proposal(prop.id, _ApproveRequest(app_state), state=app_state)
     assert res["ok"] is True
     approved = await app_state.proposals.get(prop.id)
     assert approved is not None and approved.status == "approved"
     assert case.status == status_before  # approval never touches the case lifecycle (#3)
+    assert [m.model_dump(mode="json") for m in await app_state.memory.list(False)] == memories_before
+    assert app_state.execution_prefs.model_dump(mode="json") == prefs_before
+
+
+@pytest.mark.asyncio
+async def test_explicit_memory_request_approval_still_materialises_memory(
+    app_state: AppState,
+) -> None:
+    """The new generic review kind must not weaken a deliberate Memory proposal."""
+    from app.api.routes import approve_proposal
+
+    case = _case(case_id="memory")
+    await app_state.cases.save(case)
+    automation = ThresholdAutomation(app_state.proposals, app_state.audit)
+    rules = [_rule("remember", "request_approval", payload={
+        "kind": "memory",
+        "text": "The approved maintenance scanner uses the internal relay.",
+        "category": "operations",
+    })]
+    await automation.run(case, _prefs_with(rules), save=app_state.cases.save)
+
+    prop = next(
+        p for p in await app_state.proposals.list(status="pending")
+        if p.source_case_ids == ["memory"]
+    )
+    assert prop.kind == "memory"
+    res = await approve_proposal(prop.id, _ApproveRequest(app_state), state=app_state)
+    assert res["ok"] is True
+    memories = await app_state.memory.list(False)
+    assert any(
+        m.text == "The approved maintenance scanner uses the internal relay."
+        and m.review_status == "approved"
+        for m in memories
+    )
+
+
+@pytest.mark.asyncio
+async def test_concurrent_memory_approval_materialises_exactly_once(
+    app_state: AppState,
+) -> None:
+    """Only one strict pending->applying claim may cross the side-effect boundary."""
+    import asyncio
+
+    from fastapi import HTTPException
+
+    from app.api.routes import approve_proposal
+    from app.models import Proposal
+
+    prop = Proposal(
+        kind="memory",
+        payload={"text": "The maintenance relay is approved."},
+        rationale="Record a reviewed fact.",
+    )
+    await app_state.proposals.add(prop)
+    req = _ApproveRequest(app_state)
+    results = await asyncio.gather(
+        approve_proposal(prop.id, req, state=app_state),
+        approve_proposal(prop.id, req, state=app_state),
+        return_exceptions=True,
+    )
+
+    assert sum(isinstance(result, dict) and result.get("ok") is True for result in results) == 1
+    conflicts = [result for result in results if isinstance(result, HTTPException)]
+    assert len(conflicts) == 1 and conflicts[0].status_code == 409
+    materialised = [
+        m for m in await app_state.memory.list(False)
+        if m.approval_proposal_id == prop.id
+    ]
+    assert len(materialised) == 1
+
+
+@pytest.mark.asyncio
+async def test_memory_approval_storage_failure_is_visible_and_retryable(
+    app_state: AppState, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A fail-soft KV write can never become a reported trusted-Memory success."""
+    from fastapi import HTTPException
+
+    from app.api.routes import approve_proposal
+    from app.constants import MEMORY_NS
+    from app.models import Proposal
+
+    prop = Proposal(kind="memory", payload={"text": "Must persist before trust."})
+    await app_state.proposals.add(prop)
+    original = app_state.memory._kv.put_if_strict
+
+    async def _fail_memory(namespace, key, value, expected_rev):
+        if namespace == MEMORY_NS:
+            raise RuntimeError("memory store unavailable")
+        return await original(namespace, key, value, expected_rev)
+
+    monkeypatch.setattr(app_state.memory._kv, "put_if_strict", _fail_memory)
+    with pytest.raises(HTTPException) as caught:
+        await approve_proposal(prop.id, _ApproveRequest(app_state), state=app_state)
+    assert caught.value.status_code == 503
+    stored = await app_state.proposals.get(prop.id)
+    assert stored is not None and stored.status == "pending"
+    assert "memory store unavailable" in str(stored.approval_error)
+    assert not any(m.approval_proposal_id == prop.id for m in await app_state.memory.list(False))
+
+
+@pytest.mark.asyncio
+async def test_retry_after_finalize_failure_does_not_duplicate_memory(
+    app_state: AppState, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A confirmed side effect is reused if strict proposal finalisation must retry."""
+    from fastapi import HTTPException
+
+    from app.api.routes import approve_proposal
+    from app.models import Proposal
+
+    prop = Proposal(kind="memory", payload={"text": "Exactly-once reviewed fact."})
+    await app_state.proposals.add(prop)
+    original = app_state.proposals.finalize_approval
+    calls = 0
+
+    async def _fail_once(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("proposal finalisation unavailable")
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(app_state.proposals, "finalize_approval", _fail_once)
+    with pytest.raises(HTTPException) as first:
+        await approve_proposal(prop.id, _ApproveRequest(app_state), state=app_state)
+    assert first.value.status_code == 503
+    assert len([
+        m for m in await app_state.memory.list(False)
+        if m.approval_proposal_id == prop.id
+    ]) == 1
+    audit = await app_state.control_audit._es.get_doc(
+        AUDIT_WRITE_ALIAS, f"proposal-decision:{prop.id}:approve"
+    )
+    assert audit is not None
+    assert f"proposal_id={prop.id}" in str(audit.get("result_summary"))
+
+    second = await approve_proposal(prop.id, _ApproveRequest(app_state), state=app_state)
+    assert second["ok"] is True
+    assert len([
+        m for m in await app_state.memory.list(False)
+        if m.approval_proposal_id == prop.id
+    ]) == 1
+
+
+@pytest.mark.asyncio
+async def test_approval_crash_after_audit_keeps_first_actor_on_different_operator_retry(
+    app_state: AppState, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stale retry confirms the first immutable effect/audit instead of reattributing."""
+    from app.api import routes as routes_module
+    from app.models import Proposal
+
+    prop = Proposal(kind="memory", payload={"text": "Alice reviewed this fact."})
+    await app_state.proposals.add(prop)
+    claimed, outcome = await app_state.proposals.claim_approval(
+        prop.id, by="alice", token="approval-before-crash"
+    )
+    assert outcome == "claimed" and claimed is not None
+    assert claimed.decision_actor == "alice"
+
+    # The first process durably completed its effect and audit, then died before
+    # proposal finalisation. These writes are the state the second process sees.
+    await app_state.memory.add_approved_proposal_strict(
+        "Alice reviewed this fact.",
+        proposal_id=prop.id,
+        author="alice",
+    )
+    await app_state.control_audit.record_strict(
+        action_type=ActionType.PROPOSAL,
+        event_id=f"proposal-decision:{prop.id}:approve",
+        ts=claimed.decision_audit_at,
+        surface="proposal",
+        actor="alice",
+        result_summary=(
+            f"proposal_id={prop.id} action=approve kind=memory "
+            "effect=confirmed finalization=pending"
+        ),
+    )
+
+    monkeypatch.setattr(
+        type(app_state.proposals),
+        "_lease_is_stale",
+        staticmethod(lambda _proposal: True),
+    )
+    monkeypatch.setattr(routes_module, "current_username", lambda _request: "bob")
+    retried = await routes_module.approve_proposal(
+        prop.id, _ApproveRequest(app_state), state=app_state
+    )
+
+    assert retried["ok"] is True
+    assert "decision_actor" not in retried["proposal"]
+    assert "applying_token" not in retried["proposal"]
+    stored = await app_state.proposals.get(prop.id)
+    assert stored is not None and stored.decided_by == "alice"
+    assert stored.decision_actor == "alice"
+    memories = [
+        item for item in await app_state.memory.list(False)
+        if item.approval_proposal_id == prop.id
+    ]
+    assert len(memories) == 1 and memories[0].author == "alice"
+    audit = await app_state.control_audit._es.get_doc(
+        AUDIT_WRITE_ALIAS, f"proposal-decision:{prop.id}:approve"
+    )
+    assert audit is not None and audit["actor"] == "alice"
+
+
+@pytest.mark.asyncio
+async def test_approval_audit_failure_is_visible_and_retryable_without_duplicate_effect(
+    app_state: AppState, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No approval success is reported without strict append-only evidence."""
+    from fastapi import HTTPException
+
+    from app.api.routes import approve_proposal
+    from app.models import Proposal
+
+    prop = Proposal(kind="memory", payload={"text": "Audited reviewed fact."})
+    await app_state.proposals.add(prop)
+    original = app_state.control_audit.record_strict
+    calls = 0
+
+    async def _fail_once(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("audit ledger unavailable")
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(app_state.control_audit, "record_strict", _fail_once)
+    with pytest.raises(HTTPException) as first:
+        await approve_proposal(prop.id, _ApproveRequest(app_state), state=app_state)
+    assert first.value.status_code == 503
+    stored = await app_state.proposals.get(prop.id)
+    assert stored is not None and stored.status == "pending"
+    assert "audit ledger unavailable" in str(stored.approval_error)
+    assert len([
+        item for item in await app_state.memory.list(False)
+        if item.approval_proposal_id == prop.id
+    ]) == 1
+
+    retried = await approve_proposal(prop.id, _ApproveRequest(app_state), state=app_state)
+    assert retried["ok"] is True
+    assert len([
+        item for item in await app_state.memory.list(False)
+        if item.approval_proposal_id == prop.id
+    ]) == 1
+    assert await app_state.control_audit._es.get_doc(
+        AUDIT_WRITE_ALIAS, f"proposal-decision:{prop.id}:approve"
+    ) is not None
+
+
+@pytest.mark.asyncio
+async def test_rejection_audit_failure_keeps_proposal_retryable(
+    app_state: AppState, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reject uses the same strict claim/audit/finalise boundary as approve."""
+    from fastapi import HTTPException
+
+    from app.api.routes import reject_proposal
+    from app.models import Proposal
+
+    prop = Proposal(kind="automation_ack", rationale="Lead review")
+    await app_state.proposals.add(prop)
+    original = app_state.control_audit.record_strict
+    calls = 0
+
+    async def _fail_once(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("audit ledger unavailable")
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(app_state.control_audit, "record_strict", _fail_once)
+    with pytest.raises(HTTPException) as first:
+        await reject_proposal(prop.id, _ApproveRequest(app_state), state=app_state)
+    assert first.value.status_code == 503
+    stored = await app_state.proposals.get(prop.id)
+    assert stored is not None and stored.status == "pending"
+    assert stored.decision_intent == "reject"
+
+    retried = await reject_proposal(prop.id, _ApproveRequest(app_state), state=app_state)
+    assert retried["ok"] is True
+    assert retried["proposal"]["status"] == "rejected"
+    assert "applying_token" not in retried["proposal"]
+    assert await app_state.control_audit._es.get_doc(
+        AUDIT_WRITE_ALIAS, f"proposal-decision:{prop.id}:reject"
+    ) is not None
+
+
+@pytest.mark.asyncio
+async def test_rejection_crash_after_audit_keeps_first_actor_on_retry(
+    app_state: AppState, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A different operator can recover a stale rejection without owning its audit."""
+    from app.api import routes as routes_module
+    from app.models import Proposal
+
+    prop = Proposal(kind="automation_ack", rationale="Review this checkpoint.")
+    await app_state.proposals.add(prop)
+    claimed, outcome = await app_state.proposals.claim_rejection(
+        prop.id, by="alice", token="rejection-before-crash"
+    )
+    assert outcome == "claimed" and claimed is not None
+    await app_state.control_audit.record_strict(
+        action_type=ActionType.PROPOSAL,
+        event_id=f"proposal-decision:{prop.id}:reject",
+        ts=claimed.decision_audit_at,
+        surface="proposal",
+        actor="alice",
+        result_summary=(
+            f"proposal_id={prop.id} action=reject kind=automation_ack "
+            "effect=none finalization=pending"
+        ),
+    )
+
+    monkeypatch.setattr(
+        type(app_state.proposals),
+        "_lease_is_stale",
+        staticmethod(lambda _proposal: True),
+    )
+    monkeypatch.setattr(routes_module, "current_username", lambda _request: "bob")
+    retried = await routes_module.reject_proposal(
+        prop.id, _ApproveRequest(app_state), state=app_state
+    )
+
+    assert retried["ok"] is True
+    assert "decision_actor" not in retried["proposal"]
+    stored = await app_state.proposals.get(prop.id)
+    assert stored is not None and stored.decided_by == "alice"
+    assert stored.decision_actor == "alice"
+    audit = await app_state.control_audit._es.get_doc(
+        AUDIT_WRITE_ALIAS, f"proposal-decision:{prop.id}:reject"
+    )
+    assert audit is not None and audit["actor"] == "alice"
 
 
 @pytest.mark.asyncio

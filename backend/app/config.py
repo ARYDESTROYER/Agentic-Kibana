@@ -1128,7 +1128,8 @@ class RunbookConfig(BaseModel):
     ``runbook`` corpus (retrievable knowledge) when ``rag.use_runbooks`` is on and
     ``enabled`` here. NOTE: per-cluster PROCEDURE injection is now owned by the
     Markdown **playbook** system (``app/playbooks/`` + ``PlaybookConfig``); runbooks
-    are retrieval knowledge only. Disabling falls back to the in-code seed runbooks."""
+    are retrieval knowledge only. Disabling is exact: no runbook source is indexed
+    or retrieved until the operator enables it again."""
 
     enabled: bool = True
 
@@ -1504,14 +1505,15 @@ class ThresholdTuningConfig(BaseModel):
     ``shadow_eval`` (default ON) means a suggestion is EVALUATED against recent data
     before it can be applied.
 
-    Defaults ON (Autopilot overhaul) — the flagship "self-tunes over time" engine, safe
-    on because it is a config-writer only (never imports ``decide()``): Wilson-lower-bound
-    + ``min_samples`` gate + a bounded ``±1`` (``max_n_step``) nudge + mandatory
-    ``shadow_eval`` (never hides a confirmed TP) + suppression DROPs routed to a HITL
-    Proposal. A cold tenant with < ``min_samples`` closed cases per rule simply proposes
-    nothing. Defaults follow ``STANDARDS.md``: ``min_samples=30`` (Wilson-stable; hard
-    floor 10), ``fp_rate_target=0.10`` (world-class SOC < 10% FP), ``wilson_z=1.96``
-    (0.95 confidence, lower bound), ``max_n_step=1`` (bounded nudge)."""
+    Observation defaults ON (Autopilot overhaul), while automatic writes default OFF.
+    The engine accepts only independent analyst outcomes, uses a Wilson lower bound plus
+    ``min_samples``, proposes a bounded +1 (``max_n_step``) nudge, and runs mandatory
+    ``shadow_eval`` before review or an explicitly enabled automatic application. A
+    suppression drop always routes to HITL. Rules with enough observed volume but too few
+    analyst labels produce an evidence-collection work item rather than silently training
+    on model output. Defaults follow ``STANDARDS.md``: ``min_samples=30`` (Wilson-stable;
+    hard floor 10), ``fp_rate_target=0.10`` (world-class SOC < 10% FP),
+    ``wilson_z=1.96`` (0.95 confidence, lower bound), ``max_n_step=1`` (bounded nudge)."""
 
     enabled: bool = True
     min_samples: int = Field(default=30, ge=1)
@@ -1521,6 +1523,26 @@ class ThresholdTuningConfig(BaseModel):
     ewma_alpha: float = Field(default=0.2, gt=0.0, le=1.0)
     cadence: Literal["hourly", "nightly", "weekly", "manual"] = "nightly"
     shadow_eval: bool = True
+    # Human approval is the safe default. A tenant may explicitly allow an automatic
+    # bounded change only after ``min_samples`` independently analyst-confirmed
+    # outcomes and a clean shadow evaluation. Model verdicts never satisfy that gate.
+    auto_apply_confirmed: bool = False
+
+    @model_validator(mode="after")
+    def _auto_apply_requires_shadow_evaluation(self) -> "ThresholdTuningConfig":
+        """Fail closed when automatic writes could bypass the retrospective replay.
+
+        ``shadow_eval`` remains configurable for review-only observation, but an
+        operator cannot combine a disabled replay with automatic threshold writes.
+        The engine repeats this guard at the mutation boundary because
+        ``model_copy(update=...)`` does not re-run Pydantic validation.
+        """
+        if self.auto_apply_confirmed and not self.shadow_eval:
+            raise ValueError(
+                "auto_apply_confirmed requires shadow_eval so confirmed true "
+                "positives are replayed before an automatic change"
+            )
+        return self
 
 
 class BatchConfig(BaseModel):
@@ -1625,6 +1647,9 @@ class SuppressionRule(BaseModel):
     rationale: str = ""
     source_case_ids: list[str] = Field(default_factory=list)
     created_by: str = ""
+    # The proposal that materialised this rule. It is an additive idempotency key:
+    # approval retries find the same logical side effect instead of appending twice.
+    approval_proposal_id: str = ""
     expires_at: datetime | None = None
     enabled: bool = True
 
@@ -2424,6 +2449,36 @@ class Preferences(BaseModel):
                     }
                 }
         return data
+
+    @model_validator(mode="before")
+    @classmethod
+    def _repair_known_invalid_embedding_role(cls, data: Any) -> Any:
+        """Repair a persisted completion model accidentally assigned to embeddings.
+
+        Older settings surfaces offered every catalog model for every role, so a
+        stored GPT/Claude completion assignment could reach RAG and silently fall
+        back to local vectors. Known catalog rows without ``embedding`` capability
+        migrate to the dedicated OpenAI embedding default. Unknown/custom models are
+        preserved because their capability cannot be inferred here; new settings
+        writes validate the explicit catalog capability at the API boundary.
+        """
+        if not isinstance(data, dict):
+            return data
+        raw = data.get("embedding_model")
+        if not isinstance(raw, dict):
+            return data
+        model = str(raw.get("model") or "").strip()
+        if not model:
+            return data
+        from .llm.pricing import registry_entry, model_supports_capability
+
+        if registry_entry(model) is None or model_supports_capability(model, "embedding"):
+            return data
+        repaired = dict(data)
+        repaired["embedding_model"] = ModelConfig(
+            provider="openai", model="text-embedding-3-small"
+        ).model_dump(mode="json")
+        return repaired
 
     # --- Configured log sources (vendor-agnostic ingest). Empty == the legacy
     # single implicit Elasticsearch source from Secrets (full back-compat). ---

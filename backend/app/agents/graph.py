@@ -10,6 +10,7 @@ implementation.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from typing import Any, TypedDict
 
@@ -37,6 +38,7 @@ async def run_investigation(
     playbook=None,
     memory=None,
     cost_sink: list[float] | None = None,
+    provenance_sink: dict[str, Any] | None = None,
 ) -> tuple[VerdictResult, float]:
     """Run triage → verdict, preferring the LangGraph state graph.
 
@@ -73,6 +75,14 @@ async def run_investigation(
 
     async def do_benign(triage) -> tuple[VerdictResult, float]:
         # No gateway call → zero leaf cost; nothing to account.
+        if provenance_sink is not None:
+            provenance_sink.update({
+                "persona_consulted": False,
+                "playbook_consulted": False,
+                "knowledge": [],
+                "retrieval_query_groups": [],
+                "consultation_path": "router_benign_shortcut",
+            })
         return (
             VerdictResult(
                 verdict=Verdict.FALSE_POSITIVE,
@@ -86,21 +96,80 @@ async def run_investigation(
 
     async def do_investigate() -> tuple[VerdictResult, float]:
         rag_chunks = []
+        if provenance_sink is not None:
+            provenance_sink.update({
+                "persona_consulted": persona is not None,
+                "playbook_consulted": playbook is not None and prefs.playbooks.enabled,
+                "consultation_path": "strong_investigator",
+            })
         if prefs.rag.enabled:
             await rag.ensure_seeded()
             # Base retrieval query + the selected playbook's canned rag_queries.
             # Each retrieve is bounded by top_k; we merge, de-dupe by text and cap
             # the union so prompt size stays bounded (and the cost gate still binds).
-            queries = [rag_query(cluster)]
+            grouped_queries: list[tuple[str, str]] = [("cluster", rag_query(cluster))]
             if playbook is not None and prefs.playbooks.enabled:
-                queries += list(playbook.manifest.rag_queries)
-            seen: set[str] = set()
-            for q in queries:
-                for ch in await rag.retrieve(q, prefs.rag.top_k):
-                    if ch.text not in seen:
-                        seen.add(ch.text)
-                        rag_chunks.append(ch)
-            rag_chunks = rag_chunks[: max(prefs.rag.top_k * 2, prefs.rag.top_k)]
+                grouped_queries += [
+                    (f"playbook:{idx + 1}", query)
+                    for idx, query in enumerate(playbook.manifest.rag_queries)
+                    if str(query).strip()
+                ]
+            # Retrieve per explicit query group, then interleave groups so a base
+            # query cannot starve every playbook query from the bounded prompt.
+            buckets: list[tuple[str, str, list[Any]]] = []
+            for group, query in grouped_queries:
+                buckets.append((group, query, list(await rag.retrieve(query, prefs.rag.top_k))))
+            cap = max(prefs.rag.top_k * 2, prefs.rag.top_k)
+            by_text: dict[str, Any] = {}
+            groups_by_text: dict[str, set[str]] = {}
+            max_depth = max((len(items) for _group, _query, items in buckets), default=0)
+            for depth in range(max_depth):
+                for group, _query, items in buckets:
+                    if depth >= len(items):
+                        continue
+                    chunk = items[depth]
+                    groups_by_text.setdefault(chunk.text, set()).add(group)
+                    if chunk.text not in by_text and len(by_text) < cap:
+                        by_text[chunk.text] = chunk
+            for text, chunk in by_text.items():
+                metadata = dict(chunk.metadata or {})
+                metadata["retrieval_query_groups"] = sorted(groups_by_text.get(text, set()))
+                # A stable content fingerprint is always available even when an
+                # older/custom vector backend does not persist document metadata.
+                # This lets both the per-call audit and the case provenance record
+                # identify the exact consulted text without storing a second copy.
+                metadata.setdefault(
+                    "content_hash", hashlib.sha256(text.encode("utf-8")).hexdigest()
+                )
+                rag_chunks.append(chunk.model_copy(update={"metadata": metadata}))
+            if provenance_sink is not None:
+                provenance_sink["retrieval_query_groups"] = [
+                    {"group": group, "query": truncate(query, 500)}
+                    for group, query in grouped_queries
+                ]
+                provenance_sink["knowledge"] = [
+                    {
+                        "source": chunk.source,
+                        "score": chunk.score,
+                        "document_id": str(
+                            (chunk.metadata or {}).get("document_id")
+                            or (chunk.metadata or {}).get("doc_id")
+                            or ""
+                        ),
+                        "revision": (chunk.metadata or {}).get("revision"),
+                        "content_hash": str(
+                            (chunk.metadata or {}).get("content_hash")
+                            or hashlib.sha256(chunk.text.encode("utf-8")).hexdigest()
+                        ),
+                        "query_groups": list(
+                            (chunk.metadata or {}).get("retrieval_query_groups") or []
+                        ),
+                        "snippet": truncate(chunk.text, 200),
+                    }
+                    for chunk in rag_chunks
+                ]
+        elif provenance_sink is not None:
+            provenance_sink.update({"knowledge": [], "retrieval_query_groups": []})
         return await investigator.investigate(
             cluster, enrichment, rag_chunks, prefs, budget, surface=surface, case_id=case_id,
             persona=persona, playbook=playbook, memory=memory, cost_sink=cost_sink,

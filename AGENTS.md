@@ -141,7 +141,9 @@ backend/app/
                      embeddings remain dedicated and stored overrides are preserved;
                      incl. sources[] SourceInstance list; Round-4:
                      {threshold_tuning,batch,baseline,campaign} config blocks
-                     (tuning/baseline/campaign ON; async Batch opt-in; compatible
+                     (tuning observer/campaign/baseline ON; tuning writes review-first
+                     unless `auto_apply_confirmed` is explicitly enabled; async Batch
+                     opt-in; compatible
                      live OpenAI case/alert Flex preference default ON with truthful
                      standard fallback) +
                      release_updates read-only public GitHub source discovery
@@ -221,12 +223,16 @@ backend/app/
                      mitre (bundled ATT&CK technique lookup) ·
                      demo_generator (seeded OCSF org+baseline+MITRE storylines) ·
                      demo_runtime (deterministic mock LLM + sandboxed policy — Demo Mode) ·
-                     threshold_tuner (Round-4: nightly deterministic auto-tuner —
-                     per-rule FP via Wilson-LB + min-samples + EWMA + shadow-eval +
-                     bounded +1 correlation-n/severity_floor + audit/rollback; DROPs →
-                     HITL Proposal; NEVER imports decide()/risk/signature; default ON) ·
+                     threshold_tuner (Round-4: nightly deterministic tuning observer —
+                     per-rule FP uses independent analyst-confirmed outcomes only, with
+                     Wilson-LB + min-samples + EWMA + shadow-eval; bounded +1
+                     correlation-n/severity_floor changes route to a HITL Proposal by
+                     default, suppression always does, and explicit confirmed-evidence
+                     auto-apply remains opt-in; audit/rollback; NEVER imports
+                     decide()/risk/signature; observer default ON) ·
                      campaigns (Round-4: daily deterministic shared-entity graph →
-                     `Campaign` objects, references case_ids only, never re-clusters #4) ·
+                     full-set reconciled `Campaign` objects, references case_ids only,
+                     never re-clusters #4) ·
                      baseline (Round-4: online EWMA/EWMV + 168 hour-of-week buckets +
                      bounded t-digest + modified-z |M|>3.5 + 3×-period warm-up, H=14d;
                      pure producer) · event_detection (Round-4: EVENT-feed cheap-first
@@ -270,19 +276,23 @@ backend/app/
                      (SessionStore over KV — sid registry, idle/absolute/revocation,
                      refresh rotation) · user_prefs (UserPrefsStore over KV — personal
                      saved views/columns/terminology/theme, keyed by user) · memory
-                     (MemoryStore over the KVStore — durable operator facts;
+                     (MemoryStore over the KVStore — durable operator facts with
+                     approved/pending review state; only approved entries are trusted;
                      EsKVStore/SqlKVStore adapters, no new index) · chat_conversations
                      (bounded per-user Workspace transcripts; server history is
                      authoritative on resume; no new index/table) · proposals ·
                      runbooks (strict-CAS operator Markdown catalog layered over
-                     protected bundled runbooks; no new index/table) ·
+                     protected bundled runbooks; no new index/table) · playbooks
+                     (strict-CAS durable operator procedure catalog layered over
+                     immutable bundled playbooks; no new index/table) ·
                      8 Round-3 KV stores (same zero-migration pattern, no new index/
                      table): case_thread · case_activity · case_tasks (per-case
                      collaboration #4) · inbox (per-user fan-out, ~200/user ring) ·
                      notif_prefs (in-app #8) · custom_roles (#6) · price_overlay
                      (per-model price overrides #9) · shift_handoff (Standup acks +
                      action items #11) · 4 Round-4 KV stores (same zero-migration
-                     pattern): tuning (per-rule FP tuning state + rollback) · campaigns ·
+                     pattern): tuning (per-rule FP tuning state + rollback) · campaigns
+                     (full-set active-view reconciliation + durable success anchor) ·
                      baseline (per-signature online stats) · batch_jobs (resume-safe,
                      per-`custom_id` retrieved-dedup → exactly-one UsageDoc/result #6) ·
                      2 Round-5 KV stores (same zero-migration pattern): dashboards
@@ -298,7 +308,7 @@ backend/app/
                      POST /chat + per-user /chat/conversations list/detail/rename/delete;
                      Round-4: acknowledge → INVESTIGATING + GET /api/logs [unified
                      scatter-gather over browse-capable sources] + /cases/{id}/forwarding
-                     + /sources/health) + **22 `routes_*.py` feature routers**, ALL
+                     + /sources/health) + **26 `routes_*.py` feature routers**, ALL
                      auto-discovered at boot (`main.py::discover_feature_routers()` walks
                      `app.api.routes_*`, requires a top-level `router: APIRouter` — no
                      manual registration needed): Round-3's routes_metrics ·
@@ -316,18 +326,27 @@ backend/app/
                      `/branding/presets` endpoint). All paths byte-identical across the
                      decomposition; +`POST /api/triage/preview-decision` [rule Test/Preview
                      that NEVER calls decide()/bills the LLM #3/#6] + typed baseline/
-                     campaign/batch config endpoints + routes_export [`POST
-                     /api/admin/export`, bounded secret-free
-                     application-state JSON behind `data_export:export`] + routes_storage
+                     campaign/batch config endpoints + routes_export [legacy bounded
+                     `POST /api/admin/export` plus fresh-auth resumable
+                     `/api/admin/export/segment` + `/cancel`; secret-free supported
+                     application-state scopes behind `data_export:export`, with ES PIT
+                     consistency, actor/scope/snapshot-bound signed cursors, explicit
+                     weaker-backend semantics, and Intelligence catalog export with
+                     sanitized operator runbook/playbook source plus safe bundled refs]
+                     + routes_storage
                      [`GET/PUT /api/storage/lifecycle`, pure preview, freshly authenticated
                      explicit apply limited to supported owned-state targets];
                      routes_runbooks [dedicated `runbooks:read/manage` bundled/operator
-                     catalog CRUD + targeted/full RAG reconciliation] ·
+                     catalog CRUD + targeted/full RAG reconciliation] · routes_releases
+                     [public Stable/Testing source discovery only] · routes_schedulers
+                     [read-only worker cadence/attempt/success/error health] ·
+                     routes_telemetry [query-backed, versioned telemetry-gap evidence;
+                     connector absence alone never creates a recommendation] ·
                      mounted in main.py · deps (require_auth + require_permission +
                      require_fresh_auth + custom-role union enforcement + session check) ·
                      state.py (DI hub; exposes enrichment_registry + event_bus) · main.py
-backend/playbooks/   operator-authored *.md PLAYBOOKS (+ README) — data, not code;
-                     dir overridable via Preferences.playbooks.dir
+backend/playbooks/   immutable bundled *.md PLAYBOOKS (+ README) — data, not code;
+                     durable operator-authored procedures live in the StateStore catalog
 backend/tests/       offline tests (fake ES + mock LLM; SQL store on SQLite) — green
 webui/               PRIMARY surface: standalone Vite+React+TS+Tailwind+shadcn/Radix SPA
   package.json       Node 22; Tailwind + Radix primitives; `npm run build` bundles the
@@ -404,11 +423,17 @@ docs/                USAGE.md · TROUBLESHOOTING.md · ENVIRONMENT.md · VIGIL_S
    (`agents/prompts.py`, `UNTRUSTED_OPEN/CLOSE`). Applies to chat context,
    selections, queries — anything attacker-influenceable. The OCSF `unmapped`
    catch-all and `raw_data` (`ocsf/model.py`) carry source-controlled values and
-   are treated as UNTRUSTED the same way.
+   are treated as UNTRUSTED the same way. Imported and resolved-case RAG remains
+   fenced; only curated allow-listed sources and approved human-governed memory may
+   enter trusted context. Agent-authored memory starts pending and is never trusted
+   until an authorized human approves it.
 10. Sane defaults; only keys + data scope required to run (`config.py`). **Since
     Round 10, "sane defaults" means smart-autopilot-ON out of the box** (comprehensive
-    ingestion, adaptive tuning, campaigns, baseline all self-tune/learn by default) —
-    this never touches #3: `decide()` stays the sole close/escalate authority, and the
+    ingestion plus tuning observation, campaigns, and baseline producers enabled by
+    default). Threshold changes are review-first and learn only from independent
+    analyst-confirmed outcomes; the observer being ON is not an outcome-supervised
+    auto-write claim. This posture never touches #3: `decide()` stays the sole
+    close/escalate authority, and the
     Round-10 risk gate is **routing-only** (reads `compute_risk()`, never changes
     scoring or `decide()`).
 11. Spine first & tested (Gate 1); breadth degrades gracefully (Gate 2).
@@ -467,17 +492,17 @@ See `docs/ENVIRONMENT.md` for the full detail. Summary:
 ## 7. Build / run / test cheatsheet
 
 ```bash
-# Backend tests (offline; MUST stay green) — latest recorded full run: 2,073 tests (see Journal for the exact current count)
+# Backend tests (offline; MUST stay green) — latest recorded full run: 2,254 tests (see Journal for the exact current count)
 cd backend && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements-dev.txt
-python -m pytest -q                         # -> latest recorded full run: 2,073 passed (see Journal)
+python -m pytest -q                         # -> latest recorded full run: 2,254 passed (see Journal)
 
 # Backend run locally (in-memory store, mock LLM if no keys)
 uvicorn app.main:app --port 8088
 
 # Web UI + installed Help Center build, tests, and lint (Node 22)
 cd webui && npm install && npm run build   # MkDocs bundle + tsc --noEmit + Vite -> webui/dist/
-npm run docs:check                         # validate app 0.1.1 ↔ bundled docs 0.1
-npx vitest run                             # -> latest recorded full run: 1,732 passed / 268 files (see Journal)
+npm run docs:check                         # validate app 0.1.2 ↔ bundled docs 0.1
+npx vitest run                             # -> latest recorded full run: 1,853 passed / 280 files (see Journal)
 npm run lint                               # 0 errors, 0 warnings; jsx-a11y at error
 
 # One-command demo (backend :8088 AUTH ENABLED + webui dev :5173; login Admin / Admin@123)
@@ -518,7 +543,7 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
     feedback grammar, original theme-adaptive `SourceMark` asset catalog, and the
     JSON-serializable `DESIGN_SYSTEM_CATALOG`. Import from `@/design-system`; do not
     invent a page-local blocking loader or source mark. The catalog is an input for
-    future agent/MCP tooling—version 0.1.1 does **not** ship an MCP server.
+    future agent/MCP tooling—version 0.1.2 does **not** ship an MCP server.
   - **SOC-domain components** live in `webui/src/soc/components/*`
     (`PageHeader`, `KpiTile`/`StatCard`, `DataTable`, `EmptyState`, `RiskGauge`,
     `CaseHoverCard`, `ChatPanel`, `ChatHistoryRail`, `badges.tsx`, `charts.tsx`,
@@ -534,8 +559,8 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
   `/api` proxy forwards arbitrary JSON). Keep `webui/src/lib/types.ts` in sync with
   `models.py`.
 - **Secrets:** env only; UI shows booleans (`configured ✓`) never values.
-- **Tests:** add/keep offline tests; `pytest -q` green (latest recorded full run: 2,174) +
-  `npm run build` clean + `vitest run` (latest recorded full run: 1,828 / 277 files) +
+- **Tests:** add/keep offline tests; `pytest -q` green (latest recorded full run: 2,254) +
+  `npm run build` clean + `vitest run` (latest recorded full run: 1,853 / 280 files) +
   `npm run lint` (0 errors, jsx-a11y at error) before
   every commit. (Counts rise each round — see `Journal.md` for the exact current totals.)
 - **Git:** active branch `Testing`. Commit focused changes; push when asked. The
@@ -601,9 +626,9 @@ deep-audit hardening pass (2026-07-14/15)** fixed **47 verified findings** (0 cr
 high / 24 med / 13 low) from a 24-auditor + adversarial-verify Workflow — one atomic
 commit per finding on `Testing` (`c5516e5`→`abd0385`), local only, not tagged or pushed.
 See the "Deep-audit hardening" bullet in the round summary and the 2026-07-15 `Journal.md`
-entry. The product is now Version **`0.1.1`**: changes integrate and pass acceptance on
+entry. The product is now Version **`0.1.2`**: changes integrate and pass acceptance on
 `Testing`, then the exact accepted commit promotes to the Stable `main` branch and receives
-the immutable `v0.1.1` tag. Use `git log -1`, `VERSION`, and the latest `Journal.md` entry for the
+the immutable `v0.1.2` tag. Use `git log -1`, `VERSION`, and the latest `Journal.md` entry for the
 exact current snapshot rather than an embedded HEAD hash. Round 9c (`559ce88`, PR
 #27) is historical;
 `feature/round7-ui-overhaul` (Rounds 7–8) merged via PR #23/#24, Round 9 via PR #25,
@@ -612,12 +637,13 @@ flips the suite from "opt-in automation" to **comprehensive ingestion + smart-
 autopilot defaults ON out of the box** — see the Round-10 bullet below.
 
 **Release topology:** the remote now exposes canonical `Testing` and `main`, uses
-`main` as its default, and has the `v0.1.1` release tag. Repository-level branch
+`main` as its default, and has the prior `v0.1.1` Stable tag; `v0.1.2` is created only
+from the fully verified promoted 0.1.2 commit. Repository-level branch
 protection, required-check, and `github-pages` environment policy remain administrator
 controls and must be verified independently of source changes.
 
-**Current baseline (2026-07-30):** backend **2,073 pytest** passed (0 failures);
-webui **1,732 Vitest** specs / 268 files, full docs+app build clean (3,176 modules;
+**Current baseline (2026-08-03):** backend **2,254 pytest** passed (0 failures);
+webui **1,853 Vitest** specs / 280 files, full docs+app build clean (3,186 modules;
 motion remains lazy and off the entry path); eslint **0 errors, 0 warnings**; **zero new webui runtime
 deps except the deliberate lazy `motion`** (12.42.2). Version 0.1 adds only the
 explicitly pinned connector/SQL packaging dependencies required by its advertised
@@ -717,7 +743,8 @@ a retelling — do not re-derive round detail from here.
   research folder — see `Journal.md`'s Round-9c entry.
 - **Round 10** (2026-07-09, committed to `Testing`) —
   "Autopilot & Comprehensive Ingestion + motion.dev": a **behavior change** — the
-  suite now reads+reasons over everything and self-tunes **by default**.
+  suite now reads+reasons over everything and observes/recommends tuning **by default**;
+  tuning writes are review-first unless confirmed-evidence auto-apply is explicitly enabled.
   **Comprehensive ingestion** — `background_scan_enabled` default TRUE; every event
   from every source is correlated + risk-scored + made visible; EVENTS-role clusters
   auto-forward to investigation via a deterministic risk gate at

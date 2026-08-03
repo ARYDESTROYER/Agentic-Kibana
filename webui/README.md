@@ -167,7 +167,7 @@ The console shares one look end-to-end — reuse it rather than re-rolling style
   `PageHeader`, `KpiTile`/`StatCard`, `DataTable`, `EmptyState`, `RiskGauge`,
   `Can` (the RBAC guard), `ChatPanel`, and more.
 
-The catalog is a future MCP/tooling input only; version 0.1.1 does not claim or ship
+The catalog is a future MCP/tooling input only; version 0.1.2 does not claim or ship
 a design-system MCP server. See `docs/development/design-system.md` and `AGENTS.md`
 §8 for the full contract.
 

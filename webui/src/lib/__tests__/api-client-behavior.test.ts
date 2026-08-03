@@ -128,6 +128,29 @@ describe('PATCH verb + typed config clients (round-6 api helpers)', () => {
   });
 });
 
+describe('proposal decision response normalization', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it.each(['approve', 'reject'] as const)(
+    'returns the updated proposal row from the backend %s envelope',
+    async (decision) => {
+      const proposal = { id: 'proposal-1', kind: 'tuning', status: `${decision}d` };
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { ok: true, proposal }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result =
+        decision === 'approve'
+          ? await api.approveProposal('proposal-1')
+          : await api.rejectProposal('proposal-1');
+
+      expect(result).toEqual(proposal);
+      expect(String(fetchMock.mock.calls[0][0])).toBe(`/api/proposals/proposal-1/${decision}`);
+    },
+  );
+});
+
 describe('release coherence reads', () => {
   afterEach(() => {
     vi.unstubAllGlobals();

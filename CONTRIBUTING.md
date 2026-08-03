@@ -5,6 +5,11 @@ How to work on **Agentic SOC** (vendor-agnostic). Read
 non-negotiables, environment, and the Journal mandate). This file is the practical
 workflow that sits on top of it.
 
+Participation in the project is governed by the
+[`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md). Security vulnerabilities must use the
+private reporting process in [`SECURITY.md`](SECURITY.md#8-responsible-disclosure),
+not a public issue or pull request.
+
 > **Surfaces.** The standalone web UI (`webui/`, Vite + React + Tailwind +
 > shadcn-style primitives on Radix UI) is the **sole primary** UI; the Kibana
 > plugin (`archive/kibana-plugin/tlsoc_agentic_triage/`) is **ARCHIVED** (frozen
@@ -109,8 +114,9 @@ npm run gates        # design/contract gates
 npm test             # Vitest suite
 ```
 
-The current verified baseline is **1,960 backend tests** and **1,412 web tests
-across 243 files**. Counts may rise; every command above must remain green.
+Test counts rise as coverage is added. The commands and zero-failure result are the
+contract; the latest frozen acceptance receipt is recorded in
+[`docs/development/testing.md`](docs/development/testing.md) and `Journal.md`.
 
 ## 3b. Archived Kibana plugin (`archive/kibana-plugin/`)
 

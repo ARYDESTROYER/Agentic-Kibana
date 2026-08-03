@@ -36,13 +36,17 @@ notification tests for those dependencies.
 Redis is an optimization/cache and is not the authoritative application backup.
 Upstream logs remain in their source systems and require their own retention/backup.
 
-**Settings → Organization → Data export** is a support/analysis snapshot, not a
-backup. It is intentionally bounded, omits credentials, users/sessions, raw upstream
-logs, and raw knowledge chunks, and has no matching import/restore endpoint. Use the
-selected state backend's consistent dump or snapshot mechanism for recovery.
+**Settings → Organization → Data export** can page all records in its selected
+supported safe scopes, but it is a support/analysis artifact, not a whole-application
+backup. Its Knowledge scope preserves sanitized authoritative operator runbook and
+playbook documents plus safe bundled manifests/references, but it omits credentials,
+users/sessions, chat/collaboration state, raw upstream logs, and raw knowledge chunks,
+and has no matching import/restore endpoint. Resumable cursors are signed and bound to
+the requesting operator, scope, and snapshot. Use the selected state backend's
+consistent dump or snapshot mechanism for recovery.
 
 The desired Storage & retention archive stage is also not a backup mechanism in
-0.1.1. Glacier requires an independent immutable export, manifest, checksums, and a
+0.1.2. Glacier requires an independent immutable export, manifest, checksums, and a
 tested restore path. Never transition an Elasticsearch snapshot-repository prefix to
 Glacier; every repository object must remain directly readable by Elasticsearch.
 

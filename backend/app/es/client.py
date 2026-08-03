@@ -154,6 +154,22 @@ class RealESClient(BaseESClient):
         except TypeError:  # compatibility with clients requiring an explicit body
             await client.close_point_in_time(body={"id": pit_id})
 
+    async def open_state_pit(self, index: str, keep_alive: str = "10m") -> str | None:
+        client = self._require_mgmt()
+        resp = await client.open_point_in_time(index=index, keep_alive=keep_alive)
+        body = resp.body if hasattr(resp, "body") else resp
+        pit_id = body.get("id") if isinstance(body, dict) else None
+        return str(pit_id) if pit_id else None
+
+    async def close_state_pit(self, pit_id: str) -> None:
+        if not pit_id:
+            return
+        client = self._require_mgmt()
+        try:
+            await client.close_point_in_time(id=pit_id)
+        except TypeError:
+            await client.close_point_in_time(body={"id": pit_id})
+
     # --- management ---
     async def index_template_exists(self, name: str) -> bool:
         client = self._require_mgmt()
@@ -322,7 +338,13 @@ class RealESClient(BaseESClient):
     async def search(self, index: str, body: dict[str, Any]) -> dict[str, Any]:
         client = self._require_mgmt()
         try:
-            resp = await client.search(index=index, body=body)
+            # A PIT already captures the management-scoped index pattern; ES rejects
+            # sending that PIT together with another explicit ``index`` argument.
+            resp = (
+                await client.search(body=body)
+                if body.get("pit")
+                else await client.search(index=index, body=body)
+            )
             return resp.body if hasattr(resp, "body") else dict(resp)
         except Exception as exc:  # noqa: BLE001
             if es_exceptions and isinstance(exc, es_exceptions.NotFoundError):

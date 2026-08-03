@@ -12,7 +12,9 @@ without a restart.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
+import secrets as stdlib_secrets
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -95,6 +97,20 @@ class AppState:
         # enabled, so a byte-identical boot spawns tasks that immediately go back to sleep.
         self._scheduler_tasks: list[asyncio.Task] = []
         self._scheduler_running = False
+        # Operator-visible worker health. A scheduler is not "healthy" merely
+        # because its asyncio task exists: each pass records attempt, confirmed
+        # success, failure, and processed count so silent/false-success loops are
+        # diagnosable. This is runtime telemetry only; campaign/tuner stores retain
+        # their durable last-success anchors across restarts.
+        self._scheduler_health: dict[str, dict[str, Any]] = {
+            name: {
+                "last_attempt_at": "",
+                "last_success_at": "",
+                "last_error": "",
+                "processed": 0,
+            }
+            for name in ("threshold_tuner", "campaign_correlation", "batch_jobs")
+        }
         # The single, long-lived streaming baseline model behind the EVENT-feed detection
         # funnel (Wave-4). Warmed from baseline_store on first use; None until built. It
         # holds per-(signature, bucket) sketches in memory so the funnel's anomaly pass
@@ -125,6 +141,19 @@ class AppState:
         # it so a caller's edit is applied against the freshest prefs. Created in __init__
         # (not _wire) so it is a single stable lock across credential-driven rewires.
         self._prefs_lock = asyncio.Lock()
+        # Continuation cursors for privileged portable exports are signed with a
+        # purpose-separated server key.  A configured auth JWT secret makes the
+        # key stable across replicas/restarts; the no-secret development profile
+        # gets an unpredictable process-lifetime key instead.  The raw key is never
+        # serialized or exposed through an API.
+        cursor_seed = (
+            secrets.auth_jwt_secret.encode("utf-8")
+            if secrets.auth_jwt_secret
+            else stdlib_secrets.token_bytes(48)
+        )
+        self._export_cursor_signing_key = hashlib.sha256(
+            b"agentic-soc:portable-export-cursor:v2\x00" + cursor_seed
+        ).digest()
         self._wire()
 
     # ------------------------------------------------------------------ #
@@ -186,6 +215,11 @@ class AppState:
     @property
     def real_tuning_store(self):
         return self._real_tuning_store
+
+    @property
+    def export_cursor_signing_key(self) -> bytes:
+        """Process-private HMAC key for portable-export continuation state."""
+        return self._export_cursor_signing_key
 
     @property
     def real_campaign_store(self):
@@ -315,6 +349,18 @@ class AppState:
         if self._demo is not None:
             return await self._demo.update_execution_prefs(prefs)
         return await self.update_prefs(prefs)
+
+    async def mutate_execution_prefs(
+        self, mutate: Callable[[Preferences], Preferences]
+    ) -> Preferences:
+        """Read-modify-write the active execution preferences without stale appends.
+
+        Real tenant writes use the existing strict persistence + application lock.
+        Demo writes remain isolated inside the throwaway sandbox.
+        """
+        if self._demo is not None:
+            return await self._demo.mutate_execution_prefs(mutate)
+        return await self.mutate_prefs(mutate)
 
     @property
     def ingest_service(self):
@@ -740,7 +786,7 @@ class AppState:
     def _new_playbook_registry(self):
         """Build a registry with ownership metadata for the active directory.
 
-        The three Markdown procedures shipped in ``backend/playbooks`` are bundled
+        The Markdown procedures shipped in ``backend/playbooks`` are bundled
         reference content and therefore protected from runtime edits.  A configured
         override directory is operator-owned, so every valid playbook there may be
         edited by a principal holding ``playbooks:manage``.
@@ -752,13 +798,23 @@ class AppState:
 
         directory = self._playbooks_dir()
         bundled_directory = Path(__file__).resolve().parent.parent / "playbooks"
-        protected = (
-            DEFAULT_BUNDLED_PLAYBOOK_FILES
-            if directory.expanduser().resolve(strict=False)
+        uses_packaged_default = (
+            directory.expanduser().resolve(strict=False)
             == bundled_directory.resolve(strict=False)
-            else frozenset()
         )
-        return PlaybookRegistry(directory, protected_filenames=protected)
+        if uses_packaged_default:
+            from .playbooks.durable import DurablePlaybookRegistry
+            from .stores.playbooks import PlaybookStore
+
+            return DurablePlaybookRegistry(
+                bundled_directory,
+                PlaybookStore(self._kv),
+                protected_filenames=DEFAULT_BUNDLED_PLAYBOOK_FILES,
+            )
+        # A deliberate directory override retains the legacy file-backed workflow.
+        # This is useful for Git-managed site-local catalogs; the default Console
+        # authoring path above is state-backend durable and container-safe.
+        return PlaybookRegistry(directory, protected_filenames=frozenset())
 
     def _build_memory(self):
         """Construct the operator MEMORY store over the active backend's KV. The KV
@@ -958,6 +1014,7 @@ class AppState:
             audit=self.audit,
             tuning_store=self.tuning_store,
             write_prefs=self.update_execution_prefs,
+            mutate_prefs=self.mutate_execution_prefs,
         )
 
     @property
@@ -1419,14 +1476,15 @@ class AppState:
 
     def _schedulers_gated_off(self) -> bool:
         """The shared gate every scheduler tick honours BEFORE doing any real work:
-        never run while polling is paused / setup incomplete / the kill-switch is on /
-        demo mode is engaged (so no real scheduler ever fires against demo data or a
-        half-configured tenant). Demo keeps ALL real schedulers OFF."""
+        never run while setup is incomplete / the kill-switch is on / demo mode is
+        engaged (so no real scheduler ever fires against demo data or a half-configured
+        tenant). ``polling_enabled`` controls only PULL collection: a push/queue-only
+        tenant still needs campaign, tuning, and already-submitted batch maintenance.
+        Demo keeps ALL real schedulers OFF."""
         prefs = self.prefs
         demo_active = bool(getattr(getattr(prefs, "demo", None), "active", False))
         return (
-            not prefs.polling_enabled
-            or not prefs.setup_complete
+            not prefs.setup_complete
             or bool(getattr(prefs.caps, "kill_switch", False))
             or demo_active
         )
@@ -1440,6 +1498,80 @@ class AppState:
         "weekly": 7 * 24 * 3600,
         "manual": 0,
     }
+    _CAMPAIGN_CADENCE_SECONDS = {
+        "hourly": 3600,
+        "daily": 24 * 3600,
+        "weekly": 7 * 24 * 3600,
+        "manual": 0,
+    }
+
+    @staticmethod
+    def _scheduler_now() -> str:
+        return datetime.now(timezone.utc).isoformat()
+
+    def _scheduler_attempt(self, name: str) -> None:
+        self._scheduler_health[name]["last_attempt_at"] = self._scheduler_now()
+
+    def _scheduler_success(self, name: str, *, processed: int = 0) -> None:
+        row = self._scheduler_health[name]
+        row["last_success_at"] = self._scheduler_now()
+        row["last_error"] = ""
+        row["processed"] = max(0, int(processed))
+
+    def _scheduler_failure(self, name: str, exc: object) -> None:
+        self._scheduler_health[name]["last_error"] = str(exc)[:500]
+
+    @staticmethod
+    def _require_tuner_success(outcome: Any) -> None:
+        """Raise unless a tuner pass completed with every durable effect confirmed."""
+        reason = str(getattr(outcome, "reason", "") or "")
+        persistence_errors = list(
+            getattr(outcome, "persistence_errors", []) or []
+        )
+        if (
+            reason.startswith("error:")
+            or "write failed" in reason
+            or persistence_errors
+        ):
+            raise RuntimeError(reason or persistence_errors[0])
+        if not bool(getattr(outcome, "ran", False)):
+            raise RuntimeError(reason or "tuning pass did not run")
+
+    async def scheduler_health(self) -> dict[str, Any]:
+        """Truthful health snapshot for every continuous-improvement worker."""
+        gated = self._schedulers_gated_off()
+        configs = {
+            "threshold_tuner": getattr(self.prefs, "threshold_tuning", None),
+            "campaign_correlation": getattr(self.prefs, "campaign", None),
+            "batch_jobs": getattr(self.prefs, "batch", None),
+        }
+        # Recover durable success anchors on a new process before the first tick.
+        if not self._scheduler_health["threshold_tuner"]["last_success_at"]:
+            try:
+                self._scheduler_health["threshold_tuner"]["last_success_at"] = (
+                    await self.tuning_store.get_last_run_at()
+                ) or ""
+            except Exception:  # noqa: BLE001 — health remains explicit/empty
+                pass
+        if not self._scheduler_health["campaign_correlation"]["last_success_at"]:
+            try:
+                self._scheduler_health["campaign_correlation"]["last_success_at"] = (
+                    await self.campaign_store.get_last_reconciled_at()
+                ) or ""
+            except Exception:  # noqa: BLE001
+                pass
+        workers: dict[str, Any] = {}
+        for name, cfg in configs.items():
+            cadence = str(getattr(cfg, "cadence", "continuous"))
+            enabled = bool(cfg is not None and getattr(cfg, "enabled", False))
+            workers[name] = {
+                "enabled": enabled,
+                "gated": gated or cadence == "manual",
+                "running": bool(self._scheduler_running and enabled and not gated and cadence != "manual"),
+                "cadence": cadence,
+                **dict(self._scheduler_health[name]),
+            }
+        return {"scheduler_runtime_running": self._scheduler_running, "workers": workers}
 
     async def _tuner_scheduler_loop(self) -> None:
         """Nightly threshold-tuning pass. Gated on ``prefs.threshold_tuning.enabled``;
@@ -1450,7 +1582,7 @@ class AppState:
         The loop ticks every 6h but run_once fires AT MOST once per configured cadence
         window (``last_run_at`` in the tuning_store): a nightly cadence never re-raises the
         same knob four times a day (FINDING #14 — unbounded n growth)."""
-        interval = 6 * 3600
+        interval = 60
         while self._scheduler_running:
             try:
                 cfg = getattr(self.prefs, "threshold_tuning", None)
@@ -1459,15 +1591,19 @@ class AppState:
                     and not self._schedulers_gated_off()
                     and await self._tuner_cadence_elapsed(cfg)
                 ):
-                    await self.threshold_tuner(
+                    self._scheduler_attempt("threshold_tuner")
+                    outcome = await self.threshold_tuner(
                         self.prefs, self._closed_case_reader(),
                     )
+                    self._require_tuner_success(outcome)
                     # Stamp the effective run so the next tick within the window no-ops.
-                    try:
-                        await self.tuning_store.set_last_run_at()
-                    except Exception as exc:  # noqa: BLE001 — best-effort cadence bookkeeping
-                        logger.debug("tuner last_run stamp failed: %s", exc)
+                    await self.tuning_store.set_last_run_at_strict()
+                    self._scheduler_success(
+                        "threshold_tuner",
+                        processed=len(getattr(outcome, "rule_stats", {}) or {}),
+                    )
             except Exception as exc:  # noqa: BLE001 — the loop must never die
+                self._scheduler_failure("threshold_tuner", exc)
                 logger.warning("threshold-tuner scheduler tick failed: %s", exc)
             await asyncio.sleep(interval)
 
@@ -1477,8 +1613,10 @@ class AppState:
         / unparseable last_run is treated as "run now"; a read glitch fails OPEN (run) so a
         store outage never silently freezes tuning forever."""
         window = self._TUNER_CADENCE_SECONDS.get(getattr(cfg, "cadence", "nightly"), 24 * 3600)
+        # "manual" is operator-only; the background loop must never treat it as
+        # "run continuously".
         if window <= 0:
-            return True
+            return False
         try:
             last_iso = await self.tuning_store.get_last_run_at()
         except Exception:  # noqa: BLE001 — fail OPEN (run) on a read glitch
@@ -1501,17 +1639,44 @@ class AppState:
         disabled → a pure sleep loop (NO-OP). Runs the DETERMINISTIC read-time aggregator
         and upserts the campaign list; it NEVER investigates, mutates a case, or calls
         decide()/an LLM."""
-        interval = 6 * 3600
+        interval = 60
         while self._scheduler_running:
             try:
                 cfg = getattr(self.prefs, "campaign", None)
-                if cfg is not None and cfg.enabled and not self._schedulers_gated_off():
+                if (
+                    cfg is not None
+                    and cfg.enabled
+                    and not self._schedulers_gated_off()
+                    and await self._campaign_cadence_elapsed(cfg)
+                ):
+                    self._scheduler_attempt("campaign_correlation")
                     campaigns = await self.campaign_correlator(None, self.prefs)
-                    if campaigns:
-                        await self.campaign_store.upsert_many(campaigns)
+                    stored = await self.campaign_store.replace_all(list(campaigns or []))
+                    self._scheduler_success("campaign_correlation", processed=len(stored))
             except Exception as exc:  # noqa: BLE001 — the loop must never die
+                self._scheduler_failure("campaign_correlation", exc)
                 logger.warning("campaign scheduler tick failed: %s", exc)
             await asyncio.sleep(interval)
+
+    async def _campaign_cadence_elapsed(self, cfg) -> bool:
+        window = self._CAMPAIGN_CADENCE_SECONDS.get(
+            getattr(cfg, "cadence", "daily"), 24 * 3600
+        )
+        if window <= 0:
+            return False
+        try:
+            last_iso = await self.campaign_store.get_last_reconciled_at()
+        except Exception:  # noqa: BLE001 — fail open so an outage cannot freeze work
+            return True
+        if not last_iso:
+            return True
+        try:
+            last = datetime.fromisoformat(str(last_iso).replace("Z", "+00:00"))
+            if last.tzinfo is None:
+                last = last.replace(tzinfo=timezone.utc)
+        except (ValueError, TypeError):
+            return True
+        return (datetime.now(timezone.utc) - last).total_seconds() >= window
 
     async def _batch_scheduler_loop(self) -> None:
         """Batch-jobs poller loop. Gated on ``prefs.batch.enabled``; disabled → a pure
@@ -1525,13 +1690,26 @@ class AppState:
                 svc = self.batch_service
                 if svc.enabled() and not self._schedulers_gated_off():
                     open_jobs = await svc.store.load_open_jobs()
+                    if open_jobs:
+                        self._scheduler_attempt("batch_jobs")
+                    processed = 0
+                    failures: list[str] = []
                     for job in open_jobs:
                         try:
                             polled = await svc.poll(job)
                             await svc.process(polled)
+                            processed += 1
                         except Exception as exc:  # noqa: BLE001 — isolate one job
+                            failures.append(f"{job.id}: {exc}")
                             logger.debug("batch job %s poll/process failed: %s", job.id, exc)
+                    if open_jobs:
+                        if failures:
+                            raise RuntimeError(
+                                f"{len(failures)} of {len(open_jobs)} jobs failed; {failures[0]}"
+                            )
+                        self._scheduler_success("batch_jobs", processed=processed)
             except Exception as exc:  # noqa: BLE001 — the loop must never die
+                self._scheduler_failure("batch_jobs", exc)
                 logger.warning("batch-jobs scheduler tick failed: %s", exc)
             await asyncio.sleep(interval)
 
@@ -1541,24 +1719,11 @@ class AppState:
         200-cap). Confirmed true-positives are frequently RESOLVED (worked to completion,
         pending final close) rather than CLOSED, so a CLOSED-only reader would leave
         shadow-eval blind to them and defeat the TP-protection rail (FINDING #4). We mirror
-        ``routes_tuning._closed_reader``'s scope exactly. Best-effort: a store glitch on one
-        status yields an empty page for it (the tuner then just sees fewer cases)."""
-        from .constants import TERMINAL_CASE_STATUSES
+        ``routes_tuning._closed_reader``'s scope exactly. A store glitch on either status
+        aborts the pass so the scheduler reports failure and retries with complete evidence."""
+        from .engine.threshold_tuner import terminal_case_reader
 
-        async def _read(limit: int, offset: int):
-            collected = []
-            for status in TERMINAL_CASE_STATUSES:
-                try:
-                    page, _total = await self.cases.list(
-                        status=status, limit=limit, offset=offset,
-                        sort_field="updated_at", sort_order="desc",
-                    )
-                except Exception:  # noqa: BLE001 — a read glitch never breaks tuning
-                    continue
-                collected.extend(page)
-            return collected
-
-        return _read
+        return terminal_case_reader(self.cases)
 
     async def _stop_schedulers(self) -> None:
         """Cancel the Wave-4 schedulers cleanly (shutdown). Idempotent."""
@@ -1748,6 +1913,50 @@ class AppState:
         self._real_pipeline._playbooks = self.playbooks
         return summary
 
+    async def refresh_playbooks(self) -> dict:
+        """Refresh the active catalog from its authoritative storage layer."""
+        if str(self.playbooks._directory) != str(self._playbooks_dir()):
+            self.playbooks = self._new_playbook_registry()
+        refresher = getattr(self.playbooks, "refresh", None)
+        summary = await refresher() if callable(refresher) else self.playbooks.reload()
+        self._real_pipeline._playbooks = self.playbooks
+        return summary
+
+    async def create_playbook(self, playbook_id: str, content: str, *, actor: str):
+        """Create against durable state by default, or an explicit file override."""
+        await self.refresh_playbooks()
+        creator = getattr(self.playbooks, "create_durable", None)
+        if callable(creator):
+            return await creator(playbook_id, content, actor=actor)
+        return self.playbooks.create_operator(playbook_id, content)
+
+    async def update_playbook(
+        self,
+        playbook_id: str,
+        content: str,
+        *,
+        actor: str,
+        expected_revision: int | None = None,
+    ):
+        """Update with optimistic concurrency on the durable catalog."""
+        await self.refresh_playbooks()
+        updater = getattr(self.playbooks, "update_durable", None)
+        if callable(updater):
+            if expected_revision is None:
+                current = self.playbooks.get(playbook_id)
+                if current is None:
+                    from .playbooks.registry import PlaybookNotFoundError
+
+                    raise PlaybookNotFoundError(playbook_id)
+                expected_revision = int(self.playbooks.metadata(current).get("revision", 1))
+            return await updater(
+                playbook_id,
+                content,
+                actor=actor,
+                expected_revision=expected_revision,
+            )
+        return self.playbooks.update_operator(playbook_id, content)
+
     def es_client_for_source(self, src) -> tuple[BaseESClient, bool]:
         """Return (es_client, owned) honoring the source's per-source ES connection +
         TLS settings. `owned=True` means a fresh client the CALLER must close; `False`
@@ -1919,6 +2128,10 @@ class AppState:
         # Reload playbooks now that prefs (incl. any dir override) are available.
         self.playbooks = self._build_playbooks()
         self._real_pipeline._playbooks = self.playbooks
+        try:
+            await self.refresh_playbooks()
+        except Exception as exc:  # noqa: BLE001 — packaged procedures still remain live
+            logger.warning("Durable playbook refresh failed (%s); using packaged set", exc)
         # Round 4: now that the PERSISTED prefs (incl. configured sources) are loaded,
         # re-point the primary log surface + (re)build the PollerManager fan-out so a
         # deployment that boots WITH multiple persisted PULL sources polls ALL of them,
@@ -1938,6 +2151,29 @@ class AppState:
             configure_event_bus(getattr(self.prefs, "realtime", None))
         except Exception as exc:  # noqa: BLE001 — realtime config is best-effort
             logger.warning("Realtime bus configuration failed (%s); continuing", exc)
+        # Upgrade reconciliation: active tuning rows created before independent
+        # outcome provenance must be visible in Approvals immediately, not only after
+        # the next cadence-eligible nightly pass. This drafts deduplicated review work
+        # only; it never changes or rolls back the historical threshold.
+        try:
+            from .engine.threshold_tuner import queue_legacy_tuning_reviews
+
+            reconciliation = await queue_legacy_tuning_reviews(
+                self.tuning_store,
+                self.proposals,
+                self.audit,
+            )
+            if reconciliation.persistence_errors:
+                self._scheduler_failure(
+                    "threshold_tuner",
+                    reconciliation.reason,
+                )
+        except Exception as exc:  # noqa: BLE001 — startup remains available
+            self._scheduler_failure("threshold_tuner", exc)
+            logger.warning(
+                "Legacy tuning review reconciliation failed (%s); scheduler will retry",
+                exc,
+            )
         # Demo Mode (Wave 5): if a demo run was persisted as active, rebuild the
         # throwaway stack + re-seed so the read endpoints have a demo store to serve
         # (demo data is in-memory; the FLAG persists across restarts — re-seeding
@@ -1957,10 +2193,11 @@ class AppState:
             self._receivers_enabled = True
             await self._start_receivers()
             # Round-4 Wave-4: start the gated background schedulers alongside the poller.
-            # All three loops are NO-OPs until their Preferences block is enabled (default
-            # OFF), so this is byte-identical to a boot with no schedulers. Started under
-            # the SAME ``start_poller`` guard the offline tests already use to skip
-            # background tasks, so the test suite never spawns them unless asked.
+            # Each loop independently honours its feature gate; setup, demo, and the kill
+            # switch gate all work, while PULL polling may be disabled for a push-only
+            # tenant. Started under the SAME ``start_poller`` process-runtime guard the
+            # offline tests already use to skip background tasks, so the test suite never
+            # spawns them unless asked.
             await self._run_schedulers()
         logger.info(
             "AppState started (es=%s, setup_complete=%s, polling_enabled=%s)",

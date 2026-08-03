@@ -56,15 +56,24 @@ describe('navLabel — the registry is the authoritative label source', () => {
     });
   });
 
-  it('groups Runbooks under Intelligence with the backend read grant', () => {
+  it('gates every Intelligence child with the matching backend read grant', () => {
     const intelligence = FEATURES.find((feature) => feature.id === 'intelligence');
-    expect(intelligence?.children).toContainEqual(
-      expect.objectContaining({
-        id: 'runbooks',
-        label: 'Runbooks',
-        perm: { resource: 'runbooks', action: 'read' },
-      }),
+    const permissions = Object.fromEntries(
+      (intelligence?.children ?? []).map((child) => [child.id, child.perm]),
     );
+    expect(permissions).toMatchObject({
+      knowledge: { resource: 'rag', action: 'read' },
+      runbooks: { resource: 'runbooks', action: 'read' },
+      memory: { resource: 'memory', action: 'read' },
+      playbooks: { resource: 'playbooks', action: 'read' },
+    });
+  });
+
+  it('gates Approvals with the proposal-list read grant', () => {
+    expect(FEATURES.find((feature) => feature.id === 'approvals')?.perm).toEqual({
+      resource: 'proposals',
+      action: 'read',
+    });
   });
 
   it('derives Docs as the single pinned footer destination', () => {

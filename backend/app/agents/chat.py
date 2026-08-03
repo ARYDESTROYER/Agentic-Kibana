@@ -88,6 +88,7 @@ class ChatEngine:
         context: ChatContext | None = None,
         author: str = "",
         source: PullConnector | None = None,
+        can_manage_memory: bool = False,
     ) -> ChatResponse:
         # Per-call SOURCE scoping (multi-source): an explicit ``source`` connector
         # (built by the route from the selected source's config+TLS) overrides the
@@ -150,7 +151,7 @@ class ChatEngine:
         # deterministically and surface a proposed-fact suggestion for the UI to
         # confirm. The agent stores ONLY the user-directed text (never log/tool data).
         memory_action_echo, memory_suggestion, mem_note = await self._apply_memory_action(
-            obj, author=author, case_id=case_id,
+            obj, author=author, case_id=case_id, can_manage_memory=can_manage_memory,
         )
 
         query_params = obj.get("query") if isinstance(obj.get("query"), dict) else None
@@ -342,7 +343,12 @@ class ChatEngine:
         return render_memory(entries).rstrip()
 
     async def _apply_memory_action(
-        self, obj: dict[str, Any], *, author: str, case_id: str | None,
+        self,
+        obj: dict[str, Any],
+        *,
+        author: str,
+        case_id: str | None,
+        can_manage_memory: bool,
     ) -> tuple[dict[str, Any] | None, MemorySuggestion | None, str]:
         """Execute an explicit memory add/remove the model emitted, and surface any
         proposed (un-saved) suggestion. Returns (action_echo, suggestion, note).
@@ -366,13 +372,28 @@ class ChatEngine:
         op = str(action.get("op") or "").strip().lower()
         text = str(action.get("text") or "").strip()
         entry_id = str(action.get("id") or "").strip()
+        if not can_manage_memory:
+            # Chat itself is available to case readers. Durable memory mutation is a
+            # distinct capability: preserve an add as a reviewable suggestion and
+            # truthfully refuse remove, but never write/delete behind the caller's back.
+            if op == "add" and text:
+                suggestion = suggestion or MemorySuggestion(
+                    text=text[:1000],
+                    reason="Requires approval from an operator with memory management access.",
+                )
+                return None, suggestion, "Memory change suggested for operator approval."
+            if op == "remove":
+                return None, suggestion, "Memory was not changed; memory management access is required."
+            return None, suggestion, ""
         echo: dict[str, Any] | None = None
         note = ""
         try:
             if op == "add" and text:
-                entry = await self._memory.add(text[:2000], source="agent", author=author)
+                entry = await self._memory.add(
+                    text[:2000], source="agent", author=author, review_status="pending"
+                )
                 echo = {"op": "add", "id": entry.id, "text": entry.text}
-                note = f"Remembered: {truncate(entry.text, 200)}"
+                note = f"Memory suggestion saved for approval: {truncate(entry.text, 200)}"
                 await self._audit.record(
                     action_type=ActionType.DECISION, surface=Role.CHAT.value, actor=Role.CHAT.value,
                     case_id=case_id, result_summary=f"memory add (agent): {truncate(entry.text, 200)}",

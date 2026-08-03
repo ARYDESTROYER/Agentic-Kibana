@@ -8,14 +8,15 @@ description: Backend, Console, API-contract, version, documentation, and release
 Agentic SOC changes are accepted on `Testing` only after the relevant offline, contract,
 build, and documentation gates pass. Stable promotion moves that accepted source
 tree through a protected pull request to `main`; the resulting commit is gated again
-before application version `v0.1.1` is tagged.
+before application version `v0.1.2` is tagged.
 
-The latest fully recorded local baseline is **2,174 backend tests** and **1,828
-Console tests across 277 files**. Counts rise as coverage is added; the
+The latest fully recorded local baseline is **2,254 backend tests** and **1,853
+Console tests across 280 files**. Counts rise as coverage is added; the
 commands and zero-failure result are the contract, not a frozen target.
 
-The remote now uses `Testing` for integration and default `main` for accepted Stable
-source, and it has the `v0.1.1` release tag. Branch protection, required checks,
+The remote uses `Testing` for integration and default `main` for accepted Stable
+source. `v0.1.1` is the prior Stable tag; the 0.1.2 candidate receives `v0.1.2`
+only after the resulting `main` commit passes. Branch protection, required checks,
 Pages source selection, and `github-pages` environment policy are repository settings;
 verify them independently before treating a merge or deployment as accepted.
 
@@ -171,7 +172,7 @@ Run the repository's standard-library metadata gate from the root:
 python3 scripts/check_version.py
 ```
 
-For the 0.1 line it checks that the root `VERSION` (`0.1.1`) agrees with backend,
+For the 0.1 line it checks that the root `VERSION` (`0.1.2`) agrees with backend,
 Console, lockfile, OpenAPI, Compose image/build metadata, release records, and the
 MkDocs/Mike documentation line (`0.1`).
 
@@ -253,7 +254,7 @@ Before promoting `Testing` to Stable:
    release gate again on the resulting `main` commit.
 5. Build and stamp the verified commit with the correct channel, exact SHA, build
    date, and source URL.
-6. Create the immutable `v0.1.1` tag and publish matching application artifacts by
+6. Create the immutable `v0.1.2` tag and publish matching application artifacts by
    digest; let the Documentation workflow publish the accepted public 0.1 line from
    `main`.
 7. Verify `/api/health/build-info`, image metadata, the native Pages deployment, and

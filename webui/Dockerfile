@@ -53,6 +53,7 @@ LABEL org.opencontainers.image.title="Agentic SOC" \
       org.opencontainers.image.source="${TLSOC_SOURCE_URL}"
 
 COPY webui/nginx.conf /etc/nginx/conf.d/default.conf
+COPY webui/nginx-security-headers.conf /etc/nginx/agentic-soc-security-headers.conf
 COPY --from=build /repo/webui/dist /usr/share/nginx/html
 EXPOSE 80
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \

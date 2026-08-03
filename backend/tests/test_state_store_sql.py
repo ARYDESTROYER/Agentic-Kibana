@@ -250,6 +250,27 @@ async def test_audit_is_append_only(engine) -> None:
     assert summaries == ["r1", "r2"]
 
 
+async def test_strict_audit_event_id_is_retry_idempotent(engine) -> None:
+    """A retried privileged decision converges on one immutable SQL audit row."""
+    audit = SqlAuditRepository(engine)
+    doc = AuditDoc(
+        event_id="proposal-decision:prop-1:approve",
+        ts="2026-08-02T19:45:00+00:00",
+        action_type=ActionType.PROPOSAL,
+        case_id="prop-1",
+        result_summary="proposal_id=prop-1 action=approve",
+    )
+    await audit.write_strict(doc)
+    await audit.write_strict(doc)
+    rows = await audit.records_for_case("prop-1")
+    assert len(rows) == 1
+    assert rows[0]["event_id"] == doc.event_id
+
+    conflicting = doc.model_copy(update={"result_summary": "different"})
+    with pytest.raises(RuntimeError, match="audit event id collision"):
+        await audit.write_strict(conflicting)
+
+
 async def test_audit_write_truncates_via_record(engine) -> None:
     audit = SqlAuditRepository(engine)
     long_text = "x" * 5000

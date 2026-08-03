@@ -26,6 +26,7 @@ from ..constants import (
     DecisionBy,
     Disposition,
     EntityType,
+    FeedbackOutcome,
     IngestMode,
     OCSF_VERSION,
     SourceSurface,
@@ -36,7 +37,12 @@ from ..engine.correlation import cluster_from_events
 from ..engine.metrics import compute_metrics, feedback_stats
 from ..engine.priority import advisory_bands
 from ..es.querybuilder import entity_query, ids_query, scope_filters, scope_must_not
-from ..llm.pricing import models_by_provider
+from ..llm.pricing import (
+    model_capabilities,
+    model_catalog,
+    model_supports_capability,
+    models_by_provider,
+)
 from ..models import (
     Case,
     CaseComment,
@@ -45,8 +51,10 @@ from ..models import (
     ChatResponse,
     ChatTurn,
     Cluster,
+    Entity,
     FeedbackEntry,
     InvestigateRequest,
+    Proposal,
     RawEvent,
     StatusHistoryEntry,
     TraceStep,
@@ -76,6 +84,7 @@ from .deps import (
     current_user,
     current_username,
     get_state,
+    has_permission,
     require_admin,
     require_fresh_auth,
     require_permission,
@@ -91,12 +100,27 @@ router = APIRouter(prefix="/api")
 # --------------------------------------------------------------------------- #
 class HealthResponse(BaseModel):
     """The public health envelope (also read by the webui to detect an in-memory
-    store, ``store_type``). Exact shape — keys are stable and the webui depends on
-    ``status``/``version``/``es_connected``/``store_type``/``setup_complete``."""
+    store, ``store_type``).
+
+    ``es_connected`` is a compatibility-stable alias that historically named the
+    only supported state backend. New clients must use ``state_store_connected``;
+    both fields deliberately carry the same own-state readiness result.
+    """
 
     status: str
     version: str
-    es_connected: bool
+    es_connected: bool = Field(
+        description=(
+            "Compatibility alias for state_store_connected; this does not describe "
+            "log-source Elasticsearch connectivity."
+        )
+    )
+    state_store_connected: bool = Field(
+        description="Whether the selected owned-state backend passed its write-path probe."
+    )
+    state_backend: str = Field(
+        description="Configured owned-state backend: elasticsearch, postgres, or sqlite."
+    )
     store_type: str
     setup_complete: bool
 
@@ -123,6 +147,8 @@ class BuildInfoResponse(BaseModel):
     build_time: str
     state_backend: str
     ocsf_version: str
+    provenance_complete: bool
+    provenance_missing: list[str]
 
 
 async def _state_store_probe(state: AppState) -> tuple[bool, str]:
@@ -167,7 +193,7 @@ async def _state_store_probe(state: AppState) -> tuple[bool, str]:
 def _release_channel(configured: str | None = None) -> str:
     """Return the independently stamped promotion channel.
 
-    Branch promotion and SemVer are orthogonal: the same ``0.1.1`` candidate is
+    Branch promotion and SemVer are orthogonal: the same version candidate is
     exercised on Testing before its exact commit reaches main/Stable. Inferring a
     channel from a prerelease suffix would therefore mislabel Testing builds.
     """
@@ -179,15 +205,26 @@ def _release_channel(configured: str | None = None) -> str:
     return "testing"
 
 
+def _build_stamp(environment_key: str) -> str:
+    """Return a normalized, public build stamp without inventing provenance."""
+    value = os.getenv(environment_key, "unknown").strip()
+    return value if value and value.lower() != "unknown" else "unknown"
+
+
 @router.get("/health", response_model=HealthResponse)
 async def health(state: AppState = Depends(get_state)) -> HealthResponse:
     ready, store_type = await _state_store_probe(state)
+    state_backend = str(
+        getattr(state.secrets, "state_backend", "elasticsearch") or "elasticsearch"
+    )
     return HealthResponse(
         status="ok" if ready else "degraded",
         version=__version__,
         # Backward-compatible wire name: this now truthfully represents the OWN-state
         # backend (ES, PostgreSQL, or SQLite), which is what existing clients use it for.
         es_connected=ready,
+        state_store_connected=ready,
+        state_backend=state_backend,
         store_type=store_type,
         setup_complete=state.prefs.setup_complete,
     )
@@ -226,14 +263,23 @@ async def health_ready(state: AppState = Depends(get_state)) -> ReadinessRespons
 @router.get("/health/build-info", response_model=BuildInfoResponse)
 async def health_build_info(state: AppState = Depends(get_state)) -> BuildInfoResponse:
     """Non-secret release identity for support, diagnostics, and upgrade checks."""
+    commit_sha = _build_stamp("TLSOC_BUILD_SHA")
+    build_time = _build_stamp("TLSOC_BUILD_DATE")
+    provenance_missing = [
+        label
+        for label, value in (("commit_sha", commit_sha), ("build_time", build_time))
+        if value == "unknown"
+    ]
     return BuildInfoResponse(
         service="tlsoc-agentic-triage",
         version=__version__,
         release_channel=_release_channel(),
-        commit_sha=os.getenv("TLSOC_BUILD_SHA", "unknown"),
-        build_time=os.getenv("TLSOC_BUILD_DATE", "unknown"),
+        commit_sha=commit_sha,
+        build_time=build_time,
         state_backend=str(state.secrets.state_backend),
         ocsf_version=OCSF_VERSION,
+        provenance_complete=not provenance_missing,
+        provenance_missing=provenance_missing,
     )
 
 
@@ -338,6 +384,10 @@ async def setup_status(state: AppState = Depends(get_state)) -> dict[str, Any]:
             user_count = await state.users.count()
         except Exception:  # noqa: BLE001
             user_count = 0
+    state_backend = str(
+        getattr(state.secrets, "state_backend", "elasticsearch") or "elasticsearch"
+    )
+    es_connected = await state.es.ping()
     return {
         "setup_complete": p.setup_complete,
         "needs_user": bool(auth_enabled and user_count == 0),
@@ -352,7 +402,18 @@ async def setup_status(state: AppState = Depends(get_state)) -> dict[str, Any]:
             "user_field": p.user_field,
             "host_field": p.host_field,
         },
-        "es_connected": await state.es.ping(),
+        # Compatibility field: unlike /health.es_connected this is the historical
+        # Elasticsearch/log-surface probe. The additive role fields prevent a
+        # disconnected optional source from being mistaken for a failed SQL state
+        # backend on vendor-neutral installations.
+        "es_connected": es_connected,
+        "es_required_for_state": state_backend == "elasticsearch",
+        "es_connection_role": (
+            "owned_state_and_log_source"
+            if state_backend == "elasticsearch"
+            else "log_source_only"
+        ),
+        "state_backend": state_backend,
     }
 
 
@@ -1451,6 +1512,17 @@ async def put_settings(
     state: AppState = Depends(get_state),
     _=Depends(require_permission("settings", "manage")),
 ) -> dict[str, Any]:
+    requested_embedding = body.get("embedding_model") if isinstance(body, dict) else None
+    if isinstance(requested_embedding, dict) and requested_embedding.get("model"):
+        embedding_id = str(requested_embedding.get("model") or "").strip()
+        if not model_supports_capability(embedding_id, "embedding"):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Invalid settings: model {embedding_id!r} is not declared "
+                    "embedding-capable"
+                ),
+            )
     # Build the partial deep-merge from the freshest Preferences document while the
     # application-wide prefs lock is held. This prevents a settings write racing a
     # source/rule/tuner/branding writer from silently restoring a stale sibling block.
@@ -1771,6 +1843,7 @@ async def chat(
         resp = await state.chat_engine.chat(
             body.message, prefs_eff, case_id=body.case_id, history=history,
             context=body.context, author=author, source=source_conn,
+            can_manage_memory=await has_permission(request, "memory", "manage"),
         )
     except HTTPException:
         if persist_workspace and reservation is not None:
@@ -2004,6 +2077,17 @@ async def models(state: AppState = Depends(get_state)) -> dict[str, Any]:
     # saved ModelConfig (the gateway also resolves it from the store as a fallback #10).
     # Best-effort: a store glitch never breaks the built-in picker. #9: ids are plain data.
     base_urls: dict[str, str] = {}
+    catalog_rows: list[dict[str, Any]] = [
+        {
+            "id": str(row.get("id") or ""),
+            "provider": str(row.get("provider") or ""),
+            "capabilities": model_capabilities(str(row.get("id") or "")),
+            "base_url": row.get("base_url"),
+            "is_custom": False,
+        }
+        for row in model_catalog()
+        if str(row.get("id") or "")
+    ]
     try:
         for row in await state.custom_models.list_models():
             mid = str(row.get("id", ""))
@@ -2014,11 +2098,32 @@ async def models(state: AppState = Depends(get_state)) -> dict[str, Any]:
             if mid not in bucket:
                 bucket.append(mid)
             base_urls[mid] = base
+            catalog_rows.append({
+                "id": mid,
+                "provider": str(row.get("provider") or "openai_compatible"),
+                "capabilities": ["chat"],
+                "base_url": base,
+                "is_custom": True,
+            })
     except Exception:  # noqa: BLE001 — custom store advisory to the picker
         pass
     return {
         "providers": {p: sorted(set(m)) for p, m in grouped.items()},
         "base_urls": base_urls,
+        "models": catalog_rows,
+        "capabilities": {
+            row["id"]: list(row["capabilities"])
+            for row in catalog_rows
+        },
+        "role_capabilities": {
+            "router": ["chat"],
+            "investigator": ["chat"],
+            "formatter": ["chat"],
+            "standup": ["chat"],
+            "chat": ["chat"],
+            "overview": ["chat"],
+            "embedding": ["embedding"],
+        },
         "configured": state.secrets.configured_status(),
     }
 
@@ -2049,16 +2154,25 @@ async def personas(state: AppState = Depends(get_state)) -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 # Agent PROPOSALS (HITL — agent drafts, human approves/rejects)
 # --------------------------------------------------------------------------- #
+def _proposal_public(proposal: Proposal) -> dict[str, Any]:
+    """Public projection; lease and immutable recovery identity stay internal."""
+    return proposal.model_dump(
+        mode="json", exclude={"applying_token", "decision_actor"}
+    )
+
+
 @router.get("/proposals")
 async def list_proposals(
-    status: str | None = None, state: AppState = Depends(get_state)
+    status: str | None = None,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("proposals", "read")),
 ) -> dict[str, Any]:
     """List agent-drafted proposals (newest first). ``?status=pending`` filters to
     the review queue; omit for all. A proposal is a PENDING recommendation — nothing
     is live until it is explicitly approved."""
     proposals = await state.proposals.list(status=status)
     return {
-        "proposals": [p.model_dump(mode="json") for p in proposals],
+        "proposals": [_proposal_public(p) for p in proposals],
         "count": len(proposals),
     }
 
@@ -2068,65 +2182,147 @@ async def approve_proposal(
     proposal_id: str,
     request: Request,
     state: AppState = Depends(get_state),
-    _admin=Depends(require_admin),  # RBAC seam: the single privileged-action gate
+    _=Depends(require_permission("proposals", "approve")),
 ) -> dict[str, Any]:
-    """Approve a pending proposal — the ONLY path that writes a live rule / memory.
+    """Approve or acknowledge a pending proposal through its kind-specific path.
 
     suppression → materialise a ``SuppressionRule`` from the payload and append it to
     ``Preferences.suppression_rules`` via the settings write path so the cost gate
-    picks it up LIVE. memory → append a human-injectable agent fact. Then mark the
-    proposal approved + audit. 404 if missing; 409 if not pending."""
-    proposal = await state.proposals.get(proposal_id)
-    if proposal is None:
-        raise HTTPException(status_code=404, detail="proposal not found")
-    if proposal.status != "pending":
-        raise HTTPException(status_code=409, detail=f"proposal is {proposal.status}, not pending")
+    picks it up LIVE. memory → append a human-injectable agent fact. tuning →
+    revalidate and, where eligible, materialise the bounded change. ``automation_ack``
+    records review only and never mutates configuration, Memory, suppression, or case
+    state. A strict CAS claim is persisted before any effect, every effect is keyed by
+    proposal id, and finalisation is strict so concurrent/retried requests cannot apply
+    the same proposal twice. 404 if missing; 409 if already decided/in progress."""
     by = current_username(request)
-
-    if proposal.kind == "suppression":
-        payload = dict(proposal.payload or {})
-        try:
-            rule = SuppressionRule.model_validate({
-                "field": payload.get("field"),
-                "value": payload.get("value"),
-                "reason": payload.get("reason", ""),
-                "confidence": payload.get("confidence", proposal.confidence),
-                "rationale": payload.get("rationale", proposal.rationale),
-                "source_case_ids": payload.get("source_case_ids", proposal.source_case_ids),
-                "created_by": payload.get("created_by", "agent"),
-                "expires_at": payload.get("expires_at", proposal.expires_at),
-                "enabled": payload.get("enabled", True),
-            })
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(status_code=400, detail=f"invalid suppression payload: {exc}") from exc
-        # Append to a fresh prefs copy and persist via the settings write path so the
-        # cost gate / query builder see the new rule immediately (state.prefs updated).
-        active_prefs = state.execution_prefs
-        prefs = active_prefs.model_copy(update={
-            "suppression_rules": [*active_prefs.suppression_rules, rule],
-        })
-        await state.update_execution_prefs(prefs)
-    elif proposal.kind == "memory":
-        payload = dict(proposal.payload or {})
-        text = str(payload.get("text", "") or proposal.rationale).strip()
-        if not text:
-            raise HTTPException(status_code=400, detail="memory proposal has no text")
-        await state.memory.add(
-            text,
-            category=str(payload.get("category", "")),
-            tags=list(payload.get("tags", []) or []),
-            source="agent",
-            author=by,
+    token = new_id("approval-")
+    try:
+        proposal, claim = await state.proposals.claim_approval(
+            proposal_id, by=by, token=token
         )
-    else:  # pragma: no cover — Literal-constrained, defensive
-        raise HTTPException(status_code=400, detail=f"unknown proposal kind: {proposal.kind}")
-
-    updated = await state.proposals.set_status(proposal_id, "approved", by)
-    await state.audit.record(
-        action_type=ActionType.PROPOSAL, surface="proposal", actor=by or "analyst",
-        result_summary=f"approved {proposal.kind} proposal {proposal_id}",
+    except Exception as exc:  # durability boundary: never run an effect without a claim
+        raise HTTPException(status_code=503, detail="Could not persist the approval claim") from exc
+    if claim == "missing" or proposal is None:
+        raise HTTPException(status_code=404, detail="proposal not found")
+    if claim != "claimed":
+        raise HTTPException(
+            status_code=409,
+            detail=f"proposal is {proposal.status}, not pending",
+        )
+    # The first durable claim owns attribution for the entire decision. A stale
+    # lease may be resumed by another operator, but effects and retry-deduplicated
+    # append-only evidence must remain byte-equivalent to the first attempt.
+    decision_actor = (
+        proposal.decision_actor
+        if proposal.decision_actor is not None
+        else (by or "").strip()
     )
-    return {"ok": True, "proposal": (updated or proposal).model_dump(mode="json")}
+    audit_actor = decision_actor or "analyst"
+
+    try:
+        if proposal.kind == "suppression":
+            payload = dict(proposal.payload or {})
+            try:
+                rule = SuppressionRule.model_validate({
+                    "field": payload.get("field"),
+                    "value": payload.get("value"),
+                    "reason": payload.get("reason", ""),
+                    "confidence": payload.get("confidence", proposal.confidence),
+                    "rationale": payload.get("rationale", proposal.rationale),
+                    "source_case_ids": payload.get("source_case_ids", proposal.source_case_ids),
+                    "created_by": payload.get("created_by", "agent"),
+                    "approval_proposal_id": proposal.id,
+                    "expires_at": payload.get("expires_at", proposal.expires_at),
+                    "enabled": payload.get("enabled", True),
+                })
+            except Exception as exc:  # noqa: BLE001 — normalise validation to HTTP 400 below
+                raise ValueError(f"invalid suppression payload: {exc}") from exc
+            # The proposal id is an additive idempotency key. A retry after an
+            # ambiguous finalise observes the existing rule and performs no append.
+            def _append_once(prefs: Preferences) -> Preferences:
+                if any(
+                    existing.approval_proposal_id == proposal.id
+                    for existing in prefs.suppression_rules
+                ):
+                    return prefs
+                return prefs.model_copy(update={
+                    "suppression_rules": [*prefs.suppression_rules, rule],
+                })
+
+            await state.mutate_execution_prefs(_append_once)
+        elif proposal.kind == "memory":
+            payload = dict(proposal.payload or {})
+            text = str(payload.get("text", "") or proposal.rationale).strip()
+            if not text:
+                raise ValueError("memory proposal has no text")
+            # Strict persistence: approval cannot succeed on a fail-soft KV write.
+            await state.memory.add_approved_proposal_strict(
+                text,
+                proposal_id=proposal.id,
+                category=str(payload.get("category", "")),
+                tags=list(payload.get("tags", []) or []),
+                author=decision_actor,
+            )
+        elif proposal.kind == "tuning":
+            from ..engine.threshold_tuner import commit_approved_tuning
+
+            payload = dict(proposal.payload or {})
+            record, created = await commit_approved_tuning(
+                state.execution_prefs,
+                payload,
+                proposal_id=proposal.id,
+                tuning_store=state.tuning_store,
+                write_prefs=state.update_execution_prefs,
+                mutate_prefs=state.mutate_execution_prefs,
+            )
+            if record is not None and created:
+                await state.audit.record(
+                    action_type=ActionType.TUNING,
+                    surface="proposal",
+                    actor=audit_actor,
+                    result_summary=(
+                        f"approved tuning proposal {proposal.id}: {record.target} "
+                        f"{record.before}->{record.after} for {record.rule_id}"
+                    ),
+                )
+        elif proposal.kind == "automation_ack":
+            # The status transition and audit are the complete effect.
+            pass
+        else:  # pragma: no cover — Literal-constrained, defensive
+            raise ValueError(f"unknown proposal kind: {proposal.kind}")
+
+        await state.control_audit.record_strict(
+            action_type=ActionType.PROPOSAL,
+            event_id=f"proposal-decision:{proposal.id}:approve",
+            ts=proposal.decision_audit_at,
+            surface="proposal",
+            actor=audit_actor,
+            result_summary=(
+                f"proposal_id={proposal.id} action=approve kind={proposal.kind} "
+                "effect=confirmed finalization=pending"
+            ),
+        )
+        updated = await state.proposals.finalize_approval(
+            proposal_id, by=by, token=token
+        )
+        if updated is None:
+            raise RuntimeError("approval lease was lost before finalisation")
+    except Exception as exc:  # noqa: BLE001 — release the lease for a visible retry
+        try:
+            await state.proposals.release_approval(
+                proposal_id, token=token, error=str(exc)
+            )
+        except Exception as release_exc:  # status remains applying; stale lease is recoverable
+            logger.error("Could not release failed proposal approval %s: %s", proposal_id, release_exc)
+        if isinstance(exc, ValueError):
+            status = 409 if "stale" in str(exc).lower() else 400
+            raise HTTPException(status_code=status, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=503,
+            detail="Approval could not be durably completed; no success was reported",
+        ) from exc
+
+    return {"ok": True, "proposal": _proposal_public(updated)}
 
 
 @router.post("/proposals/{proposal_id}/reject")
@@ -2134,22 +2330,69 @@ async def reject_proposal(
     proposal_id: str,
     request: Request,
     state: AppState = Depends(get_state),
-    _admin=Depends(require_admin),  # RBAC seam: the single privileged-action gate
+    _=Depends(require_permission("proposals", "approve")),
 ) -> dict[str, Any]:
-    """Reject a pending proposal. Preferences / memory are UNCHANGED — only the
-    proposal status flips to rejected. 404 if missing; 409 if not pending."""
-    proposal = await state.proposals.get(proposal_id)
-    if proposal is None:
-        raise HTTPException(status_code=404, detail="proposal not found")
-    if proposal.status != "pending":
-        raise HTTPException(status_code=409, detail=f"proposal is {proposal.status}, not pending")
+    """Reject a pending proposal through the same durable decision boundary.
+
+    Preferences / memory are unchanged. A strict CAS claim and idempotent
+    append-only audit row must both succeed before the proposal can be finalised as
+    rejected. 404 if missing; 409 if already decided/in progress.
+    """
     by = current_username(request)
-    updated = await state.proposals.set_status(proposal_id, "rejected", by)
-    await state.audit.record(
-        action_type=ActionType.PROPOSAL, surface="proposal", actor=by or "analyst",
-        result_summary=f"rejected {proposal.kind} proposal {proposal_id}",
+    token = new_id("rejection-")
+    try:
+        proposal, outcome = await state.proposals.claim_rejection(
+            proposal_id, by=by, token=token
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503, detail="Could not persist the rejection claim"
+        ) from exc
+    if outcome == "missing" or proposal is None:
+        raise HTTPException(status_code=404, detail="proposal not found")
+    if outcome != "claimed":
+        raise HTTPException(
+            status_code=409,
+            detail=f"proposal is {proposal.status}, not pending",
+        )
+    decision_actor = (
+        proposal.decision_actor
+        if proposal.decision_actor is not None
+        else (by or "").strip()
     )
-    return {"ok": True, "proposal": (updated or proposal).model_dump(mode="json")}
+    try:
+        await state.control_audit.record_strict(
+            action_type=ActionType.PROPOSAL,
+            event_id=f"proposal-decision:{proposal.id}:reject",
+            ts=proposal.decision_audit_at,
+            surface="proposal",
+            actor=decision_actor or "analyst",
+            result_summary=(
+                f"proposal_id={proposal.id} action=reject kind={proposal.kind} "
+                "effect=none finalization=pending"
+            ),
+        )
+        updated = await state.proposals.finalize_rejection(
+            proposal_id, by=by, token=token
+        )
+        if updated is None:
+            raise RuntimeError("rejection lease was lost before finalisation")
+    except Exception as exc:  # noqa: BLE001 — no unaudited success response
+        try:
+            await state.proposals.release_approval(
+                proposal_id, token=token, error=str(exc)
+            )
+        except Exception as release_exc:
+            logger.error(
+                "Could not release failed proposal rejection %s: %s",
+                proposal_id,
+                release_exc,
+            )
+        raise HTTPException(
+            status_code=503,
+            detail="Rejection could not be durably completed; no success was reported",
+        ) from exc
+    return {"ok": True, "proposal": _proposal_public(updated)}
 
 
 def _playbook_payload(state: AppState, playbook, *, content: str | None = None) -> dict[str, Any]:
@@ -2190,6 +2433,15 @@ class PlaybookUpdateRequest(BaseModel):
     """Replace one operator-owned Markdown playbook; the id remains immutable."""
 
     content: str = Field(min_length=1, max_length=MAX_PLAYBOOK_BYTES)
+    expected_revision: int | None = Field(default=None, ge=1)
+
+
+class PlaybookDryRunRequest(BaseModel):
+    """Synthetic cluster attributes for deterministic procedure diagnostics."""
+
+    rule_ids: list[str] = Field(default_factory=list, max_length=100)
+    entity_type: EntityType = EntityType.RULE
+    event_count: int = Field(default=1, ge=0, le=1_000_000)
 
 
 def _raise_playbook_management_http(exc: Exception) -> None:
@@ -2209,6 +2461,7 @@ async def playbooks(
     state: AppState = Depends(get_state),
     _=Depends(require_permission("playbooks", "read")),
 ) -> dict[str, Any]:
+    await state.refresh_playbooks()
     pbs = state.playbooks.all()
     return {
         "enabled": state.prefs.playbooks.enabled,
@@ -2230,9 +2483,12 @@ async def playbooks_create(
     a create never overwrites any existing file or bundled playbook.  Playbook text
     remains recommendation-only context; this endpoint never touches ``decide()``.
     """
-    state.reload_playbooks()  # also re-points the registry if prefs.dir changed
     try:
-        playbook, summary = state.playbooks.create_operator(body.id, body.content)
+        playbook, summary = await state.create_playbook(
+            body.id,
+            body.content,
+            actor=current_username(request) or "operator",
+        )
     except Exception as exc:  # mapped to bounded, non-path-leaking HTTP errors
         _raise_playbook_management_http(exc)
         raise AssertionError("unreachable")  # pragma: no cover
@@ -2253,7 +2509,7 @@ async def playbooks_reload(
 ) -> dict[str, Any]:
     """Hot-reload playbooks from disk (atomic; a broken file never replaces a good
     live set). Returns the load summary."""
-    summary = state.reload_playbooks()
+    summary = await state.refresh_playbooks()
     await state.control_audit.record(
         action_type=ActionType.PLAYBOOK,
         surface="playbooks",
@@ -2264,6 +2520,87 @@ async def playbooks_reload(
         ),
     )
     return summary
+
+
+@router.post("/playbooks/dry-run")
+async def playbooks_dry_run(
+    body: PlaybookDryRunRequest,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("playbooks", "read")),
+) -> dict[str, Any]:
+    """Explain exact match and no-match reasons without running an investigation."""
+    await state.refresh_playbooks()
+    rules = [str(value).strip() for value in body.rule_ids if str(value).strip()]
+    cluster = Cluster(
+        signature="playbook-dry-run",
+        entity=Entity(type=body.entity_type, value="dry-run"),
+        group_by=body.entity_type,
+        rule_values=rules,
+        count=body.event_count,
+    )
+    return state.playbooks.diagnose(cluster)
+
+
+@router.get("/playbooks/coverage")
+async def playbooks_coverage(
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("playbooks", "read")),
+) -> dict[str, Any]:
+    """Coverage over the stored case population, paged without a 200-row cap."""
+    await state.refresh_playbooks()
+    offset = 0
+    page_size = 500
+    max_cases = 20_000
+    scanned = covered = 0
+    selected_counts: dict[str, int] = {}
+    unmatched_rules: dict[str, int] = {}
+    while scanned < max_cases:
+        page, total = await state.cases.list(limit=page_size, offset=offset)
+        if not page:
+            break
+        for case in page:
+            count = max(
+                len(case.member_event_keys or []),
+                len(case.member_event_ids or []),
+                1,
+            )
+            cluster = Cluster(
+                signature=case.cluster_signature,
+                entity=case.entity,
+                group_by=case.entity.type,
+                rule_values=list(case.rule_ids or []),
+                count=count,
+            )
+            chosen, _reason = state.playbooks.select(cluster)
+            scanned += 1
+            if chosen is not None:
+                covered += 1
+                selected_counts[chosen.id] = selected_counts.get(chosen.id, 0) + 1
+            else:
+                families = sorted({str(value).strip() for value in case.rule_ids if str(value).strip()}) or ["<no-rule-id>"]
+                for family in families:
+                    unmatched_rules[family] = unmatched_rules.get(family, 0) + 1
+            if scanned >= max_cases:
+                break
+        offset += len(page)
+        if offset >= total or len(page) < page_size:
+            break
+    return {
+        "scanned_cases": scanned,
+        "covered_cases": covered,
+        "uncovered_cases": scanned - covered,
+        "coverage_percent": round((covered / scanned) * 100, 1) if scanned else None,
+        "scan_limit": max_cases,
+        "truncated": scanned >= max_cases,
+        "selected_playbooks": [
+            {"playbook_id": key, "case_count": value}
+            for key, value in sorted(selected_counts.items(), key=lambda item: (-item[1], item[0]))
+        ],
+        "unmatched_rule_families": [
+            {"rule_id": key, "case_count": value}
+            for key, value in sorted(unmatched_rules.items(), key=lambda item: (-item[1], item[0]))[:100]
+        ],
+    }
 
 
 @router.get("/playbooks/selection/{case_id}")
@@ -2298,6 +2635,7 @@ async def playbook_detail(
     _=Depends(require_permission("playbooks", "read")),
 ) -> dict[str, Any]:
     """Open one playbook as plain UTF-8 Markdown plus parsed catalog metadata."""
+    await state.refresh_playbooks()
     try:
         playbook, content = state.playbooks.read_document(playbook_id)
     except Exception as exc:
@@ -2315,9 +2653,13 @@ async def playbook_update(
     _=Depends(require_permission("playbooks", "manage")),
 ) -> dict[str, Any]:
     """Atomically update an operator playbook. Bundled playbooks are read-only."""
-    state.reload_playbooks()
     try:
-        playbook, summary = state.playbooks.update_operator(playbook_id, body.content)
+        playbook, summary = await state.update_playbook(
+            playbook_id,
+            body.content,
+            actor=current_username(request) or "operator",
+            expected_revision=body.expected_revision,
+        )
     except Exception as exc:
         _raise_playbook_management_http(exc)
         raise AssertionError("unreachable")  # pragma: no cover
@@ -4348,7 +4690,7 @@ class FeedbackBody(BaseModel):
     accuracy: float = 0.0
     reasoning_quality: float = 0.0
     action_appropriateness: float = 0.0
-    actual_outcome: str = ""              # true_positive|false_positive|true_negative|false_negative|unknown
+    actual_outcome: FeedbackOutcome = FeedbackOutcome.UNKNOWN
     time_saved_minutes: int = 0
     comment: str = ""
 
@@ -4370,19 +4712,35 @@ class AssignBody(BaseModel):
 
 @router.post("/cases/{case_id}/feedback")
 async def case_feedback(
-    case_id: str, body: FeedbackBody, state: AppState = Depends(get_state)
+    case_id: str,
+    body: FeedbackBody,
+    state: AppState = Depends(get_state),
+    request: Request = None,  # type: ignore[assignment]
 ) -> dict[str, Any]:
-    """Record an analyst's grade of the AI verdict (the eval/quality loop)."""
+    """Record an authenticated analyst's grade of the AI verdict.
+
+    ``body.analyst`` remains a compatibility input for auth-disabled/direct-test
+    callers. Over HTTP with auth enabled, the persisted analyst and audit actor always
+    come from the verified principal; a client cannot spoof another operator. The
+    narrow ``cases:write`` grant is enforced inline so assigned custom roles work the
+    same way as every other case mutation.
+    """
+    user = None
+    if request is not None:
+        from .deps import _enforce
+
+        user = await _enforce(request, "cases", "write")
+    actor = getattr(user, "username", "") or body.analyst or "analyst"
     case = await state.cases.get(case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
     entry = FeedbackEntry(
-        analyst=body.analyst,
+        analyst=actor,
         assessment=body.assessment,
         accuracy=max(0.0, min(1.0, body.accuracy)),
         reasoning_quality=max(0.0, min(1.0, body.reasoning_quality)),
         action_appropriateness=max(0.0, min(1.0, body.action_appropriateness)),
-        actual_outcome=body.actual_outcome,
+        actual_outcome=body.actual_outcome.value,
         time_saved_minutes=max(0, int(body.time_saved_minutes)),
         comment=body.comment,
         ai_verdict=case.verdict.value if case.verdict else "",
@@ -4392,11 +4750,20 @@ async def case_feedback(
     case.updated_at = iso_now()
     await state.cases.save(case)
     await state.audit.record(
-        action_type=ActionType.FEEDBACK, surface="case", actor=body.analyst or "analyst",
+        action_type=ActionType.FEEDBACK, surface="case", actor=actor,
         case_id=case_id,
         result_summary=f"assessment={entry.assessment} outcome={entry.actual_outcome} "
                        f"accuracy={entry.accuracy}",
     )
+    # Analyst feedback can supply ground truth after a case was auto-closed. Refresh
+    # the institutional RAG projection only for terminal cases; the RAG service
+    # independently rejects unknown/model-only outcomes, so feedback collection can
+    # never promote an unconfirmed verdict into durable learning evidence.
+    if case.status in (CaseStatus.CLOSED, CaseStatus.RESOLVED):
+        try:
+            await state.rag_service.index_resolved_case(case, note=body.comment)
+        except Exception as exc:  # noqa: BLE001 — feedback must survive RAG outages
+            logger.warning("Feedback RAG refresh failed for %s: %s", case_id, exc)
     return case.model_dump(mode="json")
 
 
@@ -5385,6 +5752,15 @@ def _build_rationale(case_id: str, case: Any, rows: list[Any]) -> dict[str, Any]
         ),
         None,
     )
+    procedure_row = next(
+        (
+            row
+            for row in reversed(run_rows)
+            if _audit_get(row, "action_type") == ActionType.CONTEXT.value
+            and _audit_get(row, "actor") == "procedure_provenance"
+        ),
+        None,
+    )
 
     # --- from the CONTEXT record (investigator-injected context) -------------
     knowledge: list[dict[str, Any]] = []
@@ -5423,6 +5799,69 @@ def _build_rationale(case_id: str, case: Any, rows: list[Any]) -> dict[str, Any]
                 # was actually injected (selection alone does not).
                 playbook_id = str(getattr(case, "playbook_id", "") or "").strip()
                 playbook_consulted = bool(playbook_id)
+
+    # --- exact selected-vs-consulted procedure provenance ------------------
+    # New runs write this independently of the legacy investigator CONTEXT row,
+    # including cheap-router, kill-switch, and timeout paths where a persona or
+    # playbook may be selected but never consulted.  Keep a stable empty shape for
+    # old audit histories so consumers do not need to infer usage from Case fields.
+    procedure_provenance: dict[str, Any] = {
+        "persona": {"selected_id": "", "selection_reason": "", "consulted": False},
+        "playbook": {"selected_id": "", "selection_reason": "", "consulted": False},
+        "consultation_path": "",
+        "retrieval_query_groups": [],
+        "knowledge": [],
+    }
+    if procedure_row is not None:
+        procedure_input = _audit_get(procedure_row, "tool_input") or {}
+        if isinstance(procedure_input, dict):
+            for key in ("persona", "playbook"):
+                raw = procedure_input.get(key)
+                if not isinstance(raw, dict):
+                    continue
+                procedure_provenance[key] = {
+                    "selected_id": str(raw.get("selected_id") or ""),
+                    "selection_reason": str(raw.get("selection_reason") or ""),
+                    "consulted": bool(raw.get("consulted", False)),
+                }
+            procedure_provenance["consultation_path"] = str(
+                procedure_input.get("consultation_path") or ""
+            )
+            for item in procedure_input.get("retrieval_query_groups") or []:
+                if not isinstance(item, dict):
+                    continue
+                procedure_provenance["retrieval_query_groups"].append({
+                    "group": str(item.get("group") or ""),
+                    "query": str(item.get("query") or ""),
+                })
+            for item in procedure_input.get("knowledge") or []:
+                if not isinstance(item, dict):
+                    continue
+                procedure_provenance["knowledge"].append({
+                    "source": str(item.get("source") or "unknown"),
+                    "score": item.get("score"),
+                    "document_id": str(item.get("document_id") or ""),
+                    "revision": item.get("revision"),
+                    "content_hash": str(item.get("content_hash") or ""),
+                    "query_groups": [
+                        str(value)
+                        for value in (item.get("query_groups") or [])
+                        if str(value)
+                    ],
+                    "snippet": str(item.get("snippet") or ""),
+                })
+
+        # The explicit row is authoritative. A selected procedure on a cheap path
+        # must not be resurrected as "used" from mutable Case fields or an older
+        # context row. Structured knowledge also supersedes the legacy two-field list.
+        playbook_provenance = procedure_provenance["playbook"]
+        playbook_consulted = bool(playbook_provenance["consulted"])
+        if playbook_consulted:
+            playbook_id = str(playbook_provenance["selected_id"] or playbook_id)
+        else:
+            playbook_id = ""
+            playbook_version = ""
+        knowledge = list(procedure_provenance["knowledge"])
 
     # --- platform threshold tuning snapshot (run-boundary audit row) ---------
     platform_tuning_status = "not_recorded"
@@ -5531,6 +5970,7 @@ def _build_rationale(case_id: str, case: Any, rows: list[Any]) -> dict[str, Any]
         "status": status,
         "decision_by": decision_by,
         "persona": persona,
+        "procedure_provenance": procedure_provenance,
         "playbook": {
             "id": playbook_id,
             "version": playbook_version,

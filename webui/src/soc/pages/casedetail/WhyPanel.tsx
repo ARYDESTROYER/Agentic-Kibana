@@ -14,6 +14,8 @@ import {
   Activity,
   BookOpen,
   Brain,
+  CheckCircle2,
+  CircleDashed,
   GitBranch,
   Globe,
   Shield,
@@ -41,6 +43,7 @@ import {
 } from '@/soc/components/badges';
 
 import { PanelCard, SectionHeading } from './shared';
+import { isRunbookSource } from './InvestigationInputs';
 
 function decisionByLabel(decisionBy?: string): { text: string; isHuman: boolean } {
   const d = (decisionBy || '').toLowerCase();
@@ -102,13 +105,19 @@ export const WhyPanel: React.FC<{
   const confidence = typeof r.confidence === 'number' ? r.confidence : c.confidence;
   const status = r.status ?? c.status;
   const persona = r.persona ?? c.agent_persona;
+  const procedure = r.procedure_provenance;
+  const procedurePersona = procedure?.persona;
+  const procedurePlaybook = procedure?.playbook;
+  const hasProcedureTrace = Boolean(
+    procedurePersona?.selected_id ||
+      procedurePlaybook?.selected_id ||
+      procedure?.consultation_path ||
+      procedure?.retrieval_query_groups?.length,
+  );
   const decision = decisionByLabel(r.decision_by ?? c.decision_by);
 
   const knowledge = r.knowledge || [];
-  const runbooks = knowledge.filter((item) => {
-    const source = (item.source || '').trim().toLowerCase();
-    return source === 'runbook' || source.startsWith('runbook:');
-  });
+  const runbooks = knowledge.filter((item) => isRunbookSource(item.source));
   const retrievedKnowledge = knowledge.filter((item) => !runbooks.includes(item));
   const tools = r.tools || [];
   const memory = (r.memory_used || []).filter((m) => (m || '').trim());
@@ -146,7 +155,7 @@ export const WhyPanel: React.FC<{
             {persona && persona !== 'generalist' ? (
               <Badge variant="outline" className="gap-1">
                 <User className="h-3 w-3" />
-                {humanizeToken(persona)}
+                Persona selected · {humanizeToken(persona)}
               </Badge>
             ) : null}
           </div>
@@ -177,6 +186,115 @@ export const WhyPanel: React.FC<{
           </p>
         )}
       </PanelCard>
+
+      {/* -------------------------- selected vs actually consulted procedure */}
+      {hasProcedureTrace ? (
+        <PanelCard>
+          <SectionHeading icon={GitBranch}>
+            Investigation procedure
+          </SectionHeading>
+          <p className="mb-4 text-xs leading-relaxed text-muted-foreground">
+            Latest-run audit facts. Selection means the router chose an input;
+            consultation means the investigator actually used it.
+          </p>
+
+          <div className="divide-y divide-border/60 border-y border-border/60">
+            {procedurePersona?.selected_id ? (
+              <div className="grid gap-2 py-3 sm:grid-cols-[8rem_minmax(0,1fr)_auto] sm:items-start">
+                <div className="text-2xs font-semibold uppercase tracking-widest text-muted-foreground">
+                  Persona
+                </div>
+                <div className="min-w-0">
+                  <div className="break-all font-mono text-sm font-semibold text-foreground">
+                    {procedurePersona.selected_id}
+                  </div>
+                  {procedurePersona.selection_reason ? (
+                    <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
+                      {procedurePersona.selection_reason}
+                    </p>
+                  ) : null}
+                </div>
+                <Badge
+                  variant={procedurePersona.consulted ? 'success' : 'outline'}
+                  className="w-fit gap-1"
+                >
+                  {procedurePersona.consulted ? (
+                    <CheckCircle2 className="h-3 w-3" aria-hidden />
+                  ) : (
+                    <CircleDashed className="h-3 w-3" aria-hidden />
+                  )}
+                  {procedurePersona.consulted ? 'Consulted' : 'Selected only'}
+                </Badge>
+              </div>
+            ) : null}
+
+            {procedurePlaybook?.selected_id ? (
+              <div className="grid gap-2 py-3 sm:grid-cols-[8rem_minmax(0,1fr)_auto] sm:items-start">
+                <div className="text-2xs font-semibold uppercase tracking-widest text-muted-foreground">
+                  Playbook
+                </div>
+                <div className="min-w-0">
+                  <div className="break-all font-mono text-sm font-semibold text-foreground">
+                    {procedurePlaybook.selected_id}
+                  </div>
+                  {procedurePlaybook.selection_reason ? (
+                    <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
+                      {procedurePlaybook.selection_reason}
+                    </p>
+                  ) : null}
+                </div>
+                <Badge
+                  variant={procedurePlaybook.consulted ? 'success' : 'outline'}
+                  className="w-fit gap-1"
+                >
+                  {procedurePlaybook.consulted ? (
+                    <CheckCircle2 className="h-3 w-3" aria-hidden />
+                  ) : (
+                    <CircleDashed className="h-3 w-3" aria-hidden />
+                  )}
+                  {procedurePlaybook.consulted ? 'Consulted' : 'Selected only'}
+                </Badge>
+              </div>
+            ) : null}
+
+            {procedure?.consultation_path ? (
+              <div className="grid gap-2 py-3 sm:grid-cols-[8rem_minmax(0,1fr)]">
+                <div className="text-2xs font-semibold uppercase tracking-widest text-muted-foreground">
+                  Execution path
+                </div>
+                <div className="font-mono text-sm text-foreground">
+                  {procedure.consultation_path}
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          {procedure?.retrieval_query_groups?.length ? (
+            <div className="mt-4 space-y-3">
+              <h4 className="text-2xs font-semibold uppercase tracking-widest text-muted-foreground">
+                Retrieval queries issued
+              </h4>
+              {procedure.retrieval_query_groups.map((queryGroup, index) => (
+                <div key={`${queryGroup.group}-${index}`}>
+                  <Badge variant="outline" className="mb-1.5 font-mono">
+                    {queryGroup.group || `query-${index + 1}`}
+                  </Badge>
+                  {queryGroup.query ? (
+                    <CodeBlock
+                      value={queryGroup.query}
+                      wrap
+                      copyable
+                      maxHeightClassName="max-h-32"
+                    />
+                  ) : (
+                    <p className="text-xs text-muted-foreground">Query text was not recorded.</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </PanelCard>
+      ) : null}
 
       {/* ------------------------------------------- knowledge retrieved */}
       <PanelCard>
@@ -216,6 +334,35 @@ export const WhyPanel: React.FC<{
                       {k.snippet ? (
                         /* UNTRUSTED — inside CodeBlock fence. */
                         <CodeBlock value={k.snippet} wrap copyable maxHeightClassName="max-h-40" />
+                      ) : null}
+                      {k.document_id || typeof k.score === 'number' || k.query_groups?.length ? (
+                        <dl className="mt-3 flex flex-wrap gap-x-5 gap-y-2 border-t border-border/60 pt-3 text-xs">
+                          {k.document_id ? (
+                            <div className="min-w-0">
+                              <dt className="text-muted-foreground">Document</dt>
+                              <dd className="break-all font-mono text-foreground">
+                                {k.document_id}
+                                {k.revision !== null && k.revision !== undefined
+                                  ? ` · rev ${k.revision}`
+                                  : ''}
+                              </dd>
+                            </div>
+                          ) : null}
+                          {typeof k.score === 'number' ? (
+                            <div>
+                              <dt className="text-muted-foreground">Retrieval score</dt>
+                              <dd className="font-mono text-foreground">{k.score.toFixed(3)}</dd>
+                            </div>
+                          ) : null}
+                          {k.query_groups?.length ? (
+                            <div>
+                              <dt className="text-muted-foreground">Returned by</dt>
+                              <dd className="font-mono text-foreground">
+                                {k.query_groups.join(', ')}
+                              </dd>
+                            </div>
+                          ) : null}
+                        </dl>
                       ) : null}
                     </div>
                   ))}
@@ -291,7 +438,7 @@ export const WhyPanel: React.FC<{
       {platformTuning.length ? (
         <PanelCard>
           <SectionHeading icon={SlidersHorizontal}>
-            Platform tuning
+            Threshold tuning applied to this path
           </SectionHeading>
           <p className="mb-4 text-xs leading-relaxed text-muted-foreground">
             This case traversed a detection threshold previously adjusted by Agentic SOC
@@ -341,7 +488,7 @@ export const WhyPanel: React.FC<{
       ) : null}
 
       {/* ------------------------------- enrichment + playbook */}
-      {hasEnr || (playbook && playbook.id && playbook.consulted !== false) ? (
+      {hasEnr || (playbook && playbook.id && playbook.consulted === true) ? (
         <div className="grid gap-6 lg:grid-cols-2">
           {hasEnr && enr ? (
             <PanelCard>
@@ -380,7 +527,7 @@ export const WhyPanel: React.FC<{
               </div>
             </PanelCard>
           ) : null}
-          {playbook && playbook.id && playbook.consulted !== false ? (
+          {playbook && playbook.id && playbook.consulted === true ? (
             <PanelCard>
               <SectionHeading icon={BookOpen}>
                 Playbook consulted

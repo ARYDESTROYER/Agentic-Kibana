@@ -19,9 +19,18 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from functools import partial
 
+import pytest
+
 from app.agents.proposer import draft_suppression_proposal
 from app.config import AutoClosePolicy, Preferences, SuppressionRule, VerdictAutoClose
-from app.constants import CaseStatus, EntityType, SourceSurface, Verdict
+from app.constants import (
+    PROPOSALS_KEY,
+    PROPOSALS_NS,
+    CaseStatus,
+    EntityType,
+    SourceSurface,
+    Verdict,
+)
 from app.engine.case_manager import Decision, decide
 from app.engine.correlation import cluster_from_events
 from app.engine.cost_gate import passes_suppression
@@ -123,6 +132,31 @@ async def test_concurrent_add_and_set_status_are_not_lost(app_state: AppState) -
     assert late.id in everything, "the concurrent add was dropped"
     for p in seeded:
         assert everything[p.id].status == "approved", "an approval was clobbered"
+
+
+async def test_strict_proposal_mutation_fails_closed_on_malformed_sibling(
+    app_state: AppState,
+) -> None:
+    """A privileged decision must not erase a corrupt/forward-version neighbour."""
+    proposal = Proposal(kind="memory", payload={"text": "Keep this row."})
+    raw = {
+        "entries": [
+            proposal.model_dump(mode="json"),
+            {"id": "opaque-future-row", "kind": "future-kind"},
+        ],
+        "future_metadata": {"owner": "newer-deployment"},
+    }
+    await app_state._kv.put(PROPOSALS_NS, PROPOSALS_KEY, raw)
+    getter = getattr(app_state._kv, "get_strict", None) or app_state._kv.get
+    before = await getter(PROPOSALS_NS, PROPOSALS_KEY)
+
+    with pytest.raises(ValueError, match="invalid entry"):
+        await app_state.proposals.claim_approval(
+            proposal.id, by="alice", token="approval-corrupt"
+        )
+
+    after = await getter(PROPOSALS_NS, PROPOSALS_KEY)
+    assert after == before
 
 
 # --------------------------------------------------------------------------- #
@@ -288,6 +322,167 @@ async def test_reject_leaves_prefs_unchanged(client) -> None:
     assert passes_suppression(cluster, state.prefs) is True
     # Reject again → 409.
     assert client.post(f"/api/proposals/{p.id}/reject").status_code == 409
+
+
+async def test_approve_automation_ack_records_review_only(client) -> None:
+    """A generic automation checkpoint is acknowledgement-only, never implicit Memory."""
+    state: AppState = client.app.state.tlsoc
+    before_prefs = state.execution_prefs.model_dump(mode="json")
+    before_memory = [m.model_dump(mode="json") for m in await state.memory.list(False)]
+    p = Proposal(
+        kind="automation_ack",
+        payload={"rule_id": "lead-review", "reason": "Lead sign-off required"},
+        rationale="Review this automation checkpoint.",
+        confidence=0.6,
+        source_case_ids=["case-review"],
+        created_by="automation",
+    )
+    await state.proposals.add(p)
+
+    response = client.post(f"/api/proposals/{p.id}/approve")
+    assert response.status_code == 200, response.text
+    assert response.json()["proposal"]["status"] == "approved"
+    assert state.execution_prefs.model_dump(mode="json") == before_prefs
+    assert [m.model_dump(mode="json") for m in await state.memory.list(False)] == before_memory
+
+
+async def test_approve_explicit_memory_still_materialises_trusted_fact(client) -> None:
+    """Explicit governed Memory proposals retain their existing approval semantics."""
+    state: AppState = client.app.state.tlsoc
+    p = Proposal(
+        kind="memory",
+        payload={"text": "Scanner 10.0.0.12 is approved.", "category": "operations"},
+        rationale="Record a reviewed maintenance fact.",
+        confidence=0.9,
+        created_by="agent",
+    )
+    await state.proposals.add(p)
+
+    response = client.post(f"/api/proposals/{p.id}/approve")
+    assert response.status_code == 200, response.text
+    entries = await state.memory.list(False)
+    materialised = next(m for m in entries if m.text == "Scanner 10.0.0.12 is approved.")
+    assert materialised.review_status == "approved"
+
+
+async def test_approve_tuning_materializes_bounded_change_and_ledger(client) -> None:
+    state: AppState = client.app.state.tlsoc
+    before = state.execution_prefs.correlation_for("reviewed_rule").n
+    p = Proposal(
+        kind="tuning",
+        payload={
+            "tuning": True,
+            "action": "apply_change",
+            "reason_code": "policy_requires_approval",
+            "reason": "Independent analyst evidence supports a bounded change.",
+            "recommended_action": "Approve the bounded threshold increase.",
+            "rule_id": " reviewed_rule ",
+            "target": "correlation_n",
+            "before": before,
+            "after": before + 1,
+            "fp_rate": 0.72,
+            "analyst_samples": 40,
+            "observed_cases": 46,
+            "unconfirmed_cases": 6,
+            "confirmed_false_positives": 37,
+            "confirmed_true_positives": 3,
+            "evidence_basis": "analyst outcomes",
+            "dedupe_key": "test-reviewed-rule",
+        },
+        created_by="tuner",
+    )
+    await state.proposals.add(p)
+
+    response = client.post(f"/api/proposals/{p.id}/approve")
+    assert response.status_code == 200, response.text
+    assert response.json()["proposal"]["status"] == "approved"
+    assert state.execution_prefs.correlation_for("reviewed_rule").n == before + 1
+    records = await state.tuning_store.list(rule_id="reviewed_rule", active_only=True)
+    assert len(records) == 1
+    assert records[0].review_proposal_id == p.id
+    assert records[0].evidence_source == "analyst_confirmed_approved"
+
+
+async def test_approve_tuning_ledger_failure_restores_threshold_and_retries(
+    client, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state: AppState = client.app.state.tlsoc
+    before = state.execution_prefs.correlation_for("reviewed_saga_rule").n
+    p = Proposal(
+        kind="tuning",
+        payload={
+            "tuning": True,
+            "action": "apply_change",
+            "reason_code": "policy_requires_approval",
+            "rule_id": "reviewed_saga_rule",
+            "target": "correlation_n",
+            "before": before,
+            "after": before + 1,
+            "fp_rate": 0.72,
+            "analyst_samples": 40,
+            "observed_cases": 40,
+            "confirmed_false_positives": 37,
+            "confirmed_true_positives": 3,
+        },
+        created_by="tuner",
+    )
+    await state.proposals.add(p)
+    original_append = state.tuning_store.add_approved_proposal_strict
+
+    async def ledger_unavailable(_record):  # noqa: ANN001
+        raise RuntimeError("ledger unavailable")
+
+    monkeypatch.setattr(
+        state.tuning_store, "add_approved_proposal_strict", ledger_unavailable,
+    )
+    failed = client.post(f"/api/proposals/{p.id}/approve")
+    assert failed.status_code == 503
+    assert state.execution_prefs.correlation_for("reviewed_saga_rule").n == before
+    assert await state.tuning_store.list_strict(rule_id="reviewed_saga_rule") == []
+
+    # The released approval remains retryable; recovery applies and records exactly
+    # one change rather than leaving a hidden partial success.
+    monkeypatch.setattr(
+        state.tuning_store, "add_approved_proposal_strict", original_append,
+    )
+    retried = client.post(f"/api/proposals/{p.id}/approve")
+    assert retried.status_code == 200, retried.text
+    assert state.execution_prefs.correlation_for("reviewed_saga_rule").n == before + 1
+    records = await state.tuning_store.list_strict(rule_id="reviewed_saga_rule")
+    assert len(records) == 1 and records[0].review_proposal_id == p.id
+
+
+async def test_approve_evidence_request_acknowledges_without_threshold_write(
+    client,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state: AppState = client.app.state.tlsoc
+    before = state.execution_prefs.correlation_for("thin_rule").n
+    async def _unexpected_prefs_write(_mutate) -> Preferences:
+        raise AssertionError("evidence acknowledgement must not persist preferences")
+
+    monkeypatch.setattr(state, "mutate_execution_prefs", _unexpected_prefs_write)
+
+    p = Proposal(
+        kind="tuning",
+        payload={
+            "tuning": True,
+            "action": "collect_evidence",
+            "reason_code": "insufficient_analyst_evidence",
+            "reason": "Too few independent labels.",
+            "recommended_action": "Grade more cases.",
+            "rule_id": "thin_rule",
+            "target": "evidence_collection",
+            "before": before,
+            "after": before,
+        },
+        created_by="tuner",
+    )
+    await state.proposals.add(p)
+    response = client.post(f"/api/proposals/{p.id}/approve")
+    assert response.status_code == 200, response.text
+    assert state.execution_prefs.correlation_for("thin_rule").n == before
+    assert await state.tuning_store.list(rule_id="thin_rule") == []
 
 
 def test_list_proposals_filters_by_status(client) -> None:

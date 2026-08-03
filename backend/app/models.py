@@ -13,7 +13,7 @@ import re
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .config import Preferences
 
@@ -453,12 +453,12 @@ class MemoryEntry(BaseModel):
     Claude.ai-style "MEMORY" feature). Examples: "10.0.0.0/8 is internal",
     "Nessus scans run Sun 02:00 from 10.1.2.3", "bastion01 is a jump box".
 
-    Memory is auto-injected as a DISTINCT, TRUSTED operator-context block into BOTH
-    automated investigations and chat (it ranks above untrusted evidence but BELOW
-    base role rules + playbook procedure, and NEVER overrides the deterministic
-    case_manager — it only INFORMS the LLM). ``source`` records how it got here:
-    ``human`` (explicit add via the UI / "remember: …") or ``agent`` (the chat
-    engine stored the TEXT THE USER ASKED to remember — never raw log/tool output).
+    Only ``review_status="approved"`` entries are injected as TRUSTED operator
+    context. Agent-authored entries remain ``pending`` and are fenced as UNTRUSTED
+    review candidates until an operator with ``memory:manage`` approves them. This
+    prevents a chat model (or a read-only chat caller) from silently minting durable
+    trusted instructions. ``source`` records how the candidate originated; trust is
+    represented independently by ``review_status``.
     """
 
     id: str = Field(default_factory=lambda: new_id("mem-"))
@@ -467,9 +467,32 @@ class MemoryEntry(BaseModel):
     tags: list[str] = Field(default_factory=list)
     source: str = "human"            # human | agent
     author: str = ""
+    review_status: Literal["approved", "pending"] = "approved"
+    approved_by: str = ""
+    approved_at: str = ""
+    # Approval-side-effect idempotency key. A retry after a proposal-finalisation
+    # failure reuses the already-confirmed trusted fact instead of duplicating it.
+    approval_proposal_id: str = ""
     created_at: str = Field(default_factory=iso_now)
     updated_at: str = Field(default_factory=iso_now)
     active: bool = True
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_trust(cls, data: Any) -> Any:
+        """Give pre-review records a conservative, deterministic trust class.
+
+        Historical human entries remain approved. Historical ``source="agent"``
+        entries did not pass a human approval boundary, so they migrate to pending
+        on read. An explicit stored ``review_status`` always wins.
+        """
+        if isinstance(data, dict) and "review_status" not in data:
+            migrated = dict(data)
+            migrated["review_status"] = (
+                "pending" if str(migrated.get("source") or "human") == "agent" else "approved"
+            )
+            return migrated
+        return data
 
 
 class Proposal(BaseModel):
@@ -480,15 +503,20 @@ class Proposal(BaseModel):
     rule, Preferences, or memory — the approve endpoint is the single write path.
     Today the proposer drafts ``suppression`` rules (a deterministically-derived
     ``field==value`` filter for a closed FALSE_POSITIVE) and may draft ``memory``
-    facts; both are anti-poisoning constrained (the field+value must LITERALLY
+    facts; the threshold observer also drafts review-first ``tuning`` work. Generic
+    automation checkpoints use ``automation_ack``: approving one records the operator's
+    acknowledgement only and deliberately materialises no configuration, Memory,
+    suppression, or case-state change. Suppression
+    and memory proposals are anti-poisoning constrained (the field+value must LITERALLY
     appear in the closed case's member events, never a bare entity/severity/cross-
     rule selector). ``payload`` carries the SuppressionRule-shaped dict (or the
-    memory text/category) the approve path materialises.
+    memory text/category, bounded tuning evidence, or acknowledgement context) the
+    approve path validates and, where applicable, materialises.
     """
 
     id: str = Field(default_factory=lambda: new_id("prop-"))
-    kind: Literal["suppression", "memory"] = "suppression"
-    status: Literal["pending", "approved", "rejected"] = "pending"
+    kind: Literal["suppression", "memory", "tuning", "automation_ack"] = "suppression"
+    status: Literal["pending", "applying", "approved", "rejected"] = "pending"
     payload: dict[str, Any] = Field(default_factory=dict)
     rationale: str = ""
     confidence: float = 0.0
@@ -497,6 +525,19 @@ class Proposal(BaseModel):
     created_at: str = Field(default_factory=iso_now)
     decided_by: str | None = None
     decided_at: str | None = None
+    # The first durable decision claim fixes the operator's intent and audit
+    # identity/timestamp. A failed strict write can be retried by another worker or
+    # operator, but the original decision actor remains the author of every effect,
+    # the append-only audit row, and the final public decision. ``decision_actor``
+    # is internal recovery state and is removed by the API's public projection.
+    # The intent likewise cannot silently change from approve to reject (or vice
+    # versa) after effects may exist.
+    decision_actor: str | None = None
+    decision_intent: Literal["approve", "reject"] | None = None
+    decision_audit_at: str | None = None
+    applying_token: str | None = None
+    applying_at: str | None = None
+    approval_error: str | None = None
     expires_at: str | None = None
 
 
@@ -1342,6 +1383,11 @@ class Case(BaseModel):
 # Section 7.2 — tlsoc-agent-audit-* (append-only)
 # --------------------------------------------------------------------------- #
 class AuditDoc(BaseModel):
+    # Optional deterministic idempotency key for privileged append-only events.
+    # Proposal decisions use this so a retry after an ambiguous response confirms
+    # the same evidence row instead of appending a duplicate. Ordinary telemetry
+    # keeps the historical auto-id behaviour.
+    event_id: str | None = None
     ts: str = Field(default_factory=iso_now)
     case_id: str | None = None
     # Coverage observability (A5.3): the source this action pertains to (e.g. the poller's

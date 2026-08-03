@@ -120,6 +120,24 @@ def registry_entry(model: str) -> dict[str, Any] | None:
     return load_registry().get((model or "").strip()) or None
 
 
+def model_capabilities(model: str) -> list[str]:
+    """Declared capabilities for a bundled model id.
+
+    Unknown models deliberately return an empty list: a role picker must not infer
+    embedding support from pricing or a provider name. Runtime-registered custom
+    models carry their own capability row at the API boundary.
+    """
+    entry = registry_entry(model)
+    if not entry:
+        return []
+    return sorted({str(item) for item in (entry.get("capabilities") or []) if str(item)})
+
+
+def model_supports_capability(model: str, capability: str) -> bool:
+    """Whether the bundled registry explicitly declares ``capability``."""
+    return str(capability) in model_capabilities(model)
+
+
 def registry_price(model: str) -> tuple[float, float] | None:
     """``(input_per_million, output_per_million)`` from the registry row, or None when
     the model is unknown to the registry (→ caller falls back to PRICES / heuristic)."""

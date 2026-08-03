@@ -1,0 +1,47 @@
+# GitHub's generated-release-notes taxonomy. The published GitHub Release remains
+# a human-reviewed record: generated PR lists supplement, rather than replace, the
+# versioned release page and CHANGELOG entry required by scripts/check_version.py.
+changelog:
+  exclude:
+    labels:
+      - skip-changelog
+      - internal-only
+  categories:
+    - title: Breaking changes
+      labels:
+        - breaking-change
+        - breaking
+    - title: Intelligence and investigation
+      labels:
+        - intelligence
+        - investigation
+        - auto-tuning
+        - runbooks
+        - playbooks
+    - title: Console and operator experience
+      labels:
+        - console
+        - ui
+        - ux
+        - accessibility
+    - title: Connectors and operations
+      labels:
+        - connectors
+        - deployment
+        - operations
+        - reliability
+    - title: Fixes
+      labels:
+        - bug
+        - fix
+    - title: Documentation
+      labels:
+        - documentation
+        - docs
+    - title: Dependencies and maintenance
+      labels:
+        - dependencies
+        - maintenance
+    - title: Other changes
+      labels:
+        - "*"

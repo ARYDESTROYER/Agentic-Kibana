@@ -83,6 +83,42 @@ class UsageStore(UsageRepository):
         )
         return [h.get("_source", {}) or {} for h in resp.get("hits", {}).get("hits", [])]
 
+    async def export_page(
+        self, *, limit: int = 1000, cursor: Any = None,
+    ) -> tuple[list[dict[str, Any]], Any | None, int | None, str]:
+        """PIT + ``_shard_doc`` page for an exact append-only ledger snapshot."""
+        cap = max(1, min(int(limit or 1000), 5000))
+        pit_id = str(cursor.get("pit", "")) if isinstance(cursor, dict) else ""
+        after = cursor.get("after") if isinstance(cursor, dict) else None
+        seen = max(0, int(cursor.get("seen", 0) or 0)) if isinstance(cursor, dict) else 0
+        if not pit_id:
+            pit_id = str(await self._es.open_state_pit(USAGE_READ_PATTERN, "10m") or "")
+        body: dict[str, Any] = {
+            "size": cap,
+            "track_total_hits": True,
+            "query": {"match_all": {}},
+            "sort": ["_shard_doc"] if pit_id else [{"ts": {"order": "asc", "missing": "_first"}}],
+        }
+        if pit_id:
+            body["pit"] = {"id": pit_id, "keep_alive": "10m"}
+            if isinstance(after, list) and len(after) == 1:
+                body["search_after"] = after
+        resp = await self._es.search(USAGE_READ_PATTERN, body)
+        if pit_id:
+            pit_id = str(resp.get("pit_id") or pit_id)
+        raw_hits = resp.get("hits", {}).get("hits", [])
+        rows = [hit.get("_source", {}) or {} for hit in raw_hits]
+        total_raw = resp.get("hits", {}).get("total", {})
+        total = int(total_raw.get("value", len(rows))) if isinstance(total_raw, dict) else int(total_raw)
+        if not pit_id:
+            return rows, None, None, "unverified"
+        marker = raw_hits[-1].get("sort") if raw_hits else after
+        return rows, {"pit": pit_id, "after": marker, "seen": seen + len(rows)}, total, "point_in_time"
+
+    async def close_export_cursor(self, cursor: Any) -> None:
+        if isinstance(cursor, dict) and cursor.get("pit"):
+            await self._es.close_state_pit(str(cursor["pit"]))
+
     async def summary(self, window_hours: int = 24, case_id: str | None = None) -> dict[str, Any]:
         now = now_utc()
         from_millis = to_millis(now) - window_hours * 3600 * 1000

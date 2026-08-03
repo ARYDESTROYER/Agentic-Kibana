@@ -74,11 +74,14 @@ def _resolve_proposal_kind(payload: dict[str, Any]) -> str:
 
     * ``suppression`` ONLY when the payload is a complete suppression (both ``field``
       AND ``value`` present) — otherwise the approve path's ``SuppressionRule``
-      validation 400s. A partial ``kind="suppression"`` degrades to ``memory``.
-    * ``memory`` when explicitly requested OR as the safe default for a generic gate.
+      validation 400s. A partial suppression becomes an acknowledgement checkpoint.
+    * ``memory`` ONLY when explicitly requested. Generic review work must never become
+      trusted durable context merely because it passed through the Approvals queue.
+    * everything else uses ``automation_ack``. Approval records the operator review and
+      materialises no configuration, Memory, suppression, or case-state change.
 
-    Anything else the approve path cannot materialise (it handles exactly suppression +
-    memory) so we never emit a kind that would dead-end at approval time."""
+    Every emitted kind has an explicit approve-path branch, so no review item can
+    dead-end at approval time or silently acquire a stronger meaning."""
     requested = str(payload.get("kind") or "").strip().lower()
     has_suppression_shape = bool(
         str(payload.get("field") or "").strip() and str(payload.get("value") or "").strip()
@@ -90,8 +93,8 @@ def _resolve_proposal_kind(payload: dict[str, Any]) -> str:
     # A complete suppression payload with no explicit kind still round-trips as one.
     if not requested and has_suppression_shape:
         return "suppression"
-    # Generic approval gate (or a partial suppression) → an operator-acknowledged note.
-    return "memory"
+    # Generic approval gate (or a partial/unknown shape) → review-only acknowledgement.
+    return "automation_ack"
 
 
 def _coerce_float(value: Any) -> float | None:
@@ -317,7 +320,7 @@ class ThresholdAutomation:
         ONLY thing automation does for an approval-required action (NO live write).
 
         THE #11 FIX (round-trip, not a dead end): the proposal ``kind`` must be one the
-        existing ``/proposals/{id}/approve`` path can MATERIALISE, or approving it 400s.
+        existing ``/proposals/{id}/approve`` path can process, or approving it 400s.
         Previously this ALWAYS forced ``kind="suppression"`` — but a generic
         ``request_approval`` rule carries no ``field``/``value``, so the approve path's
         ``SuppressionRule.model_validate`` rejected it (400: "invalid suppression
@@ -326,13 +329,13 @@ class ThresholdAutomation:
         * a fully-formed suppression payload (has both ``field`` AND ``value``) stays
           ``kind="suppression"`` → approving it adds a live suppression rule, as before;
         * an explicit ``kind="memory"`` stays ``memory`` → approving it files a note;
-        * ANYTHING ELSE (the common generic gate) becomes ``kind="memory"`` — an
-          operator-acknowledged note whose ``text`` falls back to the rationale, which is
-          always present — so the approve path materialises it cleanly instead of 400ing.
+        * ANYTHING ELSE (the common generic gate, a partial suppression, or an unknown
+          requested kind) becomes ``kind="automation_ack"`` — approval records only that
+          the operator reviewed the checkpoint. It never creates trusted Memory.
 
-        Every path is #3-safe: approving a proposal writes a suppression rule / a memory
-        note (via the existing single approve write-path) — it NEVER closes or transitions
-        the case."""
+        Every path is #3-safe: the existing approve write-path may materialise an explicit
+        suppression or Memory proposal, while an automation acknowledgement changes only
+        proposal status. It NEVER closes or transitions the case."""
         payload = dict(action.payload or {})
         kind = _resolve_proposal_kind(payload)
         rationale = str(
@@ -341,11 +344,15 @@ class ThresholdAutomation:
             f"case {case.case_id} (verdict={_verdict_value(case) or 'n/a'}, "
             f"risk={round(case.risk_score, 1)}). Review before approving."
         )
-        # For a memory-kind approval note, guarantee the approve path has non-empty
-        # ``text`` (it falls back to ``proposal.rationale`` otherwise, but be explicit so
-        # a payload that only carried a ``kind`` still round-trips).
+        # An explicitly requested memory still needs durable text. Generic gates never
+        # enter this branch: they are acknowledgement-only and cannot become Memory.
         if kind == "memory" and not str(payload.get("text") or "").strip():
             payload["text"] = rationale
+        if kind == "automation_ack":
+            payload.setdefault("rule_id", action.rule_id)
+            requested_kind = str(payload.get("kind") or "").strip()
+            if requested_kind and requested_kind != "automation_ack":
+                payload.setdefault("requested_kind", requested_kind)
         expires = (now_utc() + timedelta(days=_PROPOSAL_EXPIRY_DAYS)).isoformat()
         prop = Proposal(
             kind=kind,  # type: ignore[arg-type]

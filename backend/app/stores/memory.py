@@ -11,14 +11,15 @@ through the existing :class:`KVStore` abstraction (``ns="memory"``, ``key="entri
 ``SqlKVStore`` (the shared KV table); the ES backend uses the thin
 :class:`EsKVStore` adapter below (a doc in the existing config index).
 
-Reads + writes are read-modify-write over the single list — fine at our scale
-(operator-authored facts, not log volume). The store NEVER raises: a load/save
+Writes use the shared KV compare-and-set mutation helper, so concurrent operators
+cannot silently clobber each other's facts. The store NEVER raises: a load/save
 failure degrades to an empty list / best-effort write and is logged, so a memory
 glitch can never drop an alert or break chat.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -47,6 +48,7 @@ from ..es.base import BaseESClient
 from ..models import MemoryEntry
 from ..utils import iso_now
 from .base import KVStore
+from .base import kv_mutate_strict
 
 logger = logging.getLogger("tlsoc.stores.memory")
 
@@ -141,11 +143,12 @@ class EsKVStore(KVStore):
 class MemoryStore:
     """CRUD over the operator-memory list, persisted as one KV document.
 
-    The KV value is ``{"entries": [<MemoryEntry json>, ...]}``. Methods are
-    read-modify-write; none raises (a failure logs + returns a safe default)."""
+    The KV value is ``{"entries": [<MemoryEntry json>, ...]}``. Ordinary methods
+    remain fail-soft; :meth:`list_strict` is the evidence/export boundary."""
 
     def __init__(self, kv: KVStore) -> None:
         self._kv = kv
+        self._approval_lock = asyncio.Lock()
 
     async def _load(self) -> list[MemoryEntry]:
         try:
@@ -164,6 +167,22 @@ class MemoryStore:
                 continue
         return out
 
+    async def _load_strict(self) -> list[MemoryEntry]:
+        """Load every memory entry or raise when export completeness is unknown."""
+        getter = getattr(self._kv, "get_strict", None) or self._kv.get
+        doc = await getter(MEMORY_NS, MEMORY_KEY)
+        if doc is None:
+            return []
+        if not isinstance(doc, dict):
+            raise ValueError("memory registry is not a JSON object")
+        raw = doc.get("entries", [])
+        if not isinstance(raw, list):
+            raise ValueError("memory registry entries are not a list")
+        try:
+            return [MemoryEntry.model_validate(item) for item in raw]
+        except Exception as exc:  # noqa: BLE001 — strict evidence reads fail closed
+            raise ValueError("memory registry contains an invalid entry") from exc
+
     async def _save(self, entries: list[MemoryEntry]) -> None:
         try:
             await self._kv.put(
@@ -180,6 +199,13 @@ class MemoryStore:
         # Newest first so injection picks the most recent facts when bounded.
         return sorted(entries, key=lambda e: e.created_at, reverse=True)
 
+    async def list_strict(self, active_only: bool = True) -> list[MemoryEntry]:
+        """Newest-first memory, raising on unavailable or malformed persistence."""
+        entries = await self._load_strict()
+        if active_only:
+            entries = [e for e in entries if e.active]
+        return sorted(entries, key=lambda e: e.created_at, reverse=True)
+
     async def get(self, entry_id: str) -> MemoryEntry | None:
         for e in await self._load():
             if e.id == entry_id:
@@ -193,44 +219,141 @@ class MemoryStore:
         tags: list[str] | None = None,
         source: str = "human",
         author: str = "",
+        review_status: str | None = None,
+        approved_by: str = "",
     ) -> MemoryEntry:
+        source = source if source in ("human", "agent") else "human"
+        status = review_status if review_status in ("approved", "pending") else (
+            "pending" if source == "agent" else "approved"
+        )
+        now = iso_now()
         entry = MemoryEntry(
             text=(text or "").strip(),
             category=(category or "").strip(),
             tags=[str(t).strip() for t in (tags or []) if str(t).strip()],
-            source=source if source in ("human", "agent") else "human",
+            source=source,
             author=(author or "").strip(),
+            review_status=status,
+            approved_by=(approved_by or author or "").strip() if status == "approved" else "",
+            approved_at=now if status == "approved" else "",
         )
-        entries = await self._load()
-        entries.append(entry)
-        await self._save(entries)
+
+        def _append(doc: dict[str, Any] | None) -> dict[str, Any]:
+            rows = list((doc or {}).get("entries", []) or [])
+            rows.append(entry.model_dump(mode="json"))
+            return {"entries": rows}
+
+        await self._kv.mutate(MEMORY_NS, MEMORY_KEY, _append)
         return entry
 
+    async def add_approved_proposal_strict(
+        self,
+        text: str,
+        *,
+        proposal_id: str,
+        category: str = "",
+        tags: list[str] | None = None,
+        author: str = "",
+    ) -> MemoryEntry:
+        """Persist one trusted proposal-derived fact exactly once or raise.
+
+        Approval is a durability boundary: a fail-soft Memory write must never be
+        reported as a successful approval. ``approval_proposal_id`` is the stable
+        idempotency key used when an approval is replayed after an ambiguous finalise.
+        """
+        pid = str(proposal_id or "").strip()
+        if not pid:
+            raise ValueError("proposal_id is required for approved Memory")
+        now = iso_now()
+        candidate = MemoryEntry(
+            text=(text or "").strip(),
+            category=(category or "").strip(),
+            tags=[str(t).strip() for t in (tags or []) if str(t).strip()],
+            source="agent",
+            author=(author or "").strip(),
+            review_status="approved",
+            approved_by=(author or "").strip(),
+            approved_at=now,
+            approval_proposal_id=pid,
+        )
+        selected: dict[str, MemoryEntry] = {"entry": candidate}
+
+        def _append_once(doc: dict[str, Any] | None) -> dict[str, Any]:
+            rows = list((doc or {}).get("entries", []) or [])
+            for raw in rows:
+                if not isinstance(raw, dict):
+                    continue
+                if str(raw.get("approval_proposal_id") or "") == pid:
+                    selected["entry"] = MemoryEntry.model_validate(raw)
+                    return {"entries": rows}
+            rows.append(candidate.model_dump(mode="json"))
+            selected["entry"] = candidate
+            return {"entries": rows}
+
+        await kv_mutate_strict(
+            self._kv,
+            MEMORY_NS,
+            MEMORY_KEY,
+            _append_once,
+            lock=self._approval_lock,
+        )
+        return selected["entry"]
+
     async def update(self, entry_id: str, **fields: Any) -> MemoryEntry | None:
-        entries = await self._load()
         updated: MemoryEntry | None = None
-        allowed = {"text", "category", "tags", "active", "source", "author"}
-        for idx, e in enumerate(entries):
-            if e.id != entry_id:
-                continue
-            patch = {k: v for k, v in fields.items() if k in allowed and v is not None}
-            if "tags" in patch and isinstance(patch["tags"], list):
-                patch["tags"] = [str(t).strip() for t in patch["tags"] if str(t).strip()]
-            patch["updated_at"] = iso_now()
-            updated = e.model_copy(update=patch)
-            entries[idx] = updated
-            break
-        if updated is not None:
-            await self._save(entries)
+        allowed = {
+            "text", "category", "tags", "active", "source", "author",
+            "review_status", "approved_by",
+        }
+
+        def _update(doc: dict[str, Any] | None) -> dict[str, Any]:
+            nonlocal updated
+            rows = list((doc or {}).get("entries", []) or [])
+            for idx, raw in enumerate(rows):
+                try:
+                    entry = MemoryEntry.model_validate(raw)
+                except Exception:  # noqa: BLE001 — preserve unrelated corrupt rows
+                    continue
+                if entry.id != entry_id:
+                    continue
+                patch = {k: v for k, v in fields.items() if k in allowed and v is not None}
+                if "tags" in patch and isinstance(patch["tags"], list):
+                    patch["tags"] = [str(t).strip() for t in patch["tags"] if str(t).strip()]
+                if patch.get("review_status") == "approved":
+                    patch["approved_by"] = str(patch.get("approved_by") or "operator").strip()
+                    patch["approved_at"] = iso_now()
+                elif patch.get("review_status") == "pending":
+                    patch["approved_by"] = ""
+                    patch["approved_at"] = ""
+                patch["updated_at"] = iso_now()
+                updated = entry.model_copy(update=patch)
+                rows[idx] = updated.model_dump(mode="json")
+                break
+            return {"entries": rows}
+
+        await self._kv.mutate(MEMORY_NS, MEMORY_KEY, _update)
         return updated
 
     async def delete(self, entry_id: str) -> bool:
-        entries = await self._load()
-        remaining = [e for e in entries if e.id != entry_id]
-        if len(remaining) == len(entries):
-            return False
-        await self._save(remaining)
-        return True
+        removed = False
+
+        def _delete(doc: dict[str, Any] | None) -> dict[str, Any]:
+            nonlocal removed
+            rows = list((doc or {}).get("entries", []) or [])
+            kept: list[Any] = []
+            for raw in rows:
+                try:
+                    is_match = MemoryEntry.model_validate(raw).id == entry_id
+                except Exception:  # noqa: BLE001
+                    is_match = False
+                if is_match:
+                    removed = True
+                else:
+                    kept.append(raw)
+            return {"entries": kept}
+
+        await self._kv.mutate(MEMORY_NS, MEMORY_KEY, _delete)
+        return removed
 
     async def delete_by_text(self, text: str) -> list[MemoryEntry]:
         """Fuzzy 'forget …' helper: delete every entry whose text CONTAINS the given
@@ -239,10 +362,23 @@ class MemoryStore:
         needle = (text or "").strip().lower()
         if not needle:
             return []
-        entries = await self._load()
-        removed = [e for e in entries if needle in e.text.lower()]
-        if not removed:
-            return []
-        removed_ids = {e.id for e in removed}
-        await self._save([e for e in entries if e.id not in removed_ids])
+        removed: list[MemoryEntry] = []
+
+        def _delete(doc: dict[str, Any] | None) -> dict[str, Any]:
+            nonlocal removed
+            rows = list((doc or {}).get("entries", []) or [])
+            kept: list[Any] = []
+            for raw in rows:
+                try:
+                    entry = MemoryEntry.model_validate(raw)
+                except Exception:  # noqa: BLE001
+                    kept.append(raw)
+                    continue
+                if needle in entry.text.lower():
+                    removed.append(entry)
+                else:
+                    kept.append(raw)
+            return {"entries": kept}
+
+        await self._kv.mutate(MEMORY_NS, MEMORY_KEY, _delete)
         return removed

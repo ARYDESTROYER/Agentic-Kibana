@@ -7,7 +7,19 @@
  */
 import { describe, it, expect } from 'vitest';
 
-import { fmtMoney, humanizeToken, fmtTokens, DASH } from '../format';
+import { fmtMoney, humanizeToken, fmtTokens, humanizeUntil, DASH } from '../format';
+
+describe('humanizeUntil', () => {
+  it('keeps future approval deadlines future-facing', () => {
+    const now = Date.now();
+    expect(humanizeUntil(new Date(now + 7 * 24 * 60 * 60 * 1000).toISOString())).toBe('in 7d');
+  });
+
+  it('makes expired and invalid deadlines explicit', () => {
+    expect(humanizeUntil(new Date(Date.now() - 60_000).toISOString())).toBe('expired');
+    expect(humanizeUntil('not-a-date')).toBe(DASH);
+  });
+});
 
 describe('fmtMoney', () => {
   it('maps the ISO currency CODE "USD" to a $ symbol (not "USD0.0500")', () => {

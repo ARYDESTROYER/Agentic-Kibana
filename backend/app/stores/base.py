@@ -26,6 +26,7 @@ from typing import Any, Awaitable, Callable
 from ..config import Preferences
 from ..constants import ActionType
 from ..models import AuditDoc, Case, Cursor, UsageDoc
+from ..utils import truncate
 
 logger = logging.getLogger("tlsoc.stores.base")
 
@@ -238,6 +239,38 @@ class CaseRepository(ABC):
     async def count_new_scans(self, since_iso: str) -> int:
         """Count automated-scan cases created strictly after ``since_iso``."""
 
+    async def export_page(
+        self, *, limit: int = 1000, cursor: Any = None,
+    ) -> tuple[list[Case], Any | None, int | None, str]:
+        """One deterministic oldest-first page for a full-history export.
+
+        ``cursor`` is repository-private continuation state; callers must treat it as
+        opaque.  The compatibility implementation uses the existing offset listing so
+        third-party repositories gain a correct, if less efficient, export path without
+        implementing a new abstract method.  Bundled Elasticsearch stores override this
+        with ``search_after`` so exports can pass the result-window ceiling.
+
+        Returns ``(rows, next_cursor, snapshot_total, consistency)``. ``snapshot_total`` is the
+        exact matching count observed while this page was read when the backend can
+        prove it, otherwise ``None``.
+        """
+        try:
+            offset = max(0, int(cursor or 0))
+        except (TypeError, ValueError):
+            offset = 0
+        rows, total = await self.list(
+            limit=max(1, int(limit)),
+            offset=offset,
+            sort_field="created_at",
+            sort_order="asc",
+        )
+        next_cursor = offset + len(rows) if offset + len(rows) < total else None
+        return rows, next_cursor, int(total), "bounded_at_start"
+
+    async def close_export_cursor(self, cursor: Any) -> None:
+        """Release an optional repository-owned export snapshot handle."""
+        return None
+
 
 class AuditRepository(ABC):
     """Append-only audit log (Section 7.2 / Non-negotiable #2).
@@ -248,6 +281,15 @@ class AuditRepository(ABC):
 
     @abstractmethod
     async def write(self, doc: AuditDoc) -> None: ...
+
+    async def write_strict(self, doc: AuditDoc) -> None:
+        """Persist an audit row or raise when durability cannot be confirmed.
+
+        Normal investigation telemetry remains fail-soft through :meth:`write`.
+        Privileged data delivery uses this explicit boundary so a successful HTTP
+        response cannot bypass the append-only audit invariant.
+        """
+        raise NotImplementedError("audit repository does not implement strict persistence")
 
     @abstractmethod
     async def record(
@@ -266,6 +308,48 @@ class AuditRepository(ABC):
         tool_output_summary: str | None = None,
         result_summary: str | None = None,
     ) -> None: ...
+
+    async def record_strict(
+        self,
+        *,
+        action_type: ActionType,
+        event_id: str | None = None,
+        ts: str | None = None,
+        surface: str = "",
+        actor: str = "",
+        case_id: str | None = None,
+        source_id: str | None = None,
+        model: str | None = None,
+        prompt_excerpt: str | None = None,
+        query_text: str | None = None,
+        tool_name: str | None = None,
+        tool_input: Any = None,
+        tool_output_summary: str | None = None,
+        result_summary: str | None = None,
+    ) -> None:
+        """Build and strictly persist one append-only audit document."""
+        await self.write_strict(
+            AuditDoc(
+                event_id=event_id,
+                **({"ts": ts} if ts else {}),
+                action_type=action_type,
+                surface=surface,
+                actor=actor,
+                case_id=case_id,
+                source_id=source_id,
+                model=model,
+                prompt_excerpt=truncate(prompt_excerpt, 1000) if prompt_excerpt else None,
+                query_text=query_text,
+                tool_name=tool_name,
+                tool_input=tool_input,
+                tool_output_summary=(
+                    truncate(tool_output_summary, 1000)
+                    if tool_output_summary
+                    else None
+                ),
+                result_summary=truncate(result_summary, 1000) if result_summary else None,
+            )
+        )
 
     @abstractmethod
     async def records_for_case(self, case_id: str, limit: int = 500) -> list[dict[str, Any]]:
@@ -296,6 +380,25 @@ class AuditRepository(ABC):
         it. Read-only (#2 — never mutates). Never raises. ``source_id`` (A5.3 coverage
         observability) filters to a single source's poll history."""
         return []
+
+    async def export_page(
+        self, *, limit: int = 1000, cursor: Any = None,
+    ) -> tuple[list[dict[str, Any]], Any | None, int | None, str]:
+        """One oldest-first audit page for the portable full-history export.
+
+        The default is deliberately conservative: legacy repositories can return one
+        bounded page, but cannot claim that it is complete when the page fills.  The
+        bundled Elasticsearch and SQL repositories provide resumable, exact-count
+        implementations.
+        """
+        if cursor not in (None, 0, "", []):
+            return [], None, None, "unverified"
+        rows = list(reversed(await self.records(limit=max(1, int(limit)))))
+        total = len(rows) if len(rows) < max(1, int(limit)) else None
+        return rows, None, total, "unverified" if total is None else "bounded_at_start"
+
+    async def close_export_cursor(self, cursor: Any) -> None:
+        return None
 
 
 class UsageRepository(ABC):
@@ -344,6 +447,24 @@ class UsageRepository(ABC):
         strict projection explicitly rather than silently turning failure into ``[]``.
         """
         raise NotImplementedError("usage repository does not implement strict record reads")
+
+    async def export_page(
+        self, *, limit: int = 1000, cursor: Any = None,
+    ) -> tuple[list[dict[str, Any]], Any | None, int | None, str]:
+        """One oldest-first usage page for the portable full-history export.
+
+        Third-party repositories remain source-compatible and return one conservative
+        page.  Bundled stores override this with resumable pagination and an exact
+        snapshot count.
+        """
+        if cursor not in (None, 0, "", []):
+            return [], None, None, "unverified"
+        rows = list(reversed(await self.records(limit=max(1, int(limit)))))
+        total = len(rows) if len(rows) < max(1, int(limit)) else None
+        return rows, None, total, "unverified" if total is None else "bounded_at_start"
+
+    async def close_export_cursor(self, cursor: Any) -> None:
+        return None
 
 
 class KVStore(ABC):

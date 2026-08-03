@@ -29,9 +29,11 @@ healthy.
 
 **Operations** groups current recommendations by rule. **Process changes** calls the
 rule-scoped endpoint once; the backend recomputes and processes every current proposal
-for that rule. Safe bounded changes are applied and audited, while suppression and
-shadow-blocked changes route to **Approvals** and are never auto-applied. Rollback
-restores the previous value.
+for that rule. The default is review-first: eligible bounded changes route to
+**Approvals**, while suppression and shadow-blocked changes always require review.
+An operator may explicitly enable confirmed-evidence auto-apply, but only while shadow
+evaluation is enabled; disabling shadow evaluation disables that opt-in. Every applied
+change is audited, and rollback restores the exact previous value.
 
 ## Console workspaces
 
@@ -93,9 +95,12 @@ week means seven complete UTC days versus the prior seven; rolling 28 means the 
 28 complete days versus the prior 28, not calendar month over month.
 
 Confirmed-positive cases are not divided by raw alerts: clustering makes them unlike
-units, so that yield remains unavailable. Source-gap suggestions such as adding
-outgoing DNS telemetry are also a long-term objective until deterministic coverage
-mapping and provenance can support them.
+units, so that yield remains unavailable. The aggregate effectiveness report also
+cannot infer source gaps. Separately, **Telemetry recommendations** can suggest one of
+three supported sources—outbound DNS, endpoint process, or identity authentication—
+only when a stored, versioned query/tool failure proves that the required field was
+unavailable. Missing connector configuration and free-form model prose never qualify;
+no qualifying proof means no recommendation.
 
 This placement provides context for a tuning review; it does not prove that a tuning
 change caused an observed outcome shift or that a model learned. Reading it performs
@@ -123,8 +128,9 @@ complete.
 2. Gather enough analyst dispositions to clear the evidence threshold.
 3. Filter or search Rule performance, then inspect the rule's observed and conservative
    false-positive rates, recommendation set, and shadow result.
-4. Process the rule as one unit; safe changes apply, while restricted changes route to
-   Approvals.
+4. Process the rule as one unit; the review-first default routes eligible changes to
+   Approvals. If confirmed auto-apply was explicitly enabled, verify that shadow
+   evaluation remains enabled and inspect the resulting ledger entry.
 5. Monitor false positives, missed detections, spend, and downstream case volume.
 6. Roll back the newest active change when the observed result is worse.
 

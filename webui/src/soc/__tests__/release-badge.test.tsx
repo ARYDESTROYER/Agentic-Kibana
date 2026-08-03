@@ -63,6 +63,30 @@ describe('ReleaseBadge', () => {
     expect(screen.getAllByText('abc123')).toHaveLength(1);
     expect(screen.getAllByText('different')).toHaveLength(1);
   });
+
+  it('explains why an unstamped pair remains Testing', async () => {
+    render(
+      <ReleaseBadge
+        consoleIdentity={{
+          version: '0.1.2', channel: 'stable', commitSha: 'unknown', buildTime: 'unknown',
+        }}
+        buildInfo={{
+          service: 'tlsoc-agentic-triage',
+          version: '0.1.2',
+          release_channel: 'stable',
+          commit_sha: 'unknown',
+          build_time: 'unknown',
+          state_backend: 'postgres',
+          ocsf_version: '1.4.0',
+          provenance_complete: false,
+          provenance_missing: ['commit_sha', 'build_time'],
+        }}
+      />,
+    );
+    expect(screen.getByTestId('release-badge')).toHaveTextContent('v0.1.2·Testing');
+    fireEvent.click(screen.getByTestId('release-badge'));
+    expect(await screen.findByText(/Build provenance is incomplete/i)).toBeVisible();
+  });
 });
 
 const deployedUpdate: DeployedReleaseManifest = {

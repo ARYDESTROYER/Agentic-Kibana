@@ -193,6 +193,41 @@ def main() -> int:
             failures.append(
                 f"webui/nginx.conf: missing deployed-release boundary {marker!r}"
             )
+    for marker in (
+        "server_tokens off;",
+        "include /etc/nginx/agentic-soc-security-headers.conf;",
+    ):
+        if marker not in nginx_source:
+            failures.append(
+                f"webui/nginx.conf: missing static-serving hardening marker {marker!r}"
+            )
+
+    security_headers_path = ROOT / "webui/nginx-security-headers.conf"
+    if not security_headers_path.is_file():
+        failures.append(
+            "webui/nginx-security-headers.conf: missing shared static-response headers"
+        )
+    else:
+        security_headers_source = security_headers_path.read_text(encoding="utf-8")
+        for marker in (
+            "X-Content-Type-Options",
+            "X-Frame-Options",
+            "Referrer-Policy",
+            "Permissions-Policy",
+        ):
+            if marker not in security_headers_source:
+                failures.append(
+                    "webui/nginx-security-headers.conf: missing response-header "
+                    f"marker {marker!r}"
+                )
+    if (
+        "COPY webui/nginx-security-headers.conf "
+        "/etc/nginx/agentic-soc-security-headers.conf"
+        not in web_docker_source
+    ):
+        failures.append(
+            "webui/Dockerfile: missing shared nginx security-header installation"
+        )
 
     compose_source = (ROOT / "deploy/docker-compose.agnostic.yml").read_text(
         encoding="utf-8"
@@ -269,6 +304,12 @@ def main() -> int:
     ):
         if marker not in mkdocs_source:
             failures.append(f"mkdocs.yml: missing documentation-version marker {marker!r}")
+    release_nav_marker = f"releases/{version}.md"
+    if release_nav_marker not in mkdocs_source:
+        failures.append(
+            f"mkdocs.yml: missing canonical release-page nav entry "
+            f"{release_nav_marker!r}"
+        )
 
     changelog_source = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     active_unreleased = re.findall(r"^## \[Unreleased\]\s*$", changelog_source, re.MULTILINE)
@@ -282,6 +323,47 @@ def main() -> int:
             "CHANGELOG.md contains a legacy [Unreleased-prev] section; historical "
             "unpublished work must be labelled Development snapshot"
         )
+
+    release_heading = re.compile(
+        rf"^## \[{re.escape(version)}\] - \d{{4}}-\d{{2}}-\d{{2}}$", re.MULTILINE
+    )
+    if not release_heading.search(changelog_source):
+        failures.append(
+            f"CHANGELOG.md: missing dated canonical release heading for {version!r}"
+        )
+
+    release_page = ROOT / f"docs/releases/{version}.md"
+    if not release_page.is_file():
+        failures.append(
+            f"docs/releases/{version}.md: missing detailed canonical release page"
+        )
+    else:
+        release_page_source = release_page.read_text(encoding="utf-8")
+        for marker in (
+            f"# Agentic SOC {version}",
+            f"annotated tag `v{version}`",
+            "Exact Stable build identity",
+            "Immutable annotated-tag checklist",
+            "TLSOC_RELEASE_CHANNEL=stable",
+            "TLSOC_BUILD_SHA",
+            "TLSOC_BUILD_DATE",
+        ):
+            if marker not in release_page_source:
+                failures.append(
+                    f"docs/releases/{version}.md: missing release-contract marker "
+                    f"{marker!r}"
+                )
+
+    release_notes_config = ROOT / ".github/release.yml"
+    if not release_notes_config.is_file():
+        failures.append(".github/release.yml: missing generated-release-notes taxonomy")
+    else:
+        release_notes_source = release_notes_config.read_text(encoding="utf-8")
+        for marker in ("changelog:", "categories:", 'labels:\n        - "*"'):
+            if marker not in release_notes_source:
+                failures.append(
+                    f".github/release.yml: missing release-note marker {marker!r}"
+                )
 
     # Release records use the machine-readable SemVer. The documentation selector
     # intentionally uses the stable major.minor line, so patch releases update the

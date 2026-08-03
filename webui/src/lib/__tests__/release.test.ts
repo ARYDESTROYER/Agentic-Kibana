@@ -11,7 +11,7 @@ import {
 } from '../release';
 
 const consoleBuild = (partial: Partial<ReleaseIdentity> = {}): ReleaseIdentity => ({
-  version: '0.1.1',
+  version: '0.1.2',
   channel: 'testing',
   commitSha: 'abc123',
   buildTime: '2026-07-20T10:00:00Z',
@@ -30,13 +30,13 @@ describe('build release identity', () => {
   it('uses the canonical package version and stamps supplied provenance', () => {
     expect(
       resolveBuildReleaseIdentity({
-        TLSOC_VERSION: '0.1.1',
+        TLSOC_VERSION: '0.1.2',
         TLSOC_RELEASE_CHANNEL: 'stable',
         TLSOC_BUILD_SHA: 'abc123',
         TLSOC_BUILD_DATE: '2026-07-20T10:00:00Z',
       }),
     ).toEqual({
-      version: '0.1.1',
+      version: '0.1.2',
       channel: 'stable',
       commitSha: 'abc123',
       buildTime: '2026-07-20T10:00:00Z',
@@ -59,7 +59,7 @@ describe('runtime release presentation', () => {
 
   it('shows Stable when Console and backend stable provenance agree', () => {
     const result = resolveReleasePresentation(consoleBuild({ channel: 'stable' }), {
-      version: '0.1.1',
+      version: '0.1.2',
       release_channel: 'stable',
       commit_sha: 'abc123',
       build_time: '2026-07-20T10:00:00Z',
@@ -67,11 +67,12 @@ describe('runtime release presentation', () => {
     expect(result.channelLabel).toBe('Stable');
     expect(result.contextLabel).toBe('Stable main build');
     expect(result.mismatch).toBe(false);
+    expect(result.provenanceComplete).toBe(true);
   });
 
   it('downgrades a Stable Console when backend channel or commit differs', () => {
     const result = resolveReleasePresentation(consoleBuild({ channel: 'stable' }), {
-      version: '0.1.1',
+      version: '0.1.2',
       release_channel: 'testing',
       commit_sha: 'different',
       build_time: '2026-07-20T10:00:00Z',
@@ -79,5 +80,20 @@ describe('runtime release presentation', () => {
     expect(result.channelLabel).toBe('Testing');
     expect(result.contextLabel).toBe('Pre-release integration build');
     expect(result.mismatch).toBe(true);
+  });
+
+  it('never presents an unstamped build as Stable', () => {
+    const result = resolveReleasePresentation(
+      consoleBuild({ channel: 'stable', commitSha: 'unknown', buildTime: 'unknown' }),
+      {
+        version: '0.1.2',
+        release_channel: 'stable',
+        commit_sha: 'unknown',
+        build_time: 'unknown',
+      },
+    );
+    expect(result.channelLabel).toBe('Testing');
+    expect(result.provenanceComplete).toBe(false);
+    expect(result.mismatch).toBe(false);
   });
 });

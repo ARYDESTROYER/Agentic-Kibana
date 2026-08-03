@@ -10,8 +10,9 @@ count current), full `npm run build` (version-matched Help Center + tsc + Vite) 
 Vitest clean, **#3 `decide()` byte-identical**,
 docs + Journal updated, commit + push.
 
-**Current baseline (Version `0.1.1`; `Testing` integration, default `main` Stable,
-and release tag `v0.1.1`):** the canonical branches and tag now exist. Branch
+**Current baseline (Version `0.1.2` beta patch candidate; `Testing` integration,
+default `main` Stable, and prior release tag `v0.1.1`):** the canonical branches
+exist; the immutable `v0.1.2` tag follows verified promotion. Branch
 protections, required checks, Pages source selection, and `github-pages` environment
 policy remain repository-administration controls and must be verified independently;
 source files cannot attest to those settings. The current console adds the polished
@@ -31,7 +32,8 @@ the exact record to Case Manager, whose desktop queue divider is accessible,
 bounded, and persisted. The dashboard defaults to visibility-aware LIVE refresh and
 adds an expanded aggregate Noise Reduction view. Threat Context explains persisted
 alert-to-cluster-to-case formation; Demo Mode now has five sources including Entra;
-and privileged operators can create a bounded, secret-free portable analysis export.
+and privileged operators can page every record in selected supported safe export
+scopes through bounded, resumable files (still an analysis artifact, not a backup).
 Compatible official OpenAI alert/case work prefers live Flex with truthful standard
 fallback, independently of the still-opt-in asynchronous Batch event funnel.
 Agent Effectiveness now preserves its established quality/turnaround headline while
@@ -119,11 +121,11 @@ competitively — it is a dated research snapshot):
   above); this closes the loop with actual write-side actions.
 - ☐ **A formal eval / detection-quality harness** — golden-set replay, precision/
   recall against known-good verdicts, prompt/model regression gating.
-- ☐ **Governed telemetry-gap recommendations** — map investigation uncertainty and
-  ATT&CK/detection coverage to validated missing-source capabilities (for example,
-  outgoing DNS telemetry), show the specific evidence behind each recommendation,
-  and measure post-addition outcomes. Do not ship heuristic source advice before the
-  alert→case lineage, coverage model, and provenance can support it.
+- ☑ **Governed telemetry-gap recommendations (bounded v1)** —
+  `GET /api/tuning/source-recommendations` accepts only versioned stored query/tool
+  evidence for three allow-listed gaps (outbound DNS, endpoint process, identity
+  authentication), exposes bounded proofs/case scope, and ignores connector absence or
+  free-form prose. Post-addition causal outcome measurement remains future work.
 - ☐ **Sigma / detection-as-code import** — an import path into the Detection & Rules
   editor (shipped in Round 5 G6) for Sigma-format rules.
 - ☐ **An MCP transport** — expose the existing MCP-shaped tools (`tools/base.py`)
@@ -153,6 +155,36 @@ threads from that round are:
 - ☐ **OTEL / scale-out** — unchanged by Round 10; see **Observability / tracing** and
   **Scale-out** above (Section C) / **Epoch E** below.
 
+**E. Pre-Stable Intelligence evidence hardening (live-export audit, 2026-08-02):**
+the components execute, but the product still avoids an outcome-supervised
+continuous-improvement claim. The audited evidence boundaries are now closed as follows:
+
+- ☑ **Human-ground threshold tuning** — only latest-valid independent analyst outcomes
+  enter FP/confirmed-TP learning evidence; all other observations remain unconfirmed.
+  Tuning writes are review-first through Approvals, confirmed-evidence auto-apply is
+  opt-in, and suppression is always approval-only. Historical applied rows remain
+  visible for review/rollback.
+- ☑ **Prevent self-reinforcing resolved-case knowledge** — only independently
+  analyst-confirmed terminal cases enter resolved-case RAG; inferred/model-only and
+  auto-closed outcomes are excluded and retrieved text remains UNTRUSTED-fenced.
+- ☑ **Fix memory authorization and trust** — Chat mutations obey `memory:manage`;
+  agent-authored memory starts pending and only active+approved memory is trusted.
+- ☑ **Validate embedding-role capability and provenance** — capability validation,
+  vector cardinality/dimension checks, explicit local-fallback provenance, and
+  embedding-space clear/reseed prevent mixed or falsely labelled vectors.
+- ☑ **Make Intelligence use measurable** — durable strict-CAS operator playbooks,
+  exact dry-run, bounded coverage/no-match reporting, selected-versus-consulted
+  persona/playbook/knowledge provenance, RAG source reconciliation, and
+  independently-confirmed resolved-case reuse are shipped.
+- ☑ **Expose loop health and lifecycle** — the Console/API exposes worker
+  enabled/gated/running and last attempt/success/error, tuner confirmed/unconfirmed
+  sample eligibility, and query-backed telemetry opportunities; campaigns enforce
+  cadence and full-set active reconciliation. Agent Effectiveness still preserves
+  `insufficient_evidence` until real analyst outcome/timing cohorts qualify.
+
+Remaining scale-out work is intentionally separate: schedulers still need distributed
+leases/ownership and campaigns do not retain an immutable split/merge lifecycle history.
+
 Each item ends with: `pytest -q` green (keep the count current), full docs+app
 `npm run build` + Vitest clean, **#3 `decide()` byte-identical**, additive + zero new runtime deps
 where possible, docs + Journal updated, commit + push.
@@ -163,6 +195,12 @@ where possible, docs + Journal updated, commit + push.
 - ☑ AGENTS.md (with CLAUDE.md forwarder), Journal.md, docs/ENVIRONMENT.md, this ROADMAP.
 
 ## Progress (this cycle, newest first)
+- ☑ **Pre-Stable Intelligence evidence hardening** — review-first analyst-grounded
+  tuning + Approvals RBAC; pending/approved memory trust; confirmed-only resolved-case
+  reuse; RAG toggle/embedding reconciliation; durable CAS playbooks with dry-run and
+  coverage; exact selected/consulted procedure provenance; scheduler health; cadence-
+  reconciled campaigns; and query-proven telemetry-source recommendations. Aggregate
+  Effectiveness remains non-causal and preserves insufficient evidence.
 - ☑ **Backend deep-audit hardening — 47 findings fixed** (`c5516e5`→`abd0385`,
   2026-07-14/15, on `Testing`, **local / not pushed**). A 24-subsystem-auditor Workflow
   over the whole backend, every finding adversarially re-verified against the source →
@@ -182,7 +220,9 @@ where possible, docs + Journal updated, commit + push.
   (0 warnings); `engine/case_manager.py` `decide()` **byte-identical**;
   `risk.py`/`signatures.py` **untouched**; **zero new runtime deps except the
   deliberate `motion` 12.42.2**). A **behavior change**: the suite now reads +
-  reasons over everything and self-tunes **by default**.
+  reasons over everything and runs tuning observation/recommendation **by default**;
+  the current governance layer keeps preference writes review-first unless
+  confirmed-evidence auto-apply is explicitly enabled.
   - **Comprehensive ingestion** — `background_scan_enabled` is now **default TRUE**:
     every event from every source is correlated + risk-scored (0–100) + made visible.
     `events`-role clusters auto-forward to the strong-LLM investigation via a
@@ -425,8 +465,9 @@ where possible, docs + Journal updated, commit + push.
     nightly deterministic observer (Wilson-LB + min-samples + EWMA + shadow-eval), bounded +1
     rule-`n` / feed `severity_floor` with `ActionType.TUNING` audit + rollback; DROPs → HITL
     Proposal; config-writer only, NEVER imports `decide()`/risk/signature; **default OFF**.
-    *(Round 10: flipped to **default ON** as part of the autopilot bundle, with
-    `shadow_eval` force-on so a tuning change can never silently hide a confirmed TP.)*
+    *(Round 10: flipped the observer to **default ON** as part of the autopilot bundle,
+    with `shadow_eval` force-on. The current policy additionally learns only from
+    analyst-confirmed outcomes and routes changes to Approvals by default.)*
   - ☑ **Two-tier alert/event ingestion** — `engine/event_detection.py` (EVENT-feed cheap-first
     funnel: pre-aggregate → rules → anomaly → batched Haiku detection) whose survivors re-enter
     the SAME correlate/decide pipeline (#3/#4), #9-fenced, #7 aggregate-only; ALERT feeds stay

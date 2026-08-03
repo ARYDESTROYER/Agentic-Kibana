@@ -20,35 +20,49 @@
  */
 import * as React from 'react';
 import {
+  Activity,
+  AlertTriangle,
   Bug,
+  CheckCircle2,
   Crosshair,
+  Database,
   FileText,
   Globe,
   Hash,
   Key,
   Library,
   LoaderCircle,
-  LockKeyhole,
   Pencil,
   Play,
   Plus,
+  Package,
   Save,
   ScrollText,
   Search,
-  ShieldCheck,
   Tag,
+  TestTube2,
   User,
   Users,
   Wrench,
+  XCircle,
   Zap,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { toast } from 'sonner';
 
-import type { AgentPersona, Playbook, PlaybookDetail, PlaybookMatch } from '@/lib/types';
+import type {
+  AgentPersona,
+  EntityTypeFull,
+  Playbook,
+  PlaybookCoverageResponse,
+  PlaybookDetail,
+  PlaybookDryRunResponse,
+  PlaybookMatch,
+  SchedulerHealthResponse,
+} from '@/lib/types';
 import { api } from '@/lib/api';
 import { errorMessage } from '@/lib/errorMessage';
-import { humanizeToken } from '@/lib/format';
+import { formatTimestamp, humanizeToken } from '@/lib/format';
 
 import { PageHeader } from '@/soc/components/PageHeader';
 import { EmptyState } from '@/soc/components/EmptyState';
@@ -63,6 +77,14 @@ import { Badge } from '@/ui/badge';
 import { Button } from '@/ui/button';
 import { Input } from '@/ui/input';
 import { Label } from '@/ui/label';
+import { Progress } from '@/ui/progress';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/ui/select';
 import {
   Sheet,
   SheetContent,
@@ -376,11 +398,16 @@ const PlaybookWorkspace: React.FC<PlaybookWorkspaceProps> = ({
             {!creating && detail ? (
               <Badge variant={detail.protected ? 'secondary' : 'info'} className="gap-1">
                 {detail.protected ? (
-                  <LockKeyhole className="h-3 w-3" aria-hidden />
+                  <Package className="h-3 w-3" aria-hidden />
                 ) : (
-                  <ShieldCheck className="h-3 w-3" aria-hidden />
+                  <Database className="h-3 w-3" aria-hidden />
                 )}
-                {detail.protected ? 'Bundled · protected' : 'Operator owned'}
+                {detail.storage === 'state' ? 'Operator · state-backed' : 'Bundled · package'}
+              </Badge>
+            ) : null}
+            {!creating && detail ? (
+              <Badge variant="outline" className="font-mono">
+                revision {detail.revision}
               </Badge>
             ) : null}
           </div>
@@ -437,7 +464,35 @@ const PlaybookWorkspace: React.FC<PlaybookWorkspaceProps> = ({
               ) : null}
             </div>
           ) : detail ? (
-            <CodeBlock value={detail.content} copyable wrap maxHeightClassName="max-h-none" />
+            <div className="space-y-4">
+              <dl className="grid gap-3 border-y border-border py-3 text-xs sm:grid-cols-3">
+                <div>
+                  <dt className="text-muted-foreground">Durability</dt>
+                  <dd className="mt-1 font-medium text-foreground">
+                    {detail.storage === 'state'
+                      ? 'Durable application state'
+                      : 'Versioned application package'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">Catalog revision</dt>
+                  <dd className="mt-1 font-mono font-medium text-foreground">
+                    {detail.revision}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">
+                    {detail.storage === 'state' ? 'Last updated' : 'Ownership'}
+                  </dt>
+                  <dd className="mt-1 font-medium text-foreground">
+                    {detail.storage === 'state'
+                      ? `${formatTimestamp(detail.updated_at)}${detail.updated_by ? ` · ${detail.updated_by}` : ''}`
+                      : 'Read-only bundled reference'}
+                  </dd>
+                </div>
+              </dl>
+              <CodeBlock value={detail.content} copyable wrap maxHeightClassName="max-h-none" />
+            </div>
           ) : (
             <p role="alert" className="text-sm text-critical-text">
               {error || 'This playbook could not be opened.'}
@@ -570,12 +625,24 @@ const PlaybookCard: React.FC<{
           <div className="flex shrink-0 flex-col items-end gap-1.5">
             <Badge variant={playbook.protected ? 'secondary' : 'info'} className="gap-1">
               {playbook.protected ? (
-                <LockKeyhole className="h-3 w-3" aria-hidden />
+                <Package className="h-3 w-3" aria-hidden />
               ) : (
-                <ShieldCheck className="h-3 w-3" aria-hidden />
+                <Database className="h-3 w-3" aria-hidden />
               )}
-              {playbook.protected ? 'Bundled' : 'Operator'}
+              {playbook.storage === 'state' ? 'State-backed' : 'Package'}
             </Badge>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge variant="outline" tabIndex={0} className="cursor-default font-mono">
+                  rev {playbook.revision}
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs">
+                {playbook.storage === 'state'
+                  ? 'Optimistic revision for this durable operator document.'
+                  : 'Bundled package revision; this reference is read-only.'}
+              </TooltipContent>
+            </Tooltip>
             {typeof playbook.priority === 'number' ? (
               <Badge variant="warning">priority {playbook.priority}</Badge>
             ) : null}
@@ -647,8 +714,360 @@ const PlaybookCard: React.FC<{
   );
 };
 
+const ENTITY_TYPES: EntityTypeFull[] = ['rule', 'ip', 'user', 'host', 'domain', 'file_hash'];
+
+function diagnosticValue(value: unknown): string {
+  if (value == null || value === '') return 'none';
+  if (Array.isArray(value)) return value.length ? value.map(String).join(', ') : 'none';
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return 'unavailable';
+    }
+  }
+  return String(value);
+}
+
+function workerState(worker: SchedulerHealthResponse['workers'][string]): {
+  label: string;
+  variant: BadgeVariant;
+} {
+  if (worker.last_error) return { label: 'Error', variant: 'critical' };
+  if (!worker.enabled) return { label: 'Disabled', variant: 'secondary' };
+  if (worker.gated) {
+    return {
+      label: worker.cadence === 'manual' ? 'Manual' : 'Gated',
+      variant: 'warning',
+    };
+  }
+  if (worker.running) return { label: 'Running', variant: 'success' };
+  return { label: 'Waiting', variant: 'secondary' };
+}
+
+interface PlaybookReadinessProps {
+  coverage: PlaybookCoverageResponse | null;
+  coverageError: string;
+  schedulerHealth: SchedulerHealthResponse | null;
+  schedulerError: string;
+  showSchedulerHealth: boolean;
+}
+
+/**
+ * Deterministic operational evidence for the playbook layer. The dry-run calls
+ * the exact backend selector; it never investigates a case or executes a tool.
+ */
+const PlaybookReadiness: React.FC<PlaybookReadinessProps> = ({
+  coverage,
+  coverageError,
+  schedulerHealth,
+  schedulerError,
+  showSchedulerHealth,
+}) => {
+  const [ruleInput, setRuleInput] = React.useState('');
+  const [entityType, setEntityType] = React.useState<EntityTypeFull>('rule');
+  const [eventCount, setEventCount] = React.useState('1');
+  const [dryRun, setDryRun] = React.useState<PlaybookDryRunResponse | null>(null);
+  const [dryRunError, setDryRunError] = React.useState('');
+  const [testing, setTesting] = React.useState(false);
+
+  const testSelection = React.useCallback(async () => {
+    const parsedCount = Number.parseInt(eventCount, 10);
+    if (!Number.isFinite(parsedCount) || parsedCount < 0 || parsedCount > 1_000_000) {
+      setDryRunError('Event count must be between 0 and 1,000,000.');
+      return;
+    }
+    const ruleIds = Array.from(
+      new Set(
+        ruleInput
+          .split(/[\n,]/)
+          .map((value) => value.trim())
+          .filter(Boolean),
+      ),
+    );
+    setTesting(true);
+    setDryRunError('');
+    try {
+      setDryRun(
+        await api.dryRunPlaybookSelection({
+          rule_ids: ruleIds,
+          entity_type: entityType,
+          event_count: parsedCount,
+        }),
+      );
+    } catch (e) {
+      setDryRun(null);
+      setDryRunError(errorMessage(e, 'Could not test playbook selection.'));
+    } finally {
+      setTesting(false);
+    }
+  }, [entityType, eventCount, ruleInput]);
+
+  const coveragePercent = coverage?.coverage_percent;
+  const workerRows = schedulerHealth ? Object.entries(schedulerHealth.workers) : [];
+
+  return (
+    <section aria-labelledby="playbook-readiness-heading" className="mb-6 border-y border-border">
+      <div className="grid xl:grid-cols-2">
+        <div className="p-5 xl:border-r xl:border-border">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 id="playbook-readiness-heading" className="font-semibold text-foreground">
+                Procedure coverage
+              </h3>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                Stored cases tested against the current exact-match registry.
+              </p>
+            </div>
+            {coverage ? (
+              <Badge variant={coverage.uncovered_cases > 0 ? 'warning' : 'success'}>
+                {coveragePercent == null ? 'No case history' : `${coveragePercent}% covered`}
+              </Badge>
+            ) : null}
+          </div>
+
+          {coverageError ? (
+            <p role="status" className="mt-4 text-sm text-muted-foreground">
+              Coverage unavailable · {coverageError}
+            </p>
+          ) : coverage ? (
+            <div className="mt-5 space-y-4">
+              {coveragePercent == null ? (
+                <p className="text-sm text-muted-foreground">
+                  No stored cases are available yet. Coverage will appear after cases are created.
+                </p>
+              ) : (
+                <Progress
+                  value={coveragePercent}
+                  variant={coverage.uncovered_cases > 0 ? 'warning' : 'success'}
+                  aria-label={`Playbook coverage ${coveragePercent}%`}
+                />
+              )}
+              <dl className="grid grid-cols-3 gap-4 text-sm">
+                <div>
+                  <dt className="text-xs text-muted-foreground">Cases checked</dt>
+                  <dd className="mt-1 font-mono text-base font-semibold text-foreground">
+                    {coverage.scanned_cases.toLocaleString()}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Matched</dt>
+                  <dd className="mt-1 font-mono text-base font-semibold text-success-text">
+                    {coverage.covered_cases.toLocaleString()}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">No match</dt>
+                  <dd className="mt-1 font-mono text-base font-semibold text-warning-text">
+                    {coverage.uncovered_cases.toLocaleString()}
+                  </dd>
+                </div>
+              </dl>
+              {coverage.unmatched_rule_families.length ? (
+                <div>
+                  <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Uncovered rule families
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {coverage.unmatched_rule_families.slice(0, 8).map((family) => (
+                      <Badge key={family.rule_id} variant="warning" className="max-w-full font-mono">
+                        <span className="truncate">{family.rule_id}</span>
+                        <span aria-hidden>·</span>
+                        <span>{family.case_count}</span>
+                      </Badge>
+                    ))}
+                    {coverage.unmatched_rule_families.length > 8 ? (
+                      <Badge variant="secondary">
+                        +{coverage.unmatched_rule_families.length - 8} more
+                      </Badge>
+                    ) : null}
+                  </div>
+                </div>
+              ) : coverage.scanned_cases > 0 ? (
+                <p className="flex items-center gap-2 text-xs text-success-text">
+                  <CheckCircle2 className="h-4 w-4" aria-hidden />
+                  Every scanned case has a deterministic playbook match.
+                </p>
+              ) : null}
+              {coverage.truncated ? (
+                <p className="flex items-start gap-2 text-xs leading-relaxed text-warning-text">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                  Coverage is limited to the first {coverage.scan_limit.toLocaleString()} stored
+                  cases; treat this as a bounded sample, not lifetime coverage.
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <p className="mt-4 text-sm text-muted-foreground">Loading coverage…</p>
+          )}
+        </div>
+
+        <div className="border-t border-border p-5 xl:border-t-0">
+          <div className="flex items-start gap-3">
+            <TestTube2 className="mt-0.5 h-5 w-5 text-primary" aria-hidden />
+            <div>
+              <h3 className="font-semibold text-foreground">Test deterministic matching</h3>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                Preview selection only. No case, tool, model, or policy action runs.
+              </p>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_10rem_8rem_auto] sm:items-end">
+            <div className="space-y-1.5">
+              <Label htmlFor="playbook-test-rules">Rule IDs</Label>
+              <Input
+                id="playbook-test-rules"
+                value={ruleInput}
+                onChange={(event) => setRuleInput(event.target.value)}
+                placeholder="rule-a, rule-b"
+                className="font-mono"
+                spellCheck={false}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="playbook-test-entity">Entity</Label>
+              <Select value={entityType} onValueChange={(value) => setEntityType(value as EntityTypeFull)}>
+                <SelectTrigger id="playbook-test-entity">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ENTITY_TYPES.map((entity) => (
+                    <SelectItem key={entity} value={entity}>
+                      {humanizeToken(entity)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="playbook-test-count">Events</Label>
+              <Input
+                id="playbook-test-count"
+                type="number"
+                min={0}
+                max={1_000_000}
+                value={eventCount}
+                onChange={(event) => setEventCount(event.target.value)}
+              />
+            </div>
+            <Button variant="outline" onClick={() => void testSelection()} disabled={testing}>
+              {testing ? (
+                <LoaderCircle className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden />
+              ) : (
+                <Play className="h-4 w-4" aria-hidden />
+              )}
+              {testing ? 'Testing…' : 'Test match'}
+            </Button>
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Separate multiple rule IDs with commas. Matching is exact after edge whitespace is removed.
+          </p>
+
+          {dryRunError ? (
+            <p role="alert" className="mt-4 text-sm text-critical-text">
+              {dryRunError}
+            </p>
+          ) : null}
+          {dryRun ? (
+            <div role="status" className="mt-4 border-t border-border pt-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={dryRun.selected_playbook_id ? 'success' : 'warning'}>
+                  {dryRun.selected_playbook_id
+                    ? `Selected · ${dryRun.selected_playbook_id}`
+                    : 'No playbook selected'}
+                </Badge>
+                <span className="text-xs text-muted-foreground">
+                  {dryRun.matched_count} of {dryRun.candidate_count} candidates matched
+                </span>
+              </div>
+              <p className="mt-2 font-mono text-xs leading-relaxed text-foreground">
+                {dryRun.selection_reason}
+              </p>
+              {dryRun.candidates.length ? (
+                <div className="mt-3 max-h-64 space-y-2 overflow-y-auto pr-1">
+                  {dryRun.candidates.map((candidate) => (
+                    <details
+                      key={candidate.playbook_id}
+                      open={candidate.playbook_id === dryRun.selected_playbook_id}
+                      className="border-t border-border pt-2"
+                    >
+                      <summary className="cursor-pointer text-xs font-medium text-foreground">
+                        {candidate.playbook_name || candidate.playbook_id} · priority{' '}
+                        {candidate.priority} · {candidate.matched ? 'matched' : 'did not match'}
+                      </summary>
+                      <ul className="mt-2 space-y-2 pl-1">
+                        {candidate.checks.map((check, index) => (
+                          <li key={`${candidate.playbook_id}-${check.criterion}-${index}`} className="flex gap-2 text-xs">
+                            {check.passed ? (
+                              <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" aria-hidden />
+                            ) : (
+                              <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                            )}
+                            <span className="min-w-0">
+                              <span className="font-medium text-foreground">
+                                {humanizeToken(check.criterion)}:
+                              </span>{' '}
+                              <span className="text-muted-foreground">{check.reason}</span>
+                              <span className="mt-0.5 block break-words font-mono text-2xs text-muted-foreground">
+                                expected {diagnosticValue(check.expected)} · observed{' '}
+                                {diagnosticValue(check.actual)}
+                              </span>
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      {showSchedulerHealth ? (
+        <div className="border-t border-border px-5 py-3">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <span className="inline-flex items-center gap-2 text-xs font-medium text-foreground">
+              <Activity className="h-4 w-4 text-primary" aria-hidden />
+              Continuous-improvement workers
+            </span>
+            {schedulerError ? (
+              <span className="text-xs text-muted-foreground">
+                Health unavailable · {schedulerError}
+              </span>
+            ) : workerRows.length ? (
+              workerRows.map(([name, worker]) => {
+                const state = workerState(worker);
+                return (
+                  <Tooltip key={name}>
+                    <TooltipTrigger asChild>
+                      <Badge variant={state.variant} tabIndex={0} className="cursor-default">
+                        {humanizeToken(name)} · {state.label}
+                      </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-sm space-y-1">
+                      <p>Cadence: {humanizeToken(worker.cadence)}</p>
+                      <p>Last success: {formatTimestamp(worker.last_success_at)}</p>
+                      <p>Last processed: {worker.processed.toLocaleString()}</p>
+                      {worker.last_error ? <p>Last error: {worker.last_error}</p> : null}
+                    </TooltipContent>
+                  </Tooltip>
+                );
+              })
+            ) : (
+              <span className="text-xs text-muted-foreground">Loading worker health…</span>
+            )}
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+};
+
 export const PlaybooksCatalog: React.FC = () => {
   const canManage = useCan('playbooks', 'manage');
+  const canReadSettings = useCan('settings', 'read');
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<unknown>(null);
   const [enabled, setEnabled] = React.useState(true);
@@ -661,6 +1080,10 @@ export const PlaybooksCatalog: React.FC = () => {
   const [draftContent, setDraftContent] = React.useState('');
   const [workspaceError, setWorkspaceError] = React.useState('');
   const [saving, setSaving] = React.useState(false);
+  const [coverage, setCoverage] = React.useState<PlaybookCoverageResponse | null>(null);
+  const [coverageError, setCoverageError] = React.useState('');
+  const [schedulerHealth, setSchedulerHealth] = React.useState<SchedulerHealthResponse | null>(null);
+  const [schedulerError, setSchedulerError] = React.useState('');
   // playbook_id → number of threshold-automation rules that queue it.
   const [automationByPlaybook, setAutomationByPlaybook] = React.useState<
     Record<string, number>
@@ -678,6 +1101,25 @@ export const PlaybooksCatalog: React.FC = () => {
     } finally {
       setLoading(false);
     }
+    setCoverageError('');
+    try {
+      setCoverage(await api.getPlaybookCoverage());
+    } catch (coverageFailure) {
+      setCoverage(null);
+      setCoverageError(errorMessage(coverageFailure, 'The coverage query failed.'));
+    }
+    if (canReadSettings) {
+      setSchedulerError('');
+      try {
+        setSchedulerHealth(await api.getSchedulerHealth());
+      } catch (healthFailure) {
+        setSchedulerHealth(null);
+        setSchedulerError(errorMessage(healthFailure, 'The health query failed.'));
+      }
+    } else {
+      setSchedulerHealth(null);
+      setSchedulerError('');
+    }
     // Best-effort: count automation rules that run each playbook (may be 403 for
     // non-admins; degrade silently to no markers).
     try {
@@ -693,7 +1135,7 @@ export const PlaybooksCatalog: React.FC = () => {
     } catch {
       setAutomationByPlaybook({});
     }
-  }, []);
+  }, [canReadSettings]);
 
   React.useEffect(() => {
     void load();
@@ -757,7 +1199,7 @@ export const PlaybooksCatalog: React.FC = () => {
       const result =
         workspaceMode === 'create'
           ? await api.createPlaybook({ id, content: draftContent })
-          : await api.updatePlaybook(id, draftContent);
+          : await api.updatePlaybook(id, draftContent, detail?.revision ?? 1);
       setPlaybooks((current) => {
         const withoutSaved = current.filter((playbook) => playbook.id !== result.playbook.id);
         return [...withoutSaved, result.playbook].sort((a, b) => a.name.localeCompare(b.name));
@@ -814,29 +1256,6 @@ export const PlaybooksCatalog: React.FC = () => {
 
   if (loading) return <CatalogLoading label="Loading playbooks" />;
   if (error) return <LoadError error={error} title="Could not load playbooks" onRetry={load} />;
-  if (!playbooks.length) {
-    return <>
-      <EmptyState
-        icon={ScrollText}
-        title={enabled ? 'No playbooks loaded' : 'Playbooks are disabled'}
-        description={
-          enabled
-            ? 'Create an operator Markdown procedure to populate this catalog.'
-            : 'You can prepare operator procedures now, but they are not injected until Playbooks is enabled in Settings.'
-        }
-        action={
-          canManage ? (
-            <Button onClick={startCreate}>
-              <Plus className="h-4 w-4" aria-hidden />
-              New playbook
-            </Button>
-          ) : undefined
-        }
-      />
-      {workspace}
-    </>;
-  }
-
   return (
     <>
       <div className="mb-5 flex flex-col gap-4 border-b border-border pb-5 sm:flex-row sm:items-start sm:justify-between">
@@ -858,16 +1277,35 @@ export const PlaybooksCatalog: React.FC = () => {
           </Button>
         ) : null}
       </div>
-      <Stagger className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {playbooks.map((p) => (
-          <PlaybookCard
-            key={p.id}
-            playbook={p}
-            automationCount={automationByPlaybook[p.id] ?? 0}
-            onOpen={openPlaybook}
-          />
-        ))}
-      </Stagger>
+      <PlaybookReadiness
+        coverage={coverage}
+        coverageError={coverageError}
+        schedulerHealth={schedulerHealth}
+        schedulerError={schedulerError}
+        showSchedulerHealth={canReadSettings}
+      />
+      {playbooks.length ? (
+        <Stagger className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          {playbooks.map((p) => (
+            <PlaybookCard
+              key={p.id}
+              playbook={p}
+              automationCount={automationByPlaybook[p.id] ?? 0}
+              onOpen={openPlaybook}
+            />
+          ))}
+        </Stagger>
+      ) : (
+        <EmptyState
+          icon={ScrollText}
+          title={enabled ? 'No playbooks loaded' : 'Playbooks are disabled'}
+          description={
+            enabled
+              ? 'Create an operator Markdown procedure to populate this catalog.'
+              : 'You can prepare operator procedures now, but they are not injected until Playbooks is enabled in Settings.'
+          }
+        />
+      )}
       {workspace}
     </>
   );

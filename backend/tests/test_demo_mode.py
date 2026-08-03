@@ -571,7 +571,7 @@ async def test_noise_counters_serve_demo_store_in_demo(demo_state: AppState) -> 
 # --------------------------------------------------------------------------- #
 def _mk_closed_fp_case(cid: str, rule_id: str, now_iso: str):
     """A demo-tagged CLOSED / FALSE_POSITIVE case for a given noisy rule."""
-    from app.models import Case, Entity, StatusHistoryEntry
+    from app.models import Case, Entity, FeedbackEntry, StatusHistoryEntry
     from app.constants import CaseStatus, Disposition, EntityType
 
     return Case(
@@ -583,6 +583,18 @@ def _mk_closed_fp_case(cid: str, rule_id: str, now_iso: str):
         created_at=now_iso, updated_at=now_iso,
         status_history=[StatusHistoryEntry(from_status="new", to_status="closed",
                                            by="agent", at=now_iso, reason="demo fp")],
+        feedback=[FeedbackEntry(
+            ts=now_iso,
+            analyst="demo.analyst",
+            assessment="agree",
+            accuracy=1.0,
+            reasoning_quality=1.0,
+            action_appropriateness=1.0,
+            actual_outcome="false_positive",
+            comment="Synthetic analyst-confirmed demo outcome.",
+            ai_verdict=Verdict.FALSE_POSITIVE.value,
+            ai_confidence=1.0,
+        )],
         tags=["demo"],
     )
 
@@ -810,10 +822,13 @@ async def test_hitl_proposal_created_during_live_demo(demo_state: AppState) -> N
 
 @pytest.mark.asyncio
 async def test_threshold_tuning_writes_demo_store_not_real(demo_state: AppState) -> None:
-    # Disable shadow-eval on the real prefs so a clean noisy-FP signal auto-applies
-    # deterministically (the sandbox copy inherits shadow_eval=False).
+    # Automatic writes are an explicit policy and retain the mandatory shadow guard.
+    # A clean analyst-confirmed FP-only window passes that replay deterministically.
     prefs = demo_state.prefs.model_copy(deep=True)
-    prefs.threshold_tuning = prefs.threshold_tuning.model_copy(update={"shadow_eval": False})
+    prefs.threshold_tuning = prefs.threshold_tuning.model_copy(update={
+        "shadow_eval": True,
+        "auto_apply_confirmed": True,
+    })
     await demo_state.update_prefs(prefs)
 
     await demo_state.enable_demo(mode="seeded", seed=1337, history_days=2)
@@ -835,7 +850,10 @@ async def test_threshold_tuning_writes_demo_store_not_real(demo_state: AppState)
 @pytest.mark.asyncio
 async def test_correlation_n_tuning_dedups_across_passes(demo_state: AppState) -> None:
     prefs = demo_state.prefs.model_copy(deep=True)
-    prefs.threshold_tuning = prefs.threshold_tuning.model_copy(update={"shadow_eval": False})
+    prefs.threshold_tuning = prefs.threshold_tuning.model_copy(update={
+        "shadow_eval": True,
+        "auto_apply_confirmed": True,
+    })
     await demo_state.update_prefs(prefs)
 
     await demo_state.enable_demo(mode="seeded", seed=1337, history_days=2)
@@ -844,10 +862,11 @@ async def test_correlation_n_tuning_dedups_across_passes(demo_state: AppState) -
         await demo_state._demo.cases.save(_mk_closed_fp_case(f"demo-noisy-{i:03d}", "noisy_rule", now_iso))
 
     await demo_state._demo.run_capability_pass()
-    first = len(await demo_state._demo.tuning_store.list())
+    first = len(await demo_state._demo.tuning_store.list(rule_id="noisy_rule"))
     await demo_state._demo.run_capability_pass()
-    second = len(await demo_state._demo.tuning_store.list())
+    second = len(await demo_state._demo.tuning_store.list(rule_id="noisy_rule"))
     # The same unchanging trailing window must NOT re-bump the same rule (already_tuned).
+    assert first == 1, "the explicit automatic policy should tune the noisy demo rule once"
     assert second == first, "correlation-n tuning re-bumped the same rule (no dedup)"
 
 

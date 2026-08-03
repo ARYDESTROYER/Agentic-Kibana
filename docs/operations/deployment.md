@@ -33,7 +33,7 @@ built, tested, or shipped as part of 0.1.
 
 ## Standalone stack
 
-1. Check out the accepted `v0.1.1` tag for Stable, or the `Testing` branch only for
+1. Check out the accepted `v0.1.2` tag for Stable after release, or the `Testing` branch only for
    acceptance testing.
 2. Copy `.env.example` to `.env` and set a strong PostgreSQL password.
 3. Configure authentication and provider credentials.
@@ -47,9 +47,10 @@ Console. The web image serves both the compiled SPA and the version-matched Help
 Center at `/docs/0.1/`, and proxies `/api/*` to the backend. Redis is a cache, not
 the authoritative case/config store.
 
-The remote now uses `Testing` for integration and default `main` for accepted Stable
-source, and it has the `v0.1.1` release tag. A pull of `main` receives the current
-accepted Stable tree while integration work continues on `Testing`. Branch
+The remote uses `Testing` for integration and default `main` for accepted Stable
+source. `v0.1.1` remains the prior Stable tag until the verified 0.1.2 promotion is
+tagged `v0.1.2`. A pull of `main` receives the current accepted Stable tree while
+integration work continues on `Testing`. Branch
 protections, required checks, and release-environment policy remain repository
 settings that administrators must verify independently.
 
@@ -80,7 +81,7 @@ warm tier capability before an administrator performs the explicit, freshly
 authenticated Apply. Cases and operational metadata stay Hot because they are
 mutable. PostgreSQL reports the policy as advisory; SQLite reports export-only.
 
-Archive is a desired target, not an active pipeline in 0.1.1. Build a separate
+Archive is a desired target, not an active pipeline in 0.1.2. Build a separate
 immutable export with a manifest and checksums, verify restore, and only then place
 those independent archive objects under an S3 lifecycle rule. **Never transition an
 Elasticsearch snapshot-repository prefix to Glacier**; Elasticsearch expects its
@@ -88,14 +89,14 @@ repository objects to remain directly readable.
 
 ## Image identity
 
-Backend and web images use the machine version `0.1.1` and accept OCI version,
+Backend and web images use the machine version `0.1.2` and accept OCI version,
 revision, build-date, and source metadata. Record the image digest and
 `/api/health/build-info` result with each deployment. Do not treat a mutable branch or
 image tag as an immutable release identity.
 
 Release channel is stamped independently from SemVer. Source builds default to
-`TLSOC_RELEASE_CHANNEL=testing`; the accepted `main`/`v0.1.1` build must explicitly
-set it to `stable`. This preserves the same `0.1.1` candidate identity through
+`TLSOC_RELEASE_CHANNEL=testing`; the accepted `main`/`v0.1.2` build must explicitly
+set it to `stable`. This preserves the same `0.1.2` candidate identity through
 acceptance without allowing a Testing build to report itself as Stable.
 
 Set `TLSOC_VERSION`, `TLSOC_RELEASE_CHANNEL`, `TLSOC_BUILD_SHA`, and

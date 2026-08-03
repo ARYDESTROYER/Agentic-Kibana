@@ -37,6 +37,29 @@ export function humanizeAge(iso?: string | null): string {
 }
 
 /**
+ * Humanize a future deadline (for example "in 7d"). Unlike humanizeAge this
+ * never clamps a future timestamp to "just now", which would make an approval
+ * appear to expire immediately. Past deadlines are explicit.
+ */
+export function humanizeUntil(iso?: string | null): string {
+  if (!iso) return DASH;
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return DASH;
+  const secs = Math.round((then - Date.now()) / 1000);
+  if (secs <= 0) return 'expired';
+  if (secs < 45) return 'in <1m';
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `in ${mins}m`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `in ${hours}h`;
+  const days = Math.round(hours / 24);
+  if (days < 30) return `in ${days}d`;
+  const months = Math.round(days / 30);
+  if (months < 12) return `in ${months}mo`;
+  return `in ${Math.round(months / 12)}y`;
+}
+
+/**
  * Render an ISO timestamp as a compact, human-readable local datetime, e.g.
  * "Jun 17, 2026, 07:13". Falls back to the raw string (then {@link DASH}).
  */

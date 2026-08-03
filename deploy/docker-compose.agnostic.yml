@@ -52,11 +52,11 @@ services:
       context: ../backend
       dockerfile: Dockerfile
       args:
-        TLSOC_VERSION: ${TLSOC_VERSION:-0.1.1}
+        TLSOC_VERSION: ${TLSOC_VERSION:-0.1.2}
         TLSOC_RELEASE_CHANNEL: ${TLSOC_RELEASE_CHANNEL:-testing}
         TLSOC_BUILD_SHA: ${TLSOC_BUILD_SHA:-unknown}
         TLSOC_BUILD_DATE: ${TLSOC_BUILD_DATE:-unknown}
-    image: tlsoc-agentic-triage-backend:${TLSOC_VERSION:-0.1.1}
+    image: tlsoc-agentic-triage-backend:${TLSOC_VERSION:-0.1.2}
     container_name: tlsoc-backend
     restart: unless-stopped
     depends_on:
@@ -165,11 +165,11 @@ services:
       context: ..
       dockerfile: webui/Dockerfile
       args:
-        TLSOC_VERSION: ${TLSOC_VERSION:-0.1.1}
+        TLSOC_VERSION: ${TLSOC_VERSION:-0.1.2}
         TLSOC_RELEASE_CHANNEL: ${TLSOC_RELEASE_CHANNEL:-testing}
         TLSOC_BUILD_SHA: ${TLSOC_BUILD_SHA:-unknown}
         TLSOC_BUILD_DATE: ${TLSOC_BUILD_DATE:-unknown}
-    image: tlsoc-agentic-triage-webui:${TLSOC_VERSION:-0.1.1}
+    image: tlsoc-agentic-triage-webui:${TLSOC_VERSION:-0.1.2}
     container_name: tlsoc-webui
     restart: unless-stopped
     depends_on:

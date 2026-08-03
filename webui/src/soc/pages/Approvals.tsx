@@ -1,14 +1,10 @@
 /**
  * Approvals — the human-in-the-loop queue for agent-drafted proposals.
  *
- * When the agent confirms a false positive (or otherwise learns something
- * durable) it does NOT change anything itself. It DRAFTS a recommendation — a
- * candidate suppression rule, or a durable memory fact — and parks it here for a
- * human to approve. Approving is the ONLY action that makes a suppression rule
- * live or saves a memory; nothing on this page is applied automatically. The
- * deterministic, operator-controlled spine stays intact: the agent recommends,
- * the human decides. Approve is privileged and enforced server-side; we surface
- * a 403 (and 404/409) inline rather than guessing the user's role.
+ * The agent parks governed suppression, durable-memory, threshold-tuning, and
+ * acknowledgement-only automation reviews here for an operator decision.
+ * The deterministic, operator-controlled case-decision spine stays intact:
+ * Approvals can never change decide() or make model output authoritative.
  *
  * UNTRUSTED-safe: a proposal's `payload` (field / value / text) and `rationale`
  * derive from log events, so they render as plain text / <CodeBlock> /
@@ -19,6 +15,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock,
+  ClipboardCheck,
   Flag,
   FolderClosed,
   Gauge,
@@ -28,14 +25,17 @@ import {
   MemoryStick,
   RefreshCw,
   ShieldOff,
+  SlidersHorizontal,
   X,
 } from 'lucide-react';
 
 import { api, ApiError } from '@/lib/api';
 import type {
+  AutomationAcknowledgementPayload,
   MemoryPayload,
   Proposal,
   SuppressionPayload,
+  TuningProposalPayload,
 } from '@/lib/types';
 import {
   DASH,
@@ -43,6 +43,7 @@ import {
   fmtPercent,
   formatTimestamp,
   humanizeAge,
+  humanizeUntil,
   humanizeToken,
 } from '@/lib/format';
 import { cn } from '@/lib/cn';
@@ -64,6 +65,7 @@ import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
 import { SegmentedControl } from '@/soc/components/SegmentedControl';
 import { InlineCode } from '@/soc/components/CodeBlock';
+import { useCan } from '@/soc/components/Can';
 import { useNavigateOptional, type Navigate } from '@/soc/router';
 import type { LucideIcon } from 'lucide-react';
 
@@ -81,7 +83,7 @@ function asText(v: unknown): string {
   }
 }
 
-type KindBand = 'suppression' | 'memory' | 'other';
+type KindBand = 'suppression' | 'memory' | 'tuning' | 'automation_ack' | 'other';
 
 interface KindMeta {
   label: string;
@@ -94,6 +96,8 @@ function kindBand(kind?: string): KindBand {
   const t = (kind || '').toLowerCase();
   if (t === 'suppression') return 'suppression';
   if (t === 'memory') return 'memory';
+  if (t === 'tuning') return 'tuning';
+  if (t === 'automation_ack') return 'automation_ack';
   return 'other';
 }
 
@@ -103,6 +107,10 @@ function kindMeta(kind?: string): KindMeta {
       return { label: 'Suppression', icon: ShieldOff, variant: 'warning' };
     case 'memory':
       return { label: 'Memory', icon: MemoryStick, variant: 'info' };
+    case 'tuning':
+      return { label: 'Tuning change', icon: SlidersHorizontal, variant: 'warning' };
+    case 'automation_ack':
+      return { label: 'Automation review', icon: ClipboardCheck, variant: 'info' };
     default:
       return { label: kind ? humanizeToken(kind) : 'Proposal', icon: Flag, variant: 'secondary' };
   }
@@ -118,14 +126,49 @@ function groupKeyOf(p: Proposal): string {
     const mem = (p.payload || {}) as MemoryPayload;
     if (mem.category) return humanizeToken(asText(mem.category));
   }
+  if (kindBand(p.kind) === 'tuning') {
+    const tuning = (p.payload || {}) as TuningProposalPayload;
+    if (tuning.rule_id) return asText(tuning.rule_id);
+  }
+  if (kindBand(p.kind) === 'automation_ack') {
+    const ack = (p.payload || {}) as AutomationAcknowledgementPayload;
+    if (ack.rule_id) return `Automation · ${asText(ack.rule_id)}`;
+  }
   return kindMeta(p.kind).label;
+}
+
+function tuningActionLabel(payload: TuningProposalPayload): string {
+  if (payload.action === 'apply_change') return 'Apply bounded change';
+  if (payload.action === 'collect_evidence') return 'Acknowledge evidence requirement';
+  if (payload.action === 'review_history') return 'Acknowledge historical review';
+  return 'Approve recommendation';
+}
+
+function approvedToast(proposal: Proposal): string {
+  const band = kindBand(proposal.kind);
+  if (band === 'suppression') return 'Suppression approved — it is now live.';
+  if (band === 'memory') return 'Memory approved — it is now trusted and active.';
+  if (band === 'tuning') {
+    const payload = (proposal.payload || {}) as TuningProposalPayload;
+    return payload.action === 'apply_change'
+      ? 'Tuning change approved and applied.'
+      : 'Tuning review acknowledged; no threshold was changed.';
+  }
+  if (band === 'automation_ack') {
+    return 'Automation review acknowledged; no setting, Memory, suppression, or case state changed.';
+  }
+  return 'Proposal approved.';
 }
 
 function describeError(e: unknown): string {
   if (e instanceof ApiError) {
     if (e.status === 403) return 'Approving requires admin access — you are not authorised.';
     if (e.status === 404) return 'This proposal no longer exists (it may have been decided already).';
-    if (e.status === 409) return 'This proposal was already decided. Refresh to see its current state.';
+    if (e.status === 409) {
+      return e.message.toLowerCase().includes('applying')
+        ? 'This approval is already in progress. Wait briefly, refresh, then resume if needed.'
+        : 'This proposal was already decided. Refresh to see its current state.';
+    }
     return e.message;
   }
   return e instanceof Error ? e.message : 'Action failed.';
@@ -191,20 +234,39 @@ function ProposalCard({
   const band = kindBand(proposal.kind);
   const sup = (proposal.payload || {}) as SuppressionPayload;
   const mem = (proposal.payload || {}) as MemoryPayload;
+  const tuning = (proposal.payload || {}) as TuningProposalPayload;
+  const ack = (proposal.payload || {}) as AutomationAcknowledgementPayload;
   const cases = proposal.source_case_ids || [];
-  const decided = (proposal.status || '').toLowerCase() !== 'pending';
+  const status = (proposal.status || '').toLowerCase();
+  const applying = status === 'applying';
+  const decided = status === 'approved' || status === 'rejected';
+  const decisionIntent = proposal.decision_intent;
+  const approvalLocked = decisionIntent === 'reject';
+  const rejectionLocked = decisionIntent === 'approve';
 
   const accentClass =
     band === 'suppression'
       ? 'before:bg-warning'
       : band === 'memory'
       ? 'before:bg-info'
+      : band === 'tuning'
+      ? 'before:bg-warning'
+      : band === 'automation_ack'
+      ? 'before:bg-info'
       : 'before:bg-primary';
 
   const approveTip =
     band === 'suppression'
       ? 'Approving makes this suppression rule LIVE. Privileged action — the server enforces admin access.'
-      : 'Approving saves this as a durable memory the agents will know. Privileged action — the server enforces admin access.';
+      : band === 'memory'
+        ? 'Approving saves this as a trusted durable memory. The server enforces the proposal approval grant.'
+        : band === 'tuning' && tuning.action === 'apply_change'
+          ? 'Approving validates the live value again, then applies only this bounded detection-volume change. Case decisions are unchanged.'
+          : band === 'tuning'
+            ? 'Approving acknowledges this review item only. It does not change a threshold or case decision.'
+            : band === 'automation_ack'
+              ? 'Acknowledging records the operator review only. It does not change configuration, Memory, suppression, or case state.'
+            : 'The server validates and applies this proposal according to its type.';
 
   return (
     <Card
@@ -225,7 +287,7 @@ function ProposalCard({
         />
         <KindBadge kind={proposal.kind} />
         <ConfidencePill confidence={proposal.confidence} />
-        {decided ? (
+        {decided || applying ? (
           <Badge variant={proposal.status?.toLowerCase() === 'approved' ? 'success' : 'secondary'}>
             {humanizeToken(proposal.status)}
           </Badge>
@@ -239,7 +301,7 @@ function ProposalCard({
             <TooltipTrigger asChild>
               <Badge variant="outline">
                 <Clock className="h-3 w-3" aria-hidden />
-                expires {humanizeAge(proposal.expires_at)}
+                expires {humanizeUntil(proposal.expires_at)}
               </Badge>
             </TooltipTrigger>
             <TooltipContent>Expires {formatTimestamp(proposal.expires_at)}</TooltipContent>
@@ -281,6 +343,82 @@ function ProposalCard({
               </Badge>
             ) : null}
           </div>
+        ) : band === 'tuning' ? (
+          <div className="space-y-4">
+            <div>
+              <div className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+                {tuningActionLabel(tuning)}
+              </div>
+              <div className="mt-1.5 flex flex-wrap items-center gap-2 text-sm">
+                <InlineCode>{asText(tuning.rule_id) || '(rule)'}</InlineCode>
+                {tuning.target ? <Badge variant="outline">{humanizeToken(asText(tuning.target))}</Badge> : null}
+                {tuning.before !== undefined || tuning.after !== undefined ? (
+                  <span className="font-mono tabular-nums text-foreground">
+                    {asText(tuning.before)} → {asText(tuning.after)}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+
+            {tuning.reason ? (
+              <div>
+                <div className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Why this needs attention
+                </div>
+                <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+                  {asText(tuning.reason)}
+                </p>
+              </div>
+            ) : null}
+
+            {tuning.recommended_action ? (
+              <div>
+                <div className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Recommended action
+                </div>
+                <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+                  {asText(tuning.recommended_action)}
+                </p>
+              </div>
+            ) : null}
+
+            <div className="grid gap-3 border-t border-border/70 pt-3 sm:grid-cols-3">
+              <div>
+                <div className="text-2xs uppercase tracking-wider text-muted-foreground">Analyst labels</div>
+                <div className="mt-1 font-mono text-sm tabular-nums text-foreground">
+                  {fmtNumber(tuning.analyst_samples ?? 0)}
+                </div>
+              </div>
+              <div>
+                <div className="text-2xs uppercase tracking-wider text-muted-foreground">Confirmed FP / TP</div>
+                <div className="mt-1 font-mono text-sm tabular-nums text-foreground">
+                  {fmtNumber(tuning.confirmed_false_positives ?? 0)} / {fmtNumber(tuning.confirmed_true_positives ?? 0)}
+                </div>
+              </div>
+              <div>
+                <div className="text-2xs uppercase tracking-wider text-muted-foreground">Unconfirmed cases</div>
+                <div className="mt-1 font-mono text-sm tabular-nums text-foreground">
+                  {fmtNumber(tuning.unconfirmed_cases ?? 0)}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : band === 'automation_ack' ? (
+          <div>
+            <div className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Operator acknowledgement
+            </div>
+            <div className="mt-1.5 flex flex-wrap items-center gap-2">
+              {ack.rule_id ? <InlineCode>{asText(ack.rule_id)}</InlineCode> : null}
+              {ack.requested_kind ? (
+                <Badge variant="outline">Requested {humanizeToken(asText(ack.requested_kind))}</Badge>
+              ) : null}
+            </div>
+            <p className="mt-2.5 text-sm leading-relaxed text-foreground">
+              This checkpoint asks an operator to confirm review only. Acknowledging it does not
+              change a setting, create Memory, add suppression, or move the case.
+            </p>
+          </div>
         ) : (
           // Unknown kind: render the payload defensively as plain text so we never
           // drop a proposal (and never inject markup).
@@ -300,6 +438,18 @@ function ProposalCard({
             {asText(proposal.rationale)}
           </p>
         </div>
+      ) : null}
+
+      {proposal.approval_error ? (
+        <Alert variant="destructive" className="mt-4 ml-3">
+          <AlertTriangle aria-hidden />
+          <AlertTitle>
+            Previous {decisionIntent === 'reject' ? 'rejection' : 'approval'} attempt did not complete
+          </AlertTitle>
+          <AlertDescription>
+            {asText(proposal.approval_error)} Review the item, then retry.
+          </AlertDescription>
+        </Alert>
       ) : null}
 
       {/* linked source case(s) */}
@@ -344,16 +494,28 @@ function ProposalCard({
           size="sm"
           className="text-critical hover:bg-critical/10 hover:text-critical"
           onClick={() => onReject(proposal)}
-          disabled={busy || locked || decided}
+          disabled={busy || locked || decided || rejectionLocked || (applying && decisionIntent !== 'reject')}
         >
           <X className="h-4 w-4" aria-hidden />
-          Reject
+          {applying && decisionIntent === 'reject' ? 'Resume rejection' : decisionIntent === 'reject' ? 'Retry rejection' : 'Reject'}
         </Button>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button size="sm" onClick={() => onApprove(proposal)} disabled={busy || locked || decided}>
+            <Button
+              size="sm"
+              onClick={() => onApprove(proposal)}
+              disabled={busy || locked || decided || approvalLocked}
+            >
               <CheckCircle2 className="h-4 w-4" aria-hidden />
-              {busy ? 'Working…' : 'Approve'}
+              {busy
+                ? 'Working…'
+                : applying
+                  ? 'Resume approval'
+                  : decisionIntent === 'approve'
+                    ? 'Retry approval'
+                    : band === 'automation_ack'
+                      ? 'Acknowledge'
+                      : 'Approve'}
             </Button>
           </TooltipTrigger>
           <TooltipContent className="max-w-xs">{approveTip}</TooltipContent>
@@ -376,6 +538,7 @@ export default function Approvals({ onNavigate }: ApprovalsProps) {
   // Call the hook UNCONDITIONALLY (rules-of-hooks), then let an explicit prop win.
   const contextNavigate = useNavigateOptional();
   const navigate = onNavigate ?? contextNavigate;
+  const canReadTuning = useCan('automation', 'read');
   const [proposals, setProposals] = React.useState<Proposal[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<unknown>(null);
@@ -410,7 +573,7 @@ export default function Approvals({ onNavigate }: ApprovalsProps) {
 
   // The count badge tracks pending proposals regardless of the active filter.
   const pendingCount = React.useMemo(
-    () => proposals.filter((p) => (p.status || '').toLowerCase() === 'pending').length,
+    () => proposals.filter((p) => ['pending', 'applying'].includes((p.status || '').toLowerCase())).length,
     [proposals],
   );
 
@@ -477,7 +640,7 @@ export default function Approvals({ onNavigate }: ApprovalsProps) {
             : await api.rejectProposal(proposal.id);
         applyDecision(proposal, kind, updated);
         const meta = kindMeta(proposal.kind);
-        if (kind === 'approve') toast.success(`${meta.label} approved — it is now live.`);
+        if (kind === 'approve') toast.success(approvedToast(proposal));
         else toast.success(`${meta.label} proposal rejected.`);
       } catch (e) {
         const message = describeError(e);
@@ -611,8 +774,16 @@ export default function Approvals({ onNavigate }: ApprovalsProps) {
         title={statusFilter === 'pending' ? 'No pending proposals' : 'No proposals yet'}
         description={
           statusFilter === 'pending'
-            ? 'The agent drafts these when you confirm a false positive — there is nothing awaiting a decision right now.'
-            : 'No proposals have been drafted yet. The agent drafts these when it confirms a false positive or learns a durable fact.'
+            ? 'Nothing currently requires sign-off. Tuning proposals appear only when analyst-confirmed outcomes support a bounded change or when more human evidence is required; model verdicts and auto-closed cases do not count as confirmation.'
+            : 'No proposal history exists yet. Suppressions, durable memories, evidence-grounded tuning changes, and automation reviews appear here before an operator decision.'
+        }
+        action={
+          canReadTuning ? (
+            <Button variant="outline" size="sm" onClick={() => navigate('tuning')}>
+              <SlidersHorizontal className="h-4 w-4" aria-hidden />
+              Review auto-tuning evidence
+            </Button>
+          ) : undefined
         }
       />
     );
@@ -646,20 +817,20 @@ export default function Approvals({ onNavigate }: ApprovalsProps) {
         icon={Flag}
         breadcrumb={[{ label: 'Automation' }, { label: 'Approvals' }]}
         title="Approvals"
-        description="Agent-drafted recommendations awaiting human approval — suppression rules and durable memories."
+        description="Human review for suppression rules, durable memories, evidence-grounded tuning changes, and automation acknowledgements."
         actions={headerActions}
       />
 
       <Alert>
         <Info aria-hidden />
-        <AlertTitle>Nothing here is applied automatically</AlertTitle>
+        <AlertTitle>Every pending item requires an explicit decision</AlertTitle>
         <AlertDescription>
           <p className="leading-relaxed">
-            These are <strong>AI-drafted recommendations</strong>. Approving is the only thing that
-            makes a rule live or saves a memory — nothing here is applied automatically. The agent
-            recommends; you decide. Approving is a <strong>privileged action</strong> (the server
-            enforces admin access), and the deterministic close/escalate logic is never changed by
-            what you approve here.
+            These are <strong>evidence-backed recommendations</strong>. An apply proposal changes only
+            the bounded setting shown on its card; evidence and history proposals are
+            acknowledgement-only. Generic automation reviews also acknowledge only; they never
+            create trusted Memory. The server enforces the <strong>proposal approval</strong> grant,
+            and deterministic close/escalate logic is never changed here.
           </p>
         </AlertDescription>
       </Alert>
@@ -709,7 +880,7 @@ export default function Approvals({ onNavigate }: ApprovalsProps) {
             </Button>
             <Button size="sm" onClick={() => void decideSelected('approve')} disabled={bulkBusy}>
               <CheckCircle2 className="h-4 w-4" aria-hidden />
-              {bulkBusy ? 'Working…' : 'Approve selected'}
+              {bulkBusy ? 'Working…' : 'Approve / acknowledge selected'}
             </Button>
           </Card>
         </div>
@@ -727,9 +898,11 @@ export default function Approvals({ onNavigate }: ApprovalsProps) {
 
       <Separator />
       <p className="max-w-3xl text-xs leading-relaxed text-muted-foreground">
-        A suppression rule only suppresses future matching alerts once approved; a memory is only
-        saved once approved. Rejected proposals are discarded. Proposal fields, values and rationale
-        derive from log events and are rendered as plain text. {DASH}
+        A suppression rule only suppresses future matching alerts once approved; a memory only
+        becomes trusted once approved; and a tuning change is revalidated against the live value
+        before application. Rejected proposals are retained in history but never materialised.
+        Automation acknowledgements record review only and materialise nothing.
+        Proposal fields, values and rationale are rendered as plain text. {DASH}
       </p>
     </PageContainer>
   );

@@ -64,6 +64,9 @@ import type {
   OrgCustomization,
   PersonasResponse,
   PlaybookDetail,
+  PlaybookDryRunInput,
+  PlaybookDryRunResponse,
+  PlaybookCoverageResponse,
   PlaybookMutationResponse,
   PlaybooksResponse,
   Preferences,
@@ -93,6 +96,7 @@ import type {
   SecretsUpdate,
   SettingsResponse,
   SettingsSchema,
+  SchedulerHealthResponse,
   SetupStatus,
   SourceCoverage,
   SourceInstance,
@@ -176,6 +180,8 @@ export interface MemoryPatch {
   category?: string;
   tags?: string[];
   active?: boolean;
+  /** Manager review of an agent-authored suggestion. */
+  review_status?: 'approved' | 'pending';
 }
 
 // --------------------------------------------------------------------------- //
@@ -722,6 +728,8 @@ export const api = {
   get: <T = unknown>(path: string, query?: Record<string, unknown>) =>
     request<T>('GET', path, { query }),
   post: <T = unknown>(path: string, body?: unknown) => request<T>('POST', path, { body }),
+  postAbortable: <T = unknown>(path: string, body: unknown, signal: AbortSignal) =>
+    request<T>('POST', path, { body, signal }),
   put: <T = unknown>(path: string, body?: unknown) => request<T>('PUT', path, { body }),
   // Some routes are registered PATCH-only (e.g. the case-collab thread-message edit
   // + task patch in `routes_cases_collab.py`); calling them with PUT 405s. Mirrors put().
@@ -968,11 +976,17 @@ export const api = {
   getPlaybooks: () => request<PlaybooksResponse>('GET', 'playbooks'),
   getPlaybook: (playbookId: string) =>
     request<PlaybookDetail>('GET', `playbooks/${encodeURIComponent(playbookId)}`),
+  getPlaybookCoverage: () =>
+    request<PlaybookCoverageResponse>('GET', 'playbooks/coverage'),
+  dryRunPlaybookSelection: (input: PlaybookDryRunInput) =>
+    request<PlaybookDryRunResponse>('POST', 'playbooks/dry-run', { body: input }),
+  getSchedulerHealth: () =>
+    request<SchedulerHealthResponse>('GET', 'schedulers/health'),
   createPlaybook: (input: { id: string; content: string }) =>
     request<PlaybookMutationResponse>('POST', 'playbooks', { body: input }),
-  updatePlaybook: (playbookId: string, content: string) =>
+  updatePlaybook: (playbookId: string, content: string, expectedRevision: number) =>
     request<PlaybookMutationResponse>('PUT', `playbooks/${encodeURIComponent(playbookId)}`, {
-      body: { content },
+      body: { content, expected_revision: expectedRevision },
     }),
 
   // ---- Runbooks ------------------------------------------------------- //
@@ -1356,13 +1370,20 @@ export const api = {
     request<ProposalsResponse>('GET', 'proposals', {
       query: status ? { status } : undefined,
     }),
-  // Approve a proposal — the ONLY action that makes a rule live / saves a memory.
-  // Admin-gated server-side (may 403/404/409/400); the panel surfaces the error.
+  // Approve a proposal — the ONLY action that materialises its reviewed change.
+  // proposals:approve-gated server-side (may 403/404/409/400); normalise the
+  // backend { ok, proposal } envelope so both Pending and All views receive the row.
   approveProposal: (id: string) =>
-    request<Proposal>('POST', `proposals/${encodeURIComponent(id)}/approve`),
+    request<{ ok: boolean; proposal: Proposal }>(
+      'POST',
+      `proposals/${encodeURIComponent(id)}/approve`,
+    ).then((result) => result.proposal),
   // Reject (discard) a drafted proposal. Returns ok / the updated proposal.
   rejectProposal: (id: string) =>
-    request<Proposal>('POST', `proposals/${encodeURIComponent(id)}/reject`),
+    request<{ ok: boolean; proposal: Proposal }>(
+      'POST',
+      `proposals/${encodeURIComponent(id)}/reject`,
+    ).then((result) => result.proposal),
 
   // ---- Round-5 W0-F F2 scaffolds (Rules G6 / Custom-Dash G7 / preview) --- //
   // These are typed CLIENT scaffolds the feature waves flesh out. Each hits an

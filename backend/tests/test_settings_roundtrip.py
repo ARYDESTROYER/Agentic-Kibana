@@ -89,6 +89,24 @@ def test_partial_put_preserves_deeply_nested_siblings(client):
     assert after["notifications"]["channels"] == before["notifications"]["channels"]
 
 
+def test_embedding_role_rejects_a_chat_only_model(client):
+    before = _get_prefs(client)["embedding_model"]
+    r = client.put("/api/settings", json={
+        "embedding_model": {"provider": "openai", "model": "gpt-5.6-luna"},
+    })
+    assert r.status_code == 422
+    assert "not declared embedding-capable" in str(r.json().get("detail"))
+    assert _get_prefs(client)["embedding_model"] == before
+
+
+def test_legacy_chat_model_in_embedding_role_migrates_to_embedding_default():
+    prefs = Preferences.model_validate({
+        "embedding_model": {"provider": "openai", "model": "gpt-5.6-luna"},
+    })
+    assert prefs.embedding_model.provider == "openai"
+    assert prefs.embedding_model.model == "text-embedding-3-small"
+
+
 def test_read_only_mode_rejects_writes_except_the_unlock(client):
     """When read_only_settings_mode is on, writes 403 except setting it back to False."""
     _put(client, {"read_only_settings_mode": True})

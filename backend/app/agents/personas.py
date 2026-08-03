@@ -177,7 +177,9 @@ def get_persona(persona_id: str | None) -> AgentPersona:
     return GENERALIST
 
 
-def select_persona(cluster: Cluster, prefs: Preferences) -> AgentPersona:
+def select_persona_with_reason(
+    cluster: Cluster, prefs: Preferences
+) -> tuple[AgentPersona, str]:
     """Deterministically pick the specialist for a cluster (multi-agent routing).
 
     Precedence: (1) personas disabled → generalist; (2) an explicit operator
@@ -185,12 +187,17 @@ def select_persona(cluster: Cluster, prefs: Preferences) -> AgentPersona:
     priority) whose keyword OR entity-type signal matches; (4) the generalist."""
     cfg = getattr(prefs, "personas", None)
     if cfg is not None and not cfg.enabled:
-        return GENERALIST
+        return GENERALIST, "personas_disabled"
 
     primary = cluster.primary_rule()
     overrides = getattr(cfg, "overrides", {}) if cfg is not None else {}
     if primary and primary in overrides:
-        return get_persona(overrides[primary])
+        requested = str(overrides[primary] or "")
+        if requested in PERSONAS:
+            return PERSONAS[requested], f"operator_override:{primary}->{requested}"
+        # A stale/typoed override must be visible rather than silently looking like
+        # an intentional generalist selection.
+        return GENERALIST, f"invalid_override:{primary}->{requested};fallback=generalist"
 
     # Select on the rule/keyword signal only — it's the reliable discriminator.
     # ``entity_types`` is kept on each persona as advisory metadata (surfaced in the
@@ -201,5 +208,11 @@ def select_persona(cluster: Cluster, prefs: Preferences) -> AgentPersona:
     ).lower()
     for persona in sorted(_SPECIALISTS, key=lambda p: p.priority):
         if persona.keywords and any(kw in haystack for kw in persona.keywords):
-            return persona
-    return GENERALIST
+            matched = next(kw for kw in persona.keywords if kw in haystack)
+            return persona, f"keyword:{matched}"
+    return GENERALIST, "no_specialist_signal"
+
+
+def select_persona(cluster: Cluster, prefs: Preferences) -> AgentPersona:
+    """Back-compatible persona-only wrapper around the explainable selector."""
+    return select_persona_with_reason(cluster, prefs)[0]

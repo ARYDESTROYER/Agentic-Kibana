@@ -12,9 +12,10 @@ mount the monolith uses). It surfaces the deterministic, no-LLM nightly tuner
 * ``GET  /api/tuning/config``          — read ``Preferences.threshold_tuning``.
 * ``PUT  /api/tuning/config``          — update ``Preferences.threshold_tuning``.
 * ``POST /api/tuning/{rule_id}/apply`` — recompute and process every current proposal
-                                        for ONE rule (shadow-evaluated first; a
-                                        suppression DROP is NEVER auto-applied — it is
-                                        routed to the existing HITL Proposal queue).
+                                        for ONE rule. Review-first is the default; an
+                                        explicitly permitted automatic change still
+                                        requires independent analyst evidence and a
+                                        clean shadow evaluation.
 * ``POST /api/tuning/{rule_id}/rollback`` — reverse the latest active auto-applied
                                         change for one rule (restore its ``before``).
 
@@ -38,7 +39,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from ..config import ThresholdTuningConfig
-from ..constants import ActionType, CaseStatus
+from ..constants import ActionType
 from ..engine import threshold_tuner as tuner
 from ..models import Case
 from ..state import AppState
@@ -62,23 +63,10 @@ def _safe(value: Any) -> str:
 
 def _closed_reader(state: AppState):
     """An async ``read(limit, offset) -> list[Case]`` pager over CLOSED + RESOLVED
-    cases — the tuner's window source. Never raises (a store glitch → an empty page →
-    the tuner degrades to "no recommendation")."""
+    cases — the tuner's window source. A status-store failure aborts the read rather
+    than presenting partial evidence as a complete tuning window."""
 
-    async def _read(limit: int, offset: int) -> list[Case]:
-        collected: list[Case] = []
-        for status in (CaseStatus.CLOSED.value, CaseStatus.RESOLVED.value):
-            try:
-                cases, _total = await state.cases.list(
-                    status=status, limit=limit, offset=offset,
-                )
-            except Exception as exc:  # noqa: BLE001 — a read glitch never breaks tuning
-                logger.warning("tuning window read failed (%s); using empty page", exc)
-                continue
-            collected.extend(cases)
-        return collected
-
-    return _read
+    return tuner.terminal_case_reader(state.cases)
 
 
 async def _window_cases(state: AppState) -> list[Case]:
@@ -86,18 +74,30 @@ async def _window_cases(state: AppState) -> list[Case]:
     reader = _closed_reader(state)
     out: list[Case] = []
     offset = 0
-    for _ in range(200):  # generous page ceiling, far above the old 200-cap
-        page = await reader(_PAGE_SIZE, offset)
-        if not page:
-            break
-        out.extend(page)
-        offset += _PAGE_SIZE
-        if len(page) < _PAGE_SIZE:
-            break
+    try:
+        for _ in range(200):  # generous page ceiling, far above the old 200-cap
+            page = await reader(_PAGE_SIZE, offset)
+            if not page:
+                break
+            out.extend(page)
+            offset += len(page)
+            if len(page) < _PAGE_SIZE:
+                break
+    except Exception as exc:  # noqa: BLE001 — never compute from a partial window
+        logger.warning("tuning terminal-case window unavailable: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail="Terminal case evidence is temporarily unavailable; tuning was not run",
+        ) from exc
     return out
 
 
-def _proposal_json(prop: tuner.TuningProposal, *, shadow_blocked: bool) -> dict[str, Any]:
+def _proposal_json(
+    prop: tuner.TuningProposal,
+    *,
+    shadow_blocked: bool,
+    policy_allows: bool,
+) -> dict[str, Any]:
     """PLAIN JSON for one dry-run proposed change (#9)."""
     st = prop.stat
     return {
@@ -110,13 +110,24 @@ def _proposal_json(prop: tuner.TuningProposal, *, shadow_blocked: bool) -> dict[
         "feed_id": _safe(prop.feed_id) if prop.feed_id else None,
         "fp_rate": round(st.fp_lower_bound, 4),
         "samples": st.total,
+        "analyst_samples": st.total,
+        "observed_cases": st.observed,
+        "unconfirmed_cases": st.unconfirmed,
+        "confirmed_false_positives": st.fp,
+        "confirmed_true_positives": st.tp,
         # A suppression DROP is HITL-only; a shadow-blocked raise is forced to review.
-        "auto_apply": prop.kind != "suppression" and not shadow_blocked,
+        "auto_apply": (
+            prop.kind not in {"suppression", "evidence_collection"}
+            and not shadow_blocked
+            and policy_allows
+        ),
         "shadow_blocked": shadow_blocked,
         "reason": (
-            "suppression_drop" if prop.kind == "suppression"
-            else "shadow_eval_would_hide_tp" if shadow_blocked
-            else "auto_apply_candidate"
+            "insufficient_analyst_evidence" if prop.kind == "evidence_collection"
+            else "suppression_drop" if prop.kind == "suppression"
+            else "shadow_eval_would_hide_confirmed_tp" if shadow_blocked
+            else "policy_requires_approval" if not policy_allows
+            else "confirmed_evidence_candidate"
         ),
     }
 
@@ -152,7 +163,11 @@ async def tuning_recommendations(
             and prop.kind != "suppression"
             and tuner.shadow_eval_hides_true_positive(prop, cases)
         )
-        recos.append(_proposal_json(prop, shadow_blocked=blocked))
+        recos.append(_proposal_json(
+            prop,
+            shadow_blocked=blocked,
+            policy_allows=bool(cfg.auto_apply_confirmed),
+        ))
 
     # Per-rule noise for EVERY observed rule (not only ones clearing the bar), so the
     # UI can show the full picture and why a rule did / didn't get a proposal.
@@ -161,7 +176,10 @@ async def tuning_recommendations(
         st = stats[rid]
         rule_noise.append({
             "rule_id": _safe(rid),
+            "observed": st.observed,
             "total": st.total,
+            "analyst_samples": st.total,
+            "unconfirmed": st.unconfirmed,
             "fp": st.fp,
             "tp": st.tp,
             "fp_rate": round(st.fp_lower_bound, 4),
@@ -180,6 +198,7 @@ async def tuning_recommendations(
         "cadence": _safe(cfg.cadence),
         "fp_rate_target": float(cfg.fp_rate_target),
         "min_samples": int(cfg.min_samples),
+        "auto_apply_confirmed": bool(cfg.auto_apply_confirmed),
         "window_cases": len(cases),
         "rule_noise": rule_noise,
         "recommendations": recos,
@@ -208,13 +227,15 @@ async def put_tuning_config(
 ) -> dict[str, Any]:
     """Update the ``threshold_tuning`` policy. Additive + validated by the Pydantic
     model; never touches ``decide()`` (#3). Audited (#2)."""
-    prefs = state.execution_prefs.model_copy(update={"threshold_tuning": body})
-    await state.update_execution_prefs(prefs)
+    await state.mutate_execution_prefs(
+        lambda prefs: prefs.model_copy(update={"threshold_tuning": body})
+    )
     await _audit(
         state, request, "tuning_config_update",
         f"enabled={body.enabled} cadence={body.cadence} "
         f"fp_target={body.fp_rate_target} min_samples={body.min_samples} "
-        f"max_n_step={body.max_n_step} shadow_eval={body.shadow_eval}",
+        f"max_n_step={body.max_n_step} shadow_eval={body.shadow_eval} "
+        f"auto_apply_confirmed={body.auto_apply_confirmed}",
     )
     return {"ok": True, "config": body.model_dump(mode="json")}
 
@@ -231,15 +252,15 @@ async def apply_tuning(
 ) -> dict[str, Any]:
     """Recompute and process every current proposed change for ONE rule.
 
-    Reuses the engine's SAFE per-proposal router (``_handle_proposal``): a bounded
-    ``correlation_n`` / ``severity_floor`` raise is auto-applied (after shadow-eval) +
-    recorded in the ledger; a suppression DROP or a shadow-blocked raise is routed to
-    the existing HITL Proposal queue and is NEVER auto-applied here. The router never
+    Reuses the engine's SAFE per-proposal router (``_handle_proposal``): bounded
+    changes enter the HITL Proposal queue by default after shadow evaluation. An
+    explicitly enabled automatic policy still requires sufficient independent analyst
+    evidence; suppression drops are never applied automatically. The router never
     calls ``decide()`` (#3). Returns the applied, queued, and shadow-blocked outcomes.
 
     404 when no proposal exists for ``rule_id`` (the rule isn't noisy / cleared the
     bar) so the caller gets an honest signal rather than a silent no-op."""
-    rid = (rule_id or "").strip()
+    rid = tuner.normalize_rule_id(rule_id)
     if not rid:
         raise HTTPException(status_code=400, detail="rule_id is required")
 
@@ -247,7 +268,10 @@ async def apply_tuning(
     cfg = getattr(prefs, "threshold_tuning", None) or ThresholdTuningConfig()
     cases = await _window_cases(state)
     stats = tuner._accumulate_rule_stats(cases, ewma_alpha=cfg.ewma_alpha, z=cfg.wilson_z)
-    proposals = [p for p in tuner.derive_proposals(prefs, stats) if p.rule_id == rid]
+    proposals = [
+        p for p in tuner.derive_proposals(prefs, stats)
+        if tuner.normalize_rule_id(p.rule_id) == rid
+    ]
     if not proposals:
         raise HTTPException(
             status_code=404,
@@ -276,22 +300,39 @@ async def apply_tuning(
         logger.warning("tuning apply for %s failed: %s", rid, exc)
         raise HTTPException(status_code=500, detail=_safe(exc)) from exc
 
-    # Persist the composed prefs change ONCE (only when something auto-applied), THEN —
-    # only on a confirmed write — record the ledger + audit for each auto-apply, so a
-    # failed write never leaves a false 'applied/reversible' ledger+audit (audit #24).
-    if current_prefs is not prefs:
+    if outcome.persistence_errors:
+        logger.warning(
+            "tuning apply for %s did not confirm its approval-queue writes: %s",
+            rid,
+            outcome.persistence_errors,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Tuning review work could not be confirmed; no success was reported",
+        )
+
+    # Preferences and rollback provenance are separate KV documents.  Reuse the
+    # engine's compensating commit so an explicit apply cannot leave an untracked
+    # threshold behind when the ledger write fails.
+    if pending:
         try:
-            await state.update_execution_prefs(current_prefs)
+            await tuner._commit_pending_auto_changes(
+                pending=pending,
+                current_prefs=current_prefs,
+                tuning_store=state.tuning_store,
+                write_prefs=state.update_execution_prefs,
+                mutate_prefs=state.mutate_execution_prefs,
+                writers=writers,
+            )
         except Exception as exc:  # noqa: BLE001
             logger.warning("tuning apply write for %s failed: %s", rid, exc)
-            raise HTTPException(status_code=500, detail=_safe(exc)) from exc
+            raise HTTPException(
+                status_code=503,
+                detail="Tuning apply could not be durably recorded; no success was reported",
+            ) from exc
         for prop, rec in pending:
-            try:
-                await state.tuning_store.add(rec)
-                outcome.auto_applied.append(rec)
-                await tuner._audit_tuning(state.audit, prop, rec)
-            except Exception as exc:  # noqa: BLE001 — best-effort per record
-                logger.warning("recording tuning apply for %s failed: %s", rid, exc)
+            outcome.auto_applied.append(rec)
+            await tuner._audit_tuning(state.audit, prop, rec)
 
     applied = [r.to_json() for r in outcome.auto_applied]
     queued = [
@@ -329,15 +370,23 @@ async def rollback_tuning(
     the ``"<source_id>:<feed_id>"`` feed key for a ``severity_floor`` raise. Restores
     the record's ``before`` via the SAME config-writers the apply used (never a case /
     verdict / signature). 404 when there is no active record for the key."""
-    rid = (rule_id or "").strip()
+    rid = tuner.normalize_rule_id(rule_id)
     if not rid:
         raise HTTPException(status_code=400, detail="rule_id is required")
 
     try:
-        active = [r for r in await state.tuning_store.list(rule_id=rid, active_only=True)]
+        active = [
+            r
+            for r in await state.tuning_store.list_strict(
+                rule_id=rid, active_only=True
+            )
+        ]
     except Exception as exc:  # noqa: BLE001
         logger.warning("tuning ledger read for rollback failed (%s)", exc)
-        active = []
+        raise HTTPException(
+            status_code=503,
+            detail="Tuning rollback ledger is temporarily unavailable",
+        ) from exc
     if not active:
         raise HTTPException(
             status_code=404, detail=f"no active tuning record for {_safe(rid)}",
@@ -348,6 +397,7 @@ async def rollback_tuning(
     ok = await tuner.rollback(
         record.id, state.execution_prefs,
         tuning_store=state.tuning_store, write_prefs=state.update_execution_prefs,
+        mutate_prefs=state.mutate_execution_prefs,
         audit=state.audit,
     )
     if not ok:

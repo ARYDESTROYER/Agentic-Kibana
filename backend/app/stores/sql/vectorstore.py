@@ -116,15 +116,13 @@ class SqlVectorStore(VectorStore):
     # --------------------------------------------------------------------- #
     # Document management. The metadata JSON is portable across SQLite/Postgres
     # but a JSON-path filter is dialect-specific; load + filter in Python (the
-    # corpus is small: seeds + a handful of imported docs). All FAIL-SAFE.
+    # corpus is small: seeds + a handful of imported docs). Store methods are
+    # strict: callers that intentionally degrade gracefully catch at the service
+    # boundary, while export/reconciliation can distinguish an outage from empty.
     # --------------------------------------------------------------------- #
     async def _load_all(self) -> list[StoredChunk]:
-        try:
-            async with self._sm() as session:
-                rows = (await session.execute(select(RagChunkRow))).scalars().all()
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("RAG SQL load failed: %s", exc)
-            return []
+        async with self._sm() as session:
+            rows = (await session.execute(select(RagChunkRow))).scalars().all()
         return [
             StoredChunk(
                 text=r.text,
@@ -147,26 +145,20 @@ class SqlVectorStore(VectorStore):
         return out
 
     async def delete_document(self, document_id: str) -> int:
-        try:
-            async with self._sm() as session:
-                rows = (await session.execute(select(RagChunkRow))).scalars().all()
-                victims = [
-                    r
-                    for r in rows
-                    if _document_id_of(
-                        StoredChunk(
-                            text=r.text, source=r.source, metadata=dict(r.metadata_json or {})
-                        )
-                    )
-                    == document_id
-                ]
-                for r in victims:
-                    await session.delete(r)
-                await session.commit()
-                return len(victims)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("RAG SQL delete_document(%s) failed: %s", document_id, exc)
-            return 0
+        async with self._sm() as session:
+            rows = (await session.execute(select(RagChunkRow))).scalars().all()
+            victims = [
+                r
+                for r in rows
+                if _document_id_of(
+                    StoredChunk(text=r.text, source=r.source, metadata=dict(r.metadata_json or {}))
+                )
+                == document_id
+            ]
+            for r in victims:
+                await session.delete(r)
+            await session.commit()
+            return len(victims)
 
     async def stats(self) -> dict:
         return _stats_of(await self._load_all())

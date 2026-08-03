@@ -34,6 +34,10 @@ vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
 }));
 
+vi.mock('@/soc/auth', () => ({
+  useAuth: () => ({ hasPermission: () => true }),
+}));
+
 import { TooltipProvider } from '@/ui/tooltip';
 import Approvals from '../Approvals';
 import type { Proposal } from '@/lib/types';

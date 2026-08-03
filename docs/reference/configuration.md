@@ -48,14 +48,14 @@ rule. The image/build pipeline passes these names directly:
 
 | Variable | Meaning |
 |---|---|
-| `TLSOC_VERSION` | Compose image tag/build argument; must match the code's Semantic Version (`0.1.1`) |
+| `TLSOC_VERSION` | Compose image tag/build argument; must match the code's Semantic Version (`0.1.2`) |
 | `TLSOC_RELEASE_CHANNEL` | `testing` by default; set to `stable` only for the accepted `main`/tag build |
 | `TLSOC_BUILD_SHA` | Exact source commit embedded in `/api/health/build-info` and image metadata |
 | `TLSOC_BUILD_DATE` | Build timestamp embedded in `/api/health/build-info` and image metadata |
 | `TLSOC_SOURCE_URL` | Dockerfile build argument for the canonical source URL embedded in OCI image metadata; the reference Compose files currently use the Dockerfile's repository default |
 
 The release channel is independent of SemVer: both the accepted Testing candidate and
-its Stable promotion are application `0.1.1`. Promotion changes provenance/channel,
+its Stable promotion are application `0.1.2`. Promotion changes provenance/channel,
 not the source version.
 
 The Console compiles version/channel/SHA/date into its own build and displays an
@@ -127,7 +127,7 @@ always off.
 This is desired policy, not a cross-provider promise. The status/preview API reports
 the effective state and blockers before any mutation:
 
-| State backend | Effective 0.1.1 behavior |
+| State backend | Effective 0.1.2 behavior |
 |---|---|
 | Elasticsearch | Explicit Apply can install ILM for append-only `tlsoc-agent-audit-*` and `tlsoc-agent-usage-*` only, after the cluster/privilege/tier probe succeeds |
 | PostgreSQL | Advisory; no built-in partitions, tablespace movement, or archive scheduler |
@@ -190,14 +190,16 @@ version ledger and rollback endpoints.
 
 ### Discounted alert inference
 
-Fresh preferences use official OpenAI `gpt-5.6-luna` for all six completion roles
+Fresh preferences use the bundled OpenAI model ID `gpt-5.6-luna` for all six completion roles
 (router, investigator, formatter, standup, chat, and overview). Embeddings remain on
 the dedicated OpenAI `text-embedding-3-small` model. This changes only newly-created
 defaults: persisted role assignments and every alternate provider/model are preserved.
 The Chat Completions adapter explicitly uses `reasoning_effort: none` for Luna to
 retain the existing non-reasoning latency/cost and function-tool contract.
-The bundled short-context Standard ledger rate follows OpenAI's current public pricing:
-$0.20/M input, $0.02/M cached input, $0.25/M cache write, and $1.20/M output.
+The bundled short-context Standard ledger rate is configured as $0.20/M input,
+$0.02/M cached input, $0.25/M cache write, and $1.20/M output. It is release catalog
+metadata, not a provider-invoice guarantee; compare it with current provider pricing
+and your account contract before production use.
 
 `batch.prefer_discounted_alerts` defaults to `true`. When an automated-scan or
 entity/case investigation uses official OpenAI (no Azure/custom base URL) with a

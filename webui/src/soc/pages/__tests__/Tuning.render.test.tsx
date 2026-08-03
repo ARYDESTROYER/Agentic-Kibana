@@ -23,14 +23,18 @@ const {
   putConfigMock,
   applyMock,
   rollbackMock,
+  schedulerHealthMock,
+  telemetryMock,
   hasPermissionMock,
   mediaQueryMock,
 } = vi.hoisted(() => ({
     recsMock: vi.fn(),
     getConfigMock: vi.fn(),
     putConfigMock: vi.fn(),
-    applyMock: vi.fn(),
+  applyMock: vi.fn(),
   rollbackMock: vi.fn(),
+  schedulerHealthMock: vi.fn(),
+  telemetryMock: vi.fn(),
   hasPermissionMock: vi.fn(),
   mediaQueryMock: vi.fn(),
 }));
@@ -45,6 +49,8 @@ vi.mock('@/soc/pages/Tuning.api', async (importOriginal) => {
       putConfig: putConfigMock,
       apply: applyMock,
       rollback: rollbackMock,
+      schedulerHealth: schedulerHealthMock,
+      sourceRecommendations: telemetryMock,
     },
   };
 });
@@ -91,6 +97,7 @@ const RECS: TuningRecommendationsResponse = {
   cadence: 'nightly',
   fp_rate_target: 0.3,
   min_samples: 25,
+  auto_apply_confirmed: true,
   window_cases: 120,
   rule_noise: [
     { rule_id: 'auth-brute', total: 40, fp: 30, tp: 10, fp_rate: 0.62, volume_ewma: 4.2, over_target: true },
@@ -138,6 +145,7 @@ const CONFIG = {
     ewma_alpha: 0.2,
     cadence: 'nightly' as const,
     shadow_eval: true,
+    auto_apply_confirmed: true,
   },
 };
 
@@ -160,6 +168,8 @@ describe('Tuning page', () => {
     recsMock.mockReset();
     getConfigMock.mockReset();
     applyMock.mockReset();
+    schedulerHealthMock.mockReset();
+    telemetryMock.mockReset();
     hasPermissionMock.mockReset();
     hasPermissionMock.mockReturnValue(true);
     mediaQueryMock.mockReset();
@@ -172,6 +182,39 @@ describe('Tuning page', () => {
       applied: [{ id: 'led-1', rule_id: 'auth-brute', target: 'correlation_n', before: 3, after: 4, active: true }],
       queued_proposals: [],
       shadow_blocked: [],
+    });
+    schedulerHealthMock.mockResolvedValue({
+      scheduler_runtime_running: true,
+      workers: {
+        threshold_tuner: {
+          enabled: true,
+          gated: false,
+          running: false,
+          cadence: 'nightly',
+          last_attempt_at: '2026-08-01T01:00:00Z',
+          last_success_at: '2026-08-01T01:00:01Z',
+          last_error: '',
+          processed: 3,
+        },
+      },
+    });
+    telemetryMock.mockResolvedValue({
+      status: 'available',
+      scanned_cases: 12,
+      truncated: false,
+      evidence_schema: 'case.telemetry_gaps.v1',
+      not_available_reason: '',
+      recommendations: [
+        {
+          field: 'dns.question.name',
+          source_type: 'dns',
+          source_label: 'Outgoing DNS logs',
+          benefit: 'Resolve the destination domain observed during command-and-control review.',
+          affected_case_count: 2,
+          case_ids: ['case-1', 'case-2'],
+          evidence: [{ result: 'DNS context was missing', query: 'source.ip:10.0.0.5' }],
+        },
+      ],
     });
   });
 
@@ -302,7 +345,7 @@ describe('Tuning page', () => {
     expect(detail).toHaveClass('border-y');
 
     const statCells = Array.from(detail.querySelector('dl')?.children ?? []);
-    expect(statCells).toHaveLength(4);
+    expect(statCells).toHaveLength(6);
     expect(statCells[1]).toHaveClass('border-l');
     expect(statCells[2]).toHaveClass('border-t');
     expect(within(detail).getByText('Why this rule needs attention')).toBeInTheDocument();
@@ -360,9 +403,9 @@ describe('Tuning page', () => {
     await screen.findByText('noisy-web');
 
     // The suppression row is marked for a human decision and offers an Approvals link.
-    expect(screen.getAllByText(/human decision/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/approval required/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/nothing is suppressed from this page/i)).toBeInTheDocument();
-    const openApprovals = screen.getByRole('button', { name: /open approvals/i });
+    const openApprovals = screen.getByRole('button', { name: /review in approvals/i });
     fireEvent.click(openApprovals);
     expect(onNavigate).toHaveBeenCalledWith('approvals');
     // A suppression is NEVER auto-applied from here.
@@ -402,6 +445,19 @@ describe('Tuning page', () => {
     await waitFor(() => expect(applyMock).toHaveBeenCalledWith('auth-brute'));
   });
 
+  it('routes an otherwise safe bounded change to Approvals in review-first mode', async () => {
+    recsMock.mockResolvedValueOnce({ ...RECS, auto_apply_confirmed: false });
+    getConfigMock.mockResolvedValueOnce({
+      config: { ...CONFIG.config, auto_apply_confirmed: false },
+    });
+    renderTuning();
+
+    await screen.findAllByText('auth-brute');
+    expect(screen.getAllByText('Approval required').length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: 'Process all changes for auth-brute' }))
+      .toHaveTextContent('Send to Approvals');
+  });
+
   it('labels under-sampled rules as Collecting instead of Healthy', async () => {
     recsMock.mockResolvedValueOnce({
       ...RECS,
@@ -423,7 +479,7 @@ describe('Tuning page', () => {
     await screen.findByText('rare-cloud-rule');
     expect(screen.getAllByText('Collecting').length).toBeGreaterThan(0);
     expect(
-      screen.getAllByText(/8 of 25 verdict-bearing closed cases have been collected/i).length,
+      screen.getAllByText(/8 of 25 analyst-confirmed closed cases have been collected/i).length,
     ).toBeGreaterThan(0);
     expect(screen.getAllByText(/17 more are required/i).length).toBeGreaterThan(0);
     expect(
@@ -442,6 +498,50 @@ describe('Tuning page', () => {
     // The min-samples input carries the loaded value.
     const minSamples = screen.getByLabelText(/minimum samples/i) as HTMLInputElement;
     expect(minSamples.value).toBe('25');
+    expect(screen.getByRole('switch', {
+      name: 'Auto-apply confirmed bounded changes',
+    })).toBeChecked();
+  });
+
+  it('keeps automatic writes coupled to the mandatory shadow replay', async () => {
+    renderTuning();
+    await screen.findAllByText('auth-brute');
+    fireEvent.keyDown(screen.getByRole('tab', { name: 'Policy & history' }), {
+      key: 'Enter',
+    });
+
+    const shadow = screen.getByRole('switch', { name: 'Shadow-evaluate first' });
+    fireEvent.click(screen.getByText('Advanced statistical controls'));
+    const autoApply = screen.getByRole('switch', {
+      name: 'Auto-apply confirmed bounded changes',
+    });
+    expect(shadow).toBeChecked();
+    expect(autoApply).toBeChecked();
+
+    fireEvent.click(shadow);
+    expect(shadow).not.toBeChecked();
+    expect(autoApply).not.toBeChecked();
+
+    fireEvent.click(autoApply);
+    expect(autoApply).toBeChecked();
+    expect(shadow).toBeChecked();
+  });
+
+  it('shows scheduler evidence and query-backed telemetry opportunities', async () => {
+    renderTuning();
+    await screen.findAllByText('auth-brute');
+
+    fireEvent.keyDown(screen.getByRole('tab', { name: 'Outcomes' }), { key: 'Enter' });
+    expect(await screen.findByText('Outgoing DNS logs')).toBeInTheDocument();
+    expect(screen.getByText('DNS context was missing')).toBeInTheDocument();
+    expect(screen.getByText('source.ip:10.0.0.5')).toBeInTheDocument();
+
+    fireEvent.keyDown(screen.getByRole('tab', { name: 'Policy & history' }), {
+      key: 'Enter',
+    });
+    expect(await screen.findByText('Threshold tuner')).toBeInTheDocument();
+    expect(screen.getByText('Scheduler running')).toBeInTheDocument();
+    expect(screen.getByText('3')).toBeInTheDocument();
   });
 
   it('registers an unsaved tuning policy until it is discarded', async () => {

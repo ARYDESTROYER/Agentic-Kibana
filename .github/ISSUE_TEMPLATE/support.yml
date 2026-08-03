@@ -1,0 +1,59 @@
+name: Setup or usage question
+description: Ask a non-security question about evaluating, configuring, or operating Agentic SOC.
+title: "[Question]: "
+labels: []
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check the [Stable Help Center](https://arydestroyer.github.io/Agentic-Kibana/stable/) first. Questions involving vulnerabilities must use the private process in [SECURITY.md](https://github.com/ARYDESTROYER/Agentic-Kibana/blob/main/SECURITY.md#8-responsible-disclosure).
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight
+      options:
+        - label: I checked the version-matched Help Center and existing issues.
+          required: true
+        - label: I removed credentials, customer data, private alerts, exports, and vulnerability details.
+          required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version and channel
+      placeholder: "vX.Y.Z · Stable"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Evaluation or Demo Mode
+        - Deployment or upgrade
+        - Source connection or mapping
+        - Case workflow
+        - Intelligence or auto-tuning
+        - Models or cost controls
+        - Identity or administration
+        - API or extension development
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: Explain the outcome you are trying to achieve and where you are blocked.
+    validations:
+      required: true
+
+  - type: textarea
+    id: attempted
+    attributes:
+      label: What have you tried?
+      description: Include sanitised commands or configuration names, but never their secret values.

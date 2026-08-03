@@ -167,9 +167,12 @@ export function healthView(health: HealthResponse | null, err: boolean): HealthV
     };
   }
   const storeType = health?.store_type ?? 'unknown';
+  // Prefer the truthfully named additive field. Older backends remain supported
+  // through the compatibility alias until every deployed pair is upgraded.
+  const stateStoreConnected = health?.state_store_connected ?? health?.es_connected;
   // The in-memory ES fallback pings OK (reports es_connected:true) but does NOT
   // persist — surface it as a muted, informative note rather than a green "Healthy".
-  if (health?.es_connected && isInMemoryStore(storeType)) {
+  if (stateStoreConnected && isInMemoryStore(storeType)) {
     return {
       tone: 'muted',
       label: 'In-memory store',
@@ -184,7 +187,7 @@ export function healthView(health: HealthResponse | null, err: boolean): HealthV
         'connectivity (see DEPLOY.md).',
     };
   }
-  if (health?.es_connected) {
+  if (stateStoreConnected) {
     return {
       tone: 'success',
       label: 'Healthy',
@@ -263,7 +266,7 @@ export function ReleaseBadge({
   const tone = release.channel === 'stable' ? 'success' : 'warning';
   const ariaLabel = `Agentic SOC v${release.version}, ${release.contextLabel}${
     release.mismatch ? ', build identity mismatch' : ''
-  }`;
+  }${release.provenanceComplete ? '' : ', build provenance incomplete'}`;
 
   const row = (label: string, value: string) => (
     <div className="flex min-w-0 items-start justify-between gap-4">
@@ -302,6 +305,13 @@ export function ReleaseBadge({
         {release.mismatch ? (
           <p className="rounded-md border border-warning/30 bg-warning/10 px-2.5 py-2 text-warning-text">
             Console and backend build identities differ. This session is treated as Testing.
+          </p>
+        ) : null}
+
+        {!release.provenanceComplete ? (
+          <p className="rounded-md border border-warning/30 bg-warning/10 px-2.5 py-2 text-warning-text">
+            Build provenance is incomplete. This installation stays Testing and cannot offer a
+            verified update until both images are rebuilt with commit and build-time stamps.
           </p>
         ) : null}
 

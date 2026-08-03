@@ -82,7 +82,18 @@ class BatchJobStore:
     async def _load_all_strict(self) -> dict[str, BatchJob]:
         """Confirmed registry read for operator/API and durability boundaries."""
         getter = getattr(self._kv, "get_strict", None) or self._kv.get
-        return self._decode(await getter(BATCH_JOBS_NS, BATCH_JOBS_KEY))
+        doc = await getter(BATCH_JOBS_NS, BATCH_JOBS_KEY)
+        if doc is None:
+            return {}
+        if not isinstance(doc, dict):
+            raise ValueError("batch-job registry is not a JSON object")
+        raw = doc.get("jobs", {})
+        if not isinstance(raw, dict):
+            raise ValueError("batch-job registry entries are not an object")
+        decoded = self._decode(doc)
+        if len(decoded) != len(raw):
+            raise ValueError("batch-job registry contains an invalid entry")
+        return decoded
 
     async def _mutate(self, change: Callable[[dict[str, BatchJob]], _T]) -> _T:
         box: dict[str, _T] = {}

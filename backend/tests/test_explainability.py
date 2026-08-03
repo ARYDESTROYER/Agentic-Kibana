@@ -273,6 +273,97 @@ def test_rationale_projects_only_latest_investigation_run():
     assert out["platform_tuning"][0]["record_id"] == "tune-new"
 
 
+def test_rationale_projects_structured_procedure_provenance():
+    """Selected and consulted procedure facts remain distinct and attributable."""
+    rows = [
+        {
+            "actor": "playbook_selector",
+            "action_type": ActionType.DECISION.value,
+            "result_summary": "reason=exact rule match",
+            "tool_input": {
+                "playbook_selection": {
+                    "id": "web-scanner-activity",
+                    "reason": "exact rule match",
+                },
+            },
+        },
+        {
+            "actor": "context",
+            "action_type": ActionType.CONTEXT.value,
+            "tool_input": {
+                "knowledge": [{"source": "legacy", "snippet": "superseded"}],
+                "playbook_detail": {"id": "web-scanner-activity", "version": "2"},
+            },
+        },
+        {
+            "actor": "procedure_provenance",
+            "action_type": ActionType.CONTEXT.value,
+            "tool_input": {
+                "persona": {
+                    "selected_id": "network_specialist",
+                    "selection_reason": "entity_type=ip",
+                    "consulted": True,
+                },
+                "playbook": {
+                    "selected_id": "web-scanner-activity",
+                    "selection_reason": "exact rule match",
+                    "consulted": True,
+                },
+                "consultation_path": "strong_investigator",
+                "retrieval_query_groups": [
+                    {"group": "cluster", "query": "ip scanner evidence"},
+                    {"group": "playbook:1", "query": "approved scanner ranges"},
+                ],
+                "knowledge": [{
+                    "source": "operator-runbook",
+                    "score": 0.91,
+                    "document_id": "runbook-scanner",
+                    "revision": 4,
+                    "content_hash": "abc123",
+                    "query_groups": ["cluster", "playbook:1"],
+                    "snippet": "Validate scanner ownership and change window.",
+                }],
+            },
+        },
+    ]
+
+    out = _build_rationale("case-provenance", None, rows)
+
+    assert out["procedure_provenance"] == {
+        "persona": {
+            "selected_id": "network_specialist",
+            "selection_reason": "entity_type=ip",
+            "consulted": True,
+        },
+        "playbook": {
+            "selected_id": "web-scanner-activity",
+            "selection_reason": "exact rule match",
+            "consulted": True,
+        },
+        "consultation_path": "strong_investigator",
+        "retrieval_query_groups": [
+            {"group": "cluster", "query": "ip scanner evidence"},
+            {"group": "playbook:1", "query": "approved scanner ranges"},
+        ],
+        "knowledge": [{
+            "source": "operator-runbook",
+            "score": 0.91,
+            "document_id": "runbook-scanner",
+            "revision": 4,
+            "content_hash": "abc123",
+            "query_groups": ["cluster", "playbook:1"],
+            "snippet": "Validate scanner ownership and change window.",
+        }],
+    }
+    assert out["playbook"] == {
+        "id": "web-scanner-activity",
+        "version": "2",
+        "reason": "exact rule match",
+        "consulted": True,
+    }
+    assert out["knowledge"] == out["procedure_provenance"]["knowledge"]
+
+
 async def test_tuning_snapshot_does_not_resurrect_an_older_threshold(app_state):
     """Only the newest active row for one knob can explain the current threshold."""
     state = app_state

@@ -7732,3 +7732,456 @@
 - Tests: Actionlint 1.7.7 passed. Final workflow invariants and `git diff --check` passed. Version metadata is consistent at app 0.1.1/docs 0.1; documentation consistency passed for 66 public pages; bundle tests passed 4/4; theme tests passed 3/3; strict Stable MkDocs build passed; the Console's same-origin docs bundle built and revalidated. An isolated Mike proof created root, `0.1`, `stable`, `latest`, and `versions.json` with zero symbolic links and retained the complete version tree.
 - Status: complete on `Testing`; all requested changes remain unstaged and uncommitted for the operator's commit, push, and promotion pull request. Nothing was pushed, deployed, published, or staged, and no Codex Security review was run.
 - Next: In GitHub Settings → Pages choose GitHub Actions as the source, commit/push this Testing change, merge it to `main`, confirm all three Documentation jobs run, then verify the public root plus `/0.1/`, `/stable/`, and `/latest/`.
+
+### 2026-08-01 20:09Z — `/root` — Post-merge Pages deployment failure investigation started
+- Context: Diagnose the failed `Deploy Stable documentation` check after PR #32 merged the documentation publication workflow into canonical `main`.
+- Did: Confirmed the local Testing commit contains the publication change and began a read-only live audit of the merged main run, Pages environment, repository publishing source, annotations, and generated `gh-pages` history. The generated branch is expected Mike history and is not being treated as an accidental replacement for `main`.
+- Tests: Live run and Pages API inspection pending; GitHub CLI is unavailable in this checkout, so the audit is using public GitHub APIs and browser evidence without mutating remote state.
+- Status: in progress.
+- Next: Extract the exact failed annotation, distinguish source configuration from workflow defects, apply only the approved minimal repository fix if needed, and revalidate locally.
+
+### 2026-08-01 20:12Z — `/root/pages_workflow_fix_audit` — Pages environment rejection diagnosed
+- Context: Determine why the first Stable Help Center deployment failed after PR #32 merged to `main` and created the Mike-managed `gh-pages` branch.
+- Did: Inspected live run `30716216689`, its job/check annotations, deployment state, environment policy, remote refs, workflow permissions/actions, and public URLs. Confirmed the `main` merge succeeded and the deployment was rejected before runner allocation because the `github-pages` environment allows only `Testing` and stale `claude/main` policies, not `main`. Confirmed `gh-pages` is the expected Mike history branch.
+- Tests: Validate and Assemble were green; the Pages artifact uploaded successfully. Live GitHub APIs confirmed `main` at `b2da78f`, `gh-pages` at `b2ce063`, environment custom policies `Testing` plus `claude/main`, and the exact rejection text. Root, `0.1`, `stable`, and `latest` URLs remain 404 pending deployment.
+- Status: diagnosis complete; no source edit is required.
+- Next: Add `main` and remove `claude/main`/`Testing` from the `github-pages` environment deployment policies as appropriate, ensure Pages Source is GitHub Actions, then rerun failed jobs for run `30716216689` and verify all public aliases.
+
+### 2026-08-01 20:13Z — `/root` — Post-merge Pages deployment failure diagnosed
+- Context: Close the failed Stable Help Center deployment investigation without mistaking an environment-policy rejection for a failed application merge.
+- Did: Confirmed PR #32 merged successfully to canonical `main` at `b2da78f`. The documentation Validate and Assemble jobs passed and produced the native Pages artifact; only Deploy was rejected before any runner step because the `github-pages` environment still selects `Testing` and obsolete `claude/main` while excluding `main`. Confirmed the new `gh-pages` branch is the intended Mike version-history ledger and does not replace the application source/default branch.
+- Tests: Inspected live workflow run `30716216689`, job/check annotations, environment deployment policies, remote refs, and current public Pages aliases. GitHub's exact annotation states that branch `main` is not allowed to deploy to `github-pages`; public root, `/0.1/`, `/stable/`, and `/latest/` remain unavailable until the deployment is rerun.
+- Status: diagnosis complete; no workflow or application code correction is required, no remote setting was mutated, and no Codex Security review was run.
+- Next: In Settings → Environments → `github-pages`, add `main` and remove stale `claude/main` plus `Testing` if Stable-only deployment is intended; ensure Settings → Pages uses GitHub Actions; then rerun the failed Deploy job and verify all four public URLs.
+
+### 2026-08-01 20:15Z — `/root/pages_failure_audit` — Stable Help Center deployment failure isolated
+- Context: Read-only audit of the failed Documentation deployment after PR #32 promoted Testing to Stable `main`.
+- Did: Verified remote topology and workflow behavior: literal `main` is default at merge SHA `b2da78f`, `Testing` remains `4d3fdf5`, and Mike created the expected `gh-pages` history branch at `b2ce063`. Validation and Stable assembly completed; only the pre-step `github-pages` deployment job failed. The failure pattern localizes to the GitHub environment/Pages administration boundary, where the deployment-branch policy does not admit `main`; Pages must also use the GitHub Actions source.
+- Tests: Read-only remote topology, workflow, job, and environment-policy inspection; no source edits or remote mutations.
+- Status: done — source build and publication tree are healthy; deployment is blocked by GitHub Pages/environment configuration.
+- Next: Allow `main` in the `github-pages` environment, confirm Pages source is GitHub Actions, then rerun only the failed deployment job.
+
+### 2026-08-02 15:58Z — `/root` — Intelligence and lifetime-export audit started
+- Context: Audit the complete Intelligence surface and its actual continuous-improvement loop against the attached live-environment application export, then determine whether the current per-scope export ceiling can support a truthful lifetime export.
+- Did: Re-read the canonical handoff and agent rules, preserved the existing unstaged Journal history, confirmed the active `Testing` checkout, and began a contract-led trace across runbooks, playbooks, personas, memory/RAG, threshold tuning, analyst outcomes, schedulers, APIs, Console surfaces, and bounded export behavior. The attached export is being treated as sensitive operator data and inspected through aggregate/structural queries rather than echoed wholesale.
+- Tests: Not run at session start; repository, export-manifest, and runtime-evidence inspection in progress. No Codex Security review is in scope.
+- Status: in progress.
+- Next: Establish what is genuinely wired versus presentation-only, analyze live evidence and truncation scope-by-scope, implement a safe complete-export mechanism if required, then run focused and broad verification and synchronize active documentation.
+
+### 2026-08-02 16:28Z — `/root/intelligence_surface_audit` — Intelligence surface audit completed
+- Context: Determine whether Runbooks, Playbooks, Personas, Memory, RAG, and their improvement/provenance loops are genuinely operational before Stable release.
+- Did: Verified the implemented happy paths and identified release-significant gaps: Chat bypasses memory-management RBAC; agent-authored memory is injected as trusted despite the Console saying otherwise; the persisted Luna embedding configuration causes repeated provider failures and local fallback with inaccurate chunk provenance; live playbook coverage is zero; resolved-case institutional memory covers only 271 of 1,910 closed cases; source toggles and runbook-disable semantics are not enforced after seeding; memory writes are fail-soft and non-CAS; operator playbooks are image-local; authored playbook content can be silently truncated; RAG query merging can starve later playbook queries; projection status can overclaim completeness; historical context lacks immutable provenance; selected persona/playbook fields overstate actual use; and Intelligence read permissions/navigation are inconsistent.
+- Tests: Focused backend Intelligence matrix passed 153/153. Focused Console Intelligence matrix passed 3 files and 8/8 tests. The attached export was inspected only through aggregate structural queries. No repository file was edited and no Codex Security review was run.
+- Status: complete; Intelligence contains useful partial feedback paths but not yet a complete measurable continuous-improvement loop.
+- Next: Fix memory authorization/trust and embedding-role validation first, add live playbook coverage and full resolved-case reconciliation, then correct toggle enforcement, durability, provenance, and consulted-versus-selected metrics before claiming closed-loop improvement.
+
+### 2026-08-02 16:28Z — `/root/continuous_loop_audit` — Intelligence continuous-improvement and live-export audit completed
+- Context: Trace the real analyst-feedback, threshold-tuning, baseline, campaign, automation, persona/playbook, memory/RAG, and Agent Effectiveness paths against the attached live-environment portable export without exposing raw logs or secrets.
+- Did: Verified the operational loop from deterministic persona/playbook selection and bounded RAG/memory injection through Case Manager decisions, post-decision automation, terminal-case knowledge indexing, baseline observations, scheduled tuning/campaign passes, tuning ledger/audit, and rollback. Identified a critical circular-label flaw: the tuner treats model verdicts and automatically mapped dispositions as false-positive or “confirmed true-positive” evidence, so model auto-closes can authorize future threshold changes without analyst-confirmed outcomes. The live export has 2,190 cases but only four analyst feedback entries with no actual outcomes, while six correlation thresholds have already been raised. Also found zero live playbook matches, empty persisted knowledge provenance despite proven RAG use, incomplete resolved-case knowledge coverage, a completion model misconfigured for embeddings with repeated fallbacks, inactive empty-rule threshold automation, non-reconciled campaigns, missing scheduler/baseline health evidence, and truncated audit/usage scopes. Confirmed Agent Effectiveness correctly remains aggregate-only, non-causal, and insufficient-evidence.
+- Tests: Read-only source inspection plus secret-safe structural aggregation of the export; no raw evidence values were echoed and no repository file was changed by this audit. No Codex Security review was run.
+- Status: complete; the components execute, but the loop is not trustworthy for autonomous tuning until human-confirmed ground truth replaces circular model labels.
+- Next: Freeze or route tuning changes to review until analyst-grounded eligibility and true-positive shadow guards exist; correct the embedding model and reconcile knowledge; surface provenance, coverage, and scheduler health; reconcile campaign lifecycle; and complete segmented lifetime-export verification.
+
+### 2026-08-02 16:39Z — `/root/export_contract_fix` — Complete selected-scope export delivered
+- Context: Replace the misleading 5,000-record ceiling with a truthful complete export of supported safe scopes without presenting it as a full backup.
+- Did: Preserved bounded v1; added fresh-auth resumable v2 segment/cancel APIs; Elasticsearch PIT plus `_shard_doc` exact snapshots; SQL/KV consistency disclosure; adaptive 25 MiB segments, cursor/PIT lifecycle, honest failure states and per-segment auditing; Console automatic continuation, numbered files, progress/cancel/error/unmount cleanup; regenerated OpenAPI types and synchronized active export, backup, API, handoff, agent, changelog, roadmap, settings, and limitation documentation. Added a direct 5,001-record regression proving the second segment contains the record beyond the legacy ceiling.
+- Tests: Export backend 13/13 and Console export 4/4; full backend 2,176 tests and full Console 1,829 tests passed before the final additive boundary/unmount regressions, which passed in their focused suites. TypeScript typecheck, full/targeted ESLint, design gates, generated-API drift, Python compileall, version metadata, 66-page documentation consistency, Help Center bundle/check, production app build, and `git diff --check` passed.
+- Status: complete, unstaged and uncommitted. The export covers all records in the selected supported safe scopes; it remains intentionally distinct from a database backup or whole-application export.
+- Next: Browser-check multiple-download permission behavior against an authenticated deployment; retain backend-native snapshots for disaster recovery; address the separately documented Intelligence evidence blockers before describing the system as a trustworthy outcome-supervised loop.
+
+### 2026-08-02 16:39Z — `/root` — Intelligence audit and lifetime export work completed
+- Context: Answer whether the complete Intelligence area and continuous-improvement loop are operational, diagnose the attached live environment export, and remove the 5,000-record lifetime-export barrier safely.
+- Did: Consolidated the runbook, playbook, persona, memory/RAG, tuner, baseline, campaign, scheduler, provenance, and Agent Effectiveness audits; converted the live export into aggregate evidence without disclosing raw records; documented release-priority gaps in the roadmap; and integrated the resumable selected-scope export with honest consistency and exclusion boundaries. Preserved the deterministic `decide()` authority and made no tuning-policy or remote-state mutation.
+- Tests: Full backend 2,176 tests; full Console 1,829 tests; export backend 13/13 including 5,001 records; Console export 4/4; typecheck, lint, design gates, API drift, compileall, version/docs/Help Center checks, production app build, and diff hygiene all passed. Focused Intelligence suites independently passed backend 153/153 and Console 8/8.
+- Status: complete on local `Testing`; nothing was staged, committed, pushed, deployed, or published. The operational adaptation components run, but autonomous improvement is not evidence-safe until analyst-confirmed outcomes replace circular model labels and auto-derived terminal cases stop becoming trusted reusable evidence.
+- Next: Prioritize outcome-grounded tuning and resolved-case knowledge, memory authorization/trust, embedding-role correction plus reconciliation, playbook coverage/provenance, and scheduler/campaign health. Review the six existing tuning changes rather than silently rolling them back.
+
+### 2026-08-02 18:30Z — `/root` — Pre-Stable Intelligence hardening started
+- Context: Implement and verify the release-significant Intelligence fixes found in the live-export audit, including the missing approval experience.
+- Did: Preserved the existing unstaged lifetime-export work, confirmed the active `Testing` checkout, and split the work into outcome-grounded tuning/approvals, memory and knowledge trust/provenance, and playbook/persona/campaign health tracks. Confirmed the current approval symptom is architectural rather than a browser glitch: threshold automation ships enabled with no rules while the separate tuner can apply eligible changes directly, leaving the proposal queue empty.
+- Tests: Not run at session start; focused and broad backend, Console, documentation, and browser verification are planned. No Codex Security review is in scope.
+- Status: in progress.
+- Next: Replace circular labels with analyst-confirmed outcomes, make tuner changes visible and approval-gated when evidence is insufficient, harden memory/RAG/embedding/playbook provenance, then run the full release gate matrix.
+
+### 2026-08-02 18:31Z — `/root/tuning_approval_hardening` — Outcome-grounded tuning and approvals started
+- Context: Remove circular model-derived labels from adaptive threshold tuning and make its review path visible through the existing Approvals workflow without changing deterministic case authority.
+- Did: Read the current handoff and canonical agent rules, preserved the shared unstaged export work, and began tracing tuning evidence, proposal persistence, audits, and scheduler integration before making backend-only changes.
+- Tests: Not run at start; focused threshold-tuning, proposal, normalization, and decision-boundary regressions are planned.
+- Status: in progress.
+- Next: Define conservative analyst-confirmed outcome extraction, route non-autonomous candidates and historical applied records into idempotent review artifacts, then run focused and broader backend verification.
+
+### 2026-08-02 18:32Z — `/root/playbook_loop_hardening` — Intelligence procedure and scheduler hardening started
+- Context: Close the release-significant playbook coverage, provenance, campaign reconciliation, scheduler-health, and evidence-grounded telemetry-recommendation gaps found in the live-environment Intelligence audit.
+- Did: Re-read the current handoff and canonical agent rules, preserved the shared unstaged export work, and began a backend-only trace of deterministic playbook selection/authoring, persona consultation, campaign lifecycle, and scheduled runtime ownership. No fuzzy model matching or decision-authority change is in scope.
+- Tests: Not run at start; focused playbook, campaign, scheduler, provenance, and recommendation regressions are planned. No Codex Security review is in scope.
+- Status: in progress.
+- Next: Establish the smallest additive contracts that make coverage and no-match reasons observable, keep operator procedures durable, distinguish selected from consulted inputs, expire stale campaigns safely, and expose truthful scheduler attempts/success/failure/next-run evidence.
+
+### 2026-08-03 00:06Z — `/root/memory_rag_hardening` — Intelligence trust-boundary hardening started
+- Context: Close the release-significant memory, RAG, resolved-case evidence, and embedding-provenance gaps identified by the live-environment Intelligence audit.
+- Did: Read the complete current handoff and canonical agent rules, preserved the shared unstaged export work, and began a backend-first trace from Chat authorization through durable memory, prompt fencing, source-filtered retrieval, resolved-case projection, and embedding fallback provenance.
+- Tests: Not run at start; focused API, memory, RAG, pipeline, vector-store, and model-role regressions are planned. No Codex Security review is in scope.
+- Status: in progress.
+- Next: Make durable Chat memory mutation capability-explicit, distinguish pending agent suggestions from approved operator facts, prevent model-only outcomes becoming trusted evidence, enforce exact RAG source switches, then verify embedding capability and projection integrity.
+
+### 2026-08-02 18:46Z — `/root` — Approval queue evidence UI completed
+- Context: Make tuning review understandable and ensure a completed approval immediately updates the Console queue.
+- Did: Added a first-class tuning proposal presentation with exact rule and bounded before/after value, reason for attention, recommended operator action, analyst-label totals, confirmed false-positive/true-positive counts, and unconfirmed-case count. Normalized the backend approve/reject envelope in the API client, corrected permission-derived navigation for Approvals and Intelligence children, aligned Knowledge import copy with the backend's one-megabyte limit, and added a truthful empty state that distinguishes analyst-confirmed evidence from model verdicts and auto-closes.
+- Tests: Focused Console verification passed 16/16 across approval decision locking, tuning proposal rendering/action state, and permission-derived navigation.
+- Status: UI milestone complete; backend evidence generation and materialization are still being integrated, and nothing was staged, committed, pushed, deployed, or published.
+- Next: Integrate the backend tuning proposal contract, run focused backend and Console suites, then exercise the end-to-end review path in a browser.
+
+### 2026-08-02 18:55Z — `/root/tuning_approval_hardening` — Outcome-grounded tuning and approval routing implemented
+- Context: Replace the circular adaptive-tuning loop with independently confirmed analyst outcomes and explain why the live Approvals queue had remained empty.
+- Did: Excluded model verdicts and automatic dispositions from tuning labels; accepted only the latest valid analyst feedback outcome or an explicit analyst classification action; normalized and per-case deduplicated rule identifiers; separated observed, analyst-labelled, unconfirmed, confirmed-FP, and confirmed-TP counts; made review-first threshold application the default; added idempotent evidence-collection, bounded-change, shadow-conflict, writer-failure, and historical-review proposals with explicit reasons and recommended actions; preserved bounded rollback and deterministic case authority; added approval materialization with live-threshold staleness checks and analyst-evidence provenance; and changed real proposal routes to `proposals:read` / `proposals:approve` permission gates so the default Responder role can decide while Tier-1 and Auditor remain read-only.
+- Tests: Focused tuning/proposal suite passed 51/51; real-route proposal RBAC regression passed; broader tuning, proposal, route-auth, RBAC-policy/user, and wiring matrix passed 170/170; Python compilation and `git diff --check` passed. No Codex Security review was run.
+- Status: implementation complete; final shared-suite integration and generated OpenAPI refresh remain with the orchestrator because those files are concurrently owned by the wider Intelligence work.
+- Next: Regenerate the shared OpenAPI/types after all backend tracks settle, run the orchestrator's full backend/Console release matrix, and browser-verify pending tuning evidence, approval, rejection, and historical-review states.
+
+### 2026-08-02 18:56Z — `/root/tuning_approval_hardening` — Outcome-grounded tuning session completed
+- Context: Close the assigned adaptive-tuning and Approvals backend track for the pre-Stable Intelligence hardening pass.
+- Did: Rechecked shared-worktree diff hygiene, preserved concurrent export/memory/playbook/UI work, and handed the generated-contract refresh boundary to the orchestrator rather than overwriting concurrently modified OpenAPI files. No local-only runtime note was added.
+- Tests: Final relevant matrix remains green at 170/170; Python compilation, deterministic-decision/source-boundary guards, and `git diff --check` passed.
+- Status: complete and ready for integration; changes are unstaged and uncommitted, with no remote mutation, deployment, publication, or Codex Security review.
+- Next: Orchestrator to regenerate OpenAPI/types, execute the complete shared release matrix, and validate the full pending-proposal decision flow in the browser.
+
+### 2026-08-03 00:36Z — `/root/memory_rag_hardening` — Intelligence memory and knowledge trust boundaries completed
+- Context: Prevent read-only chat callers, model-authored facts, auto-closed outcomes, disabled knowledge sources, and failed remote embeddings from silently becoming trusted institutional context.
+- Did: Made chat memory mutation capability-explicit; unauthorized add requests now return a review suggestion and remove requests are truthful no-ops; agent-authored memory persists as pending and is fenced until a `memory:manage` operator approves it; migrated legacy agent facts conservatively; made memory writes compare-and-set safe; gated resolved-case RAG on concrete analyst feedback or analyst disposition and refreshed terminal knowledge after feedback; reconciled managed RAG sources whenever live toggles change and filtered every retrieval by the current source policy; made runbook disable exact; exposed additive model and role capabilities; rejected chat-only models in the embedding role; recorded the actual provider/model when local fallback vectors are used; and rejected embedding batch cardinality/dimension corruption before any write.
+- Tests: Focused memory, resolved-case, RAG, model-catalog, settings, source-toggle, runbook-management, and fencing suites passed 135 tests. A broader 14-file Intelligence/store matrix passed every related test but surfaced two concurrent demo-tuning failures (`test_threshold_tuning_writes_demo_store_not_real`, `test_demo_status_reports_capability_signal`), which were handed to the tuning/orchestrator track. Python compilation passed; Ruff is not installed in the checkout virtual environment. No Codex Security review was run.
+- Status: backend trust-boundary implementation complete; nothing was staged, committed, pushed, deployed, or published.
+- Next: Regenerate the shared OpenAPI/Console types after all backend tracks settle, surface pending-memory approval status in the operator UI if not already covered by Knowledge, resolve the separate demo-tuning regressions, then run the full release matrix and authenticated browser acceptance.
+
+### 2026-08-02 18:57Z — `/root/playbook_loop_hardening` — Procedure coverage and worker truthfulness implemented
+- Context: Make the release-significant procedure, campaign, scheduler, provenance, and telemetry-gap paths observable without fuzzy matching or changing deterministic decision authority.
+- Did: Added exact bundled coverage for the live Moodle, privileged-admin, scanner, and web-shell rule families; deterministic dry-run/no-match diagnostics and stored-case coverage aggregation; a strict-CAS durable operator playbook catalog with optimistic revisions and the actual 2,400-character trusted-prompt authoring limit; explicit persona override reasons; selected-versus-consulted procedure and query-group knowledge provenance; strict full-set campaign reconciliation that removes stale groups; manual-cadence background guards; truthful scheduler attempt/success/error/processed health; and an evidence-only telemetry-source recommendation contract that never infers a gap from missing configuration.
+- Tests: Focused playbook, campaign, tuning cadence, pipeline, provenance, route-discovery/auth, and telemetry tests passed; Python compilation passed. No Codex Security review was run.
+- Status: backend implementation milestone complete; shared generated OpenAPI/Console wiring and the final full-suite release matrix remain with the orchestrator. Nothing was staged, committed, pushed, deployed, or published.
+- Next: Run diff hygiene and final focused integration, hand exact API contracts to the Console owner, then let the orchestrator regenerate API types and run the complete backend/Console/browser release gates.
+
+### 2026-08-02 18:58Z — `/root/intelligence_console_ui` — Playbook observability Console work started
+- Context: Surface deterministic playbook coverage, exact dry-run selection reasons, durable operator package revisions, and scheduler health in the Intelligence Console without changing procedure or case-decision authority.
+- Did: Read the current handoff and canonical agent rules, preserved concurrent unstaged Intelligence/export work, and began tracing the newly added backend coverage, dry-run, catalog, and scheduler contracts before making scoped Console changes.
+- Tests: Not run at start; focused Catalog Vitest, ESLint, and TypeScript verification are planned. No Codex Security review is in scope.
+- Status: in progress.
+- Next: Add typed API contracts, make operator updates revision-aware, then implement a concise coverage and deterministic-match workspace in the Playbooks Catalog.
+
+### 2026-08-02 18:59Z — `/root/case_intelligence_trace` — Case Intelligence provenance Console work started
+- Context: Make Case Manager disclose only the Intelligence inputs the latest investigation run actually consulted, with selected-versus-consulted distinctions and an immutable threshold-tuning snapshot.
+- Did: Read the current handoff, canonical agent rules, and Console UI standard; preserved all shared unstaged Intelligence and export work; and began tracing persisted backend provenance through the existing Overview and Investigation components before making scoped Console changes.
+- Tests: Not run at start; focused CaseDetail Vitest, ESLint, and TypeScript verification are planned. No Codex Security review is in scope.
+- Status: in progress.
+- Next: Map the exact backend case fields, remove any feature-availability inference, and add compact conditional summary/details with regression coverage.
+
+### 2026-08-02 19:04Z — `/root/playbook_loop_hardening` — Intelligence procedure and scheduler hardening completed
+- Context: Complete the release-significant playbook coverage, procedure provenance, campaign reconciliation, scheduler-health, and evidence-qualified telemetry-recommendation track.
+- Did: Finalized exact-match coverage and no-match diagnostics; durable revision-guarded operator playbooks; a shared 2,400-character authoring/runtime prompt contract; immutable selected-versus-consulted persona, playbook, query-group, document revision/hash/score provenance projected into the latest-run rationale; strict stale-campaign removal; truthful scheduler attempt/success/failure/processed state; push-only worker eligibility; and controlled telemetry-gap recommendations that require an actual failed query result. Preserved deterministic case authority and avoided fuzzy/model-driven procedure selection.
+- Tests: Python compilation and diff hygiene passed. The final focused integration matrix passed 163/163 across new hardening, existing playbooks, campaigns, tuner cadence, scheduler wiring, pipeline stability, Vigil, explainability, route discovery/auth, and coupling contracts. No Codex Security review was run.
+- Status: backend track complete, unstaged and uncommitted; no remote state, deployment, or publication was changed.
+- Next: Orchestrator to regenerate the shared OpenAPI/TypeScript contracts, integrate the Console coverage/health and Case Manager provenance views, then run the complete backend/Console/browser release matrix.
+
+### 2026-08-02 19:06Z — `/root/intelligence_console_ui` — Playbook observability Console milestone completed
+- Context: Integrate the new deterministic procedure and scheduler contracts into the operator-facing Intelligence Catalog.
+- Did: Added typed coverage, dry-run, scheduler-health, durability, audit, and optimistic-revision contracts; made operator updates send the expected revision; distinguished package-backed bundled references from durable StateStore operator documents; exposed bounded case coverage and uncovered rule families; added an exact-match dry-run that explains every candidate criterion without running a case, tool, model, or policy; and showed truthful scheduler worker state only to settings readers. Removed the duplicate empty-state create action discovered by the focused interaction suite.
+- Tests: Focused Catalog management suite passed 7/7; scoped ESLint passed with zero warnings; TypeScript `tsc --noEmit`, all five design-system gates, and scoped `git diff --check` passed.
+- Status: implementation milestone complete; all changes remain unstaged and uncommitted, with no remote state, deployment, or publication changed.
+- Next: Hand the scoped Console changes to the orchestrator for generated-contract refresh and full shared release verification.
+
+### 2026-08-02 19:06Z — `/root/intelligence_console_ui` — Playbook observability Console session completed
+- Context: Close the assigned Console-side procedure coverage, deterministic diagnostics, catalog durability, and worker-health track.
+- Did: Rechecked scoped diff hygiene, preserved concurrent export, tuning, memory, and Case Manager work, and limited edits to the shared API/types contracts, Playbooks Catalog, its focused tests, and this Journal entry.
+- Tests: Final focused evidence remains green: 7/7 Vitest, scoped ESLint, TypeScript typecheck, design gates, and whitespace validation.
+- Status: complete and ready for parent integration; nothing was staged, committed, pushed, deployed, or published. No Codex Security review was run.
+- Next: Orchestrator to regenerate OpenAPI-derived artifacts after all backend tracks settle, run the complete backend/Console/docs/browser matrix, and verify the authenticated Catalog against real stored-case and scheduler data.
+
+### 2026-08-02 19:06Z — `/root/intelligence_docs_hardening` — Intelligence documentation hardening started
+- Context: Synchronize the authoritative handoff, operator guide, API reference, limitations, roadmap, and agent context with the implemented pre-Stable Intelligence trust, review, procedure, scheduler, telemetry, campaign, and provenance contracts.
+- Did: Read the current handoff and canonical agent rules, preserved the shared unstaged export and Intelligence work, and began verifying each claimed behavior against the current backend and Console diffs before editing documentation only.
+- Tests: Not run at start; focused documentation text, link, and Help Center checks are planned. No Codex Security review is in scope.
+- Status: in progress.
+- Next: Map exact endpoints, permissions, defaults, trust states, and remaining limitations from implementation and tests; update only the requested authoritative documents; then run docs-focused verification.
+
+### 2026-08-02 19:09Z — `/root/case_intelligence_trace` — Latest-run Intelligence provenance surfaced in Case Manager
+- Context: Make the Case Manager truthfully show whether memory, retrieved knowledge, runbooks, personas, playbooks, or threshold tuning affected the latest investigation without inferring use from configuration or selection.
+- Did: Consumed the new append-only `procedure_provenance` rationale projection; added typed selected-versus-consulted persona/playbook, execution-path, retrieval-query, and structured knowledge attribution; limited the Overview summary to actually consulted/applied inputs; exposed selected-only procedures in Investigation; added accessible hover explanations; separated runbook retrieval from general knowledge; and kept deterministic policy visibly responsible for the final route. Threshold records are labelled as threshold tuning, never model fine-tuning, and render only when the immutable case-path snapshot contains a record.
+- Tests: Backend explainability passed 10/10; focused Case Manager Console suites passed 60/60; scoped ESLint passed with zero warnings; TypeScript typecheck and scoped whitespace validation passed.
+- Status: implementation milestone complete; changes remain unstaged and uncommitted in the shared worktree, with no remote mutation, deployment, publication, or Codex Security review.
+- Next: Regenerate shared OpenAPI-derived contracts after all backend tracks settle, then include these focused regressions in the orchestrator's full release and authenticated browser matrix.
+
+### 2026-08-02 19:09Z — `/root/case_intelligence_trace` — Case Intelligence provenance session completed
+- Context: Close the assigned Case Manager latest-run Intelligence trace work after focused backend and Console verification.
+- Did: Rechecked the exact audit-to-API-to-UI contract and scoped diff hygiene; preserved concurrent tuning, memory, playbook, export, documentation, and generated-contract work; and handed the complete field and test boundary to the orchestrator.
+- Tests: Final evidence remains green at backend 10/10 and Console 60/60, plus scoped ESLint, TypeScript typecheck, and `git diff --check`.
+- Status: complete and ready for shared integration; nothing was staged, committed, pushed, deployed, or published.
+- Next: Orchestrator to refresh generated API artifacts and run the complete backend, Console, documentation, build, and browser acceptance matrix.
+
+### 2026-08-02 19:22Z — `/root/intelligence_docs_hardening` — Intelligence evidence documentation synchronized
+- Context: Record the implemented trust, review, procedure, scheduler, telemetry, campaign, and provenance contracts without overstating continuous improvement.
+- Did: Updated the canonical agent map, handoff, operator guide, API reference, release limitations, and roadmap for analyst-confirmed/review-first tuning, proposal RBAC, pending memory approval, RAG source/embedding integrity, durable CAS playbooks with dry-run/coverage, latest-run selected-versus-consulted provenance, scheduler health, query-proven telemetry recommendations, and cadence-enforced full-set campaign reconciliation. Preserved concurrent export documentation and explicitly retained aggregate Agent Effectiveness source guidance as unavailable.
+- Tests: `scripts/check_docs.py` passed 66 public pages; docs-theme tests passed 3/3; docs-bundle tests passed 4/4; `npm run docs:check`, strict MkDocs build, and `git diff --check` passed. No Codex Security review was run.
+- Status: documentation milestone complete; no code, generated contract, remote state, deployment, or publication was changed.
+- Next: Orchestrator to incorporate final shared-suite counts after the complete backend/Console matrix and browser acceptance finish.
+
+### 2026-08-02 19:22Z — `/root/intelligence_docs_hardening` — Intelligence documentation session completed
+- Context: Close the assigned docs-only pre-Stable Intelligence hardening track.
+- Did: Rechecked stale terms and route counts against the current implementation, corrected the feature-router inventory to 26, preserved unrelated work in the shared dirty tree, and limited this track to the six requested authoritative documents plus required Journal entries.
+- Tests: Final docs evidence remains green: 66-page consistency check, 3/3 theme tests, 4/4 bundle tests, docs bundle/version check, strict MkDocs build, and whitespace validation.
+- Status: complete and ready for parent integration; nothing was staged, committed, pushed, deployed, or published.
+- Next: Parent to run/record the full release matrix and resolve any integration-only failures before Stable promotion.
+
+### 2026-08-02 19:25Z — `/root/generic_approval_kind` — Automation acknowledgement proposal hardening started
+- Context: Separate generic threshold-automation `request_approval` acknowledgements from trusted Memory proposals so Approvals reflects the real operator action and cannot materialize unrelated memory.
+- Did: Read the current handoff and canonical agent rules, preserved the shared dirty Intelligence/export worktree, and scoped the change to the additive proposal contract, automation resolver, approval handler, Approvals UI, and focused regression coverage.
+- Tests: Not run at start; focused backend, Vitest, TypeScript, ESLint, and diff-hygiene checks are planned. No Codex Security review is in scope.
+- Status: in progress.
+- Next: Trace proposal creation and approval routing end to end, introduce an acknowledgement-only proposal kind, then verify explicit Memory and suppression flows remain unchanged.
+
+### 2026-08-02 19:28Z — `/root/export_live_data_audit` — Lifetime export integrity hardening started
+- Context: Convert the live-export audit findings into release-blocking correctness fixes without disturbing concurrent Intelligence work: a failed knowledge/automation read must never look complete, privileged segment delivery must not bypass the append-only audit invariant, and browser serialization must preserve the server's bounded compact payload.
+- Did: Completed a read-only audit of the segmented export, its RBAC and fresh-auth gates, the supplied legacy live export, and the Console/docs contract; isolated strict-read, audit persistence, and download-byte fidelity as the three scoped blockers.
+- Tests: Baseline focused suites passed before edits: backend export 13/13, route/RBAC 19/19, and Console export 4/4. No Codex Security review is in scope.
+- Status: implementation in progress; no staging, commit, push, deployment, or publication is authorized.
+- Next: Add strict export read seams plus injected-failure coverage, make segment auditing fail closed, download compact JSON, align the operator/API documentation, and rerun the focused backend/Console/docs gates.
+### 2026-08-02 19:29Z — `/root/intelligence_release_blockers` — Intelligence release-blocker hardening started
+- Context: Close three integration-audit blockers before Stable: terminal-case tuning pagination, independent analyst-outcome trust for resolved-case RAG, and explicit read authorization on RAG and Memory endpoints.
+- Did: Read the current handoff and canonical agent rules, preserved the shared unstaged Intelligence/export worktree, and scoped changes away from the shared proposal handler and deterministic case decision authority.
+- Tests: Not run at start; focused pagination, resolved-case trust, route/RBAC, compilation, and diff-hygiene verification are planned. No Codex Security review is in scope.
+- Status: in progress.
+- Next: Trace the current paging and outcome-classification seams, implement reusable evidence gating plus endpoint permissions, then run focused and broad backend regressions.
+
+### 2026-08-02 19:35Z — `/root/export_live_data_audit` — Lifetime export integrity milestone completed
+- Context: Close the three correctness blockers found in the live-export audit before Stable promotion.
+- Did: Added strict, corruption-detecting export reads across proposals, tuning, campaigns, batch jobs, rule versions, Memory, RAG document metadata, and custom models; changed both portable-export delivery paths to require confirmed append-only audit persistence; made a failed segment audit release its PIT and return HTTP 503; and changed the Console to save compact JSON so display whitespace cannot inflate the server-bounded segment. Updated API, operator, administration, limitation, and release documentation to describe the 25 MiB compact-response/segment bound and fail-closed behavior.
+- Tests: Backend export/fault-injection suite passed 16/16; affected store, RAG, state, route, and RBAC suites passed 101/101; Console export suite passed 5/5; scoped ESLint, TypeScript typecheck, Python compilation, 66-page docs consistency, docs bundle/version check, and repository whitespace validation passed. No Codex Security review was run.
+- Status: implementation and focused verification complete; all work remains unstaged and uncommitted, with no push, deployment, or publication.
+- Next: Orchestrator to run the complete shared release matrix and browser acceptance, then have an authorized operator generate a new v2 segmented live export because the supplied v1 artifact remains truncated at 5,000 audit and usage rows.
+
+### 2026-08-02 19:35Z — `/root/export_live_data_audit` — Export audit/hardening session completed
+- Context: Close the assigned lifetime-export and supplied-live-data track after implementation and verification.
+- Did: Rechecked the exact failure semantics, RBAC/fresh-auth boundary, secret-free scope contract, compact-download path, and live-export findings; preserved all concurrent Intelligence work and limited edits to export durability/read seams, tests, Console serialization, companion docs, and required Journal entries.
+- Tests: Final scoped evidence remains green at backend 117/117 total across the export and affected regression sets, Console 5/5, plus ESLint, TypeScript, Python compile, docs consistency/bundle, and `git diff --check`.
+- Status: complete and ready for parent integration; nothing was staged, committed, pushed, deployed, or published.
+- Next: Parent to incorporate the remaining live-environment gaps into release triage: independent analyst labels, review of six legacy tuning writes, embedding-role repair/reindex, discounted-tier observability, and procedure/campaign/timestamp coverage.
+
+### 2026-08-02 19:40Z — `/root/intelligence_release_blockers` — Intelligence trust, paging, and read-RBAC milestone completed
+- Context: Close the terminal-case pagination skip, resolved-case RAG ground-truth overreach, and missing Intelligence read-permission blockers before Stable promotion.
+- Did: Added one logical pager across CLOSED and RESOLVED cases and reused it in API, scheduled, and demo tuning paths; factored a shared independent analyst-outcome classifier used by tuning and resolved-case RAG; limited trusted labels to graded feedback or explicit disposition classification actions; and gated every RAG read with `rag:read` plus Memory listing with `memory:read`. Added 700-per-status exactly-once pagination, non-classifying analyst-action, explicit-confirmation, and custom-role deny/allow regressions.
+- Tests: Python compilation and repository whitespace validation passed. Focused pagination/RAG/RBAC tests passed 61/61; the broader Intelligence, demo, proposal, auth, settings, and explainability matrix passed 255/255; the complete backend suite passed 2,220/2,220 with one pre-existing Elasticsearch `verify_certs=False` test warning. No Codex Security review was run.
+- Status: implementation milestone complete; all changes remain unstaged and uncommitted in the shared worktree, with no remote state, deployment, or publication changed.
+- Next: Orchestrator to refresh generated contracts if needed and run the complete Console/docs/browser release matrix after all parallel tracks settle.
+
+### 2026-08-02 19:40Z — `/root/intelligence_release_blockers` — Intelligence release-blocker hardening session completed
+- Context: Close the assigned backend release-blocker track after full-suite verification.
+- Did: Rechecked the logical offset boundary, independent evidence rules, route permissions, custom-role behavior, and scoped diff hygiene while preserving all concurrent Intelligence/export changes and avoiding the shared proposal handler and deterministic decision authority.
+- Tests: Final evidence remains green at focused 61/61, broader relevant 255/255, and full backend 2,220/2,220, plus Python compilation and `git diff --check`.
+- Status: complete and ready for parent integration; nothing was staged, committed, pushed, deployed, or published.
+- Next: Parent to integrate the remaining parallel work, regenerate shared API artifacts if route schema changes require it, and record final end-to-end browser acceptance before Stable promotion.
+
+### 2026-08-02 19:44Z — `/root/generic_approval_kind` — Proposal meaning and approval durability milestone completed
+- Context: Generic case-automation review gates were being represented as trusted Memory proposals, while concurrent approval requests could materialise the same side effect more than once or report a fail-soft Memory write as successful.
+- Did: Introduced acknowledgement-only `automation_ack` proposals; kept explicit suppression, Memory, and tuning semantics unchanged; added a strict CAS `pending -> applying -> approved` lifecycle with bounded stale-lease recovery; keyed every materialised effect by proposal id; made trusted-Memory and approved-tuning ledger writes strict; exposed retry errors; and taught Approvals to label, group, explain, acknowledge, and safely resume these records.
+- Tests: Focused backend threshold-automation/proposal regressions passed 39/39, including concurrent approval, persistence failure, exactly-once retry, suppression, explicit Memory, tuning, reject, and deterministic-decision coverage. Focused Approvals Vitest coverage passed 6/6. No Codex Security review was run.
+- Status: implementation milestone complete; TypeScript, ESLint, broader backend, documentation, and diff-hygiene verification remain in progress. Nothing was staged, committed, pushed, deployed, or published.
+- Next: Run static checks and broader affected suites, fix any integration failures, then hand the unstaged track to the orchestrator for generated-contract refresh and browser acceptance.
+
+### 2026-08-02 19:56Z — `/root/generic_approval_kind` — Automation acknowledgements and proposal decision boundary completed
+- Context: Finish the proposal-semantics track and close the release invariant that privileged approve/reject decisions must never report success without durable append-only audit evidence.
+- Did: Kept generic automation reviews acknowledgement-only; preserved explicit suppression, Memory, and tuning behavior; added strict retry-safe approve/reject claims, proposal-id effect deduplication, strict trusted-Memory/tuning persistence, bounded stale-lease recovery, fixed decision intent, and deterministic append-only control-audit event ids across Elasticsearch and SQL. The Approvals UI now distinguishes acknowledgements, in-flight/retry state, and failed approval versus rejection attempts without exposing lease tokens. Updated operator and API documentation.
+- Tests: Focused backend proposal, threshold-automation, and SQL-state suites passed 71/71; focused Approvals suites passed 7/7; TypeScript typecheck, full Console ESLint, Python compilation, and repository whitespace validation passed. An earlier complete-backend run progressed beyond 77% but its final output was lost when the terminal session was reclaimed, so the orchestrator will own the shared full-suite result. No Codex Security review was run.
+- Status: assigned implementation and focused verification complete; all changes remain unstaged and uncommitted, with no push, deployment, or publication.
+- Next: Orchestrator to refresh generated OpenAPI/client artifacts, run the shared full backend/Console/docs matrix and browser acceptance, then integrate the remaining export/Intelligence tracks.
+
+### 2026-08-02 20:07Z — `/root/tuning_ground_truth_fix` — Tuning ground-truth integration hardening started
+- Context: Close the remaining Intelligence integration blockers around authoritative analyst outcomes, conflict-safe tuning preference writes, fail-closed terminal pagination, and truthful proposal/scheduler persistence reporting.
+- Did: Read the current handoff and canonical agent rules, preserved the shared unstaged Intelligence/export worktree, and scoped changes to the feedback, tuning, preference-mutation, pagination, and scheduler seams plus focused regressions.
+- Tests: Not run at start; focused backend RBAC, concurrency, pagination, tuning persistence, and scheduler-health suites are planned. No Codex Security review is in scope.
+- Status: in progress.
+- Next: Trace the current endpoint and store contracts, implement fail-closed/verified persistence behavior, then run the focused regression matrix.
+### 2026-08-02 20:08Z — `/root/export_integrity_fix` — Export cursor and Intelligence completeness hardening started
+- Context: Close the remaining export integration blockers before Stable: continuation state must be tamper-evident and bound to its operator/scope/snapshot, and portable exports must include the authoritative sanitized runbook and playbook catalogs.
+- Did: Read the current handoff and canonical agent rules, preserved the shared unstaged Intelligence/export worktree, and scoped this track to export cursor integrity, catalog projection, focused regressions, and companion documentation only.
+- Tests: Not run at start; focused cursor tamper/skip/completion, catalog completeness, secret-redaction, and 25 MiB-bound regressions are planned. No Codex Security review is in scope.
+- Status: in progress.
+- Next: Trace the segmented and legacy export assembly paths, implement signed monotonic continuation plus sanitized catalog scopes, then run the focused backend matrix.
+
+### 2026-08-02 20:08Z — `/root/proposal_durability_fix` — Proposal recovery and catalog corruption hardening started
+- Context: Close the remaining integration blockers where proposal retries after a crash could replace the original decision actor/audit identity, and malformed siblings in proposal, runbook, or playbook catalogs could be silently discarded by strict-CAS mutations.
+- Did: Read the current handoff and canonical agent rules, preserved the shared unstaged Intelligence/export worktree, and scoped this track to proposal decision recovery, strict catalog mutation semantics, focused fault-injection regressions, and required Journal evidence only.
+- Tests: Not run at start; focused proposal crash/retry, immutable actor identity, malformed-sibling preservation, Python compilation, and diff-hygiene checks are planned. No Codex Security review is in scope.
+- Status: in progress.
+- Next: Trace the current proposal claim/finalize/audit path and all three catalog CAS implementations, then implement narrow fail-closed recovery behavior with corruption regressions.
+
+### 2026-08-02 20:18Z — `/root` — Release build, browser acceptance, and RAG replacement hardening milestone
+- Context: Integrate the Intelligence/export/approval tracks, validate the complete release artifact, and close blockers found by an independent post-integration diff audit before Stable promotion.
+- Did: Regenerated and rechecked the 210-path OpenAPI/TypeScript contract, completed the release Help Center and Console production build, exercised the live Approvals acknowledgement boundary, confirmed it did not create trusted Memory, and verified the Auto-tuning diagnosis/recommendation and Playbook coverage/dry-run surfaces. Reworked managed RAG reconciliation to embed and validate replacements before stale projection deletion, added stable managed chunk identities and read-back verification, made SQL vector-store management reads/deletes strict at the persistence boundary, and added a last-known-good preservation regression.
+- Tests: Complete backend 2,226/2,226 and Console 1,849/1,849 across 280 files had already passed in the shared integration matrix; API drift, lint, design gates, version/docs checks, Python compilation, whitespace validation, and the release-complete `npm run build` passed. Focused RAG/resolved-case suites passed 44/44 before the new regression and RAG P1/management passed 26/26 after it. Browser acceptance confirmed two explicit automation acknowledgements, future expiry copy, a successful acknowledgement, zero resulting Memory entries, analyst-confirmed tuning explanations, and deterministic playbook matching. No Codex Security review was run.
+- Status: milestone complete; nine additional diff-audit edge cases are being closed before the final shared suite. All changes remain unstaged and uncommitted; no remote state, deployment, or publication changed.
+- Next: Integrate ground-truth, proposal-recovery, atomic-preference, cursor-integrity, and catalog-export fixes; rerun the full release matrix and complete dark-theme/Case Manager browser acceptance.
+
+### 2026-08-02 20:20Z — `/root/proposal_durability_fix` — Proposal identity and strict catalog durability milestone completed
+- Context: Close proposal crash-recovery attribution drift and prevent strict proposal/runbook/playbook catalog writes from erasing malformed or forward-version siblings.
+- Did: Added an internal first-claim decision actor that survives release, stale-lease takeover, and finalisation; reused that immutable identity for trusted Memory authorship, tuning evidence, strict control audit, and the final public decision while keeping it out of API responses. Strict proposal decisions now reject incomplete/unknown rows before CAS; runbook and playbook mutations likewise fail closed on malformed children while preserving valid unknown row fields and opaque top-level metadata.
+- Tests: Added crash-after-effect-and-audit recovery coverage for approvals and rejections resumed by a different operator, plus corruption regressions for all three catalogs. Focused proposal/automation/Intelligence tests passed 53/53; SQL-state, Memory, and tuning/batch route regressions passed 60/60; the combined affected matrix passed 113/113. Python compilation and scoped repository whitespace validation passed. No Codex Security review was run.
+- Status: implementation and focused verification complete; all work remains unstaged and uncommitted in the shared worktree, with no push, deployment, or publication.
+- Next: Orchestrator to include these changes in the final integrated backend/Console/docs/browser release matrix.
+
+### 2026-08-02 20:20Z — `/root/proposal_durability_fix` — Proposal durability hardening session completed
+- Context: Finish the assigned proposal recovery and strict-catalog corruption track.
+- Did: Rechecked immutable actor fallback for pre-field applying rows, public-field exclusion, idempotent Memory/audit recovery, and no-write behavior when any strict catalog sibling is malformed; preserved all concurrent Intelligence/export changes.
+- Tests: Final scoped evidence remains green at 113/113 affected backend tests, plus Python compilation and `git diff --check` for the touched implementation/tests. No Codex Security review was run.
+- Status: complete and ready for parent integration; nothing was staged, committed, pushed, deployed, or published.
+- Next: Parent to run the shared full release suite after all parallel tracks settle.
+
+### 2026-08-02 20:25Z — `/root/export_integrity_fix` — Signed lifetime export and Intelligence catalog milestone completed
+- Context: Close the remaining export blockers where continuation state was portable but forgeable and the Knowledge scope omitted authoritative runbook/playbook catalogs.
+- Did: Replaced plain continuation state with purpose-separated HMAC-signed v2 cursors bound to operator, scope, and snapshot; added counter/position validation and actor-bound cancellation; preserved the 5,000-record per-segment and 25 MiB response bounds. Added exact procedure catalog counts, complete secret-sanitized operator runbook/playbook Markdown (without the general text truncation), safe bundled references/manifests, and strict catalog reads that fail instead of silently dropping damaged records. Updated the canonical agent map plus API, administration, backup, and handoff documentation.
+- Tests: Cursor tamper, cross-actor, forged-skip, completion, 5,001-record lifetime, catalog completeness, >250k authoritative-content preservation, secret-redaction, corruption, cancellation, and audit-failure coverage passed. The combined export, procedure, route/RBAC, distribution, SQL-state, settings, and feature matrix passed 165/165; Python compilation, 66-page documentation consistency, versioned docs-bundle check, and `git diff --check` passed. No Codex Security review was run.
+- Status: implementation and focused verification complete; all work remains unstaged and uncommitted in the shared worktree, with no push, deployment, or publication.
+- Next: Orchestrator to include this track in the final complete backend/Console/docs/browser release matrix before Stable promotion.
+
+### 2026-08-02 20:25Z — `/root/export_integrity_fix` — Export integrity session completed
+- Context: Finish the assigned cursor-integrity and Intelligence export-completeness track.
+- Did: Rechecked HMAC verification, operator/scope/snapshot binding, monotonic position rules, PIT cleanup, live-KV consistency disclosure, exact catalog manifests, bundled-reference policy, full operator source preservation, and recursive secret removal while preserving concurrent repository work.
+- Tests: Final scoped evidence remains green at 165/165 affected backend tests, plus Python compilation, documentation checks, versioned Help Center bundle consistency, and whitespace validation.
+- Status: complete and ready for parent integration; nothing was staged, committed, pushed, deployed, or published.
+- Next: Parent to regenerate shared API artifacts only if another route schema changed, then run the shared full release matrix and browser acceptance.
+
+### 2026-08-02 20:28Z — `/root/tuning_ground_truth_fix` — Ground-truth and tuning durability milestone completed
+- Context: Close the release blockers where analyst feedback could be spoofed or ungated, terminal evidence could become partial, concurrent tuning writes could overwrite unrelated preferences, and fail-soft proposal writes could be reported as successful.
+- Did: Added the bounded feedback-outcome vocabulary, enforced `cases:write` with custom-role support, derived feedback/audit identity from the authenticated principal, made terminal-case reads fail closed for either status, moved tuning configuration/apply/rollback/approval writes onto the atomic preference mutator, verified every tuner proposal by exact read-back, and made scheduler cadence/health retry truthful on failed persistence. Added immediate startup-only reconciliation that surfaces active `legacy_unverified` tuning records as deduplicated review-history proposals without changing or rolling them back; acknowledgement-only tuning decisions now avoid preference writes entirely.
+- Tests: The combined tuner, feedback/RBAC, route-contract, proposal, tuning-route, demo-isolation, Intelligence, and scheduler-wiring matrix passed 167/167. Python compilation, fatal Ruff checks (`E9,F63,F7,F82`), and scoped `git diff --check` passed. A full latest-Ruff run also identified the repository's existing broad 368-finding lint baseline; no auto-fixes were applied. No Codex Security review was run.
+- Status: implementation milestone complete; all changes remain unstaged and uncommitted in the shared worktree, with no remote, deployment, or publication changes.
+- Next: Orchestrator to regenerate the OpenAPI/TypeScript contract for the new feedback enum and include these changes in the final complete backend/Console/docs/browser release matrix.
+
+### 2026-08-02 20:28Z — `/root/tuning_ground_truth_fix` — Tuning ground-truth integration hardening completed
+- Context: Finish the assigned integration track and hand its verified changes back for release-wide integration.
+- Did: Rechecked verified proposal persistence, scheduler retry semantics, startup legacy-review visibility, exact-target conflict handling under atomic mutation, authenticated actor attribution, custom-role authorization, and fail-closed CLOSED/RESOLVED pagination while preserving all concurrent export, proposal, RAG, documentation, and UI work.
+- Tests: Final scoped evidence remains green at 167/167, with Python compilation, fatal Ruff checks, and repository whitespace validation clean.
+- Status: complete and ready for parent integration; nothing was staged, committed, pushed, deployed, or published.
+- Next: Parent to refresh generated contracts and run the shared full release matrix after all parallel tracks settle.
+
+### 2026-08-02 20:42Z — `/root` — Pre-Stable Intelligence and export hardening release matrix completed
+- Context: Finish the integrated fixes requested after the live-environment export review, explain the empty approval experience, and establish release-grade evidence before Stable v0.1.1 promotion.
+- Did: Integrated analyst-grounded review-first tuning, authenticated outcome attribution, legacy tuning review reconciliation, acknowledgement-only automation proposals, retry-safe proposal durability, strict Intelligence catalog reads, durable runbook/playbook management, exact procedure coverage and dry-run diagnostics, scheduler and campaign health, query-proven source recommendations, managed-RAG replacement rollback, latest-run Case Manager Intelligence provenance, and signed actor/scope/snapshot-bound lifetime-export continuation with complete sanitized procedure catalogs. Corrected the CI startup-smoke assertion to the current readiness contract and synchronized the canonical documentation and suite counts.
+- Tests: Complete backend suite passed 2,244/2,244; complete Console suite passed 1,849/1,849 across 280 files; strict OpenAPI/type generation passed for 210 paths; full ESLint and all design-system gates passed; 66-page documentation consistency and versioned Help Center checks passed; production build passed with 3,186 modules; package integrity, installed-wheel bundled procedures, SQLite startup/readiness, Python compilation, dependency integrity, workflow parsing, the 12-job aggregate CI dependency contract, repository whitespace, and conflict-marker checks passed. Authenticated browser acceptance in both themes verified Approvals semantics, analyst-grounded tuning explanations, Playbook coverage and deterministic dry-run, completed-case latest-run Knowledge/Runbook/Persona provenance, and the bounded resumable lifetime-export UI. No Codex Security review was run.
+- Status: implementation and local release verification are complete. All changes remain unstaged and uncommitted; no branch, remote, deployment, publication, or release state was changed.
+- Next: Review the unstaged diff, commit it to Testing when authorized, allow the 12-job workflow to finish, then promote through the normal pull-request path only after every required check is green.
+
+### 2026-08-02 20:42Z — `/root` — Intelligence approvals/export hardening session completed
+- Context: Close the requested whole-Intelligence remediation and testing pass without overstating a learning loop that lacks independent analyst outcomes.
+- Did: Rechecked the supplied live-export findings against the final contracts: continuous improvement now learns only from explicit analyst-confirmed outcomes; environments with no such labels truthfully remain in evidence collection; old unverified direct tuning writes surface for review; generic approval gates cannot create Memory or alter policy; and portable export continues through bounded, audited segments instead of truncating lifetime data at 5,000 records.
+- Tests: Final post-documentation production build and Help Center version check passed; final documentation, workflow, aggregate-job, whitespace, and conflict-marker checks passed after browser acceptance.
+- Status: complete and ready for human diff review. Nothing was staged, committed, pushed, deployed, or published; temporary task memory was removed before handoff.
+- Next: An authorized operator should generate a fresh v2 segmented export after deployment, because the supplied legacy v1 export cannot be retroactively completed beyond its truncated audit and usage scopes.
+
+### 2026-08-02 20:44Z — `/root` — v0.1.2 live audit and release-readiness session started
+- Context: Audit the current live deployment in the requested browser, prepare the existing integrated Intelligence work as beta patch v0.1.2, complete the repository community-standard files, verify the safe update experience, and revalidate auto-tuning plus all release documentation including GitHub Pages inputs.
+- Did: Re-read the canonical handoff and agent rules, preserved the 109-path unstaged integration worktree at `4d3fdf5` on `Testing`, and divided the work into live/browser acceptance, release/update/version contracts, community files/documentation, and auto-tuning verification tracks. Confirmed that remote publication, tagging, and deployment remain outside this local preparation pass.
+- Tests: Not run at session start; live browser evidence and the complete backend, Console, documentation, packaging, version, and workflow matrix are planned. No Codex Security review is in scope.
+- Status: in progress.
+- Next: Inspect the live deployment and repository contracts, close confirmed issues without disturbing the integrated work, then run the full v0.1.2 acceptance matrix.
+
+### 2026-08-02 20:46Z — `/root/release_update_v012` — v0.1.2 release and activation track started
+- Context: Prepare the integrated beta patch as v0.1.2, audit the release identity and update-activation boundary end to end, and synchronize the versioned release and Help Center metadata without publishing or adding deployment authority to the browser.
+- Did: Read the complete canonical handoff and agent rules, reviewed the prior Pages/release evidence, and scoped this track to release identity, changelog/release notes, versioned documentation inputs, update correctness, and focused version/docs/build verification while preserving the shared dirty worktree.
+- Tests: Not run at track start. No Codex Security review is in scope.
+- Status: in progress.
+- Next: Inventory every version source and release/update path, prove the activation contract, make the coherent v0.1.2 preparation changes, and run focused release gates.
+
+### 2026-08-02 20:46Z — `/root/community_standards_v012` — Community-standards preparation started
+- Context: Complete the non-legal GitHub community-standard surface for the v0.1.2 candidate while preserving the shared integration worktree and determining whether an authoritative repository license already exists.
+- Did: Read the canonical handoff and agent rules in full, selected the repository-oriented GitHub workflow, and scoped work to the code of conduct, issue forms, contribution intake configuration, pull-request template, and only narrowly necessary documentation links.
+- Tests: Not run at session start; focused Markdown, YAML, template, link, and whitespace validation is planned. No Codex Security review is in scope.
+- Status: in progress.
+- Next: Inventory the current community files and package metadata, preserve any established legal choice, then implement and validate the missing non-legal standards.
+
+### 2026-08-02 20:46Z — `/root/autotuning_v012_audit` — v0.1.2 auto-tuning integrity audit started
+- Context: Independently verify the end-to-end tuning and continuous-improvement loop before the v0.1.2 beta candidate, including analyst ground truth, scheduler invocation, review-first approvals, explicit confirmed-evidence auto-apply, rollback, persistence failure semantics, and Console truthfulness.
+- Did: Began from the shared unstaged Testing worktree, read the canonical handoff and agent rules, and constrained this track to confirmed tuning defects without changing deterministic case-decision authority or overlapping release/community documentation.
+- Tests: Not run at session start; focused backend and Console matrices plus static contract checks are planned. No Codex Security review is in scope.
+- Status: in progress.
+- Next: Map the scheduler-to-tuner-to-proposal/apply/rollback path, inspect demo and live-facing UI semantics, then patch only reproducible defects and return exact evidence to the orchestrator.
+
+### 2026-08-02 20:46Z — `/root/community_standards_v012` — GitHub community-standard surface completed
+- Context: Supply every missing non-legal Community Standards artifact requested for the v0.1.2 candidate without making an unauthorized licensing decision.
+- Did: Added a Contributor Covenant 2.1-based `CODE_OF_CONDUCT.md`; structured bug, feature, documentation, and support issue forms; issue chooser policy and safe support/security links; and a release-aware pull-request template covering the twelve non-negotiables, verification, UI evidence, documentation, and promotion discipline. Linked the conduct and private disclosure policies from the README and contribution guide. Confirmed that README, known limitations, package metadata, Git history, and the current tree establish no project license, so no `LICENSE` was invented; repository description remains a GitHub metadata setting rather than a source file.
+- Tests: Parsed and schema-checked all four issue forms plus chooser configuration with PyYAML; verified required community files and the intentional absence of a license; `scripts/check_docs.py` passed for 66 public pages; scoped `git diff --check` passed.
+- Status: implementation milestone complete; the non-legal Community Standards surface is ready, while license selection remains an explicit maintainer/legal decision.
+- Next: Orchestrator should include these files in the v0.1.2 release matrix and tell the repository owner to select a license and set the GitHub repository description before expecting a complete Community Standards score.
+
+### 2026-08-02 20:46Z — `/root/community_standards_v012` — Community-standards preparation completed
+- Context: Close the delegated repository-governance track with exact evidence and no remote or release mutation.
+- Did: Re-reviewed the scoped diff for shared-worktree safety, kept all unrelated integration changes untouched, and documented the two administrator-owned gaps: the legal license choice and the GitHub About description.
+- Tests: Community form/schema validation, 66-page documentation consistency, local link presence, and scoped whitespace validation remain green.
+- Status: done; nothing was staged, committed, pushed, deployed, published, or tagged. No Codex Security review was run.
+- Next: Parent can integrate the community files, choose the license only with owner authority, set the repository description in GitHub, then recheck the Community Standards insight after the v0.1.2 candidate is pushed.
+
+### 2026-08-02 20:52Z — `/root` — Live pre-auth and release-contract audit completed
+- Context: Establish what the current deployment actually serves before deciding whether a v0.1.2 source change, deployment correction, or operator configuration change is required.
+- Did: Reached the deployed Console in the requested in-app browser, inspected the rendered sign-in contract and browser diagnostics, and corroborated it with the public same-origin release, liveness, readiness, setup, health, and branding responses. The Console and backend both report application 0.1.1 on Testing, but the deployed manifest has unknown commit/build provenance, so the guarded activation affordance correctly cannot appear. Owned PostgreSQL state is ready; the configured source-connectivity probe is not currently healthy. The login is also rendering persisted retired-brand override values rather than the shipped Agentic SOC defaults. No pre-auth browser warnings or errors were emitted.
+- Tests: Browser navigation and DOM inspection passed; public release/liveness/readiness/health/setup/branding probes returned valid JSON and exposed the expected authentication boundary for protected settings. Authenticated pages remain outside this evidence until an operator session is available.
+- Status: milestone complete; confirmed deployment/configuration drift has been separated from source-code behavior, and a focused contract audit is checking whether any compatibility-safe diagnostic improvement belongs in v0.1.2.
+- Next: Complete the release-stamping and auto-tuning fixes, document the source-connector and retired-brand operator actions, then re-run the full candidate acceptance matrix. No deployment, publication, tag, or Codex Security review was performed.
+
+### 2026-08-02 20:53Z — `/root/live_contract_v012` — Live identity and health-contract audit started
+- Context: Classify the live 0.1.1 Testing manifest with unknown provenance, healthy PostgreSQL owned state, disconnected source probe, and persisted retired branding as deployment/configuration drift versus compatibility-safe code gaps for v0.1.2.
+- Did: Re-read the canonical handoff and agent rules, accepted the parent browser evidence as the live observation baseline, and scoped this track to release stamping diagnostics, backend health/setup naming clarity, and fresh-install branding defaults without rewriting legitimate stored operator branding or compatibility wire identifiers.
+- Tests: Not run at track start; focused backend and Console contract tests plus static artifact checks are planned. No Codex Security review is in scope.
+- Status: in progress.
+- Next: Trace manifest generation, backend build identity, setup-source diagnostics, and branding migration/default behavior; patch only confirmed source defects and report deployment-owned remediation separately.
+
+### 2026-08-02 21:01Z — `/root/live_contract_v012` — Live identity and health diagnostics completed
+- Context: Close the compatibility-safe code gaps exposed by a healthy PostgreSQL live deployment whose optional Elasticsearch/log-source probe was down and whose Console/backend images lacked immutable release provenance.
+- Did: Added truthful additive owned-state fields to the public health envelope while retaining `es_connected` as a compatibility alias; labeled setup-status Elasticsearch connectivity with its backend requirement and role; normalized blank/unknown backend build stamps and exposed explicit provenance completeness/missing fields; taught the Console to prefer the new state-store field; and made every incomplete would-be Stable pair fail safe to Testing with a practical release-popover explanation. Confirmed the shipped fresh-branding default is already Agentic SOC and deliberately did not rewrite persisted operator branding. Classified the live retired wording and unknown stamps as deployment/configuration drift, not a safe automatic migration target.
+- Tests: Focused backend health/API/coupling tests passed 23/23; focused Console release, shell-health, and release-badge tests passed 20/20 across three files; TypeScript typecheck, scoped zero-warning ESLint, and scoped whitespace validation passed. OpenAPI regeneration is intentionally deferred until the concurrently edited backend schema settles, after which the normal generation/drift gate must run. No Codex Security review was run.
+- Status: complete; no files were staged, committed, pushed, tagged, deployed, or published.
+- Next: Rebuild and deploy both images from the same exact v0.1.2 commit with non-unknown SHA and RFC3339 build-time stamps, update/reset the stored branding through the operator UI if the retired wording is unwanted, repair the disconnected configured source independently of the healthy PostgreSQL state store, then regenerate OpenAPI/types and run the full candidate matrix.
+
+### 2026-08-02 21:05Z — `/root/release_update_v012` — v0.1.2 release identity and immutable-release contract completed
+- Context: Turn the integrated beta patch into one coherent v0.1.2 candidate while keeping source availability, artifact deployment, and browser activation as separate fail-safe boundaries.
+- Did: Synchronized the application, package, OpenAPI, Compose, Help Center, and release-record identity at 0.1.2; restored one empty active `[Unreleased]` section above a dated detailed `[0.1.2]` record; added the versioned 0.1.2 Help Center page and navigation; added GitHub generated-release-note categories; and strengthened the standard-library version gate so every release requires a dated changelog entry, detailed release page, Help Center nav entry, annotated-tag/build-stamp instructions, and release-note taxonomy. Audited the existing in-app control and retained its activation-only contract: an already-deployed, healthy, fully stamped same-origin backend/Web pair must match exactly before an older Console may offer activation. Corrected stale branch-topology and model-price prose so catalog values are configuration rather than an unsupported provider-price guarantee.
+- Tests: Canonical version checks passed for Testing, literal main, and the exact v0.1.2 tag semantics; documentation structure, bundle, theme, and strict production Help Center build passed for 67 pages; the release-complete Console build passed with 3,186 modules; 44 focused release/update tests passed; standalone Compose validation and `.github/release.yml` parsing passed; a synthetic fully stamped 0.1.2 Stable Web build emitted the exact expected manifest identity; repository whitespace validation passed. No Codex Security review was run.
+- Status: milestone complete; all work remains unstaged and uncommitted, with no branch, remote, deployment, publication, tag, or GitHub Release mutation.
+- Next: The orchestrator should integrate the final auto-tuning and live-contract tracks, rerun the complete release matrix on the exact candidate, promote through a protected pull request, reverify the resulting main commit, create the immutable annotated v0.1.2 tag, build both images with the documented identical non-unknown stamps, and only then deploy and publish the matching Help Center/GitHub Release.
+
+### 2026-08-02 21:07Z — `/root/release_update_v012` — v0.1.2 release and activation track completed
+- Context: Hand the release/version/update preparation back after final regeneration against the current shared integration tree.
+- Did: Rebuilt the installed Help Center and production Console after the last documentation edits, rechecked all canonical version and release-note contracts, and confirmed that the normal unstamped local artifact stays Testing with unknown provenance while an explicitly stamped Stable build emits the complete matching manifest required by guarded activation. Kept the browser free of deployment, migration, credential, promotion, and rollback authority.
+- Tests: Final version metadata and 67-page documentation checks passed; Help Center bundle consistency, production build, focused update tests, Compose validation, release-note YAML parsing, Stable manifest stamping, and repository whitespace checks remain green.
+- Status: complete and ready for release-wide integration; nothing was staged, committed, pushed, tagged, deployed, or published.
+- Next: Complete the orchestrator's combined backend/Console/browser acceptance on the exact tree. A source push or tag alone will not expose Update available; first deploy the matching backend and Web artifacts with identical non-unknown 0.1.2 channel, SHA, and build-time stamps, then verify readiness and the same-origin manifest before promotion is considered complete.
+
+### 2026-08-02 21:10Z — `/root/community_docs_v012_audit` — Community and v0.1.2 documentation audit started
+- Context: Independently audit the current dirty candidate for GitHub Community Standards and v0.1.2 release-documentation completeness without changing source or running Codex Security.
+- Did: Read the canonical handoff and agent rules, preserved the shared worktree, and scoped the review to README, contribution/security/conduct policies, issue and pull-request intake templates, changelog/release pages, Help Center navigation, and GitHub-admin or legal metadata that cannot be completed safely in source.
+- Tests: Not run at audit start; focused structural, link, version, YAML, and documentation checks are planned.
+- Status: in progress.
+- Next: Compare the repository artifacts with GitHub's community profile and the release-discipline contract, then return concrete code-trackable and administrator-owned findings to the orchestrator.
+
+### 2026-08-02 21:10Z — `/root/autotuning_v012_audit` — v0.1.2 auto-tuning integrity audit completed
+- Context: Close continuous-improvement gaps before v0.1.2, including truthful independent evidence, review-first approvals, opt-in auto-apply, scheduler/manual durability, rollback, and the live environment's repeated rule-tuning history.
+- Did: Confirmed the learner uses only analyst-confirmed resolved outcomes; normalized rule identifiers so a legacy trailing-space ID cannot repeatedly present the canonical threshold as `1 → 2`; enforced shadow replay whenever confirmed-evidence auto-apply is explicitly enabled; made scheduler, manual-apply, and approved-proposal preference changes commit with a strict idempotent tuning ledger or compensate back to the exact prior threshold; made rollback strict and retry-safe; and coupled the Console switches so operators cannot select the invalid auto-apply-without-shadow state. The live empty Approvals queue is explained by the previous bounded-auto-apply behavior, while v0.1.2 is review-first unless the new explicit opt-in is enabled.
+- Tests: Full backend suite passed 2,254/2,254; full Console suite passed 1,853/1,853 across 280 files; focused auto-tuning Console tests passed 39/39; TypeScript typecheck, scoped ESLint, Python compilation, and touched-file whitespace checks passed. Existing jsdom chart-size and Radix ref warnings remain non-failing test-environment noise. No Codex Security review was run.
+- Status: complete; no files were staged, committed, pushed, tagged, deployed, or published.
+- Next: Integrate the shared candidate, regenerate OpenAPI/types after concurrent backend edits settle, run release-wide browser acceptance, and document the v0.1.2 review-first/explicit-opt-in behavior and the legacy live-history explanation.
+
+### 2026-08-02 21:18Z — `/root/community_docs_v012_audit` — Community and v0.1.2 documentation audit completed
+- Context: Independently verify the repository-facing community surface and release-documentation contract for the shared v0.1.2 candidate, separating source-controlled work from GitHub administrator and legal decisions.
+- Did: Confirmed the README, contribution guide, Code of Conduct, structured issue forms, pull-request template, generated-release-note taxonomy, changelog, detailed release page, Help Center navigation, and tag-gated Stable documentation workflow form one coherent source-controlled surface. Rechecked concurrent corrections for review-first auto-tuning guidance, query-evidenced telemetry recommendations, non-stale test guidance, immutable-tag publication, and release-note coverage. Identified the remaining owner-controlled work: choose a license, set repository About metadata, publish a concrete private security/conduct contact, and create/use the release taxonomy labels.
+- Tests: Documentation consistency passed for 67 public pages; version metadata passed at app 0.1.2 and docs 0.1; the bundled Help Center matched; all issue/release/workflow YAML parsed and issue-form structures were valid; scoped whitespace validation passed. The current public default branch still reports the pre-merge 42% community profile and default label set, as expected before these local/Testing files reach `main`. No Codex Security review was run.
+- Status: complete; read-only audit apart from this required Journal entry. No source was staged, committed, pushed, tagged, deployed, or published.
+- Next: Merge the candidate to `main`, allow GitHub to re-index the community profile, complete the owner/admin items above, create the annotated v0.1.2 tag from the verified current `main`, and then recheck the public profile, labels, Stable Help Center aliases, and GitHub Release.
+
+### 2026-08-02 21:26Z — `/root` — v0.1.2 release candidate and live-operations hardening milestone completed
+- Context: Integrate the live-deployment, auto-tuning, release/update, repository-community, and documentation findings into one beta-patch candidate without granting deployment authority to the browser or changing deterministic case decisions.
+- Did: Synchronized the application at 0.1.2; added the detailed changelog and versioned release page; made Stable Help Center publication require an annotated version tag resolving exactly to current `main`; completed the non-legal Community Standards files; hardened review-first auto-tuning, normalized rule history, shadow-gated confirmed-evidence auto-apply, compensating tuning writes, and retry-safe rollback; regenerated the API contracts; added truthful state-store and build-provenance diagnostics; made incomplete Stable identity fail safe to Testing; and applied one shared static-response header policy to every Console route. Preserved operator-owned branding instead of silently replacing stored values and left licensing as an explicit owner/legal decision.
+- Tests: The complete backend suite passed 2,254/2,254; the complete Console suite passed 1,853/1,853 across 280 files; strict OpenAPI/type generation passed for 210 paths; TypeScript, zero-warning ESLint, design gates, 67-page documentation consistency, versioned Help Center, and the 3,186-module production build passed. The 0.1.2 sdist and wheel built without warnings and the installed artifact exposed 26 feature routers, 7 runbooks, and 6 playbooks. Actionlint, all community/release YAML, the exact twelve-job fail-closed CI aggregate, Compose/shell/startup contracts, version/ref matrices, documentation helpers, whitespace, and conflict-marker checks passed. Browser-mode pre-auth acceptance and public Help Center aliases were clean; no Codex Security review was run.
+- Status: source preparation and local verification are complete; nothing was staged, committed, pushed, tagged, deployed, or published. The current deployed 0.1.1 Testing pair remains operational at the owned-state layer but needs a repaired primary source connection, coherent non-unknown Web/backend release stamps, and an operator decision about the stored retired-brand override and disabled RBAC. Authenticated live workflows were not exercised without an operator session.
+- Next: Review and commit the candidate to `Testing`, let all twelve checks pass, promote through a pull request to `main`, reverify the exact resulting commit, create the immutable annotated `v0.1.2` tag, publish the GitHub Release and Help Center, then deploy backend and Web images stamped from that same commit. Complete the repository About metadata, private reporting contact, release labels, Pages `v*` environment policy, and license choice as owner actions.
+
+### 2026-08-02 21:26Z — `/root` — v0.1.2 live audit and release-readiness session completed
+- Context: Close the requested release preparation with an evidence-backed distinction between source readiness, repository publication, deployment, and browser activation.
+- Did: Rechecked the final release notes, upgrade procedure, Community Standards intake, GitHub Pages workflow, installed Help Center, package contents, live diagnostics, auto-tuning approval semantics, and in-app update boundary. Confirmed that the Update control activates an already deployed coherent release; it does not pull Git, replace containers, run migrations, or deploy a tag by itself.
+- Tests: Final action/workflow lint, community schema parsing, release taxonomy, twelve-job aggregation, documentation-bundle consistency, version checks for Testing/main/v0.1.2, package-install assertions, and repository whitespace validation passed after the last edits.
+- Status: complete and ready for maintainer review; temporary task memory was removed before handoff. No remote state, release tag, deployment, publication, or Codex Security review was performed.
+- Next: Follow the exact Testing → verified `main` → annotated tag → coherent stamped deployment sequence documented in the 0.1.2 release page; only then should an older open Console present the guarded activation button.

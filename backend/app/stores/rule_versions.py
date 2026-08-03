@@ -23,9 +23,8 @@ config index).
 
 Writes go through :func:`app.stores.base.kv_mutate` (per-key lock + ``_rev``
 compare-and-set) so a manual edit + the nightly tuner + a rollback never lost-update
-each other. The store NEVER raises: a load/save failure degrades to an empty ledger /
-best-effort write and is logged, so a versioning glitch can never break a rule edit or
-a page.
+each other. Operator workflows remain fail-soft so a versioning glitch cannot break a
+rule edit or page; evidence exports use a separate strict read projection.
 
 The stored value shape::
 
@@ -172,12 +171,39 @@ class RuleVersionStore:
                 continue
         return out
 
+    async def _load_strict(self) -> list[RuleVersion]:
+        """Load every rule version or raise when evidence completeness is unknown."""
+        getter = getattr(self._kv, "get_strict", None) or self._kv.get
+        doc = await getter(RULE_VERSIONS_NS, RULE_VERSIONS_KEY)
+        if doc is None:
+            return []
+        if not isinstance(doc, dict):
+            raise ValueError("rule-version ledger is not a JSON object")
+        raw = doc.get("versions", [])
+        if not isinstance(raw, list):
+            raise ValueError("rule-version ledger entries are not a list")
+        try:
+            return [RuleVersion.from_json(item) for item in raw]
+        except Exception as exc:  # noqa: BLE001 — strict evidence reads fail closed
+            raise ValueError("rule-version ledger contains an invalid entry") from exc
+
     async def list(
         self, *, kind: str | None = None, rule_id: str | None = None,
     ) -> list[RuleVersion]:
         """All versions, NEWEST first. Optionally scoped to one ``kind`` and/or
         ``rule_id`` (the History drawer for one rule passes both)."""
         entries = await self._load()
+        if kind is not None:
+            entries = [e for e in entries if e.kind == kind]
+        if rule_id is not None:
+            entries = [e for e in entries if e.rule_id == rule_id]
+        return sorted(entries, key=lambda e: e.created_at, reverse=True)
+
+    async def list_strict(
+        self, *, kind: str | None = None, rule_id: str | None = None,
+    ) -> list[RuleVersion]:
+        """Newest-first versions, raising on unavailable or malformed persistence."""
+        entries = await self._load_strict()
         if kind is not None:
             entries = [e for e in entries if e.kind == kind]
         if rule_id is not None:

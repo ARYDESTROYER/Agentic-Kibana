@@ -24,6 +24,7 @@ from ..utils import extract_json, truncate
 from .common import coerce_verdict, entity_kql
 from .formatter import Formatter
 from .personas import AgentPersona
+from ..playbooks.manifest import render_playbook_prompt
 from .prompts import (
     build_investigator_system,
     fence,
@@ -71,26 +72,6 @@ def _context_summary(
         )
 
     return " | ".join(parts) if parts else "no injected context"
-
-
-def _playbook_block(playbook: "Playbook") -> str:
-    """Compose the operator-procedure text for the selected playbook: name +
-    version + body, with the advisory front-matter hints (escalate_if /
-    suggested_verdict_bias) appended as clearly-labelled ADVISORY lines. These are
-    guidance only — the deterministic auto-close policy decides close/escalate."""
-    m = playbook.manifest
-    parts = [f"{m.name} (v{m.version})", playbook.body.strip()]
-    advisory: list[str] = []
-    if m.escalate_if:
-        advisory.append(f"- escalate_if (advisory): {m.escalate_if}")
-    if m.suggested_verdict_bias:
-        advisory.append(f"- suggested_verdict_bias (advisory): {m.suggested_verdict_bias}")
-    if advisory:
-        parts.append(
-            "Advisory hints (NOT binding — the deterministic policy decides the "
-            "outcome):\n" + "\n".join(advisory)
-        )
-    return "\n\n".join(p for p in parts if p)
 
 
 class Investigator:
@@ -147,7 +128,7 @@ class Investigator:
             # Markdown playbook (operator procedure) — injected as a distinct TRUSTED
             # block, separate from the fenced UNTRUSTED evidence. It can only guide;
             # the deterministic policy decides close/escalate.
-            playbook_text = _playbook_block(playbook) if playbook is not None else None
+            playbook_text = render_playbook_prompt(playbook) if playbook is not None else None
             # Operator MEMORY (durable trusted facts) is injected as a DISTINCT block
             # ABOVE the untrusted evidence and BELOW the playbook procedure — it can
             # only INFORM; the deterministic policy still decides close/escalate.
@@ -187,7 +168,23 @@ class Investigator:
                     ),
                     "memory": [truncate(m.text, 200) for m in (memory or []) if (m.text or "").strip()][:20],
                     "knowledge": [
-                        {"source": ch.source, "snippet": truncate(ch.text, 200)}
+                        {
+                            "source": ch.source,
+                            "snippet": truncate(ch.text, 200),
+                            "score": ch.score,
+                            "document_id": str(
+                                (ch.metadata or {}).get("document_id")
+                                or (ch.metadata or {}).get("doc_id")
+                                or ""
+                            )[:200],
+                            "revision": (ch.metadata or {}).get("revision"),
+                            "content_hash": str(
+                                (ch.metadata or {}).get("content_hash") or ""
+                            )[:128],
+                            "query_groups": list(
+                                (ch.metadata or {}).get("retrieval_query_groups") or []
+                            )[:20],
+                        }
                         for ch in (rag_chunks or [])[:20]
                     ],
                     "enrichment": (

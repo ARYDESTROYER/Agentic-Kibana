@@ -41,6 +41,20 @@ describe('healthView — first-paint / pre-response neutral state', () => {
     expect(v.label).toBe('Healthy');
   });
 
+  it('prefers the explicit owned-state field over the legacy alias', () => {
+    const v = healthView(
+      health({
+        state_store_connected: true,
+        es_connected: false,
+        state_backend: 'postgres',
+        store_type: 'PostgresStateStore',
+      }),
+      false,
+    );
+    expect(v.tone).toBe('success');
+    expect(v.label).toBe('Healthy');
+  });
+
   it('still surfaces a real unreachable store once health resolved with es_connected=false', () => {
     const v = healthView(health({ es_connected: false, store_type: 'EsClient' }), false);
     expect(v.tone).toBe('warning');

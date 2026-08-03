@@ -11,8 +11,8 @@
  *   GET  /tuning/config            — read Preferences.threshold_tuning.
  *   PUT  /tuning/config            — update Preferences.threshold_tuning (admin).
  *   POST /tuning/{rule_id}/apply   — recompute and process every current proposal for
- *                                    ONE rule (shadow-evaluated; a DROP is routed to the
- *                                    HITL Proposal queue, never auto-applied here).
+ *                                    ONE rule. Review-first mode queues every change;
+ *                                    confirmed auto-apply is an explicit policy opt-in.
  *   POST /tuning/{rule_id}/rollback — reverse the latest active auto-applied change.
  *
  * We use the low-level `api.get/post/put` verbs from `@/lib/api` rather than adding
@@ -37,7 +37,8 @@ export type TuningCadence = 'hourly' | 'nightly' | 'weekly' | 'manual';
  * The tuning policy (mirrors backend `config.ThresholdTuningConfig`). Default ON since
  * the Round-10 Autopilot overhaul — the tuner is a config-writer only (it never imports
  * `decide()`, #3): it observes per-rule FP rates and PROPOSES bounded, shadow-checked
- * changes, and a suppression DROP is always routed to Approvals, never auto-applied.
+ * changes. Review-first is the default, and a suppression DROP is always routed to
+ * Approvals, never auto-applied.
  * Fields beyond the four the UI edits (`enabled`/`min_samples`/`fp_rate_target`/
  * `cadence`) are carried verbatim on round-trip so a PUT never drops the advanced knobs.
  */
@@ -50,6 +51,9 @@ export interface TuningConfig {
   ewma_alpha: number;
   cadence: TuningCadence;
   shadow_eval: boolean;
+  /** Review-first by default. When true, only independently analyst-confirmed,
+   * shadow-safe bounded changes may be written without a proposal decision. */
+  auto_apply_confirmed: boolean;
 }
 
 /**
@@ -68,12 +72,19 @@ export const DEFAULT_TUNING_CONFIG: TuningConfig = {
   ewma_alpha: 0.2,
   cadence: 'nightly',
   shadow_eval: true,
+  auto_apply_confirmed: false,
 };
 
 /** One observed rule's noise picture (from `_accumulate_rule_stats`). */
 export interface RuleNoise {
   rule_id: string;
+  /** All closed/resolved cases in which this normalized rule was observed. */
+  observed?: number;
   total: number;
+  /** Independently analyst-confirmed outcomes used by the tuner. */
+  analyst_samples?: number;
+  /** Observed cases excluded because no independent analyst outcome exists. */
+  unconfirmed?: number;
   fp: number;
   tp: number;
   /** Wilson lower-bound FP rate (0..1). */
@@ -95,11 +106,16 @@ export interface TuningRecommendation {
   feed_id: string | null;
   fp_rate: number;
   samples: number;
+  analyst_samples?: number;
+  observed_cases?: number;
+  unconfirmed_cases?: number;
+  confirmed_false_positives?: number;
+  confirmed_true_positives?: number;
   /** False for a suppression DROP or a shadow-blocked raise (both need review). */
   auto_apply: boolean;
   /** True when a shadow-eval showed the change would have hidden a true positive. */
   shadow_blocked: boolean;
-  /** "suppression_drop" | "shadow_eval_would_hide_tp" | "auto_apply_candidate". */
+  /** Stable backend reason code explaining review, evidence, or auto-apply eligibility. */
   reason: string;
 }
 
@@ -151,10 +167,46 @@ export interface TuningRecommendationsResponse {
   cadence: string;
   fp_rate_target: number;
   min_samples: number;
+  auto_apply_confirmed: boolean;
   window_cases: number;
   rule_noise: RuleNoise[];
   recommendations: TuningRecommendation[];
   applied: TuningLedgerRow[];
+}
+
+export interface SchedulerWorkerHealth {
+  enabled: boolean;
+  gated: boolean;
+  running: boolean;
+  cadence: string;
+  last_attempt_at: string;
+  last_success_at: string;
+  last_error: string;
+  processed: number;
+}
+
+export interface SchedulerHealthResponse {
+  scheduler_runtime_running: boolean;
+  workers: Record<string, SchedulerWorkerHealth>;
+}
+
+export interface TelemetrySourceRecommendation {
+  field: string;
+  source_type: string;
+  source_label: string;
+  benefit: string;
+  affected_case_count: number;
+  case_ids: string[];
+  evidence: Array<{ result: string; query: string }>;
+}
+
+export interface TelemetryRecommendationsResponse {
+  status: 'available' | 'not_available';
+  recommendations: TelemetrySourceRecommendation[];
+  scanned_cases: number;
+  truncated: boolean;
+  evidence_schema: string;
+  not_available_reason: string;
 }
 
 /** POST /api/tuning/{rule}/apply outcome. */
@@ -185,6 +237,12 @@ export const tuningApi = {
     api.post<{ ok: boolean; rule_id: string; record_id: string }>(
       `tuning/${encodeURIComponent(ruleId)}/rollback`,
     ),
+  /** Continuous-improvement worker health. Read-only and fail-soft in the page. */
+  schedulerHealth: () =>
+    api.get<SchedulerHealthResponse>('schedulers/health'),
+  /** Query-backed telemetry gaps only; connector absence alone never creates a row. */
+  sourceRecommendations: () =>
+    api.get<TelemetryRecommendationsResponse>('tuning/source-recommendations'),
 };
 
 /** Human labels for the recommendation `kind`. */

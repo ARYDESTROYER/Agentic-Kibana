@@ -104,7 +104,7 @@ async def test_formatter_emits_audit_row_visible_in_trace(app_state):
 # --------------------------------------------------------------------------- #
 # C3-5 — resolved-case RAG on close
 # --------------------------------------------------------------------------- #
-async def test_close_indexes_resolved_case_chunk_no_dup(app_state):
+async def test_close_requires_confirmed_outcome_then_indexes_without_dup(app_state):
     state = app_state
     await state.cases.save(_make_case(case_id="case-close-1", ip="198.51.100.7"))
 
@@ -113,20 +113,29 @@ async def test_close_indexes_resolved_case_chunk_no_dup(app_state):
     )
     assert out["status"] == CaseStatus.CLOSED.value
 
+    # A lifecycle close alone is not training-quality ground truth.  It must not
+    # become institutional memory until the analyst explicitly classifies it.
     mine = [c for c in state.rag._store._chunks if c.doc_id == "resolved_case:case-close-1"]
-    assert len(mine) == 1
-    assert mine[0].source == "resolved_case"
-    assert "benign scanner" in mine[0].text
-    assert mine[0].metadata.get("note") == "benign scanner"
-    assert mine[0].metadata.get("case_id") == "case-close-1"
+    assert mine == []
 
-    # Re-close (confirm_fp) must OVERWRITE via the deterministic doc_id, not dupe.
+    # Explicit confirmation writes one deterministic document.
     await case_action(
         "case-close-1", CaseAction(action="confirm_fp", note="still benign"), state
     )
     mine2 = [c for c in state.rag._store._chunks if c.doc_id == "resolved_case:case-close-1"]
     assert len(mine2) == 1
+    assert mine2[0].source == "resolved_case"
     assert "still benign" in mine2[0].text
+    assert mine2[0].metadata.get("note") == "still benign"
+    assert mine2[0].metadata.get("case_id") == "case-close-1"
+
+    # Re-confirming overwrites via the stable doc id; it never duplicates.
+    await case_action(
+        "case-close-1", CaseAction(action="confirm_fp", note="confirmed again"), state
+    )
+    mine3 = [c for c in state.rag._store._chunks if c.doc_id == "resolved_case:case-close-1"]
+    assert len(mine3) == 1
+    assert "confirmed again" in mine3[0].text
 
 
 async def test_reopen_does_not_index(app_state):

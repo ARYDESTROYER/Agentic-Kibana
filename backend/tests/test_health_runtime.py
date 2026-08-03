@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.api.routes import _state_store_probe
+from app.api.routes import _state_store_probe, setup_status
 from app.config import Secrets
 from app.es.client import RealESClient
 from app.es.fake import InMemoryESClient
@@ -45,6 +45,33 @@ async def test_sqlite_state_backend_readiness_uses_sql_not_log_es() -> None:
         ready, store_type = await _state_store_probe(state)
         assert ready is True
         assert store_type == "SQLiteStateStore"
+    finally:
+        await state.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_setup_status_distinguishes_optional_log_es_from_sql_state() -> None:
+    state = AppState.create(
+        secrets=Secrets(
+            state_backend="sqlite",
+            state_db_url="sqlite+aiosqlite:///:memory:",
+        ),
+        es=InMemoryESClient(),
+    )
+    await state.startup(start_poller=False)
+    try:
+        async def log_surface_down() -> bool:
+            return False
+
+        state.es.ping = log_surface_down
+        status = await setup_status(state)
+        assert status["es_connected"] is False
+        assert status["es_required_for_state"] is False
+        assert status["es_connection_role"] == "log_source_only"
+        assert status["state_backend"] == "sqlite"
+
+        ready, _store_type = await _state_store_probe(state)
+        assert ready is True
     finally:
         await state.shutdown()
 

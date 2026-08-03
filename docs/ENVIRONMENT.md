@@ -7,7 +7,8 @@ There are **two distinct environments**. Confusing them causes most build/deploy
 pain, so they are documented separately.
 
 > **Branch topology:** the remote uses `Testing` for integration and default
-> `main` for accepted Stable source, and it has the `v0.1.1` release tag. Branch
+> `main` for accepted Stable source. `v0.1.1` is the prior Stable tag; `v0.1.2`
+> follows only after verified promotion. Branch
 > protection, required checks, Pages source selection, and environment policy are
 > repository settings; administrators must verify them independently of this
 > checkout.
@@ -187,7 +188,7 @@ prefixed Docker build/runtime metadata rather than `Secrets` fields:
 
 | Build/runtime value | Default | Purpose |
 |---|---|---|
-| `TLSOC_VERSION` | `0.1.1` in Compose | Machine SemVer for images and API identity |
+| `TLSOC_VERSION` | `0.1.2` in Compose | Machine SemVer for images and API identity |
 | `TLSOC_RELEASE_CHANNEL` | `testing` | Independent promotion stamp; use `stable` only for the accepted main/tag build |
 | `TLSOC_BUILD_SHA` | `unknown` | Exact source revision |
 | `TLSOC_BUILD_DATE` | `unknown` | Reproducible-build timestamp supplied by the builder |
