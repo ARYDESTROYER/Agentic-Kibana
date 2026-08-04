@@ -194,6 +194,21 @@ describe('Analytics consolidation (Round 4 / #10)', () => {
     expect(within(strip).getAllByRole('tab')).toHaveLength(5);
   });
 
+  it('keeps the time window and refresh ahead of contextual sort controls', async () => {
+    render(<Metrics embedded />);
+
+    const controls = await screen.findByRole('group', { name: 'Analytics controls' });
+    const primary = controls.querySelector('[data-controlbar-slot="primary"]') as HTMLElement;
+    const secondary = controls.querySelector('[data-controlbar-slot="secondary"]') as HTMLElement;
+
+    expect(within(primary).getByRole('radiogroup', { name: 'Time window' })).toBeInTheDocument();
+    expect(within(primary).getByRole('button', { name: 'Refresh' })).toBeInTheDocument();
+    expect(
+      within(secondary).getByRole('radiogroup', { name: 'Sort ranked breakdowns' }),
+    ).toBeInTheDocument();
+    expect(primary.nextElementSibling).toBe(secondary);
+  });
+
   it('keeps weak evidence explicit and never invents an agent score', async () => {
     render(<Metrics embedded tab="effectiveness" />);
     await waitFor(() =>

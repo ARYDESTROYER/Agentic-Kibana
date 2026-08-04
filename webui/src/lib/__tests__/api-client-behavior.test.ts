@@ -178,6 +178,50 @@ describe('release coherence reads', () => {
   });
 });
 
+describe('supervised system-update request authority', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('sends only opaque server ids, tokens, and idempotency keys in mutations', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, {}));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await api.systemUpdates.preflight('stable-release-id', 'preflight-operation-id');
+    await api.systemUpdates.start('stable-release-id', 'server-bound-token', 'start-operation-id');
+    await api.systemUpdates.cancel('durable-job-id', 'cancel-operation-id');
+    await api.systemUpdates.rollback('durable-job-id', 'rollback-operation-id');
+
+    const requests = fetchMock.mock.calls.map(([url, init]) => ({
+      url: String(url),
+      body: JSON.parse((init as RequestInit).body as string),
+    }));
+    expect(requests).toEqual([
+      {
+        url: '/api/system-updates/preflight',
+        body: { release_id: 'stable-release-id', idempotency_key: 'preflight-operation-id' },
+      },
+      {
+        url: '/api/system-updates/jobs',
+        body: {
+          release_id: 'stable-release-id',
+          preflight_token: 'server-bound-token',
+          idempotency_key: 'start-operation-id',
+        },
+      },
+      {
+        url: '/api/system-updates/jobs/durable-job-id/cancel',
+        body: { idempotency_key: 'cancel-operation-id' },
+      },
+      {
+        url: '/api/system-updates/jobs/durable-job-id/rollback',
+        body: { idempotency_key: 'rollback-operation-id' },
+      },
+    ]);
+    expect(JSON.stringify(requests)).not.toMatch(/https?:|image|digest|command|compose|path/i);
+  });
+});
+
 describe('Runbooks rolling-upgrade response compatibility', () => {
   afterEach(() => {
     vi.unstubAllGlobals();

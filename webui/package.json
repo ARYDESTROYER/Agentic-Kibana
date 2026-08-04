@@ -1,7 +1,7 @@
 {
   "name": "tlsoc-console",
   "private": true,
-  "version": "0.1.2",
+  "version": "0.1.3",
   "type": "module",
   "description": "Agentic SOC, the standalone operator interface for agentic security operations.",
   "scripts": {
@@ -14,6 +14,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint \"src/**/*.{ts,tsx}\"",
     "test": "vitest run",
+    "test:strict:contract": "node --test scripts/test-strict.test.mjs",
+    "test:strict": "npm run test:strict:contract && node scripts/test-strict.mjs",
     "gates": "node scripts/gates.mjs",
     "gates:update-baseline": "node scripts/gate-grep.mjs --update",
     "gen:types": "node scripts/gen-types.mjs",

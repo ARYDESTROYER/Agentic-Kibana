@@ -190,7 +190,11 @@ export const DonutChart = React.forwardRef<HTMLDivElement, DonutChartProps>(
               isAnimationActive={false}
             >
               {data.map((s, i) => (
-                <Cell key={i} fill={s.color ?? categorical(i)} />
+                <Cell
+                  key={i}
+                  fill={s.color ?? categorical(i)}
+                  aria-label={`${s.label}: ${format ? format(s.value) : s.value.toLocaleString()}`}
+                />
               ))}
             </Pie>
             {showTooltip ? (

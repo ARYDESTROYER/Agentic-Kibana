@@ -5,7 +5,7 @@ description: Manage retrieved procedures and durable operator facts with explici
 
 # Knowledge and memory
 
-Open **Intelligence → Knowledge** for the retrieval corpus and
+Open **Intelligence → Knowledge corpus** for the retrieval corpus and
 **Intelligence → Memory** for durable operator facts. Both can ground an
 investigation, but they have different trust and lifecycle rules.
 
@@ -13,7 +13,7 @@ investigation, but they have different trust and lifecycle rules.
 
 The built-in corpus contains runbooks, MITRE ATT&CK reference text, and suppression
 guidance. Authorized operators can also create versioned runbook knowledge under
-**Intelligence → Runbooks**. When enabled, resolved-case summaries can be indexed for
+**Intelligence → Reference runbooks**. When enabled, resolved-case summaries can be indexed for
 similarity. Knowledge search combines lexical and vector retrieval and returns source
 and score metadata.
 

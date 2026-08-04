@@ -56,6 +56,7 @@ import { toast } from 'sonner';
 
 import { PageHeader } from '@/soc/components/PageHeader';
 import { PageContainer } from '@/soc/components/PageContainer';
+import { ControlBar } from '@/soc/components/ControlBar';
 import { LoadError } from '@/soc/components/LoadError';
 import { SegmentedControl } from '@/soc/components/SegmentedControl';
 import { Can, useCan } from '@/soc/components/Can';
@@ -1480,8 +1481,8 @@ export interface KnowledgeProps {
   onNavigate?: Navigate;
   /**
    * When hosted as a tab inside the Intelligence scaffold (Round-2 W4 consolidation),
-   * suppress the page's own PageHeader and surface only the Refresh action so the
-   * host owns the title (no duplicate headers).
+   * suppress the page's own PageHeader and width container. The host owns the one
+   * page title and width authority; this leaf contributes only a labelled control row.
    */
   embedded?: boolean;
 }
@@ -1584,10 +1585,15 @@ export default function Knowledge({ embedded = false }: KnowledgeProps = {}) {
     </Button>
   );
 
-  return (
-    <PageContainer variant="wide" className="space-y-6">
+  const content = (
+    <>
       {embedded ? (
-        <div className="flex flex-wrap items-center justify-end gap-2">{refreshAction}</div>
+        <ControlBar
+          title="Knowledge controls"
+          meta="Index health and documents"
+          label="Knowledge corpus controls"
+          controls={refreshAction}
+        />
       ) : (
         <PageHeader
           icon={Boxes}
@@ -1755,6 +1761,16 @@ export default function Knowledge({ embedded = false }: KnowledgeProps = {}) {
         onCancel={() => setPending(null)}
         onConfirm={() => void runDelete()}
       />
+    </>
+  );
+
+  if (embedded) {
+    return <section className="space-y-6" aria-label="Knowledge corpus workspace">{content}</section>;
+  }
+
+  return (
+    <PageContainer variant="wide" className="space-y-6">
+      {content}
     </PageContainer>
   );
 }

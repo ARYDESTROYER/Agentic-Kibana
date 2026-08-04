@@ -16,7 +16,6 @@
 import * as React from 'react';
 import {
   ScrollText,
-  RefreshCw,
   Search,
   X,
   ArrowUpRight,
@@ -39,6 +38,7 @@ import {
 
 import { PageHeader } from '@/soc/components/PageHeader';
 import { PageContainer } from '@/soc/components/PageContainer';
+import { RefreshButton } from '@/soc/components/RefreshButton';
 import { DataTable, type DataTableColumn } from '@/soc/components/DataTable';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
@@ -319,10 +319,7 @@ function AuditViewer({ onNavigate }: AuditProps) {
         description="Read-only, append-only record of every agent and analyst action."
         icon={ScrollText}
         actions={
-          <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
-            <RefreshCw className={`mr-1.5 size-4 ${loading ? 'animate-spin' : ''}`} aria-hidden />
-            Refresh
-          </Button>
+          <RefreshButton onClick={() => void load()} refreshing={loading} />
         }
       />
 

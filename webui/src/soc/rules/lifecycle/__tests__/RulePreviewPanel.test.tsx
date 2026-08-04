@@ -125,22 +125,9 @@ describe('RulePreviewPanel', () => {
     expect(previewSpy).not.toHaveBeenCalled();
   });
 
-  it('flags that only the first condition is saved+previewed when extra rows are dropped (M3)', async () => {
-    // The save adapter keeps only the FIRST predicate row; the server evaluates only the
-    // first too and reports `predicates_evaluated < predicates`. The panel must WARN the
-    // operator that the extra rows are neither saved nor previewed, so the count is
-    // honestly a preview of what actually deploys.
-    previewSpy.mockResolvedValueOnce({
-      scanned: 1000,
-      matched: 42,
-      match_rate: 0.042,
-      histogram: [{ bucket: '2026-07-01T00:00:00+00:00', count: 42 }],
-      sample: [],
-      predicates: 3,            // three rows supplied
-      predicates_evaluated: 1,  // only the first is evaluated (matches the deployed rule)
-      hard_capped: false,
-    });
-    // Two extra rows in the form (the adapter/preview will drop rows 2 & 3).
+  it('projects only the authoritative first predicate from a legacy multi-row draft', async () => {
+    // Old local drafts may still carry extra rows. Normal authoring cannot create them,
+    // and preview must match the single-predicate wire contract exactly.
     const MULTI: RuleForm = {
       ...MATCH_RULE,
       predicates: [
@@ -151,17 +138,9 @@ describe('RulePreviewPanel', () => {
     };
     renderPanel(MULTI);
     fireEvent.click(screen.getByRole('button', { name: /run preview/i }));
-    await waitFor(() => expect(screen.getByText('42')).toBeInTheDocument());
-    // The M3 note names the 2 dropped conditions and reassures the count reflects deploy.
-    expect(screen.getByText(/only the first condition is saved and previewed/i)).toBeInTheDocument();
-    expect(screen.getByText(/other 2 conditions are not yet applied/i)).toBeInTheDocument();
-    expect(screen.getByText(/reflects the rule as it will deploy/i)).toBeInTheDocument();
-  });
-
-  it('does NOT show the M3 note for a single-condition rule (nothing dropped)', async () => {
-    renderPanel(); // single predicate; server reports predicates=1, evaluated=1
-    fireEvent.click(screen.getByRole('button', { name: /run preview/i }));
-    await waitFor(() => expect(screen.getByText('42')).toBeInTheDocument());
-    expect(screen.queryByText(/only the first condition is saved and previewed/i)).not.toBeInTheDocument();
+    await waitFor(() => expect(previewSpy).toHaveBeenCalledTimes(1));
+    expect(previewSpy.mock.calls[0][0].match).toEqual([
+      { field: 'rule.id', op: 'equals', value: '5710' },
+    ]);
   });
 });

@@ -67,6 +67,7 @@ import {
 } from '@/ui/dialog';
 
 import { PageHeader } from '@/soc/components/PageHeader';
+import { ControlBar } from '@/soc/components/ControlBar';
 import { useCan } from '@/soc/components/Can';
 import { KpiTile } from '@/soc/components/KpiTile';
 import { EmptyState } from '@/soc/components/EmptyState';
@@ -571,8 +572,8 @@ export interface MemoryPageProps {
   onNavigate?: (page: any, opts?: any) => void;
   /**
    * When hosted as a tab inside the Intelligence scaffold (Round-2 W4 consolidation),
-   * suppress the page's own PageHeader and surface only the Refresh action so the
-   * host owns the title (no duplicate headers).
+   * suppress the page's own PageHeader. The host owns the one page title while this
+   * leaf contributes a compact, labelled control row.
    */
   embedded?: boolean;
 }
@@ -814,7 +815,12 @@ export default function Memory({ embedded = false }: MemoryPageProps = {}) {
   return (
     <div className="space-y-6">
       {embedded ? (
-        <div className="flex flex-wrap items-center justify-end gap-2">{refreshAction}</div>
+        <ControlBar
+          title="Memory controls"
+          meta="Facts and review status"
+          label="Operator memory controls"
+          controls={refreshAction}
+        />
       ) : (
         <PageHeader
           icon={Brain}

@@ -154,6 +154,10 @@ describe('Playbooks Catalog management', () => {
     renderCatalog();
     expect(await screen.findByText('Brute-force login')).toBeInTheDocument();
     expect(screen.getByText('Package')).toBeInTheDocument();
+    const contextSummary = screen.getByText('Selection context').closest('summary');
+    expect(contextSummary?.parentElement).not.toHaveAttribute('open');
+    fireEvent.click(contextSummary as HTMLElement);
+    expect(contextSummary?.parentElement).toHaveAttribute('open');
     fireEvent.click(screen.getByRole('button', { name: /open source/i }));
 
     expect(await screen.findByText('Bundled · package')).toBeInTheDocument();
@@ -263,6 +267,10 @@ describe('Playbooks Catalog management', () => {
     renderCatalog();
 
     expect(await screen.findByText('75% covered')).toBeInTheDocument();
+    const readinessSummary = screen.getByText('Coverage & selection test').closest('summary');
+    expect(readinessSummary?.parentElement).not.toHaveAttribute('open');
+    fireEvent.click(readinessSummary as HTMLElement);
+    expect(readinessSummary?.parentElement).toHaveAttribute('open');
     expect(screen.getByText('uncovered_rule')).toBeInTheDocument();
     expect(screen.getByText('Threshold tuner · Running')).toBeInTheDocument();
     expect(screen.getByRole('progressbar', { name: /playbook coverage 75%/i })).toBeInTheDocument();
@@ -299,6 +307,8 @@ describe('Playbooks Catalog management', () => {
 
     renderCatalog();
     await screen.findByText('Operator response');
+    const readinessSummary = screen.getByText('Coverage & selection test').closest('summary');
+    fireEvent.click(readinessSummary as HTMLElement);
     fireEvent.change(screen.getByLabelText('Rule IDs'), { target: { value: ' different_rule ' } });
     fireEvent.change(screen.getByLabelText('Events'), { target: { value: '3' } });
     fireEvent.click(screen.getByRole('button', { name: /test match/i }));

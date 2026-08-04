@@ -3,8 +3,8 @@
  * for the SOC console (Round-2 W7c).
  *
  * A single cmdk dialog, mounted ONCE in the shell, that:
- *   (a) lists nav targets (rail pages + Settings sections), RBAC-filtered, for an
- *       instant jump;
+ *   (a) starts with RBAC-filtered top-level destinations and progressively reveals
+ *       child pages + Settings sections after the operator types a query;
  *   (b) debounce-queries GET /api/search?q= for cases + sources and lets the
  *       operator open one;
  *   (c) offers quick actions (New chat, Toggle theme, Go to Settings, Enable demo
@@ -172,7 +172,17 @@ export function CommandPalette({ open, onOpenChange, onNavigate }: CommandPalett
   // (host = `nav-<id>`, child = `navc-<parent>-<id>`) — the `nav-<id>` host values are
   // relied on by the command-palette spec.
   const navGroups = React.useMemo<
-    { id: string; label: string; targets: { id: PageId; label: string; icon?: LucideIcon; key: string }[] }[]
+    {
+      id: string;
+      label: string;
+      targets: {
+        id: PageId;
+        label: string;
+        icon?: LucideIcon;
+        key: string;
+        depth: 'host' | 'child';
+      }[];
+    }[]
   >(
     () =>
       [
@@ -181,10 +191,22 @@ export function CommandPalette({ open, onOpenChange, onNavigate }: CommandPalett
           ? [{ id: 'help', label: 'Help', items: NAV_FOOTER_ITEMS }]
           : []),
       ].map((group) => {
-        const targets: { id: PageId; label: string; icon?: LucideIcon; key: string }[] = [];
+        const targets: {
+          id: PageId;
+          label: string;
+          icon?: LucideIcon;
+          key: string;
+          depth: 'host' | 'child';
+        }[] = [];
         for (const item of group.items) {
           if (item.perm && !hasPermission(item.perm.resource, item.perm.action)) continue;
-          targets.push({ id: item.id, label: item.label, icon: item.icon, key: `nav-${item.id}` });
+          targets.push({
+            id: item.id,
+            label: item.label,
+            icon: item.icon,
+            key: `nav-${item.id}`,
+            depth: 'host',
+          });
           for (const child of item.children ?? []) {
             if (child.perm && !hasPermission(child.perm.resource, child.perm.action)) continue;
             targets.push({
@@ -192,6 +214,7 @@ export function CommandPalette({ open, onOpenChange, onNavigate }: CommandPalett
               label: child.label,
               icon: child.icon ?? item.icon,
               key: `navc-${item.id}-${child.id}`,
+              depth: 'child',
             });
           }
         }
@@ -203,10 +226,10 @@ export function CommandPalette({ open, onOpenChange, onNavigate }: CommandPalett
   const canManageSettings = hasPermission('settings', 'manage');
 
   // Settings sections + setting-level cards as jump targets (Round-5 Sett-C), sourced
-  // from the ONE lifted registry with the SAME RBAC filter as the Settings rail. A blank
-  // query shows only section heads (no card noise); a term deepens to the matching card
-  // and jumps straight to it via #/settings?s=<section>&a=<anchor>. Capped so the palette
-  // stays scannable.
+  // from the ONE lifted registry with the SAME RBAC filter as the Settings rail. The
+  // blank discovery state intentionally shows none of this deep structure; a term
+  // reveals the matching section/card and jumps straight to it via
+  // #/settings?s=<section>&a=<anchor>. Capped so the palette stays scannable.
   const settingsTargets = React.useMemo(
     () => searchJumpTargets(query, hasPermission).slice(0, 8),
     [query, hasPermission],
@@ -225,13 +248,14 @@ export function CommandPalette({ open, onOpenChange, onNavigate }: CommandPalett
     [term],
   );
   const showRecents = term.length === 0 && recents.length > 0;
+  const isDiscoveryState = term.length === 0;
   const res = results;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* hideClose: the palette's full-bleed search input owns the top row, so the
           built-in top-right X would overlap it — suppress it (#14). */}
-      <DialogContent hideClose className="overflow-hidden p-0 sm:max-w-xl">
+      <DialogContent hideClose className="overflow-hidden p-0 sm:max-w-[640px]">
         <DialogTitle className="sr-only">Command palette</DialogTitle>
         <DialogDescription className="sr-only">
           Jump to a page, search cases and sources, or run a quick action.
@@ -240,13 +264,13 @@ export function CommandPalette({ open, onOpenChange, onNavigate }: CommandPalett
             nav/action/recent items are filtered in render by `localMatch`. */}
         <Command shouldFilter={false} loop>
           <CommandInput
-            placeholder="Jump to a page, search cases/sources, run an action…"
+            placeholder="Search cases, sources, settings, or actions…"
             value={query}
             onValueChange={setQuery}
             /* eslint-disable-next-line jsx-a11y/no-autofocus -- deliberate focus placement on the primary field of a focused dialog/login flow; behavior-preserving */
             autoFocus
           />
-          <CommandList>
+          <CommandList className="max-h-[min(60dvh,420px)]">
             <CommandEmpty>No results.</CommandEmpty>
 
             {/* Recently visited (only on an empty query). */}
@@ -363,10 +387,10 @@ export function CommandPalette({ open, onOpenChange, onNavigate }: CommandPalett
             </CommandGroup>
 
             {/* Settings sections + setting-level cards (RBAC-filtered, from the lifted
-                settings-sections registry). Jumps write the FULL hash
+                settings-sections registry and intentionally search-only). Jumps write the FULL hash
                 `#/settings?s=<section>&a=<anchor>` via the router's settings sub-target
                 path — the deep-link + card highlight survive the hashchange. */}
-            {settingsTargets.length > 0 ? (
+            {!isDiscoveryState && settingsTargets.length > 0 ? (
               <>
                 <CommandSeparator />
                 <CommandGroup heading="Settings">
@@ -401,7 +425,11 @@ export function CommandPalette({ open, onOpenChange, onNavigate }: CommandPalett
 
             {/* Nav targets (RBAC-filtered rail groups + their children + local match). */}
             {navGroups.map((group) => {
-              const items = group.targets.filter((t) => localMatch('page', t.label, t.id));
+              const items = group.targets.filter(
+                (t) =>
+                  (!isDiscoveryState || t.depth === 'host') &&
+                  localMatch('page', t.label, t.id),
+              );
               if (!items.length) return null;
               return (
                 <CommandGroup key={`nav-${group.id}`} heading={group.label}>
@@ -430,6 +458,22 @@ export function CommandPalette({ open, onOpenChange, onNavigate }: CommandPalett
               );
             })}
           </CommandList>
+          <div
+            className="flex items-center justify-between border-t border-border px-3 py-2 text-xs text-muted-foreground"
+            aria-hidden
+          >
+            <span>
+              {isDiscoveryState
+                ? 'Type to search every page, setting, case, and source'
+                : 'Search results update as you type'}
+            </span>
+            <span className="hidden items-center gap-2 sm:flex">
+              <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono">Enter</kbd>
+              open
+              <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono">Esc</kbd>
+              close
+            </span>
+          </div>
         </Command>
       </DialogContent>
     </Dialog>

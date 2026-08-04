@@ -203,6 +203,8 @@ describe('Tuning page', () => {
       scanned_cases: 12,
       truncated: false,
       evidence_schema: 'case.telemetry_gaps.v1',
+      capture_status: 'available',
+      capture_not_available_reason: '',
       not_available_reason: '',
       recommendations: [
         {
@@ -218,14 +220,41 @@ describe('Tuning page', () => {
     });
   });
 
+  it('states when controlled telemetry-gap capture is unavailable', async () => {
+    telemetryMock.mockResolvedValue({
+      status: 'not_available',
+      scanned_cases: 12,
+      truncated: false,
+      evidence_schema: 'agentic-soc.telemetry-gap/v1',
+      capture_status: 'not_available',
+      capture_not_available_reason:
+        'Automatic telemetry-gap capture is not available in this build.',
+      not_available_reason: 'No query-backed telemetry gap has been recorded.',
+      recommendations: [],
+    });
+
+    renderTuning();
+    fireEvent.keyDown(await screen.findByRole('tab', { name: 'Outcomes' }), {
+      key: 'Enter',
+    });
+
+    expect(
+      await screen.findByText('Telemetry evidence capture not available'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('Automatic telemetry-gap capture is not available in this build.'),
+    ).toBeInTheDocument();
+  });
+
   it('renders recommendations with rule id, FP rate, and the proposed change as plain text', async () => {
     renderTuning();
     await waitFor(() => expect(recsMock).toHaveBeenCalled());
 
     expect(await screen.findByText('Auto-tuning')).toBeInTheDocument();
-    // Rule id renders as escaped plain text in both review and evidence contexts.
+    // Rule id renders as escaped plain text in the review workspace.
     expect(screen.getAllByText('auth-brute').length).toBeGreaterThan(0);
-    // Conservative FP evidence is named and compared with policy in percentage points.
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect rule auth-brute' }));
+    // The focused inspector names conservative evidence and compares it with policy.
     expect(
       screen.getAllByText(/conservative false-positive estimate is 62%/i).length,
     ).toBeGreaterThan(0);
@@ -234,7 +263,7 @@ describe('Tuning page', () => {
     expect(screen.getAllByText('Raise the correlation threshold').length).toBeGreaterThan(0);
     expect(screen.getAllByText(/raise the threshold from 3 to 4/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/source events remain available/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Eligible after replay').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Can apply after safety check').length).toBeGreaterThan(0);
     // Proposed change values remain plain text inside the explanatory instruction.
     expect(screen.getAllByText(/from 3 to 4/i).length).toBeGreaterThan(0);
   });
@@ -253,11 +282,10 @@ describe('Tuning page', () => {
     expect(healthStrip.className).not.toMatch(/rounded|shadow|bg-card/);
 
     const cells = Array.from(healthStrip.children);
-    expect(cells).toHaveLength(4);
+    expect(cells).toHaveLength(3);
     expect(cells[1]).toHaveClass('border-t', 'sm:border-l', 'sm:border-t-0');
-    expect(cells[2]).toHaveClass('border-t', 'xl:border-l', 'xl:border-t-0');
-    expect(cells[3]).toHaveClass('border-t', 'sm:border-l', 'xl:border-t-0');
-    expect(screen.getByTestId('kpi-rules-monitored')).toHaveClass('min-h-0', 'py-3');
+    expect(cells[2]).toHaveClass('border-t', 'sm:border-l', 'sm:border-t-0');
+    expect(screen.getByTestId('kpi-needs-attention')).toHaveClass('min-h-0', 'py-3');
   });
 
   it('uses task-focused workspace tabs and opens on Operations', async () => {
@@ -314,20 +342,17 @@ describe('Tuning page', () => {
     expect(screen.getAllByText('auth-brute').length).toBeGreaterThan(0);
   });
 
-  it('keeps the grouped review queue ahead of rule performance', async () => {
+  it('uses one rule-review workspace instead of duplicating an attention queue', async () => {
     renderTuning();
     await screen.findAllByText('auth-brute');
 
-    const review = screen.getByRole('heading', { name: 'Review queue', level: 2 });
-    const rules = screen.getByRole('heading', { name: 'All monitored rules', level: 2 });
-    const pending = screen.getByRole('region', { name: 'Pending human proposals' });
-
-    expect(review.compareDocumentPosition(pending) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(pending.compareDocumentPosition(rules) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getByRole('region', { name: 'Review queue' }).className).not.toMatch(
+    expect(screen.getByRole('heading', { name: 'Rule review', level: 2 })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Rule review' }).className).not.toMatch(
       /rounded|shadow|bg-card/,
     );
-    expect(pending.className).not.toMatch(/rounded|shadow|bg-card/);
+    expect(screen.getByRole('region', { name: 'Approval path summary' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Review queue' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'All monitored rules' })).not.toBeInTheDocument();
   });
 
   it('opens rule evidence in a focused panel linked to its trigger', async () => {
@@ -345,9 +370,9 @@ describe('Tuning page', () => {
     expect(detail).toHaveClass('border-y');
 
     const statCells = Array.from(detail.querySelector('dl')?.children ?? []);
-    expect(statCells).toHaveLength(6);
-    expect(statCells[1]).toHaveClass('border-l');
-    expect(statCells[2]).toHaveClass('border-t');
+    expect(statCells).toHaveLength(3);
+    expect(statCells[1]).toHaveClass('sm:border-l');
+    expect(statCells[2]).toHaveClass('sm:border-l');
     expect(within(detail).getByText('Why this rule needs attention')).toBeInTheDocument();
     expect(within(detail).getByText('Recommended action')).toBeInTheDocument();
     expect(within(detail).getByText('Expected operational effect')).toBeInTheDocument();
@@ -368,7 +393,7 @@ describe('Tuning page', () => {
     });
     expect(trigger).toHaveAttribute('aria-controls', 'tuning-rule-detail');
     expect(detail).toHaveAttribute('id', 'tuning-rule-detail');
-    expect(within(detail).getByText('Rule evidence')).toBeInTheDocument();
+    expect(within(detail).getByText('Rule review')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Close' })).toHaveFocus();
 
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
@@ -390,22 +415,22 @@ describe('Tuning page', () => {
     await waitFor(() => expect(screen.queryByRole('complementary')).not.toBeInTheDocument());
   });
 
-  it('shows the honest-framing banner (tuning never closes a case)', async () => {
+  it('states the honest authority boundary without a separate banner', async () => {
     renderTuning();
     await screen.findAllByText('auth-brute');
-    expect(
-      screen.getByText(/only changes what gets investigated/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/tuning never decides a case/i)).toBeInTheDocument();
   });
 
   it('routes a suppression drop to Approvals instead of applying it', async () => {
     const { onNavigate } = renderTuning();
     await screen.findByText('noisy-web');
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect rule noisy-web' }));
 
     // The suppression row is marked for a human decision and offers an Approvals link.
     expect(screen.getAllByText(/approval required/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/nothing is suppressed from this page/i)).toBeInTheDocument();
-    const openApprovals = screen.getByRole('button', { name: /review in approvals/i });
+    const detail = screen.getByRole('complementary', { name: 'Detail for rule noisy-web' });
+    const openApprovals = within(detail).getByRole('button', { name: /open approvals/i });
     fireEvent.click(openApprovals);
     expect(onNavigate).toHaveBeenCalledWith('approvals');
     // A suppression is NEVER auto-applied from here.
@@ -427,6 +452,7 @@ describe('Tuning page', () => {
     renderTuning();
 
     await screen.findAllByText('auth-brute');
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect rule auth-brute' }));
     expect(
       screen.getAllByText(/retrospective replay could not prove this change safe/i).length,
     ).toBeGreaterThan(0);
@@ -437,6 +463,7 @@ describe('Tuning page', () => {
   it('applies an eligible recommendation via tuningApi.apply', async () => {
     renderTuning();
     await screen.findAllByText('auth-brute');
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect rule auth-brute' }));
 
     const applyBtn = screen.getByRole('button', {
       name: 'Process all changes for auth-brute',
@@ -453,6 +480,7 @@ describe('Tuning page', () => {
     renderTuning();
 
     await screen.findAllByText('auth-brute');
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect rule auth-brute' }));
     expect(screen.getAllByText('Approval required').length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: 'Process all changes for auth-brute' }))
       .toHaveTextContent('Send to Approvals');

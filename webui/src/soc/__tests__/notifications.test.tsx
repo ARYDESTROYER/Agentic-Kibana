@@ -7,7 +7,8 @@
  * The api surface is mocked so no network is touched.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 vi.mock('@/lib/api', () => ({
   api: {
@@ -32,7 +33,7 @@ import { HelpTip } from '../components/HelpTip';
 import { TooltipProvider } from '@/ui/tooltip';
 import type { Preferences } from '@/lib/types';
 
-function setup(prefsOver: Partial<Preferences> = {}) {
+async function setup(prefsOver: Partial<Preferences> = {}) {
   const update = vi.fn();
   const prefs = { ...prefsOver } as Preferences;
   // The shared SecretField's reveal IconButton renders a Tooltip; the app supplies ONE
@@ -42,6 +43,12 @@ function setup(prefsOver: Partial<Preferences> = {}) {
       <NotificationsEditor prefs={prefs} update={update} />
     </TooltipProvider>,
   );
+  // NotificationsEditor loads provider metadata after mount. Keep that real promise-
+  // driven rerender inside React's interaction boundary before a test asserts or exits;
+  // otherwise Radix Select/Slider ref registration is still settling during cleanup.
+  await act(async () => {
+    await Promise.resolve();
+  });
   return { update, ...utils };
 }
 
@@ -49,7 +56,7 @@ describe('NotificationsEditor', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('renders the master enable switch and empty channels state', async () => {
-    setup({ notifications: { enabled: false, channels: [] } });
+    await setup({ notifications: { enabled: false, channels: [] } });
     expect(
       screen.getByRole('heading', { name: 'Alerting & notifications', level: 2 }),
     ).toBeInTheDocument();
@@ -59,17 +66,18 @@ describe('NotificationsEditor', () => {
     expect(screen.getByText(/No channels yet/i)).toBeInTheDocument();
   });
 
-  it('toggling the master switch calls update with notifications.enabled', () => {
-    const { update } = setup({ notifications: { enabled: false, channels: [] } });
+  it('toggling the master switch calls update with notifications.enabled', async () => {
+    const user = userEvent.setup();
+    const { update } = await setup({ notifications: { enabled: false, channels: [] } });
     const sw = screen.getByLabelText('Notifications enabled');
-    fireEvent.click(sw);
+    await user.click(sw);
     expect(update).toHaveBeenCalled();
     const arg = update.mock.calls[0][0];
     expect(arg.notifications.enabled).toBe(true);
   });
 
   it('renders a configured email channel with its name and recipient summary', async () => {
-    setup({
+    await setup({
       notifications: {
         enabled: true,
         channels: [
@@ -93,8 +101,8 @@ describe('NotificationsEditor', () => {
     expect(screen.getAllByText(/Configured/i).length).toBeGreaterThan(0);
   });
 
-  it('shows trigger switches', () => {
-    setup({ notifications: { enabled: true, channels: [], triggers: { on_escalated: true } } });
+  it('shows trigger switches', async () => {
+    await setup({ notifications: { enabled: true, channels: [], triggers: { on_escalated: true } } });
     expect(screen.getByText('On escalated')).toBeInTheDocument();
     expect(screen.getByText('On true positive')).toBeInTheDocument();
   });
@@ -107,9 +115,10 @@ describe('HelpTip', () => {
   });
 
   it('shows a popover for longer help with a link', async () => {
+    const user = userEvent.setup();
     render(<HelpTip text="x" link="https://example.com" label="Link help" />);
     const btn = screen.getByLabelText('Link help');
-    fireEvent.click(btn);
+    await user.click(btn);
     await waitFor(() => expect(screen.getByText(/Learn more/i)).toBeInTheDocument());
   });
 });

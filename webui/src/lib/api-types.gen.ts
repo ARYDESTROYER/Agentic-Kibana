@@ -3748,6 +3748,11 @@ export interface paths {
         /**
          * Scheduler Health
          * @description Enabled/gated/runtime status plus truthful last attempt/success/error.
+         *
+         *     This is part of the continuous-improvement operator surface, so it deliberately
+         *     shares the same ``automation:read`` grant as the Auto-tuning page that consumes
+         *     it.  Keeping this route behind ``settings:read`` made the page silently lose its
+         *     worker-health evidence for otherwise-authorized tuning operators.
          */
         get: operations["scheduler_health_api_schedulers_health_get"];
         put?: never;
@@ -4414,6 +4419,128 @@ export interface paths {
          * @description Preview a candidate plan. This endpoint performs reads only.
          */
         post: operations["storage_lifecycle_preview_api_storage_lifecycle_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/system-updates/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start Update */
+        post: operations["start_update_api_system_updates_jobs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/system-updates/jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Update Job */
+        get: operations["get_update_job_api_system_updates_jobs__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/system-updates/jobs/{job_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Update Job */
+        post: operations["cancel_update_job_api_system_updates_jobs__job_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/system-updates/jobs/{job_id}/receipt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Update Receipt */
+        get: operations["get_update_receipt_api_system_updates_jobs__job_id__receipt_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/system-updates/jobs/{job_id}/rollback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rollback Update Job */
+        post: operations["rollback_update_job_api_system_updates_jobs__job_id__rollback_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/system-updates/preflight": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Update Preflight */
+        post: operations["update_preflight_api_system_updates_preflight_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/system-updates/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Update Status
+         * @description Capability, observed Stable metadata, and resumable supervisor job state.
+         */
+        get: operations["update_status_api_system_updates_status_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -5594,6 +5721,18 @@ export interface components {
              */
             window_seconds: number;
         };
+        /** CurrentReleaseIdentity */
+        CurrentReleaseIdentity: {
+            /**
+             * Channel
+             * @enum {string}
+             */
+            channel: "stable" | "testing";
+            /** Commit Sha */
+            commit_sha: string;
+            /** Version */
+            version: string;
+        };
         /** CustomModelBody */
         CustomModelBody: {
             /** Api Key */
@@ -6274,6 +6413,37 @@ export interface components {
             /** Channel Id */
             channel_id?: string | null;
         };
+        /**
+         * ObservedStableRelease
+         * @description Untrusted discovery hint safe to show before signed preflight.
+         *
+         *     The public projection intentionally omits repository/artifact URLs, commit and
+         *     image digests, and component coordinates.  It is not an install authority.
+         */
+        ObservedStableRelease: {
+            /**
+             * Channel
+             * @default stable
+             * @constant
+             */
+            channel: "stable";
+            /**
+             * Provenance
+             * @default mutable_stable_branch_metadata
+             * @constant
+             */
+            provenance: "mutable_stable_branch_metadata";
+            /** Release Id */
+            release_id: string;
+            /**
+             * Verification
+             * @default signed_supervisor_preflight_required
+             * @constant
+             */
+            verification: "signed_supervisor_preflight_required";
+            /** Version */
+            version: string;
+        };
         /** OverviewRequest */
         OverviewRequest: {
             /** Data View */
@@ -6460,6 +6630,10 @@ export interface components {
             error_code?: string | null;
             /** Error Message */
             error_message?: string | null;
+            /** Release Commit Sha */
+            release_commit_sha?: string | null;
+            /** Release Commit Url */
+            release_commit_url?: string | null;
             /** Source Url */
             source_url?: string | null;
             /**
@@ -6998,6 +7172,23 @@ export interface components {
              */
             warm_days: number;
         };
+        /** SupervisorIdentity */
+        SupervisorIdentity: {
+            /**
+             * Available
+             * @default false
+             */
+            available: boolean;
+            /**
+             * Min Protocol Version
+             * @default 1
+             */
+            min_protocol_version: string;
+            /** Protocol Version */
+            protocol_version?: string | null;
+            /** Updater Version */
+            updater_version?: string | null;
+        };
         /**
          * TableStateBody
          * @description One table's column state (order / hidden / widths). An empty body clears it
@@ -7246,6 +7437,292 @@ export interface components {
              * @default 0
              */
             window_start: number;
+        };
+        /** UpdateBackup */
+        UpdateBackup: {
+            /** Description */
+            description: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "postgres_custom_format" | "none";
+            /** Required */
+            required: boolean;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "planned" | "ready" | "not_required" | "unavailable";
+            /**
+             * Verified
+             * @default false
+             */
+            verified: boolean;
+        };
+        /** UpdateCapability */
+        UpdateCapability: {
+            /** Blockers */
+            blockers?: components["schemas"]["UpdateIssue"][];
+            /**
+             * Bootstrap Required
+             * @default false
+             */
+            bootstrap_required: boolean;
+            scope: components["schemas"]["UpdateScope"];
+            supervisor: components["schemas"]["SupervisorIdentity"];
+            /** Supported */
+            supported: boolean;
+            /** Warnings */
+            warnings?: components["schemas"]["UpdateIssue"][];
+        };
+        /** UpdateCheck */
+        UpdateCheck: {
+            /** Code */
+            code: string;
+            /** Detail */
+            detail: string;
+            /** Label */
+            label: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pass" | "fail" | "warning";
+        };
+        /** UpdateComponent */
+        UpdateComponent: {
+            /** Current Version */
+            current_version?: string | null;
+            /**
+             * Id
+             * @enum {string}
+             */
+            id: "updater" | "backend" | "webui" | "help_center" | "postgres" | "redis";
+            /** Label */
+            label: string;
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "updated" | "bundled" | "unchanged";
+            /** Target Version */
+            target_version?: string | null;
+            /** Will Update */
+            will_update: boolean;
+        };
+        /** UpdateIdentity */
+        UpdateIdentity: {
+            /**
+             * Commit Sha
+             * @default unknown
+             */
+            commit_sha: string;
+            /**
+             * Version
+             * @default unknown
+             */
+            version: string;
+        };
+        /** UpdateIssue */
+        UpdateIssue: {
+            /** Code */
+            code: string;
+            /** Message */
+            message: string;
+            /** Remediation */
+            remediation?: string | null;
+        };
+        /** UpdateJob */
+        UpdateJob: {
+            error?: components["schemas"]["UpdateJobError"] | null;
+            /** Job Id */
+            job_id: string;
+            /**
+             * Message
+             * @default
+             */
+            message: string;
+            /** Progress */
+            progress: number;
+            receipt?: components["schemas"]["UpdateReceipt"] | null;
+            /** Release Id */
+            release_id: string;
+            rollback?: components["schemas"]["UpdateRollback"] | null;
+            rollback_receipt?: components["schemas"]["UpdateReceipt"] | null;
+            /**
+             * Stage
+             * @enum {string}
+             */
+            stage: "validating" | "verifying_artifacts" | "pulling_images" | "quiescing" | "backing_up" | "updating_backend" | "verifying_backend" | "updating_webui" | "verifying_webui" | "observing" | "rolling_back" | "restoring_release" | "completed";
+            /** Started At */
+            started_at?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "succeeded" | "failed" | "rolling_back" | "rolled_back" | "cancelled";
+            /** Updated At */
+            updated_at?: string | null;
+        };
+        /** UpdateJobError */
+        UpdateJobError: {
+            /** Code */
+            code: string;
+            /** Message */
+            message: string;
+            /** Remediation */
+            remediation?: string | null;
+        };
+        /** UpdateOperationRequest */
+        UpdateOperationRequest: {
+            /** Idempotency Key */
+            idempotency_key: string;
+        };
+        /** UpdatePreflight */
+        UpdatePreflight: {
+            backup: components["schemas"]["UpdateBackup"];
+            /** Blockers */
+            blockers?: components["schemas"]["UpdateIssue"][];
+            /** Checks */
+            checks?: components["schemas"]["UpdateCheck"][];
+            /** Components */
+            components?: components["schemas"]["UpdateComponent"][];
+            /** Expires At */
+            expires_at: string;
+            /** Preflight Token */
+            preflight_token: string;
+            release: components["schemas"]["UpdateRelease"];
+            rollback: components["schemas"]["UpdateRollback"];
+            /** Warnings */
+            warnings?: components["schemas"]["UpdateIssue"][];
+        };
+        /** UpdatePreflightRequest */
+        UpdatePreflightRequest: {
+            /** Idempotency Key */
+            idempotency_key: string;
+            /** Release Id */
+            release_id: string;
+        };
+        /** UpdateReceipt */
+        UpdateReceipt: {
+            after: components["schemas"]["UpdateIdentity"];
+            /** Backup Id */
+            backup_id?: string | null;
+            before: components["schemas"]["UpdateIdentity"];
+            /**
+             * Completed At
+             * @default
+             */
+            completed_at: string;
+            /** Components */
+            components?: ("updater" | "backend" | "webui" | "help_center")[];
+            /** Job Id */
+            job_id: string;
+            /** Release Id */
+            release_id: string;
+            /**
+             * Rollback Performed
+             * @default false
+             */
+            rollback_performed: boolean;
+            /**
+             * Started At
+             * @default
+             */
+            started_at: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "succeeded" | "failed" | "rolling_back" | "rolled_back" | "cancelled";
+        };
+        /**
+         * UpdateRelease
+         * @description Release identity safe to return to the browser (no artifact URL inputs).
+         */
+        UpdateRelease: {
+            /**
+             * Channel
+             * @default stable
+             * @constant
+             */
+            channel: "stable";
+            /** Commit Sha */
+            commit_sha: string;
+            /** Release Id */
+            release_id: string;
+            /** Repository Url */
+            repository_url: string;
+            /** Tag */
+            tag: string;
+            /** Version */
+            version: string;
+        };
+        /**
+         * UpdateReleaseDiscovery
+         * @description Truthful browser projection of the last Stable metadata observation.
+         */
+        UpdateReleaseDiscovery: {
+            /** Branch */
+            branch: string;
+            /** Checked At */
+            checked_at?: string | null;
+            issue?: components["schemas"]["UpdateIssue"] | null;
+            observed_release?: components["schemas"]["ObservedStableRelease"] | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "not_checked" | "current" | "candidate_observed" | "unavailable" | "stale" | "error";
+        };
+        /** UpdateRollback */
+        UpdateRollback: {
+            /** Automatic */
+            automatic: boolean;
+            /** Description */
+            description: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "planned" | "ready" | "unavailable" | "not_required";
+            /** Supported */
+            supported: boolean;
+        };
+        /** UpdateScope */
+        UpdateScope: {
+            /** Components Updated */
+            components_updated?: string[];
+            /**
+             * Deployment Profile
+             * @default standalone_compose_postgres_v1
+             * @constant
+             */
+            deployment_profile: "standalone_compose_postgres_v1";
+            /** Infrastructure Not Updated */
+            infrastructure_not_updated?: string[];
+            /** State Backend */
+            state_backend: string;
+        };
+        /** UpdateStartRequest */
+        UpdateStartRequest: {
+            /** Idempotency Key */
+            idempotency_key: string;
+            /** Preflight Token */
+            preflight_token: string;
+            /** Release Id */
+            release_id: string;
+        };
+        /** UpdateStatus */
+        UpdateStatus: {
+            active_job?: components["schemas"]["UpdateJob"] | null;
+            capability: components["schemas"]["UpdateCapability"];
+            /** Checked At */
+            checked_at?: string;
+            current: components["schemas"]["CurrentReleaseIdentity"];
+            last_job?: components["schemas"]["UpdateJob"] | null;
+            release_discovery: components["schemas"]["UpdateReleaseDiscovery"];
         };
         /** UserCreateBody */
         UserCreateBody: {
@@ -14176,6 +14653,224 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_update_api_system_updates_jobs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateStartRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateJob"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_update_job_api_system_updates_jobs__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateJob"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_update_job_api_system_updates_jobs__job_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateOperationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateJob"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_update_receipt_api_system_updates_jobs__job_id__receipt_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rollback_update_job_api_system_updates_jobs__job_id__rollback_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateOperationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateJob"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_preflight_api_system_updates_preflight_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatePreflightRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdatePreflight"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_status_api_system_updates_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateStatus"];
                 };
             };
         };

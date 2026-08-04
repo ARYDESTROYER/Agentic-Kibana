@@ -71,8 +71,8 @@ export const RULES_READ_PERM = { resource: 'rules', action: 'read' } as const;
  * The three rule tiers the editor exposes (RESEARCH_RULES_UX §2). Each is backed by
  * existing code; we deliberately do NOT copy Elastic's 7 rule types.
  *
- * - `detection_match`   — a classify-an-event rule (`RuleDefinition` + `RuleMatch`)
- *                          with an optional threshold/suppression (`CorrelationRule`:
+ * - `detection_match`   — a classify-an-event rule (`RuleDefinition` + one
+ *                          `RuleMatch`) with an optional threshold (`CorrelationRule`:
  *                          `n === 1` ⇒ a simple match rule; `n > 1` ⇒ a threshold rule).
  * - `detection_anomaly` — fire on deviation from a learned baseline (`BaselineConfig`);
  *                          advisory input to a candidate, NEVER `decide()`.
@@ -96,9 +96,10 @@ export interface RuleTierMeta {
 
 /**
  * One flat predicate row (R3). This IS the backend `RuleMatch` shape
- * (`{field, op, value}`) — the condition builder is a repeatable list of these,
- * ANDed. Nested AND/OR is deferred to the gated Phase-3 wave. `field`/`value` are
- * operator-authored → plain text (#9). When `op === 'exists'` the value is unused.
+ * (`{field, op, value}`). The wire and normal editor support exactly one row;
+ * nested AND/OR and multi-predicate authoring stay unavailable until the runtime can
+ * persist and execute them. `field`/`value` are operator-authored → plain text (#9).
+ * When `op === 'exists'` the value is unused.
  */
 export interface PredicateRow {
   field: string;
@@ -130,11 +131,10 @@ export interface ThresholdForm {
 }
 
 /**
- * Suppression (collapse alert storms) — a DISTINCT concept from threshold (Elastic
- * keeps them separate; conflating them is a known analyst pitfall). Up to 3 group-by
- * fields + a scope + window. This is a UI-forward concept; today it maps onto the
- * same `CorrelationRule.window_seconds`/`group_by` knobs, so the adapter keeps it
- * OPTIONAL and non-destructive (never drops a candidate, #4).
+ * Compatibility projection for advisory suppression metadata already present on the
+ * wire. The normal editor does not expose this storage-only block because the runtime
+ * does not execute it. The adapter keeps it hidden and round-trips it non-destructively
+ * so an unrelated edit never erases externally stored intent (#3/#4).
  */
 export interface SuppressionForm {
   /** Up-to-3 fields to collapse a storm by (plain text). */
@@ -185,8 +185,9 @@ export interface CaseAutomationForm {
 
 /**
  * The "About" metadata shared by every tier (name / description / enabled /
- * priority / per-role model overrides / MITRE). `name`/`description` are plain (#9);
- * `modelOverride` carries a ModelConfig selection, never a secret key (#10).
+ * priority / per-role model overrides / compatibility MITRE metadata).
+ * `name`/`description` are plain (#9); `modelOverride` carries a ModelConfig
+ * selection, never a secret key (#10).
  */
 export interface RuleAbout {
   name: string;
@@ -196,7 +197,7 @@ export interface RuleAbout {
   priority: number;
   /** Per-role model overrides (role → selection). Detection tiers only. */
   modelOverride?: Record<string, ModelConfig>;
-  /** MITRE technique ids (advisory, About-advanced). Plain text (#9). */
+  /** Hidden compatibility metadata; preserved on edit, not authored in the normal UI. */
   mitre?: string[];
 }
 
@@ -217,7 +218,7 @@ export type RuleForm =
   | {
       tier: 'detection_match';
       about: RuleAbout;
-      /** Flat AND predicate rows (R3); the first row backs the wire `match`. */
+      /** Array-shaped for compatibility; exactly one row backs the wire `match`. */
       predicates: PredicateRow[];
       threshold: ThresholdForm;
       suppression?: SuppressionForm;
@@ -236,15 +237,14 @@ export type RuleForm =
     };
 
 /**
- * The Schedule tab (RESEARCH_RULES_UX §3). Detection rules "run every {interval}"
- * with an "additional look-back". Today this reuses the per-feed schedule +
- * `{source.id}:{feed.id}` cursor, so it is OPTIONAL/advisory in the form (the wire
- * `RuleDefinition` has no schedule of its own — the poller schedule owns cadence).
+ * Hidden compatibility projection for advisory per-rule schedule metadata. The
+ * poller's per-feed schedule + `{source.id}:{feed.id}` cursor owns actual cadence,
+ * so the normal UI explains inherited cadence without offering inactive inputs.
  */
 export interface ScheduleForm {
-  /** How often the rule evaluates (seconds). */
+  /** Stored cadence intent (seconds); not executed by the current runtime. */
   intervalSeconds?: number;
-  /** Extra look-back window on each run (seconds) to catch late-arriving events. */
+  /** Stored look-back intent (seconds); not executed by the current runtime. */
   lookbackSeconds?: number;
 }
 

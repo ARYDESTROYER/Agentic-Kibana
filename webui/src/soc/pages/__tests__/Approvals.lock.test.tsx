@@ -69,6 +69,7 @@ describe('Approvals in-flight lock (finding #34)', () => {
 
     renderApprovals();
     await waitFor(() => expect(screen.getByText('Bravo fact')).toBeInTheDocument());
+    expect(screen.getByRole('group', { name: 'Approval queue controls' })).toBeInTheDocument();
 
     // Before any action, both cards' Reject buttons are enabled.
     const rejectsBefore = screen.getAllByRole('button', { name: /^reject$/i });

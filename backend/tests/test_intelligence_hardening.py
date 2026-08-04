@@ -14,7 +14,12 @@ from app.constants import (
     EntityType,
     SourceSurface,
 )
-from app.engine.telemetry_recommendations import TELEMETRY_GAP_SCHEMA, recommend_sources
+from app.engine.telemetry_recommendations import (
+    TELEMETRY_GAP_CAPTURE_REASON,
+    TELEMETRY_GAP_CAPTURE_STATUS,
+    TELEMETRY_GAP_SCHEMA,
+    recommend_sources,
+)
 from app.models import Campaign, Case, Cluster, Entity
 from app.playbooks.durable import DurablePlaybookRegistry
 from app.playbooks.registry import (
@@ -233,3 +238,9 @@ def test_source_recommendation_requires_query_backed_gap() -> None:
     rows = recommend_sources([base])
     assert rows[0]["source_type"] == "outbound_dns"
     assert rows[0]["affected_case_count"] == 1
+
+
+def test_telemetry_gap_capture_remains_explicit_until_tools_emit_controlled_proof() -> None:
+    """Do not replace missing production proof with connector-absence inference."""
+    assert TELEMETRY_GAP_CAPTURE_STATUS == "not_available"
+    assert "free-form errors are intentionally not treated as proof" in TELEMETRY_GAP_CAPTURE_REASON

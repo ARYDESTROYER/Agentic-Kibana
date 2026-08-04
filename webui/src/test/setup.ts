@@ -42,14 +42,83 @@ if (typeof Element !== 'undefined') {
   /* eslint-enable @typescript-eslint/no-explicit-any */
 }
 
-// Some EUI components observe element resize; jsdom lacks ResizeObserver.
-if (typeof window !== 'undefined' && !(window as any).ResizeObserver) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (window as any).ResizeObserver = class {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
+// jsdom has no layout engine, so Recharts' ResponsiveContainer would otherwise
+// measure 0x0 and emit a warning for every chart render. Model only the chart
+// wrapper: inherit an explicit pixel dimension from its ancestors (all shared
+// chart components set a truthful inline height) and use a stable desktop canvas
+// width when CSS layout would ordinarily provide the remaining dimension.
+if (typeof Element !== 'undefined') {
+  const nativeGetBoundingClientRect = Element.prototype.getBoundingClientRect;
+  const TEST_CHART_WIDTH = 800;
+  const TEST_CHART_HEIGHT = 300;
+
+  const inheritedPixels = (element: HTMLElement, property: 'width' | 'height'): number | undefined => {
+    let current: HTMLElement | null = element;
+    while (current) {
+      const value = current.style[property];
+      if (value.endsWith('px')) {
+        const pixels = Number.parseFloat(value);
+        if (Number.isFinite(pixels) && pixels > 0) return pixels;
+      }
+      current = current.parentElement;
+    }
+    return undefined;
   };
+
+  Element.prototype.getBoundingClientRect = function getBoundingClientRect(): DOMRect {
+    const nativeRect = nativeGetBoundingClientRect.call(this);
+    if (
+      nativeRect.width > 0 ||
+      nativeRect.height > 0 ||
+      !(this instanceof HTMLElement) ||
+      !this.classList.contains('recharts-responsive-container')
+    ) {
+      return nativeRect;
+    }
+
+    const width = inheritedPixels(this, 'width') ?? TEST_CHART_WIDTH;
+    const height = inheritedPixels(this, 'height') ?? TEST_CHART_HEIGHT;
+    return DOMRect.fromRect({ width, height });
+  };
+}
+
+// ResizeObserver normally delivers the same nonzero content box after observing.
+// Deliver that notification only for the Recharts wrapper this harness models;
+// unrelated resize-driven primitives keep the prior no-op behavior instead of
+// gaining synthetic state transitions that their focused tests did not request.
+if (typeof window !== 'undefined' && !(window as any).ResizeObserver) {
+  class TestResizeObserver implements ResizeObserver {
+    constructor(private readonly callback: ResizeObserverCallback) {}
+
+    observe(target: Element): void {
+      if (
+        !(target instanceof HTMLElement) ||
+        !target.classList.contains('recharts-responsive-container')
+      ) {
+        return;
+      }
+      const contentRect = target.getBoundingClientRect();
+      const observedSize = {
+        inlineSize: contentRect.width,
+        blockSize: contentRect.height,
+      } as ResizeObserverSize;
+      const entry = {
+        target,
+        contentRect,
+        borderBoxSize: [observedSize],
+        contentBoxSize: [observedSize],
+        devicePixelContentBoxSize: [observedSize],
+      } as unknown as ResizeObserverEntry;
+      this.callback([entry], this);
+    }
+
+    unobserve(): void {}
+
+    disconnect(): void {}
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (window as any).ResizeObserver = TestResizeObserver;
 }
 
 // jsdom does not implement the 2D canvas context; some EUI widgets call it to

@@ -14,7 +14,6 @@ import {
   AlertCircle,
   BookMarked,
   CheckCircle2,
-  Database,
   Download,
   Eye,
   FileText,
@@ -28,6 +27,7 @@ import {
   ShieldCheck,
   Tags,
   Trash2,
+  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -1106,6 +1106,7 @@ export default function Runbooks({ embedded = false }: RunbooksProps = {}) {
       return haystack.includes(needle);
     });
   }, [filter, query, runbooks]);
+  const hasActiveFilters = query.trim() !== '' || filter !== 'all';
 
   const dirty = React.useMemo(() => {
     if (workspaceMode === 'create') return Boolean(draftId || draftContent);
@@ -1470,12 +1471,29 @@ export default function Runbooks({ embedded = false }: RunbooksProps = {}) {
           </div>
         ) : (
           <EmptyState
-            icon={query || filter !== 'all' ? Search : Database}
-            title={query || filter !== 'all' ? 'No runbooks match' : 'No runbooks loaded'}
+            state={hasActiveFilters ? 'no-results' : 'first-use'}
+            title={hasActiveFilters ? 'No runbooks match these filters' : 'No runbooks are available'}
             description={
-              query || filter !== 'all'
-                ? 'Clear the search or choose a different ownership/index filter.'
-                : 'Add an operator Markdown runbook to make reference knowledge available for retrieval.'
+              hasActiveFilters
+                ? 'The library loaded, but the current search and ownership or indexing filter exclude every runbook. Clear the filters to return to the full library.'
+                : canManage
+                  ? 'This library has no bundled or operator-authored references yet. Use New runbook to create operator guidance, then index it to make the guidance retrievable.'
+                  : 'This library has no bundled or operator-authored references yet. Ask a runbook manager to add and index trusted guidance.'
+            }
+            action={
+              hasActiveFilters ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setQuery('');
+                    setFilter('all');
+                  }}
+                >
+                  <X className="size-4" aria-hidden="true" />
+                  Clear filters
+                </Button>
+              ) : undefined
             }
           />
         )}

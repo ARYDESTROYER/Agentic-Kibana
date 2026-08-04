@@ -1,5 +1,5 @@
 /**
- * Catalog — "Playbooks & Agents".
+ * Catalog — response playbooks and agent personas.
  *
  * A catalog of the two declarative knowledge surfaces the triage spine
  * uses:
@@ -24,6 +24,7 @@ import {
   AlertTriangle,
   Bug,
   CheckCircle2,
+  ChevronDown,
   Crosshair,
   Database,
   FileText,
@@ -67,12 +68,10 @@ import { formatTimestamp, humanizeToken } from '@/lib/format';
 import { PageHeader } from '@/soc/components/PageHeader';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
-import { Stagger } from '@/soc/components/Stagger';
 import { CodeBlock } from '@/soc/components/CodeBlock';
 import { useCan } from '@/soc/components/Can';
 import { LoadingState } from '@/design-system';
 
-import { Card, CardContent, CardHeader } from '@/ui/card';
 import { Badge } from '@/ui/badge';
 import { Button } from '@/ui/button';
 import { Input } from '@/ui/input';
@@ -199,47 +198,56 @@ const CatalogNote: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 
 /* ---------------------------------------------------------------- personas --- */
 
-const PersonaCard: React.FC<{ persona: AgentPersona }> = ({ persona }) => {
+const PersonaRow: React.FC<{ persona: AgentPersona }> = ({ persona }) => {
   const Icon = personaIcon(persona.id);
+  const toolCount = persona.focus_tools?.length ?? 0;
+  const keywordCount = persona.keywords?.length ?? 0;
+
   return (
-    <Card className="flex h-full flex-col transition-colors hover:border-primary/40">
-      <CardHeader className="gap-3 pb-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-surface text-primary">
-              <Icon className="h-5 w-5" aria-hidden />
+    <details className="group border-b border-border last:border-b-0">
+      <summary className="flex cursor-pointer list-none items-start gap-3 px-4 py-4 outline-none transition-colors hover:bg-muted/30 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+        <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-surface text-primary">
+          <Icon className="h-4 w-4" aria-hidden />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="font-semibold leading-tight text-foreground">
+              {persona.label || persona.id}
             </span>
-            <div className="min-w-0">
-              <div className="truncate font-semibold leading-tight text-foreground">
-                {persona.label || persona.id}
-              </div>
-            </div>
-          </div>
-          <Badge variant="info" className="font-mono">
-            <span className="truncate">{persona.id}</span>
-          </Badge>
+            <span className="font-mono text-xs text-muted-foreground">{persona.id}</span>
+          </span>
+          <span className="mt-1 block text-sm leading-relaxed text-muted-foreground">
+            {persona.specialization || 'General-purpose specialist.'}
+          </span>
+          <span className="mt-2 block text-xs text-muted-foreground">
+            {toolCount} focus tool{toolCount === 1 ? '' : 's'} · {keywordCount} routing term
+            {keywordCount === 1 ? '' : 's'}
+          </span>
+        </span>
+        <ChevronDown
+          className="mt-2 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180 motion-reduce:transition-none"
+          aria-hidden
+        />
+      </summary>
+      <div className="border-t border-border/70 px-4 pb-5 pt-1 sm:pl-16">
+        <div className="grid gap-x-8 sm:grid-cols-2">
+          <BadgeRow
+            label="Focus tools"
+            values={persona.focus_tools}
+            variant="info"
+            icon={Wrench}
+            empty="No tool focus — uses the default toolset."
+          />
+          <BadgeRow
+            label="Trigger keywords"
+            values={persona.keywords}
+            variant="outline"
+            icon={Tag}
+            empty="No keywords — selected as a fallback specialist."
+          />
         </div>
-      </CardHeader>
-      <CardContent className="flex-1 pt-0">
-        <p className="text-sm leading-relaxed text-muted-foreground">
-          {persona.specialization || 'General-purpose specialist.'}
-        </p>
-        <BadgeRow
-          label="Focus tools"
-          values={persona.focus_tools}
-          variant="info"
-          icon={Wrench}
-          empty="No tool focus — uses the default toolset."
-        />
-        <BadgeRow
-          label="Trigger keywords"
-          values={persona.keywords}
-          variant="outline"
-          icon={Tag}
-          empty="No keywords — selected as a fallback specialist."
-        />
-      </CardContent>
-    </Card>
+      </div>
+    </details>
   );
 };
 
@@ -272,6 +280,7 @@ const PersonasCatalog: React.FC = () => {
   if (!enabled) {
     return (
       <EmptyState
+        state="unavailable"
         icon={Users}
         title="Multi-agent personas are disabled"
         description="The investigator runs as a single generalist. Enable the multi-agent roster on the backend to specialise it per cluster."
@@ -281,6 +290,7 @@ const PersonasCatalog: React.FC = () => {
   if (!personas.length) {
     return (
       <EmptyState
+        state="no-data"
         icon={Users}
         title="No personas registered"
         description="No specialist personas are configured."
@@ -294,11 +304,17 @@ const PersonasCatalog: React.FC = () => {
         The router deterministically selects one specialist per cluster; it specialises the single
         investigator with the persona&apos;s focus and tool emphasis.
       </CatalogNote>
-      <Stagger className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {personas.map((p) => (
-          <PersonaCard key={p.id} persona={p} />
-        ))}
-      </Stagger>
+      <section aria-label="Agent persona catalog" className="border-y border-border">
+        <div className="flex items-center justify-between gap-3 px-4 py-3 text-xs text-muted-foreground">
+          <span>Specialist roster</span>
+          <span className="font-mono">{personas.length} available</span>
+        </div>
+        <div className="border-t border-border">
+          {personas.map((p) => (
+            <PersonaRow key={p.id} persona={p} />
+          ))}
+        </div>
+      </section>
     </>
   );
 };
@@ -591,7 +607,7 @@ const MatchCriteria: React.FC<{ match: PlaybookMatch }> = ({ match }) => {
   );
 };
 
-const PlaybookCard: React.FC<{
+const PlaybookRow: React.FC<{
   playbook: Playbook;
   automationCount: number;
   onOpen: (playbook: Playbook) => void;
@@ -602,115 +618,121 @@ const PlaybookCard: React.FC<{
 }) => {
   const ragQueries = playbook.rag_queries ?? [];
   return (
-    <Card className="flex h-full flex-col transition-colors hover:border-primary/40">
-      <CardHeader className="gap-3 pb-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-surface text-primary">
-              <FileText className="h-5 w-5" aria-hidden />
-            </span>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="truncate font-semibold leading-tight text-foreground">
-                  {playbook.name || playbook.id}
-                </span>
-                {playbook.version ? (
-                  <Badge variant="outline" className="font-mono">
-                    v{playbook.version}
-                  </Badge>
-                ) : null}
-              </div>
+    <article className="border-b border-border last:border-b-0">
+      <div className="grid gap-4 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-surface text-primary">
+            <FileText className="h-4 w-4" aria-hidden />
+          </span>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="font-semibold leading-tight text-foreground">
+                {playbook.name || playbook.id}
+              </h3>
+              {playbook.version ? (
+                <Badge variant="outline" className="font-mono">
+                  v{playbook.version}
+                </Badge>
+              ) : null}
             </div>
-          </div>
-          <div className="flex shrink-0 flex-col items-end gap-1.5">
-            <Badge variant={playbook.protected ? 'secondary' : 'info'} className="gap-1">
-              {playbook.protected ? (
-                <Package className="h-3 w-3" aria-hidden />
-              ) : (
-                <Database className="h-3 w-3" aria-hidden />
-              )}
-              {playbook.storage === 'state' ? 'State-backed' : 'Package'}
-            </Badge>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Badge variant="outline" tabIndex={0} className="cursor-default font-mono">
-                  rev {playbook.revision}
-                </Badge>
-              </TooltipTrigger>
-              <TooltipContent className="max-w-xs">
-                {playbook.storage === 'state'
-                  ? 'Optimistic revision for this durable operator document.'
-                  : 'Bundled package revision; this reference is read-only.'}
-              </TooltipContent>
-            </Tooltip>
-            {typeof playbook.priority === 'number' ? (
-              <Badge variant="warning">priority {playbook.priority}</Badge>
+            <p className="mt-1 font-mono text-xs text-muted-foreground">{playbook.id}</p>
+            {playbook.description ? (
+              <p className="mt-2 max-w-3xl text-sm leading-relaxed text-muted-foreground">
+                {playbook.description}
+              </p>
             ) : null}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Badge variant="success" tabIndex={0} className="cursor-default gap-1">
-                  <Play className="h-3 w-3" aria-hidden />
-                  Runnable
-                </Badge>
-              </TooltipTrigger>
-              <TooltipContent className="max-w-xs">
-                Can be run from a case (Run a playbook) to re-investigate with this procedure as
-                context.
-              </TooltipContent>
-            </Tooltip>
-            {automationCount > 0 ? (
+            <div className="mt-3 flex flex-wrap items-center gap-1.5">
+              <Badge variant={playbook.protected ? 'secondary' : 'info'} className="gap-1">
+                {playbook.protected ? (
+                  <Package className="h-3 w-3" aria-hidden />
+                ) : (
+                  <Database className="h-3 w-3" aria-hidden />
+                )}
+                {playbook.storage === 'state' ? 'State-backed' : 'Package'}
+              </Badge>
+              {typeof playbook.priority === 'number' ? (
+                <Badge variant="warning">priority {playbook.priority}</Badge>
+              ) : null}
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Badge variant="info" tabIndex={0} className="cursor-default gap-1">
-                    <Zap className="h-3 w-3" aria-hidden />
-                    {automationCount} automation rule{automationCount === 1 ? '' : 's'}
+                  <Badge variant="success" tabIndex={0} className="cursor-default gap-1">
+                    <Play className="h-3 w-3" aria-hidden />
+                    Runnable
                   </Badge>
                 </TooltipTrigger>
                 <TooltipContent className="max-w-xs">
-                  Threshold automation rules queue this playbook. Manage them under Settings →
-                  Threshold automation.
+                  Can be run from a case to re-investigate with this procedure as context.
                 </TooltipContent>
               </Tooltip>
-            ) : null}
+              {automationCount > 0 ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Badge variant="info" tabIndex={0} className="cursor-default gap-1">
+                      <Zap className="h-3 w-3" aria-hidden />
+                      {automationCount} automation rule{automationCount === 1 ? '' : 's'}
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    Threshold automation rules queue this playbook. Manage them under Settings →
+                    Threshold automation.
+                  </TooltipContent>
+                </Tooltip>
+              ) : null}
+            </div>
           </div>
         </div>
-      </CardHeader>
-      <CardContent className="flex-1 pt-0">
-        {playbook.description ? (
-          <p className="text-sm leading-relaxed text-muted-foreground">{playbook.description}</p>
-        ) : null}
-
-        <MatchCriteria match={playbook.match} />
-
-        <BadgeRow
-          label="Suggested tools"
-          values={playbook.suggested_tools}
-          variant="info"
-          icon={Wrench}
-        />
-
-        {ragQueries.length ? (
-          <div className="mt-4">
-            <div className="mb-2 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
-              RAG queries
-            </div>
-            <CodeBlock
-              value={ragQueries.join('\n')}
-              copyable={false}
-              wrap
-              maxHeightClassName="max-h-48"
+        <Button variant="outline" size="sm" onClick={() => onOpen(playbook)}>
+          <FileText className="h-4 w-4" aria-hidden />
+          Open source
+        </Button>
+      </div>
+      <details className="group border-t border-border/70">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-2.5 text-xs font-medium text-muted-foreground outline-none transition-colors hover:bg-muted/30 hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+          <span>Selection context</span>
+          <span className="flex items-center gap-2">
+            <span className="font-mono">rev {playbook.revision}</span>
+            <ChevronDown
+              className="h-4 w-4 transition-transform group-open:rotate-180 motion-reduce:transition-none"
+              aria-hidden
+            />
+          </span>
+        </summary>
+        <div className="grid gap-x-8 border-t border-border/70 px-4 pb-5 sm:grid-cols-2">
+          <div>
+            <MatchCriteria match={playbook.match} />
+            <BadgeRow
+              label="Suggested tools"
+              values={playbook.suggested_tools}
+              variant="info"
+              icon={Wrench}
+              empty="No tools are suggested for this procedure."
             />
           </div>
-        ) : null}
-
-        <div className="mt-5 border-t border-border pt-4">
-          <Button variant="outline" size="sm" onClick={() => onOpen(playbook)}>
-            <FileText className="h-4 w-4" aria-hidden />
-            Open source
-          </Button>
+          {ragQueries.length ? (
+            <div className="mt-4">
+              <div className="mb-2 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+                RAG queries
+              </div>
+              <CodeBlock
+                value={ragQueries.join('\n')}
+                copyable={false}
+                wrap
+                maxHeightClassName="max-h-48"
+              />
+            </div>
+          ) : (
+            <div className="mt-4">
+              <div className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+                RAG queries
+              </div>
+              <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+                No retrieval queries are injected by this procedure.
+              </p>
+            </div>
+          )}
         </div>
-      </CardContent>
-    </Card>
+      </details>
+    </article>
   );
 };
 
@@ -808,23 +830,40 @@ const PlaybookReadiness: React.FC<PlaybookReadinessProps> = ({
 
   return (
     <section aria-labelledby="playbook-readiness-heading" className="mb-6 border-y border-border">
-      <div className="grid xl:grid-cols-2">
-        <div className="p-5 xl:border-r xl:border-border">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h3 id="playbook-readiness-heading" className="font-semibold text-foreground">
-                Procedure coverage
-              </h3>
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                Stored cases tested against the current exact-match registry.
-              </p>
+      <details className="group">
+        <summary className="flex cursor-pointer list-none items-start gap-3 px-4 py-3 outline-none transition-colors hover:bg-muted/30 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+          <TestTube2 className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden />
+          <span className="min-w-0 flex-1">
+            <span id="playbook-readiness-heading" className="block font-semibold text-foreground">
+              Coverage &amp; selection test
+            </span>
+            <span className="mt-1 hidden text-xs leading-relaxed text-muted-foreground sm:block">
+              Inspect exact-match coverage, preview deterministic selection, and review worker health.
+            </span>
+          </span>
+          {coverage ? (
+            <Badge
+              variant={coverage.uncovered_cases > 0 ? 'warning' : 'success'}
+              className="shrink-0"
+            >
+              {coveragePercent == null ? 'No case history' : `${coveragePercent}% covered`}
+            </Badge>
+          ) : null}
+          <ChevronDown
+            className="mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180 motion-reduce:transition-none"
+            aria-hidden
+          />
+        </summary>
+        <div className="grid border-t border-border xl:grid-cols-2">
+          <div className="p-5 xl:border-r xl:border-border">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="font-semibold text-foreground">Procedure coverage</h3>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                  Stored cases tested against the current exact-match registry.
+                </p>
+              </div>
             </div>
-            {coverage ? (
-              <Badge variant={coverage.uncovered_cases > 0 ? 'warning' : 'success'}>
-                {coveragePercent == null ? 'No case history' : `${coveragePercent}% covered`}
-              </Badge>
-            ) : null}
-          </div>
 
           {coverageError ? (
             <p role="status" className="mt-4 text-sm text-muted-foreground">
@@ -900,7 +939,7 @@ const PlaybookReadiness: React.FC<PlaybookReadinessProps> = ({
           ) : (
             <p className="mt-4 text-sm text-muted-foreground">Loading coverage…</p>
           )}
-        </div>
+          </div>
 
         <div className="border-t border-border p-5 xl:border-t-0">
           <div className="flex items-start gap-3">
@@ -1025,42 +1064,43 @@ const PlaybookReadiness: React.FC<PlaybookReadinessProps> = ({
         </div>
       </div>
 
-      {showSchedulerHealth ? (
-        <div className="border-t border-border px-5 py-3">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-            <span className="inline-flex items-center gap-2 text-xs font-medium text-foreground">
-              <Activity className="h-4 w-4 text-primary" aria-hidden />
-              Continuous-improvement workers
-            </span>
-            {schedulerError ? (
-              <span className="text-xs text-muted-foreground">
-                Health unavailable · {schedulerError}
+        {showSchedulerHealth ? (
+          <div className="border-t border-border px-5 py-3">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <span className="inline-flex items-center gap-2 text-xs font-medium text-foreground">
+                <Activity className="h-4 w-4 text-primary" aria-hidden />
+                Continuous-improvement workers
               </span>
-            ) : workerRows.length ? (
-              workerRows.map(([name, worker]) => {
-                const state = workerState(worker);
-                return (
-                  <Tooltip key={name}>
-                    <TooltipTrigger asChild>
-                      <Badge variant={state.variant} tabIndex={0} className="cursor-default">
-                        {humanizeToken(name)} · {state.label}
-                      </Badge>
-                    </TooltipTrigger>
-                    <TooltipContent className="max-w-sm space-y-1">
-                      <p>Cadence: {humanizeToken(worker.cadence)}</p>
-                      <p>Last success: {formatTimestamp(worker.last_success_at)}</p>
-                      <p>Last processed: {worker.processed.toLocaleString()}</p>
-                      {worker.last_error ? <p>Last error: {worker.last_error}</p> : null}
-                    </TooltipContent>
-                  </Tooltip>
-                );
-              })
-            ) : (
-              <span className="text-xs text-muted-foreground">Loading worker health…</span>
-            )}
+              {schedulerError ? (
+                <span className="text-xs text-muted-foreground">
+                  Health unavailable · {schedulerError}
+                </span>
+              ) : workerRows.length ? (
+                workerRows.map(([name, worker]) => {
+                  const state = workerState(worker);
+                  return (
+                    <Tooltip key={name}>
+                      <TooltipTrigger asChild>
+                        <Badge variant={state.variant} tabIndex={0} className="cursor-default">
+                          {humanizeToken(name)} · {state.label}
+                        </Badge>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-sm space-y-1">
+                        <p>Cadence: {humanizeToken(worker.cadence)}</p>
+                        <p>Last success: {formatTimestamp(worker.last_success_at)}</p>
+                        <p>Last processed: {worker.processed.toLocaleString()}</p>
+                        {worker.last_error ? <p>Last error: {worker.last_error}</p> : null}
+                      </TooltipContent>
+                    </Tooltip>
+                  );
+                })
+              ) : (
+                <span className="text-xs text-muted-foreground">Loading worker health…</span>
+              )}
+            </div>
           </div>
-        </div>
-      ) : null}
+        ) : null}
+      </details>
     </section>
   );
 };
@@ -1285,18 +1325,25 @@ export const PlaybooksCatalog: React.FC = () => {
         showSchedulerHealth={canReadSettings}
       />
       {playbooks.length ? (
-        <Stagger className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          {playbooks.map((p) => (
-            <PlaybookCard
-              key={p.id}
-              playbook={p}
-              automationCount={automationByPlaybook[p.id] ?? 0}
-              onOpen={openPlaybook}
-            />
-          ))}
-        </Stagger>
+        <section aria-label="Response playbook catalog" className="border-y border-border">
+          <div className="flex items-center justify-between gap-3 px-4 py-3 text-xs text-muted-foreground">
+            <span>Response procedures</span>
+            <span className="font-mono">{playbooks.length} available</span>
+          </div>
+          <div className="border-t border-border">
+            {playbooks.map((p) => (
+              <PlaybookRow
+                key={p.id}
+                playbook={p}
+                automationCount={automationByPlaybook[p.id] ?? 0}
+                onOpen={openPlaybook}
+              />
+            ))}
+          </div>
+        </section>
       ) : (
         <EmptyState
+          state={enabled ? 'first-use' : 'unavailable'}
           icon={ScrollText}
           title={enabled ? 'No playbooks loaded' : 'Playbooks are disabled'}
           description={
@@ -1315,9 +1362,10 @@ export const PlaybooksCatalog: React.FC = () => {
 
 export interface CatalogProps {
   /**
-   * When hosted as a tab inside the Intelligence scaffold (Round-2 W4 consolidation),
-   * suppress the page's own PageHeader so the host owns the title (no duplicate
-   * headers).
+   * When hosted inside the Intelligence scaffold, render only the requested leaf.
+   * The primary navigation already exposes Playbooks and Personas separately, so
+   * repeating another tab switcher here would hide a destination behind a second
+   * interaction and duplicate the information architecture.
    */
   embedded?: boolean;
   /** Intelligence deep-links land directly on Playbooks; standalone catalog may
@@ -1326,16 +1374,22 @@ export interface CatalogProps {
 }
 
 export default function Catalog({ embedded = false, defaultTab = 'personas' }: CatalogProps = {}) {
+  if (embedded) {
+    return (
+      <div className="space-y-6">
+        {defaultTab === 'playbooks' ? <PlaybooksCatalog /> : <PersonasCatalog />}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
-      {embedded ? null : (
-        <PageHeader
-          icon={Library}
-          eyebrow="Knowledge"
-          title="Playbooks & Agents"
-          description="Specialist personas and operator-managed plain-text investigation procedures."
-        />
-      )}
+      <PageHeader
+        icon={Library}
+        eyebrow="Intelligence"
+        title="Playbooks & personas"
+        description="Operator-managed response procedures and the read-only specialist roster."
+      />
 
       <Tabs defaultValue={defaultTab}>
         <TabsList>

@@ -17,7 +17,7 @@ from __future__ import annotations
 import asyncio
 import collections
 import logging
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from ..audit.audit_log import AuditLogger
 from ..config import Preferences
@@ -48,6 +48,9 @@ from ..models import Cursor, RawEvent
 from ..stores.cursor_store import CursorStore
 from ..utils import now_utc, to_millis
 from ..agents.pipeline import InvestigationPipeline
+
+if TYPE_CHECKING:
+    from ..stores.base import CaseRepository
 
 logger = logging.getLogger("tlsoc.engine.poller")
 
@@ -180,7 +183,7 @@ class Poller:
     def __init__(
         self,
         es: BaseESClient,
-        cases: "CaseStore",
+        cases: "CaseRepository",
         cursor_store: CursorStore,
         audit: AuditLogger,
         pipeline: InvestigationPipeline,

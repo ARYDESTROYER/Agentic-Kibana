@@ -88,6 +88,7 @@ export type PageId =
   | 'catalog'
   | 'runbooks'
   | 'playbooks'
+  | 'personas'
   | 'approvals'
   | 'knowledge'
   | 'memory'
@@ -299,27 +300,35 @@ export const FEATURES: FeatureNode[] = [
     children: [
       {
         id: 'knowledge',
-        label: 'Knowledge',
+        label: 'Knowledge corpus',
         icon: BookOpen,
         perm: { resource: 'rag', action: 'read' },
       },
       {
         id: 'runbooks',
-        label: 'Runbooks',
+        label: 'Reference runbooks',
         icon: BookMarked,
         perm: { resource: 'runbooks', action: 'read' },
       },
       {
         id: 'memory',
-        label: 'Memory',
+        label: 'Operator memory',
         icon: Brain,
         perm: { resource: 'memory', action: 'read' },
       },
       {
         id: 'playbooks',
-        label: 'Playbooks',
+        label: 'Response playbooks',
         icon: Workflow,
         perm: { resource: 'playbooks', action: 'read' },
+      },
+      {
+        // GET /api/personas is an authenticated read-only catalog and has no
+        // resource-specific RBAC gate. Keep the Console aligned with that contract
+        // instead of hiding the reference roster behind playbooks:read.
+        id: 'personas',
+        label: 'Agent personas',
+        icon: UsersIcon,
       },
     ],
   },
@@ -430,7 +439,7 @@ export const FEATURES: FeatureNode[] = [
   { id: 'standup', label: 'Standup', icon: CalendarDays, group: 'overview', hidden: true },
   {
     id: 'knowledge',
-    label: 'Knowledge',
+    label: 'Knowledge corpus',
     icon: BookOpen,
     group: 'intelligence',
     hidden: true,
@@ -438,7 +447,7 @@ export const FEATURES: FeatureNode[] = [
   },
   {
     id: 'runbooks',
-    label: 'Runbooks',
+    label: 'Reference runbooks',
     icon: BookMarked,
     group: 'intelligence',
     hidden: true,
@@ -446,7 +455,7 @@ export const FEATURES: FeatureNode[] = [
   },
   {
     id: 'memory',
-    label: 'Memory',
+    label: 'Operator memory',
     icon: Brain,
     group: 'intelligence',
     hidden: true,
@@ -454,7 +463,7 @@ export const FEATURES: FeatureNode[] = [
   },
   {
     id: 'catalog',
-    label: 'Catalog',
+    label: 'Response playbooks',
     icon: Library,
     group: 'intelligence',
     hidden: true,
@@ -462,11 +471,18 @@ export const FEATURES: FeatureNode[] = [
   },
   {
     id: 'playbooks',
-    label: 'Playbooks',
+    label: 'Response playbooks',
     icon: Workflow,
     group: 'intelligence',
     hidden: true,
     perm: { resource: 'playbooks', action: 'read' },
+  },
+  {
+    id: 'personas',
+    label: 'Agent personas',
+    icon: UsersIcon,
+    group: 'intelligence',
+    hidden: true,
   },
   // Round-5 Sett-B: the six formerly-standalone admin/account homes
   // (account/sessions/security/roles/users/admin_sessions) collapsed INTO Settings
@@ -521,7 +537,8 @@ const Analytics = React.lazy(() => import('./pages/Analytics'));
 const Intelligence = React.lazy(() => import('./pages/Intelligence'));
 const Sources = React.lazy(() => import('./pages/Sources'));
 // NB: the host-tab leaves (Chat/Investigate → Workspace, Standup → Home, Cost →
-// Analytics, Knowledge/Memory/Catalog → Intelligence) no longer have their OWN lazy
+// Analytics, Knowledge/Runbooks/Memory/Playbooks/Personas → Intelligence) no longer
+// have their OWN lazy
 // const here — each routes THROUGH its host with a forced `tab` (see ROUTES below), so
 // their page module is loaded by the host's chunk, not a second standalone chunk.
 // NB: several page names collide with the lucide icon imports at the top of this file
@@ -574,7 +591,8 @@ export interface RouteDef {
  *
  * Host pages (`overview`/`chat`/`metrics`/`intelligence`) read their active sub-`tab`
  * from the route ctx; the two deep-link leaves that force a specific sub-view
- * (`dashboard` → Dashboard tab, `playbooks` → Catalog tab) pass a fixed `tab`. `cases`
+ * (`dashboard` → Dashboard tab, `playbooks`/`personas` → their Intelligence surface)
+ * pass a fixed `tab`. `cases`
  * seeds its status filter from `opts.status` and its severity facet from `opts.severity`
  * (#38 drill-through); `settings` receives `onRerunWizard`. No route passes `onNavigate`
  * — pages use `useNavigate()`/`useNavigateOptional()`.
@@ -598,13 +616,14 @@ export const ROUTES: Record<PageId, RouteDef> = {
    *   Overview     → dashboard | standup
    *   Workspace    → chat | investigate
    *   Analytics    → metrics | effectiveness | cost
-   *   Intelligence → knowledge | runbooks | memory | catalog (a.k.a. playbooks)
+   *   Intelligence → knowledge | runbooks | memory | playbooks | personas
    * Children that are GENUINELY standalone pages (they are NOT a tab of any host —
    * `dashboards` [custom-dashboard builder], `models`, `baseline`, `batchjobs`, `inbox`)
    * keep a standalone route below. */
   dashboard: { element: Home, render: () => <Home tab="dashboard" /> },
   dashboards: { element: Dashboards },
-  playbooks: { element: Intelligence, render: () => <Intelligence tab="catalog" /> },
+  playbooks: { element: Intelligence, render: () => <Intelligence tab="playbooks" /> },
+  personas: { element: Intelligence, render: () => <Intelligence tab="personas" /> },
 
   /* ---- Standalone admin / notification surfaces ---- */
   models: { element: Models },
@@ -647,7 +666,8 @@ export const ROUTES: Record<PageId, RouteDef> = {
   knowledge: { element: Intelligence, render: () => <Intelligence tab="knowledge" /> },
   runbooks: { element: Intelligence, render: () => <Intelligence tab="runbooks" /> },
   memory: { element: Intelligence, render: () => <Intelligence tab="memory" /> },
-  catalog: { element: Intelligence, render: () => <Intelligence tab="catalog" /> },
+  // `catalog` is a compatibility alias for the old combined destination.
+  catalog: { element: Intelligence, render: () => <Intelligence tab="playbooks" /> },
 
   /* ---- Settings-redirected ids: INTENTIONALLY-unreachable-but-registered ----
    * `account`/`sessions`/`admin_sessions`/`security`/`users`/`roles` always redirect to

@@ -25,7 +25,6 @@ import {
   Loader2,
   Play,
   Radar,
-  RefreshCw,
   Search,
   ShieldCheck,
   SlidersHorizontal,
@@ -68,6 +67,7 @@ import {
 
 import { AgentEffectivenessSummary } from './AgentEffectiveness';
 import { PageContainer } from '@/soc/components/PageContainer';
+import { RefreshButton } from '@/soc/components/RefreshButton';
 import { PageHeader } from '@/soc/components/PageHeader';
 import { LoadingState } from '@/design-system';
 import { LoadingBar } from '@/soc/components/LoadingBar';
@@ -116,11 +116,6 @@ const CADENCE_COPY: Record<TuningCadence, string> = {
 
 type RuleState = 'attention' | 'collecting' | 'within';
 type RuleFilter = 'all' | RuleState;
-
-interface RecommendationGroup {
-  ruleId: string;
-  recommendations: TuningRecommendation[];
-}
 
 const RULE_FILTERS: Array<{ value: RuleFilter; label: string }> = [
   { value: 'all', label: 'All' },
@@ -332,16 +327,6 @@ function explainNoRecommendation(
   };
 }
 
-function groupRecommendations(rows: TuningRecommendation[]): RecommendationGroup[] {
-  const grouped = new Map<string, TuningRecommendation[]>();
-  for (const row of rows) {
-    const current = grouped.get(row.rule_id) ?? [];
-    current.push(row);
-    grouped.set(row.rule_id, current);
-  }
-  return Array.from(grouped, ([ruleId, recommendations]) => ({ ruleId, recommendations }));
-}
-
 export interface TuningProps {
   onNavigate?: Navigate;
 }
@@ -530,17 +515,48 @@ export function TuningInner({ onNavigate }: TuningProps) {
   const recommendations = React.useMemo(() => data?.recommendations ?? [], [data]);
   const ruleNoise = React.useMemo(() => data?.rule_noise ?? [], [data]);
   const ledger = React.useMemo(() => data?.applied ?? [], [data]);
-  const recommendationGroups = React.useMemo(
-    () => groupRecommendations(recommendations),
-    [recommendations],
-  );
   const recommendationsByRule = React.useMemo(() => {
     const grouped = new Map<string, TuningRecommendation[]>();
-    for (const group of recommendationGroups) {
-      grouped.set(group.ruleId, group.recommendations);
+    for (const recommendation of recommendations) {
+      const current = grouped.get(recommendation.rule_id) ?? [];
+      current.push(recommendation);
+      grouped.set(recommendation.rule_id, current);
     }
     return grouped;
-  }, [recommendationGroups]);
+  }, [recommendations]);
+
+  // A bounded recommendation can survive longer than the aggregate feedback row that
+  // originally produced it. Keep it visible in the one review workspace instead of
+  // resurrecting a second recommendations queue. The recommendation carries the same
+  // independently-confirmed counters needed for an honest, synthetic evidence row.
+  const reviewRules = React.useMemo(() => {
+    const rows = new Map(ruleNoise.map((rule) => [rule.rule_id, rule]));
+    for (const [ruleId, ruleRecommendations] of recommendationsByRule) {
+      if (rows.has(ruleId) || !ruleRecommendations.length) continue;
+      const recommendation = ruleRecommendations[0];
+      const analystSamples =
+        recommendation.analyst_samples ?? recommendation.samples ?? 0;
+      const falsePositives =
+        recommendation.confirmed_false_positives ??
+        Math.max(0, Math.round(recommendation.fp_rate * analystSamples));
+      const truePositives =
+        recommendation.confirmed_true_positives ??
+        Math.max(0, analystSamples - falsePositives);
+      rows.set(ruleId, {
+        rule_id: ruleId,
+        observed: recommendation.observed_cases ?? analystSamples,
+        total: analystSamples,
+        analyst_samples: analystSamples,
+        unconfirmed: recommendation.unconfirmed_cases ?? 0,
+        fp: falsePositives,
+        tp: truePositives,
+        fp_rate: recommendation.fp_rate,
+        volume_ewma: null,
+        over_target: analystSamples >= (data?.min_samples ?? 0),
+      });
+    }
+    return Array.from(rows.values());
+  }, [data?.min_samples, recommendationsByRule, ruleNoise]);
 
   const lastTunedByRule = React.useMemo(() => {
     const latest = new Map<string, string>();
@@ -577,20 +593,34 @@ export function TuningInner({ onNavigate }: TuningProps) {
     [ledger],
   );
 
-  const collecting = ruleNoise.filter((rule) => ruleState(rule, data?.min_samples ?? 0) === 'collecting').length;
-  const withinTarget = ruleNoise.filter((rule) => ruleState(rule, data?.min_samples ?? 0) === 'within').length;
-  const needsAttention = ruleNoise.filter((rule) => ruleState(rule, data?.min_samples ?? 0) === 'attention').length;
-  const safeChangeCount = recommendations.filter((row) => row.auto_apply).length;
-  const humanReviewCount = recommendations.filter((row) => !row.auto_apply).length;
+  const collecting = reviewRules.filter((rule) => ruleState(rule, data?.min_samples ?? 0) === 'collecting').length;
+  const withinTarget = reviewRules.filter((rule) => ruleState(rule, data?.min_samples ?? 0) === 'within').length;
+  const needsAttention = reviewRules.filter((rule) => ruleState(rule, data?.min_samples ?? 0) === 'attention').length;
+  const approvalChangeCount = saved.auto_apply_confirmed
+    ? recommendations.filter((row) => !row.auto_apply).length
+    : recommendations.length;
 
   const filteredRules = React.useMemo(() => {
     const query = ruleQuery.trim().toLowerCase();
-    return ruleNoise.filter((rule) => {
-      const matchesQuery = !query || rule.rule_id.toLowerCase().includes(query);
-      const state = ruleState(rule, data?.min_samples ?? 0);
-      return matchesQuery && (ruleFilter === 'all' || state === ruleFilter);
-    });
-  }, [data?.min_samples, ruleFilter, ruleNoise, ruleQuery]);
+    return reviewRules
+      .filter((rule) => {
+        const matchesQuery = !query || rule.rule_id.toLowerCase().includes(query);
+        const state = ruleState(rule, data?.min_samples ?? 0);
+        return matchesQuery && (ruleFilter === 'all' || state === ruleFilter);
+      })
+      .sort((left, right) => {
+        const rank: Record<RuleState, number> = {
+          attention: 0,
+          collecting: 1,
+          within: 2,
+        };
+        const stateDelta =
+          rank[ruleState(left, data?.min_samples ?? 0)] -
+          rank[ruleState(right, data?.min_samples ?? 0)];
+        if (stateDelta !== 0) return stateDelta;
+        return left.rule_id.localeCompare(right.rule_id);
+      });
+  }, [data?.min_samples, reviewRules, ruleFilter, ruleQuery]);
 
   React.useEffect(() => {
     setPage(1);
@@ -614,7 +644,7 @@ export function TuningInner({ onNavigate }: TuningProps) {
   }, [pageRows, selectedRuleId]);
 
   const selectedRule = selectedRuleId
-    ? ruleNoise.find((rule) => rule.rule_id === selectedRuleId) ?? null
+    ? reviewRules.find((rule) => rule.rule_id === selectedRuleId) ?? null
     : null;
 
   const restoreInspectorTriggerFocus = React.useCallback(() => {
@@ -723,18 +753,11 @@ export function TuningInner({ onNavigate }: TuningProps) {
     accent: KpiAccent;
   }> = [
     {
-      label: 'Rules monitored',
-      value: ruleNoise.length,
-      sub: 'With closed-case feedback',
-      icon: Radar,
-      accent: 'primary',
-    },
-    {
-      label: 'Within target',
-      value: withinTarget,
-      sub: 'Enough evidence · below target',
-      icon: ShieldCheck,
-      accent: 'success',
+      label: 'Needs attention',
+      value: needsAttention,
+      sub: `${fmtNumber(recommendations.length)} bounded ${recommendations.length === 1 ? 'change' : 'changes'}`,
+      icon: AlertTriangle,
+      accent: 'high',
     },
     {
       label: 'Collecting evidence',
@@ -744,11 +767,11 @@ export function TuningInner({ onNavigate }: TuningProps) {
       accent: 'info',
     },
     {
-      label: 'Needs attention',
-      value: needsAttention,
-      sub: `${fmtNumber(safeChangeCount)} eligible · ${fmtNumber(humanReviewCount)} approval changes`,
-      icon: AlertTriangle,
-      accent: 'high',
+      label: 'Within target',
+      value: withinTarget,
+      sub: 'Enough evidence · no change',
+      icon: ShieldCheck,
+      accent: 'success',
     },
   ];
 
@@ -756,15 +779,9 @@ export function TuningInner({ onNavigate }: TuningProps) {
     <div className="space-y-5">
       <PageHeader
         title="Auto-tuning"
-        description="Reduce noisy detections with bounded, auditable rule changes and explicit human review."
+        description="Find noisy rules, understand the evidence, and review one bounded change at a time. Tuning never decides a case."
         actions={
-          <Button variant="outline" size="sm" onClick={refreshPage} disabled={loading}>
-            <RefreshCw
-              className={cn('mr-1.5 size-4', loading && 'animate-spin')}
-              aria-hidden
-            />
-            Refresh
-          </Button>
+          <RefreshButton onClick={refreshPage} refreshing={loading} />
         }
       />
 
@@ -805,23 +822,16 @@ export function TuningInner({ onNavigate }: TuningProps) {
 
           <section
             aria-label="Tuning operating status"
-            className="grid gap-4 border-y border-border/70 py-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center"
+            className="flex flex-col gap-3 border-y border-border/70 py-3 lg:flex-row lg:items-center lg:justify-between"
           >
-            <div className="flex min-w-0 items-start gap-3">
-              <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md border border-primary/20 bg-primary/10 text-primary">
-                <Info className="size-4" aria-hidden />
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-foreground">
-                  Decision authority stays protected
-                </p>
-                <p className="mt-0.5 max-w-4xl text-xs leading-relaxed text-muted-foreground">
-                  Tuning only changes what gets investigated — never how a case is decided.
-                  It learns only from analyst-confirmed outcomes; review-first is the default.
-                </p>
-              </div>
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="text-sm font-semibold text-foreground">Operating policy</span>
+              <HelpTip
+                label="What auto-tuning can change"
+                text="Auto-tuning changes only which future candidates enter investigation. It learns from analyst-confirmed outcomes and never sets a verdict, closes, or escalates a case."
+              />
             </div>
-            <dl className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs">
+            <dl className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
               <div className="flex items-center gap-2">
                 <dt className="text-muted-foreground">Policy</dt>
                 <dd>
@@ -834,7 +844,7 @@ export function TuningInner({ onNavigate }: TuningProps) {
                 <dt className="text-muted-foreground">Writes</dt>
                 <dd>
                   <Badge variant={data.auto_apply_confirmed ? 'warning' : 'info'}>
-                    {data.auto_apply_confirmed ? 'Confirmed auto-apply' : 'Approval required'}
+                    {data.auto_apply_confirmed ? 'Confirmed auto-apply' : 'Approval-first'}
                   </Badge>
                 </dd>
               </div>
@@ -844,7 +854,7 @@ export function TuningInner({ onNavigate }: TuningProps) {
                   {humanizeToken(data.cadence)}
                 </dd>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
                 <dt className="text-muted-foreground">Evidence</dt>
                 <dd className="font-medium tabular-nums text-foreground">
                   {fmtNumber(data.window_cases)} closed cases
@@ -886,16 +896,14 @@ export function TuningInner({ onNavigate }: TuningProps) {
               <section
                 aria-label="Health summary"
                 data-testid="tuning-health-strip"
-                className="grid grid-cols-1 border-y border-border/70 sm:grid-cols-2 xl:grid-cols-4"
+                className="grid grid-cols-1 border-y border-border/70 sm:grid-cols-3"
               >
                 {kpis.map((kpi, index) => (
                   <div
                     key={kpi.label}
                     className={cn(
                       index > 0 && 'border-t border-border/70',
-                      index === 1 && 'sm:border-l sm:border-t-0',
-                      index === 2 && 'xl:border-l xl:border-t-0',
-                      index === 3 && 'sm:border-l xl:border-t-0',
+                      index > 0 && 'sm:border-l sm:border-t-0',
                     )}
                   >
                     <KpiTile
@@ -911,51 +919,20 @@ export function TuningInner({ onNavigate }: TuningProps) {
                 ))}
               </section>
 
-              <div
-                className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted-foreground"
-                aria-label="Rule state guide"
-              >
-                <span>
-                  <strong className="font-medium text-foreground">Needs attention</strong>{' '}
-                  clears the evidence minimum and exceeds policy.
-                </span>
-                <span>
-                  <strong className="font-medium text-foreground">Collecting</strong>{' '}
-                  needs more analyst feedback.
-                </span>
-                <span>
-                  <strong className="font-medium text-foreground">Within target</strong>{' '}
-                  needs no change now.
-                </span>
-              </div>
-
-              <ReviewQueue
-                groups={recommendationGroups}
-                rules={ruleNoise}
-                busyKeys={busyKeys}
-                windowCases={data.window_cases}
-                minSamples={data.min_samples}
-                target={data.fp_rate_target}
-                shadowEvalEnabled={saved.shadow_eval}
-                autoApplyConfirmed={saved.auto_apply_confirmed}
-                onApplyRule={(ruleId) => void applyRule(ruleId)}
-                onOpenApprovals={() => navigate('approvals')}
-              />
-
-              <section className="space-y-3" aria-label="All monitored rules">
+              <section className="space-y-3" aria-label="Rule review">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                   <div>
                     <div className="flex items-center gap-2">
                       <h2 className="text-base font-semibold tracking-tight text-foreground">
-                        All monitored rules
+                        Rule review
                       </h2>
                       <HelpTip
-                        label="How rule state is determined"
-                        text="A rule needs attention only after it meets the evidence minimum and its conservative Wilson estimate exceeds policy. Observed rate is supporting context; under-sampled rules remain Collecting."
+                        label="How rules are ordered"
+                        text="Needs-attention rules appear first, followed by rules still collecting evidence and rules within target. The conservative Wilson estimate is the policy gate; observed rate is supporting context."
                       />
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Read the reason for each state, then open a rule for supporting measurements.
+                      {fmtNumber(reviewRules.length)} monitored {reviewRules.length === 1 ? 'rule' : 'rules'}. Select one to see why it is in this state, the next step, expected effect, and safety replay.
                     </p>
                   </div>
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -982,6 +959,27 @@ export function TuningInner({ onNavigate }: TuningProps) {
                     />
                   </div>
                 </div>
+
+                {approvalChangeCount ? (
+                  <section
+                    className="flex flex-col gap-2 border-l-2 border-warning/50 py-1 pl-4 sm:flex-row sm:items-center sm:justify-between"
+                    aria-label="Approval path summary"
+                  >
+                    <p className="text-xs leading-relaxed text-muted-foreground">
+                      {fmtNumber(approvalChangeCount)} proposed {approvalChangeCount === 1 ? 'change requires' : 'changes require'} human approval under the current policy. Select a rule to review it before sending.
+                    </p>
+                    <Can
+                      resource="proposals"
+                      action="read"
+                      fallback={<span className="text-xs text-muted-foreground">Requires Approvals access</span>}
+                    >
+                      <Button size="sm" variant="ghost" onClick={() => navigate('approvals')}>
+                        Open Approvals
+                        <ArrowRight className="ml-1 size-3.5" aria-hidden />
+                      </Button>
+                    </Can>
+                  </section>
+                ) : null}
 
                 <div
                   className={cn(
@@ -1183,211 +1181,35 @@ export function TuningInner({ onNavigate }: TuningProps) {
   );
 }
 
-function ReviewQueue({
-  groups,
-  rules,
-  busyKeys,
-  windowCases,
-  minSamples,
+function PolicySignalBar({
+  value,
   target,
-  shadowEvalEnabled,
-  autoApplyConfirmed,
-  onApplyRule,
-  onOpenApprovals,
+  state,
 }: {
-  groups: RecommendationGroup[];
-  rules: RuleNoise[];
-  busyKeys: Set<string>;
-  windowCases: number;
-  minSamples: number;
+  value: number;
   target: number;
-  shadowEvalEnabled: boolean;
-  autoApplyConfirmed: boolean;
-  onApplyRule: (ruleId: string) => void;
-  onOpenApprovals: () => void;
+  state: RuleState;
 }) {
-  const eligibleRules = groups.filter((group) =>
-    group.recommendations.some((row) => row.auto_apply),
-  ).length;
-  const humanChanges = groups.reduce((total, group) => {
-    if (!autoApplyConfirmed) return total + group.recommendations.length;
-    return total + group.recommendations.filter((row) => !row.auto_apply).length;
-  }, 0);
-
+  const boundedValue = Math.max(0, Math.min(1, value));
+  const boundedTarget = Math.max(0, Math.min(1, target));
   return (
-    <section className="space-y-3" aria-label="Review queue">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-base font-semibold tracking-tight text-foreground">
-              Review queue
-            </h2>
-            <HelpTip
-              label="How recommendations are processed"
-              text="Recommendations are processed per rule. One action rechecks every bounded change. Review-first policy queues it in Approvals; explicit confirmed auto-apply still reruns safety replay before a write."
-            />
-          </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Clear diagnoses and bounded next steps from {fmtNumber(windowCases)} closed cases.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Badge variant={eligibleRules ? 'info' : 'secondary'}>
-            {fmtNumber(eligibleRules)} shadow-safe
-          </Badge>
-          <Badge variant={humanChanges ? 'warning' : 'secondary'}>
-            {fmtNumber(humanChanges)} human review
-          </Badge>
-        </div>
-      </div>
-
-      {groups.length ? (
-        <div className="divide-y divide-border/70 border-y border-border/70">
-          {groups.map((group) => {
-            const safe = group.recommendations.filter((row) => row.auto_apply);
-            const rule = rules.find((candidate) => candidate.rule_id === group.ruleId);
-            const explanation = rule
-              ? explainRuleState(rule, minSamples, target)
-              : null;
-            const processing = busyKeys.has(`rule:${group.ruleId}`);
-            return (
-              <article
-                key={group.ruleId}
-                className="grid min-w-0 gap-5 py-5 lg:grid-cols-[minmax(11rem,0.62fr)_minmax(18rem,1.18fr)_minmax(20rem,1.32fr)_auto] lg:items-start"
-              >
-                <div className="min-w-0">
-                  <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    Rule
-                  </p>
-                  <p
-                    className="mt-1.5 truncate font-mono text-sm font-semibold text-foreground"
-                    title={group.ruleId}
-                  >
-                    {group.ruleId}
-                  </p>
-                  <div className="mt-2">
-                    <RuleStateBadge state="attention" />
-                  </div>
-                </div>
-
-                <div className="min-w-0">
-                  <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    Why it needs attention
-                  </p>
-                  <p className="mt-1.5 text-sm leading-relaxed text-foreground">
-                    {explanation?.lead ?? 'This rule cleared the evidence bar and exceeds policy.'}
-                  </p>
-                  {explanation?.support ? (
-                    <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-                      {explanation.support}
-                    </p>
-                  ) : null}
-                </div>
-
-                <div className="min-w-0">
-                  <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    Recommended action
-                  </p>
-                  <ul
-                    className="mt-1.5 divide-y divide-border/60"
-                    aria-label={`Changes for ${group.ruleId}`}
-                  >
-                    {group.recommendations.map((recommendation) => {
-                      const action = explainRecommendation(
-                        recommendation,
-                        shadowEvalEnabled,
-                      );
-                      return (
-                        <li
-                          key={`${recommendation.rule_id}:${recommendation.kind}`}
-                          className="py-2 first:pt-0 last:pb-0"
-                        >
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-sm font-semibold text-foreground">
-                              {action.title}
-                            </span>
-                            <Badge
-                              variant={recommendation.auto_apply && autoApplyConfirmed ? 'info' : 'warning'}
-                            >
-                              {recommendation.auto_apply && autoApplyConfirmed
-                                ? 'Eligible after replay'
-                                : 'Approval required'}
-                            </Badge>
-                          </div>
-                          <p className="mt-1 text-xs font-medium text-foreground">
-                            {action.instruction}
-                          </p>
-                          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                            {action.effect}
-                          </p>
-                          <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-                            {action.safety}
-                          </p>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
-
-                <div className="flex justify-start lg:justify-end lg:pt-5">
-                  {group.recommendations.length ? (
-                    <Can resource="automation" action="manage">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={processing}
-                        aria-label={`Process all changes for ${group.ruleId}`}
-                        onClick={() => onApplyRule(group.ruleId)}
-                      >
-                        {processing ? (
-                          <Loader2 className="mr-1 size-3.5 animate-spin" aria-hidden />
-                        ) : (
-                          <Play className="mr-1 size-3.5" aria-hidden />
-                        )}
-                        {safe.length && autoApplyConfirmed
-                          ? 'Apply after recheck'
-                          : 'Send to Approvals'}
-                      </Button>
-                    </Can>
-                  ) : null}
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="flex items-center gap-3 border-y border-border/70 py-4 text-sm text-muted-foreground">
-          <ShieldCheck className="size-4 text-success-text" aria-hidden />
-          No rule currently clears the evidence bar for a bounded change.
-        </div>
-      )}
-
-      {humanChanges ? (
-        <section
-          className="flex flex-col gap-2 border-l-2 border-warning/40 py-1 pl-4 sm:flex-row sm:items-center sm:justify-between"
-          aria-label="Pending human proposals"
-        >
-          <p className="text-xs text-muted-foreground">
-            {fmtNumber(humanChanges)} {humanChanges === 1 ? 'change is' : 'changes are'}
-            {' '}routed through human review. Process a rule to create its deduplicated approval item.
-          </p>
-          <Can
-            resource="proposals"
-            action="read"
-            fallback={(
-              <span className="text-xs text-muted-foreground">
-                Requires Approvals access
-              </span>
-            )}
-          >
-            <Button size="sm" variant="ghost" onClick={onOpenApprovals}>
-              Review in Approvals
-              <ArrowRight className="ml-1 size-3.5" aria-hidden />
-            </Button>
-          </Can>
-        </section>
-      ) : null}
-    </section>
+    <div className="relative h-1.5 overflow-hidden bg-muted" aria-hidden>
+      <span
+        className={cn(
+          'absolute inset-y-0 left-0',
+          state === 'attention'
+            ? 'bg-high'
+            : state === 'within'
+              ? 'bg-success'
+              : 'bg-info',
+        )}
+        style={{ width: `${boundedValue * 100}%` }}
+      />
+      <span
+        className="absolute inset-y-[-2px] w-px bg-foreground/70"
+        style={{ left: `${boundedTarget * 100}%` }}
+      />
+    </div>
   );
 }
 
@@ -1443,10 +1265,10 @@ function RuleList({
 
   return (
     <div className="min-w-0 border-y border-border/70" aria-label="Monitored rules">
-      <div className="hidden grid-cols-[minmax(12rem,0.68fr)_minmax(22rem,1.45fr)_minmax(17rem,0.9fr)_auto] gap-5 border-b border-border/70 px-3 py-2 text-2xs font-semibold uppercase tracking-wider text-muted-foreground md:grid">
-        <span>Rule</span>
-        <span>Why this state</span>
-        <span>Recommended action</span>
+      <div className="hidden grid-cols-[minmax(13rem,0.9fr)_minmax(15rem,1fr)_minmax(15rem,0.85fr)_auto] gap-5 border-b border-border/70 px-3 py-2 text-2xs font-semibold uppercase tracking-wider text-muted-foreground xl:grid">
+        <span>Rule and state</span>
+        <span>Policy evidence</span>
+        <span>Next step</span>
         <span className="sr-only">Open detail</span>
       </div>
       <div role="list" className="divide-y divide-border/70">
@@ -1457,6 +1279,10 @@ function RuleList({
           const action = recs.length
             ? explainRecommendation(recs[0], shadowEvalEnabled)
             : explainNoRecommendation(state, rule, minSamples);
+          const observed = observedFpRate(rule.total, rule.fp);
+          const actionLabel = recs.length > 1
+            ? `${fmtNumber(recs.length)} bounded changes`
+            : action.title;
           const selected = selectedRuleId === rule.rule_id;
           const descriptionId = `${ruleTriggerId(rule.rule_id)}-description`;
           return (
@@ -1470,21 +1296,24 @@ function RuleList({
                 aria-controls={selected ? 'tuning-rule-detail' : undefined}
                 onClick={() => onSelect(rule.rule_id)}
                 className={cn(
-                  'grid w-full min-w-0 gap-4 border-l-2 border-l-transparent px-3 py-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
-                  'hover:bg-accent/20 md:grid-cols-[minmax(12rem,0.68fr)_minmax(22rem,1.45fr)_minmax(17rem,0.9fr)_auto] md:items-start md:gap-5',
+                  'grid w-full min-w-0 gap-3 border-l-2 border-l-transparent px-3 py-3.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+                  'hover:bg-accent/20 xl:grid-cols-[minmax(13rem,0.9fr)_minmax(15rem,1fr)_minmax(15rem,0.85fr)_auto] xl:items-center xl:gap-5',
                   selected && 'border-l-primary/70 bg-accent/25',
                 )}
               >
                 <span id={descriptionId} className="sr-only">
-                  {explanation.lead} {action.title}. {action.instruction}
+                  {explanation.lead} {explanation.support} {action.title}. {action.instruction}
                 </span>
 
                 <span className="min-w-0">
-                  <span
-                    className="block truncate font-mono text-xs font-semibold text-foreground"
-                    title={rule.rule_id}
-                  >
-                    {rule.rule_id}
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span
+                      className="block min-w-0 flex-1 truncate font-mono text-xs font-semibold text-foreground"
+                      title={rule.rule_id}
+                    >
+                      {rule.rule_id}
+                    </span>
+                    <RuleStateBadge state={state} />
                   </span>
                   <span className="mt-1 block text-xs tabular-nums text-muted-foreground">
                     {fmtNumber(rule.total)} analyst-confirmed cases
@@ -1492,31 +1321,49 @@ function RuleList({
                       ? ` · tuned ${humanizeAge(lastTunedByRule.get(rule.rule_id))}`
                       : ''}
                   </span>
-                  <span className="mt-2 inline-flex">
-                    <RuleStateBadge state={state} />
+                </span>
+
+                <span className="min-w-0">
+                  <span className="mb-1 block text-2xs font-semibold uppercase tracking-wider text-muted-foreground xl:hidden">
+                    Policy evidence
+                  </span>
+                  <span className="flex items-baseline justify-between gap-3 text-xs">
+                    <span className="font-semibold tabular-nums text-foreground">
+                      {state === 'collecting'
+                        ? `${fmtNumber(rule.total)} / ${fmtNumber(minSamples)} confirmed`
+                        : `${fmtPercent(rule.fp_rate)} conservative`}
+                    </span>
+                    <span className="shrink-0 tabular-nums text-muted-foreground">
+                      target {fmtPercent(target)}
+                    </span>
+                  </span>
+                  <span className="mt-2 block">
+                    <PolicySignalBar value={rule.fp_rate} target={target} state={state} />
+                  </span>
+                  <span className="mt-1.5 block text-xs tabular-nums text-muted-foreground">
+                    {fmtPercent(observed)} observed false-positive ratio
                   </span>
                 </span>
 
                 <span className="min-w-0">
-                  <span className="mb-1 block text-2xs font-semibold uppercase tracking-wider text-muted-foreground md:hidden">
-                    Why this state
+                  <span className="mb-1 block text-2xs font-semibold uppercase tracking-wider text-muted-foreground xl:hidden">
+                    Next step
                   </span>
-                  <span className="block text-sm leading-relaxed text-foreground">
-                    {explanation.lead}
+                  <span className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold text-foreground">
+                      {actionLabel}
+                    </span>
+                    {recs.length ? (
+                      <Badge
+                        variant={recs.every((rec) => rec.auto_apply) ? 'info' : 'warning'}
+                      >
+                        {recs.every((rec) => rec.auto_apply)
+                          ? 'Safety check eligible'
+                          : 'Approval required'}
+                      </Badge>
+                    ) : null}
                   </span>
-                  <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
-                    {explanation.support}
-                  </span>
-                </span>
-
-                <span className="min-w-0">
-                  <span className="mb-1 block text-2xs font-semibold uppercase tracking-wider text-muted-foreground md:hidden">
-                    Recommended action
-                  </span>
-                  <span className="block text-sm font-semibold text-foreground">
-                    {action.title}
-                  </span>
-                  <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
+                  <span className="mt-1 block line-clamp-2 text-xs leading-relaxed text-muted-foreground">
                     {action.instruction}
                   </span>
                 </span>
@@ -1624,13 +1471,19 @@ function RuleDetailPanel({
     : [{ recommendation: null, copy: explainNoRecommendation(state, rule, minSamples) }];
   const hasEligibleChange = recommendations.some((recommendation) => recommendation.auto_apply);
   const hasRestrictedChange = recommendations.some((recommendation) => !recommendation.auto_apply);
-  const stats = [
+  const headlineStats = [
     { label: 'Analyst outcomes', value: fmtNumber(rule.total) },
+    { label: 'Conservative estimate', value: fmtPercent(rule.fp_rate) },
+    { label: 'Policy target', value: fmtPercent(target) },
+  ];
+  const technicalStats = [
     { label: 'Observed cases', value: fmtNumber(rule.observed ?? rule.total) },
     { label: 'Observed FP ratio', value: fmtPercent(observedFpRate(rule.total, rule.fp)) },
-    { label: 'Conservative estimate', value: fmtPercent(rule.fp_rate) },
     { label: 'Unconfirmed', value: fmtNumber(rule.unconfirmed ?? 0) },
-    { label: 'Policy target', value: fmtPercent(target) },
+    {
+      label: 'Recent average volume',
+      value: rule.volume_ewma == null ? DASH : rule.volume_ewma.toFixed(1),
+    },
   ];
 
   return (
@@ -1646,7 +1499,7 @@ function RuleDetailPanel({
       <header className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Rule evidence
+            Rule review
           </p>
           <p className="mt-1 break-all font-mono text-sm font-semibold text-foreground">
             {rule.rule_id}
@@ -1703,7 +1556,7 @@ function RuleDetailPanel({
                       variant={recommendation.auto_apply && autoApplyConfirmed ? 'info' : 'warning'}
                     >
                       {recommendation.auto_apply && autoApplyConfirmed
-                        ? 'Eligible after replay'
+                        ? 'Can apply after safety check'
                         : 'Approval required'}
                     </Badge>
                   ) : null}
@@ -1755,7 +1608,11 @@ function RuleDetailPanel({
           </Can>
         ) : null}
         {hasRestrictedChange ? (
-          <Can resource="proposals" action="read">
+          <Can
+            resource="proposals"
+            action="read"
+            fallback={<span className="text-xs text-muted-foreground">Requires Approvals access</span>}
+          >
             <Button size="sm" variant="ghost" onClick={onOpenApprovals}>
               Open Approvals
               <ArrowRight className="ml-1 size-3.5" aria-hidden />
@@ -1778,14 +1635,15 @@ function RuleDetailPanel({
             context, not the gate by itself.
           </p>
         </div>
-        <dl className="grid grid-cols-2 border-y border-border/70">
-          {stats.map((stat, index) => (
+        <PolicySignalBar value={rule.fp_rate} target={target} state={state} />
+        <dl className="grid grid-cols-1 border-y border-border/70 sm:grid-cols-3">
+          {headlineStats.map((stat, index) => (
             <div
               key={stat.label}
               className={cn(
-                'px-3 py-3',
-                index % 2 === 1 && 'border-l border-border/70',
-                index >= 2 && 'border-t border-border/70',
+                'py-2.5 sm:px-3',
+                index > 0 && 'border-t border-border/70 sm:border-l sm:border-t-0',
+                index === 0 && 'sm:pl-0',
               )}
             >
               <dt className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -1801,13 +1659,17 @@ function RuleDetailPanel({
           <summary className="cursor-pointer font-medium text-foreground">
             Technical context
           </summary>
+          <dl className="mt-2 divide-y divide-border/60 border-y border-border/60">
+            {technicalStats.map((stat) => (
+              <div key={stat.label} className="flex items-center justify-between gap-4 py-2">
+                <dt>{stat.label}</dt>
+                <dd className="font-medium tabular-nums text-foreground">{stat.value}</dd>
+              </div>
+            ))}
+          </dl>
           <p className="mt-2 leading-relaxed">
-            Recent average closed-case volume:{' '}
-            <span className="font-medium tabular-nums text-foreground">
-              {rule.volume_ewma == null ? DASH : rule.volume_ewma.toFixed(1)}
-            </span>
-            . This advisory EWMA uses dated analyst-confirmed closed-case activity and never
-            controls a recommendation.
+            Recent average volume is an advisory EWMA over dated analyst-confirmed activity;
+            it never controls a recommendation.
           </p>
         </details>
       </section>
@@ -1878,11 +1740,20 @@ function TelemetryOpportunities({
         </div>
       ) : data.status === 'not_available' || !data.recommendations.length ? (
         <div className="flex items-start gap-3 border-y border-border/70 py-4">
-          <ShieldCheck className="mt-0.5 size-4 shrink-0 text-success-text" aria-hidden />
+          {data.capture_status === 'not_available' ? (
+            <Info className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
+          ) : (
+            <ShieldCheck className="mt-0.5 size-4 shrink-0 text-success-text" aria-hidden />
+          )}
           <div>
-            <p className="text-sm font-medium text-foreground">No evidence-backed gap found</p>
+            <p className="text-sm font-medium text-foreground">
+              {data.capture_status === 'not_available'
+                ? 'Telemetry evidence capture not available'
+                : 'No evidence-backed gap found'}
+            </p>
             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              {data.not_available_reason ||
+              {data.capture_not_available_reason ||
+                data.not_available_reason ||
                 `No qualifying field gap was found across ${fmtNumber(data.scanned_cases)} recent cases.`}
             </p>
           </div>

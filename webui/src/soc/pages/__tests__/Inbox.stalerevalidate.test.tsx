@@ -73,7 +73,8 @@ describe('Inbox stale-while-revalidate (findings #35/#36)', () => {
       () => new Promise((res) => { resolveSecond = res; }),
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /^refresh$/i }));
+    const refreshButton = screen.getByRole('button', { name: /^refresh$/i });
+    fireEvent.click(refreshButton);
 
     // The existing item is STILL on screen (stale-while-revalidate), not torn down to
     // skeletons — the row survives an in-flight reload.
@@ -81,6 +82,7 @@ describe('Inbox stale-while-revalidate (findings #35/#36)', () => {
     expect(screen.getByText('First note')).toBeInTheDocument();
 
     resolveSecond({ items: [ITEM('n1', 'First note')], total: 1 });
+    await waitFor(() => expect(refreshButton).toBeEnabled());
   });
 
   it('ignores a superseded (out-of-order) response via the sequence guard', async () => {

@@ -2,8 +2,8 @@
 
 The service deliberately is *not* an updater.  It accepts a validated public
 ``github.com/{owner}/{repository}`` preference, derives fixed ``api.github.com``
-requests itself, and returns the VERSION plus immutable branch-head SHA for the
-configured Stable and Testing branches.  It never clones, pulls, downloads an
+requests itself, and returns the VERSION plus branch-head SHA for both channels
+and the dereferenced annotated-tag commit for Stable. It never clones, pulls, downloads an
 artifact, writes Git state, executes code, deploys, migrates, restarts, promotes or
 activates a release.
 
@@ -41,8 +41,8 @@ _REQUEST_TIMEOUT_SECONDS = 4.0
 _OVERALL_REQUEST_DEADLINE_SECONDS = 5.0
 _MAX_RESPONSE_BYTES = 256 * 1024
 _MAX_VERSION_BYTES = 128
-# One public check costs four unauthenticated GitHub API reads (VERSION + branch
-# identity for two channels). A shared five-minute floor keeps manual clicks useful
+# One public check costs six unauthenticated GitHub API reads (VERSION + branch
+# identity for two channels, plus Stable annotated-tag ref + object). A shared five-minute floor keeps manual clicks useful
 # while staying below GitHub's anonymous hourly allowance for a normal single worker.
 _MIN_MANUAL_REFRESH_SECONDS = 5 * 60
 _MAX_CACHE_ENTRIES = 16
@@ -62,6 +62,8 @@ class ReleaseChannelStatus(BaseModel):
     version: str | None = None
     commit_sha: str | None = None
     commit_url: str | None = None
+    release_commit_sha: str | None = None
+    release_commit_url: str | None = None
     source_url: str | None = None
     checked_at: str | None = None
     stale: bool = False
@@ -389,14 +391,63 @@ class ReleaseDiscoveryService:
                 raise _ReleaseDiscoveryFailure(
                     "invalid_version", "The upstream VERSION file is not a supported version."
                 )
+            version = matched.group("version")
+            release_commit_sha: str | None = None
+            release_commit_url: str | None = None
+            if channel == "stable":
+                tag = f"v{version}"
+                tag_ref_url = (
+                    f"{_API_ORIGIN}/repos/{owner_path}/{repository_path}/git/ref/tags/"
+                    f"{quote(tag, safe='')}"
+                )
+                tag_ref = await self._fetch_json(tag_ref_url)
+                tag_ref_object = tag_ref.get("object")
+                if (
+                    not isinstance(tag_ref_object, dict)
+                    or tag_ref_object.get("type") != "tag"
+                    or not re.fullmatch(
+                        r"[0-9a-fA-F]{40}", str(tag_ref_object.get("sha") or "")
+                    )
+                ):
+                    raise _ReleaseDiscoveryFailure(
+                        "invalid_release_tag",
+                        "Stable VERSION does not resolve through an annotated release tag.",
+                    )
+                tag_object_sha = str(tag_ref_object["sha"]).lower()
+                tag_object_url = (
+                    f"{_API_ORIGIN}/repos/{owner_path}/{repository_path}/git/tags/"
+                    f"{quote(tag_object_sha, safe='')}"
+                )
+                tag_object = await self._fetch_json(tag_object_url)
+                tagged_object = tag_object.get("object")
+                tagged_sha = (
+                    str(tagged_object.get("sha") or "")
+                    if isinstance(tagged_object, dict)
+                    else ""
+                )
+                if (
+                    not isinstance(tagged_object, dict)
+                    or tagged_object.get("type") != "commit"
+                    or not re.fullmatch(r"[0-9a-fA-F]{40}", tagged_sha)
+                ):
+                    raise _ReleaseDiscoveryFailure(
+                        "invalid_release_tag",
+                        "The Stable annotated tag does not resolve to an immutable commit.",
+                    )
+                release_commit_sha = tagged_sha.lower()
+                release_commit_url = (
+                    f"https://github.com/{owner}/{repository}/commit/{release_commit_sha}"
+                )
             source_ref = quote(branch, safe="/")
             return ReleaseChannelStatus(
                 channel=channel,
                 branch=branch,
                 state="available",
-                version=matched.group("version"),
+                version=version,
                 commit_sha=sha.lower(),
                 commit_url=f"https://github.com/{owner}/{repository}/commit/{sha.lower()}",
+                release_commit_sha=release_commit_sha,
+                release_commit_url=release_commit_url,
                 source_url=f"https://github.com/{owner}/{repository}/tree/{source_ref}",
                 checked_at=checked_at,
             )

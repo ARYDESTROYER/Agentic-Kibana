@@ -8,7 +8,7 @@ risk-scores them deterministically, uses role-separated AI investigation, and ap
 operator policy through a deterministic case manager. The model can recommend a
 verdict; it cannot decide to close or escalate a case.
 
-> **Version 0.1.2 beta patch · Testing integration → `main` Stable**
+> **Version 0.1.3 beta patch · Testing integration → `main` Stable**
 > Start with the [Quickstart](docs/getting-started/quickstart.md), or open the
 > version-matched Help Center from inside the Console.
 
@@ -35,6 +35,9 @@ verdict; it cannot decide to close or escalate a case.
 - **A complete standalone Console:** responsive light and dark themes, first-run setup,
   live dashboards, Cases, Case Manager, Analytics, Intelligence, Settings, and bundled
   documentation.
+- **Supervised Stable updates:** after one bootstrap, the reference PostgreSQL Compose
+  deployment can apply a compatible signed, digest-pinned release from the Console with
+  verified backup, durable progress, readiness checks, and automatic in-flight rollback.
 
 ## Safety model
 
@@ -113,16 +116,17 @@ real data. Continue with the [Demo guide](docs/getting-started/demo.md) and
 
 ## Run the standalone evaluation stack
 
-The recommended Compose stack runs PostgreSQL with pgvector, Redis, the backend, and
-the nginx-served Console. Connected security systems remain separate.
+The recommended Compose stack runs PostgreSQL with pgvector, Redis, the backend, the
+nginx-served Console, and the private update supervisor. Connected security systems
+remain separate.
 
 ```bash
 cp .env.example .env
 # Configure unique database, authentication, and provider secrets in .env.
 
-docker compose -f deploy/docker-compose.agnostic.yml config --quiet
-docker compose -f deploy/docker-compose.agnostic.yml up --detach --build
-docker compose -f deploy/docker-compose.agnostic.yml ps
+./scripts/agentic-soc-compose.sh config --quiet
+./scripts/agentic-soc-compose.sh up --detach --build
+./scripts/agentic-soc-compose.sh ps
 ```
 
 Open <http://localhost:8080>, complete first-run setup, and verify the service:
@@ -136,8 +140,13 @@ curl --fail http://localhost:8080/api/health/build-info
 Stop the stack without deleting its named state volume:
 
 ```bash
-docker compose -f deploy/docker-compose.agnostic.yml down
+./scripts/agentic-soc-compose.sh down
 ```
+
+The wrapper is the canonical lifecycle entry point. After the one-time updater
+bootstrap it automatically preserves the supervisor-selected, digest-pinned release
+override; raw Compose commands can bypass that override and are unsupported. See the
+[upgrade contract](docs/operations/upgrades.md).
 
 Use the [installation guide](docs/getting-started/install.md) for prerequisites and
 the [deployment guide](DEPLOY.md) for TLS, secrets, backups, authentication, source
@@ -200,7 +209,7 @@ Console:
 ```bash
 cd webui
 npm ci
-npm test
+npm run test:strict
 npm run check:types
 npm run lint
 npm run gates

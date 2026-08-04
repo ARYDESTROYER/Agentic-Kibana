@@ -172,6 +172,10 @@ export interface TuningRecommendationsResponse {
   rule_noise: RuleNoise[];
   recommendations: TuningRecommendation[];
   applied: TuningLedgerRow[];
+  /** Whether the append-only tuning ledger could be read for this snapshot. */
+  history_status?: 'available';
+  /** Number of ledger rows included in this response. */
+  history_count?: number;
 }
 
 export interface SchedulerWorkerHealth {
@@ -206,6 +210,10 @@ export interface TelemetryRecommendationsResponse {
   scanned_cases: number;
   truncated: boolean;
   evidence_schema: string;
+  /** Whether the running build can currently persist controlled query-gap evidence. */
+  capture_status?: 'available' | 'not_available';
+  /** Precise reason capture is unavailable; never replaced by connector inference. */
+  capture_not_available_reason?: string;
   not_available_reason: string;
 }
 

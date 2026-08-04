@@ -20,8 +20,10 @@ import type { LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { fmtNumber, humanizeAge, humanizeToken } from '@/lib/format';
 import type { NoiseLineage, NoiseLineageRow } from '@/lib/types';
+import { LoadingState } from '@/design-system/loading';
 import { Badge } from '@/ui/badge';
-import { Skeleton } from '@/ui/skeleton';
+import { EmptyState } from '@/soc/components/EmptyState';
+import { LoadError } from '@/soc/components/LoadError';
 
 export interface NoiseLineageProps {
   data: NoiseLineage | null;
@@ -260,18 +262,6 @@ function LineageRow({ row }: { row: NoiseLineageRow }) {
   );
 }
 
-function LoadingRows() {
-  return (
-    <div className="space-y-3" role="status" aria-label="Loading case lineages" aria-busy="true">
-      {[0, 1, 2].map((index) => (
-        <div key={index} className="grid min-w-[1180px] grid-cols-4 gap-10 border-t border-border py-4 first:border-t-0">
-          {[0, 1, 2, 3].map((node) => <Skeleton key={node} className="h-32 rounded-[4px]" />)}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 export function NoiseLineageView({ data, loading, error, onRetry }: NoiseLineageProps) {
   const rows = data?.rows || [];
   const meta = data?.meta;
@@ -293,27 +283,29 @@ export function NoiseLineageView({ data, loading, error, onRetry }: NoiseLineage
         ) : null}
       </div>
 
-      {loading ? <LoadingRows /> : null}
+      {loading ? (
+        <LoadingState
+          label="Loading case lineages"
+          description="Tracing persisted alert inputs through clustering and case outcomes."
+          layout="panel"
+          shape="rows"
+          shapeRows={3}
+        />
+      ) : null}
       {!loading && error ? (
-        <div className="rounded-[4px] border border-critical/30 bg-critical/5 p-4" role="alert">
-          <p className="text-sm font-semibold text-foreground">Could not load case lineages</p>
-          <p className="mt-1 text-xs text-muted-foreground">{error}</p>
-          <button
-            type="button"
-            onClick={onRetry}
-            className="mt-3 inline-flex min-h-8 items-center rounded-[3px] border border-border px-3 text-xs font-medium text-foreground hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            Retry
-          </button>
-        </div>
+        <LoadError
+          title="Could not load case lineages"
+          error={error}
+          onRetry={onRetry}
+        />
       ) : null}
       {!loading && !error && data && rows.length === 0 ? (
-        <div className="rounded-[4px] border border-border bg-surface-sunken px-4 py-8 text-center">
-          <p className="text-sm font-semibold text-foreground">No case-forming lineages in this window</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Ingested alerts remain represented by the aggregate counters above.
-          </p>
-        </div>
+        <EmptyState
+          compact
+          icon={GitMerge}
+          title="No case-forming lineages in this window"
+          description="Ingested alerts remain represented by the aggregate counters above."
+        />
       ) : null}
       {!loading && !error && rows.length ? (
         <ol data-testid="noise-lineage-list">

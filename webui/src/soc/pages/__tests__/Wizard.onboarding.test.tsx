@@ -8,7 +8,7 @@
  *     the deterministic-safe engines (tuning + campaigns) before completing setup.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const {
@@ -109,6 +109,25 @@ describe('Wizard onboarding fixes', () => {
     });
     return { promise, resolve };
   }
+
+  it('uses one shared centered loading state while setup boots', async () => {
+    setupStatusMock.mockReturnValue(new Promise(() => {}));
+    renderWizard();
+
+    // Let the surrounding Auth and Demo providers settle while the setup request
+    // deliberately remains pending.
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const loading = screen.getByRole('status', { name: 'Loading setup' });
+    expect(loading).toHaveAttribute('data-loading-layout', 'panel');
+    expect(loading).toHaveClass('items-center', 'justify-center');
+    expect(screen.getAllByTestId('console-loading-glyph')).toHaveLength(1);
+    expect(screen.queryByTestId('loading-bar-indicator')).toBeNull();
+    expect(screen.getByText(/Preparing workspace choices and deployment readiness/i)).toBeVisible();
+  });
 
   it('F5: Continue on the Keys step auto-saves a typed provider key', async () => {
     const user = userEvent.setup();

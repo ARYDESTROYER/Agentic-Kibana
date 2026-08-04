@@ -218,7 +218,7 @@ export function ReleaseUpdatesSection({
   return (
     <SectionShell
       title="Updates & release channels"
-      sub="Observe the public Stable and Testing source branches without giving the Console deployment authority."
+      sub="Track Stable and Testing source revisions; supported Compose deployments can install a verified Stable release through the supervised top-bar update flow."
       toc={RELEASE_TOC}
     >
       <SettingsGrid>
@@ -231,7 +231,7 @@ export function ReleaseUpdatesSection({
         >
           <SwitchPref
             label="Check for source updates"
-            help="Enabled by default. Checks are cached and never clone, pull, execute, deploy, restart, or migrate anything."
+            help="Enabled by default. Branch checks are cached observation only; they never clone, execute, deploy, restart, or migrate anything."
             checked={draft.enabled}
             disabled={readOnly}
             onChange={(enabled) => change({ enabled })}
@@ -247,14 +247,14 @@ export function ReleaseUpdatesSection({
             />
             <TextPref
               label="Stable branch"
-              help="The supported release branch, normally main."
+              help="The supported release branch, normally main. Only an immutable, signed Stable release derived from this path can become installable."
               value={draft.stable_branch}
               disabled={readOnly || !draft.enabled}
               onChange={(stable_branch) => change({ stable_branch })}
             />
             <TextPref
               label="Testing branch"
-              help="The integration and acceptance branch."
+              help="The integration and acceptance branch. Testing observations are never installable from the Console."
               value={draft.testing_branch}
               disabled={readOnly || !draft.enabled}
               onChange={(testing_branch) => change({ testing_branch })}
@@ -276,7 +276,7 @@ export function ReleaseUpdatesSection({
           anchor="release-observed"
           title="Observed revisions"
           icon={RefreshCw}
-          description="The latest readable VERSION and commit on each saved branch. A source revision is not an installed update."
+          description="The latest readable VERSION and commit on each saved branch. These observations do not authorize or describe an installation."
           wide="full"
           actions={
             <Button
@@ -324,13 +324,34 @@ export function ReleaseUpdatesSection({
         </SettingsCard>
       </SettingsGrid>
 
-      <Alert className="mt-8">
+      <Alert className="mt-8" variant="info">
         <ShieldCheck className="h-4 w-4" aria-hidden />
-        <AlertTitle>Discovery is not deployment</AlertTitle>
-        <AlertDescription>
-          Branch metadata can only announce that newer source exists. The top-bar Update
-          action remains unavailable until a different same-origin Console manifest exactly
-          matches a healthy backend build, and every activation still requires confirmation.
+        <AlertTitle>Stable updates use a separate supervisor</AlertTitle>
+        <AlertDescription className="space-y-2">
+          <p>
+            Discovery is not deployment. Branch observations remain read-only; they never make a
+            mutable branch installable or authorize a host change.
+          </p>
+          <p>
+            A supported standalone Compose deployment can expose <strong>Update vX</strong> to a
+            freshly authenticated platform owner after the backend and updater verify an immutable
+            signed release plan, compatibility, durable configuration, backup readiness, and
+            automatic rollback.
+          </p>
+          <p>
+            Older deployments need the documented one-time supervisor bootstrap. Custom stacks,
+            unsupported state backends, and mutable Testing branch revisions remain manual and
+            show an explicit blocker instead of a misleading update action.
+          </p>
+          <p>
+            The browser only confirms the server-advertised release identifier. It never receives
+            or submits image references, host paths, commands, or deployment credentials.
+          </p>
+          <p>
+            After a successful job, this tab reloads only when the same-origin Console manifest
+            exactly matches the healthy Stable backend version and commit. Unknown provenance
+            remains blocked, with a manual activation retry instead of a reload loop.
+          </p>
         </AlertDescription>
       </Alert>
     </SectionShell>

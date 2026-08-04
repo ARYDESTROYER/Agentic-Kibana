@@ -14,12 +14,89 @@ History is reconstructed from `git log`.
 
 No changes yet.
 
+## [0.1.3] - 2026-08-04
+
+**Beta patch: supervised Stable updates, broader governed Intelligence coverage,
+truthful operator states, honest rule authoring, responsive Console hardening, and
+stricter release acceptance.**
+
+### Added
+
+- A supervised **one-click Stable update** foundation for the reference
+  single-replica PostgreSQL Compose deployment. After one host bootstrap, a
+  built-in super-admin can approve a server-bound preflight; an isolated updater
+  verifies a signed declarative release plan and digest-pinned application images,
+  blocks unsupported state/topology or non-durable secrets, pulls before mutation,
+  creates and validates a PostgreSQL backup, replaces the backend and Web/installed
+  Help Center as a coherent pair, verifies exact release identity and readiness,
+  records durable progress and receipts, and automatically rolls back a failed
+  switch or observation window. Unsupported deployments fail closed with manual
+  remediation, and the browser and ordinary backend never receive the Docker socket,
+  host commands, arbitrary artifacts, registry credentials, or migration authority.
+- Protected Intelligence coverage now includes cloud-IAM compromise and
+  data-exfiltration runbooks, exact-match cloud-identity, exfiltration, and
+  ransomware response playbooks, and dedicated cloud-identity and data-protection
+  personas. These remain advisory inputs to the shared agent engine; unrelated
+  detections do not receive a procedure and deterministic case policy remains the
+  final route authority.
+
+### Changed
+
+- Detection-rule authoring exposes only the single predicate and threshold controls
+  the current runtime executes. Existing advisory MITRE, schedule, and suppression
+  metadata continues to round-trip without being presented as active authoring.
+- Console release acceptance now uses a strict streamed Vitest gate that fails on
+  test errors, any stderr byte, or Vitest-captured console output.
+- Release acceptance now exposes seventeen independent quality lanes plus a fail-closed
+  aggregate, including real PostgreSQL+pgvector/Redis readiness and all three shipping
+  container-image builds. Workflow/ShellCheck validation is isolated from
+  deploy/updater contracts so an early error cannot mask later blockers.
+- CI now rejects fatal Python correctness defects and fail-open workflow edits,
+  including missing or unreviewed workflow files across both YAML extensions, mutable
+  external actions, duplicate YAML keys, missing timeouts, `continue-on-error`, unsafe
+  triggers, and aggregate dependency drift. ShellCheck is
+  version-pinned and checksum-verified instead of inherited from the mutable runner.
+- First-party checkout and runtime-setup actions use reviewed immutable Node
+  24-compatible commit SHAs, with weekly Dependabot update proposals.
+- Shipping Dockerfile bases are pinned to reviewed multi-platform manifest digests,
+  with weekly Docker Dependabot update proposals.
+- Stable artifacts and versioned Help Center publication both wait for the exact
+  immutable tag's successful fail-closed CI aggregate.
+- Shared empty states now distinguish first use, no data, no results, success,
+  unavailable evidence, and request failure with accessible semantics.
+- Detection & Rules uses a narrow-screen column contract, readable wrapping, and
+  standard editor insets instead of forcing document-level horizontal scrolling.
+- Release governance now requires every published change— including documentation,
+  configuration, dependency, API, operational, behavioral, or visible UI changes—
+  to ship under a new SemVer and matching patch notes. Multiple related commits may
+  form one candidate; internal commits do not each mint a release or tag.
+
+### Fixed
+
+- The backend distribution test now accepts only the reviewed Python tag plus a
+  64-character immutable image digest and the expected runtime stage, so Docker
+  reproducibility hardening no longer makes the complete offline suite fail.
+- The Overview accessibility smoke test now waits for its lazy KPI numerals to
+  settle through Testing Library's act-aware lifecycle before taking the snapshot,
+  eliminating a scheduling-sensitive React warning on slower Linux runners without
+  suppressing Console output.
+- The Web UI production-build step now declares and exports its generated build date
+  separately, satisfying ShellCheck SC2155 on GitHub's runner instead of failing the
+  workflow-validation lane before deployment and updater checks execute.
+- Case Collaboration keeps last-good task, activity, and discussion evidence visible
+  across refresh failures and offers endpoint-specific retries instead of displaying
+  false empty states.
+- A degraded Standup snapshot no longer celebrates an incomplete empty attention
+  queue as a clear shift.
+- The Rules workspace and Case Manager remain within the viewport on compact screens
+  while retaining keyboard access and the canonical detail handoff.
+
 ## [0.1.2] - 2026-08-03
 
-**Beta patch release candidate: Security Command Center, canonical Case Manager
-detail, governed continuous-improvement inputs, durable Intelligence catalogs and
-Workspace Chat, portable export, safer in-app release activation, and a
-version-matched Help Center.**
+**Unpublished Testing snapshot — no immutable tag or Stable artifact: Security
+Command Center, canonical Case Manager detail, governed continuous-improvement
+inputs, durable Intelligence catalogs and Workspace Chat, portable export, safer
+in-app release activation, and a version-matched Help Center.**
 
 ### Added
 
@@ -135,10 +212,11 @@ version-matched Help Center.**
 
 ### Changed
 
-- The accepted beta patch candidate is versioned **0.1.2**. Patch releases continue
-  to bundle the existing **0.1** Help Center line. The `v0.1.2` tag is created only
-  from the fully verified `main` commit after Testing promotion; the version string
-  alone never implies Stable provenance or a completed deployment.
+- The beta patch snapshot was versioned **0.1.2** and continued to bundle the
+  existing **0.1** Help Center line. It reached `main` without a published
+  `v0.1.2` tag; the later 0.1.3 candidate therefore supersedes it as the next
+  immutable release target. A version string alone never implies Stable provenance
+  or a completed deployment.
 - Fresh workspaces now use the bundled OpenAI model ID `gpt-5.6-luna` for every
   completion role, with `reasoning_effort: none` preserving the existing Chat Completions
   latency/tool contract. Embeddings remain on `text-embedding-3-small`; persisted

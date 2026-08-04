@@ -79,7 +79,7 @@ describe('CommandPalette (W7c)', () => {
     // The dialog input renders.
     await waitFor(() =>
       expect(
-        screen.getByPlaceholderText(/jump to a page, search cases\/sources/i),
+        screen.getByPlaceholderText(/search cases, sources, settings/i),
       ).toBeInTheDocument(),
     );
     // A rail nav target (Cases) and a quick action (Go to Settings) are present.
@@ -91,13 +91,11 @@ describe('CommandPalette (W7c)', () => {
     expect(document.querySelector('[cmdk-item][data-value="nav-docs"]')).toBeTruthy();
   });
 
-  it('lists Settings section jump targets (Round-5 Sett-C)', async () => {
+  it('progressively reveals Settings section jump targets after a query (Round-5 Sett-C)', async () => {
     renderPalette();
-    await waitFor(() =>
-      expect(
-        screen.getByPlaceholderText(/jump to a page, search cases\/sources/i),
-      ).toBeInTheDocument(),
-    );
+    const input = await screen.findByPlaceholderText(/search cases, sources, settings/i);
+    expect(document.querySelector('[cmdk-item][data-value="set-general"]')).toBeNull();
+    fireEvent.change(input, { target: { value: 'Data scope' } });
     // The palette registers Settings sections as jump targets under a "Settings" group
     // heading (there is also a "Go to Settings" quick action, so match the heading node).
     const heading = document.querySelector('[cmdk-group-heading]');
@@ -122,7 +120,7 @@ describe('CommandPalette (W7c)', () => {
       nav: [],
     });
     renderPalette();
-    const input = await screen.findByPlaceholderText(/jump to a page, search/i);
+    const input = await screen.findByPlaceholderText(/search cases, sources, settings/i);
     fireEvent.change(input, { target: { value: 'brute' } });
 
     // Debounced search fires with the term.
@@ -146,6 +144,8 @@ describe('CommandPalette (W7c)', () => {
 
   it('routes a Settings section jump through onNavigate with a section opt', async () => {
     const { onNavigate } = renderPalette();
+    const input = await screen.findByPlaceholderText(/search cases, sources, settings/i);
+    fireEvent.change(input, { target: { value: 'Data scope' } });
     await waitFor(() =>
       expect(document.querySelector('[cmdk-item][data-value="set-general"]')).toBeTruthy(),
     );
@@ -153,5 +153,19 @@ describe('CommandPalette (W7c)', () => {
     fireEvent.click(setItem);
     // Jumps to the settings page carrying the section id (no anchor for a section head).
     expect(onNavigate).toHaveBeenCalledWith('settings', { section: 'general', anchor: undefined });
+  });
+
+  it('keeps the blank state concise and reveals child destinations only when searched', async () => {
+    renderPalette();
+    const input = await screen.findByPlaceholderText(/search cases, sources, settings/i);
+
+    expect(document.querySelector('[cmdk-item][data-value="nav-metrics"]')).toBeTruthy();
+    expect(document.querySelector('[cmdk-item][data-value="navc-metrics-cost"]')).toBeNull();
+    expect(screen.getByText(/type to search every page, setting, case, and source/i)).toBeInTheDocument();
+
+    fireEvent.change(input, { target: { value: 'Cost' } });
+    await waitFor(() =>
+      expect(document.querySelector('[cmdk-item][data-value="navc-metrics-cost"]')).toBeTruthy(),
+    );
   });
 });

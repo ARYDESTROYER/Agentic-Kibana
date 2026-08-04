@@ -84,6 +84,33 @@ describe('RuleEditor — config-writer behaviour', () => {
     // the tier selector is present (aria-label "Rule type")
     expect(screen.getByLabelText('Rule type')).toBeInTheDocument();
   });
+
+  it('offers only persisted, executable detection controls in the normal editor', async () => {
+    const form = newRuleForm('detection_match') as Extract<RuleForm, { tier: 'detection_match' }>;
+    // Compatibility metadata and an old multi-row draft may still arrive from another
+    // client. The normal UI must preserve them through the adapter, not advertise them
+    // as active controls.
+    form.predicates = [
+      { field: 'rule.id', op: 'equals', value: '5710' },
+      { field: 'source.ip', op: 'equals', value: '10.0.0.1' },
+    ];
+    form.about.mitre = ['T1110'];
+    form.suppression = { by: ['source.ip'], scope: 'per_run', missingField: 'suppress' };
+    form.schedule = { intervalSeconds: 60, lookbackSeconds: 30 };
+    renderEditor(form);
+
+    expect(screen.queryByLabelText('Condition 2 field')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /add condition/i })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/enable suppression/i)).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('tab', { name: 'About' }));
+    expect(screen.queryByText(/MITRE technique ids/i)).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Schedule' }));
+    expect(screen.getByText('Cadence comes from the source feed')).toBeInTheDocument();
+    expect(screen.queryByText('Run every')).not.toBeInTheDocument();
+    expect(screen.queryByText('Additional look-back')).not.toBeInTheDocument();
+  });
 });
 
 describe('RuleEditor — case-automation About identity (#25)', () => {

@@ -311,9 +311,12 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
 
   // Round 3 — tasks + activity (#4), lazy on the Thread tab alongside the thread.
   const [tasks, setTasks] = React.useState<CaseTaskItem[] | null>(null);
+  const [tasksLoading, setTasksLoading] = React.useState(false);
+  const [tasksError, setTasksError] = React.useState<unknown>(null);
   const [tasksBusyId, setTasksBusyId] = React.useState<string | null>(null);
   const [activity, setActivity] = React.useState<CaseActivityItem[] | null>(null);
   const [activityLoading, setActivityLoading] = React.useState(false);
+  const [activityError, setActivityError] = React.useState<unknown>(null);
 
   // Users for the assignee picker + @mention autocomplete (best-effort).
   const [pickUsers, setPickUsers] = React.useState<PickableUser[]>([]);
@@ -408,8 +411,12 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
     setThreadError(null);
     setThreadBusyId(null);
     setTasks(null);
+    setTasksLoading(false);
+    setTasksError(null);
     setTasksBusyId(null);
     setActivity(null);
+    setActivityLoading(false);
+    setActivityError(null);
     // Threat context is lazy-loaded and guarded by `threat === null`; resetting it
     // (and its error) here is what makes the Threat tab refetch for the newly-opened
     // case instead of showing the previous case's IOC/MITRE data.
@@ -532,6 +539,10 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
       if (activeIdRef.current !== id) return;
       setThread(res.messages || []);
     } catch (e) {
+      // Preserve an already-loaded authoritative discussion snapshot when a live or
+      // mutation-triggered refresh fails. `thread === null` still denotes an initial
+      // load failure; a non-null thread lets the panel render stale-but-truthful data
+      // beside an explicit refresh error and retry affordance.
       if (activeIdRef.current === id) setThreadError(e);
     } finally {
       if (activeIdRef.current === id) setThreadLoading(false);
@@ -540,24 +551,34 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
 
   const loadTasks = React.useCallback(async () => {
     if (!id) return;
+    setTasksLoading(true);
+    setTasksError(null);
     try {
       const res = await getTasks(id);
       if (activeIdRef.current !== id) return;
       setTasks(res.tasks || []);
-    } catch {
-      if (activeIdRef.current === id) setTasks([]);
+    } catch (e) {
+      // Keep the last authoritative snapshot mounted on a failed refresh. An initial
+      // failure therefore remains `null` (not a dishonest successful empty list), while
+      // a later failure can truthfully show the stale tasks beside a retry affordance.
+      if (activeIdRef.current === id) setTasksError(e);
+    } finally {
+      if (activeIdRef.current === id) setTasksLoading(false);
     }
   }, [id]);
 
   const loadActivity = React.useCallback(async () => {
     if (!id) return;
     setActivityLoading(true);
+    setActivityError(null);
     try {
       const res = await getActivity(id);
       if (activeIdRef.current !== id) return;
       setActivity(res.activity || []);
-    } catch {
-      if (activeIdRef.current === id) setActivity([]);
+    } catch (e) {
+      // Same truth contract as tasks: never turn transport failure into "No activity";
+      // preserve the last good feed during refresh and expose the failure independently.
+      if (activeIdRef.current === id) setActivityError(e);
     } finally {
       if (activeIdRef.current === id) setActivityLoading(false);
     }
@@ -593,11 +614,12 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
   React.useEffect(() => {
     if (open && tab === 'collab') {
       // `!threadError` stops a failed thread fetch from re-firing forever (Retry still
-      // works — loadThread clears the error before refetching). tasks/activity set []
-      // on failure so their `=== null` guard already self-terminates.
+      // works — each loader clears its own error before refetching). The independent
+      // task/activity guards prevent a failed endpoint from retry-looping or hiding the
+      // other collaboration surfaces.
       if (thread === null && !threadLoading && !threadError) void loadThread();
-      if (tasks === null) void loadTasks();
-      if (activity === null && !activityLoading) void loadActivity();
+      if (tasks === null && !tasksLoading && !tasksError) void loadTasks();
+      if (activity === null && !activityLoading && !activityError) void loadActivity();
     }
   }, [
     open,
@@ -606,8 +628,11 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
     threadLoading,
     threadError,
     tasks,
+    tasksLoading,
+    tasksError,
     activity,
     activityLoading,
+    activityError,
     loadThread,
     loadTasks,
     loadActivity,
@@ -1922,14 +1947,19 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
                         threadError={threadError}
                         threadBusyId={threadBusyId}
                         tasks={tasks}
+                        tasksLoading={tasksLoading}
+                        tasksError={tasksError}
                         tasksBusyId={tasksBusyId}
                         activity={activity}
                         activityLoading={activityLoading}
+                        activityError={activityError}
                         users={pickUsers}
                         currentUser={currentUser}
                         canComment={canComment}
                         canWrite={canWriteCase}
                         onRetryThread={loadThread}
+                        onRetryTasks={loadTasks}
+                        onRetryActivity={loadActivity}
                         onPost={(text) => void postMessage(text)}
                         onReply={(parentId, text) => void postMessage(text, parentId)}
                         onEdit={(msgId, text) => void editMessage(msgId, text)}

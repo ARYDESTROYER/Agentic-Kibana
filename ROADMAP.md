@@ -7,12 +7,14 @@ Status legend: ☐ todo · ◐ in-progress · ☑ done. Update this + `Journal.m
 work. The Console is the primary surface (Vite + React + **Tailwind + shadcn/radix**;
 the Kibana plugin is archived). Every item ends with: `pytest -q` green (keep the
 count current), full `npm run build` (version-matched Help Center + tsc + Vite) and
-Vitest clean, **#3 `decide()` byte-identical**,
-docs + Journal updated, commit + push.
+Vitest clean, **#3 `decide()` byte-identical**, and
+docs + Journal updated. Commit or publish only after the user or maintainer
+intentionally authorizes that repository mutation.
 
-**Current baseline (Version `0.1.2` beta patch candidate; `Testing` integration,
-default `main` Stable, and prior release tag `v0.1.1`):** the canonical branches
-exist; the immutable `v0.1.2` tag follows verified promotion. Branch
+**Current baseline (Version `0.1.3`; `Testing` integration and default `main`
+Stable source):** the canonical branches exist; 0.1.3 is a Testing candidate before
+promotion and a Stable release only when the exact accepted commit has the immutable
+`v0.1.3` tag and matching artifacts. Branch
 protections, required checks, Pages source selection, and `github-pages` environment
 policy remain repository-administration controls and must be verified independently;
 source files cannot attest to those settings. The current console adds the polished
@@ -56,13 +58,15 @@ overhaul + Noise-Reduction funnel; PR #23), and **Round 6** (a ~500-agent glitch
 findings fixed) before them. On top of all of them, a **backend deep-audit hardening
 pass** (`c5516e5`→`abd0385`, 2026-07-14/15, now present on `origin/Testing`) fixed **47 verified findings**
 (0 crit / 10 high / 24 med / 13 low) from a 24-auditor + adversarial-verify Workflow —
-one atomic commit per finding, no co-author, each with a regression test. The current 0.1
-candidate was re-verified on 2026-07-22: backend **1978 pytest** (0 failures), webui
-**1464 Vitest** across 248 files, build clean (entry chunk **294.69 kB**, a lazy `motion`
-chunk **83.85 kB**), eslint **0 errors,
-0 warnings**, `engine/case_manager.py` `decide()` **byte-identical** (verified clean by the
-audit), and the generated-contract, distribution, version, Compose, and strict-docs gates
-pass. See `CHANGELOG.md` `[Unreleased]` plus its dated Development snapshots for the
+    one atomic commit per finding, no co-author, each with a regression test. The current 0.1
+    candidate was re-verified on 2026-08-04: backend **2,306 pytest** (0 failures);
+    Console **1,936 Vitest** across 286 files (1,927 passed + 9 intentionally
+    skipped) under the strict zero-stderr/zero-console-output
+    gate; full version-matched Help Center + app build clean at **3,189 modules**; and
+    zero-warning ESLint plus all five design-system gates clean. `engine/case_manager.py`
+    `decide()` remains **byte-identical** (verified clean), and the generated-contract,
+    distribution, version, Compose, and strict-docs gates pass. See `CHANGELOG.md`
+    `[Unreleased]` plus its dated Development snapshots for the
 audit fixes and full Round 6–10 narrative,
 and the "Progress" log below for the per-round summary (Round 10 first).
 
@@ -80,7 +84,7 @@ the Round-3 W4 wave.)
 
 **B-1. Deferred / low (from the audit — `ROUND2_AUDIT.md`):** session-KV optimistic
 concurrency · multi-generation refresh-reuse detection · ES-only `CONFIG_INDEX`
-nested-type collision · deep-link breadcrumb (cosmetic).
+nested-type collision.
 
 **B-2. Best-of-best Tier 2/3 (`ROUND2_BEST_OF_BEST.md`).** Round 2 already shipped the
 whole Tier-1 productivity tier EXCEPT API keys: **saved views** (W7b), **bulk case
@@ -91,8 +95,10 @@ order:
 - ☐ **API keys / tokens management UI** (Tier-1 #5) — scoped, revocable keys on the
   existing JWT/PBKDF2 auth (prefix + last-used); the vendor-agnostic open-API
   requirement. Builds cleanly on the W3 SessionStore + token model.
-- ☐ **SLA timers** (Tier-2 #8) — per-severity `sla_due_at`/`sla_state`, at-risk badge +
-  filter (display + filter only, NO enforcement of `decide()`); pairs with saved views.
+- ◐ **SLA timers** (Tier-2 #8) — policy controls plus aggregate breached/at-risk
+  analytics have shipped. Persisted per-case `sla_due_at`/`sla_state` and the Cases
+  at-risk badge/filter remain open (display + filter only, NO enforcement of
+  `decide()`); pairs with saved views.
 - ☐ **Watchlists** (Tier-2 #10) — VIP users / crown-jewel assets / known-good IPs as
   TRUSTED operator context boosters in correlation/risk + a triage chip; matched log
   values stay UNTRUSTED (#9). Extends the HITL suppression/asset proposals.
@@ -185,9 +191,37 @@ continuous-improvement claim. The audited evidence boundaries are now closed as 
 Remaining scale-out work is intentionally separate: schedulers still need distributed
 leases/ownership and campaigns do not retain an immutable split/merge lifecycle history.
 
+**F. Ranked post-0.1.3 hardening sequence (release-gap audit, 2026-08-04):** keep the
+0.1.3 patch focused on truthful UI, documentation, and release acceptance. The next
+engineering sequence is ordered by data safety and measurable outcomes, not screen count:
+
+- ☐ **P0 — complete external Stable acceptance.** Verify branch protection and Pages
+  administration, publish the first real immutable signed release, make all required
+  GHCR artifacts readable, and run clean/interrupted/cancel/automatic-rollback/operator-
+  rollback acceptance against an isolated PostgreSQL Compose deployment. The project
+  also needs an explicit maintainer license decision before it can make redistribution
+  promises.
+- ☐ **P0 — durable ingest and operations.** Give push/queue/object receivers durable
+  receipt IDs, replay checkpoints, idempotency, bounded dead-letter handling, and an
+  operator recovery workflow. Move runtime secrets to a durable secret-manager
+  integration and introduce versioned, rollback-aware SQL migrations before multi-node
+  production use.
+- ☐ **P1 — measurable learning quality.** Add stable case-episode identity and complete
+  alert-to-cluster-to-case lineage; then build a golden-set replay harness with precision,
+  recall, cost, latency, and post-tuning holdout comparisons. Never infer causal
+  improvement from chronology alone.
+- ☐ **P1 — governed tenant and response boundaries.** Finish scoped/revocable API keys,
+  opt-in row-level object scope, and HITL-approved response actions with preflight,
+  receipts, rollback where supported, and the deterministic case decision kept outside
+  playbooks and model output.
+- ☐ **P2 — distributed observability and history.** Add scheduler leases/ownership,
+  durable realtime replay, immutable campaign split/merge lineage, OpenTelemetry spans,
+  and a typed expansion path for evidence-backed telemetry-gap producers.
+
 Each item ends with: `pytest -q` green (keep the count current), full docs+app
-`npm run build` + Vitest clean, **#3 `decide()` byte-identical**, additive + zero new runtime deps
-where possible, docs + Journal updated, commit + push.
+`npm run build` + `npm run test:strict` clean, **#3 `decide()` byte-identical**, additive + zero new runtime deps
+where possible, and docs + Journal updated. Commit or publish only after intentional,
+explicit authorization.
 
 ## Shipped (Phase 1)
 - ☑ Backend spine + 5 surfaces + tests (49 green); both plugin zips; full docs.

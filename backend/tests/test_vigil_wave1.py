@@ -47,11 +47,14 @@ def _cluster(ip="1.2.3.4", rule="linux_auth", n=3, entity_type=EntityType.IP, en
 # --------------------------------------------------------------------------- #
 def test_persona_selection_by_rule_keyword() -> None:
     prefs = Preferences()
+    assert select_persona(_cluster(rule="CloudTrail AssumeRole anomaly"), prefs).id == "cloud_identity"
     assert select_persona(_cluster(rule="sshd"), prefs).id == "identity_access"
     assert select_persona(_cluster(rule="modsecurity"), prefs).id == "web_application"
     assert select_persona(_cluster(rule="suricata"), prefs).id == "network_recon"
     assert select_persona(_cluster(rule="clamav"), prefs).id == "malware"
     assert select_persona(_cluster(rule="enrichment"), prefs).id == "threat_intel"
+    assert select_persona(_cluster(rule="Bulk data staged for exfiltration"), prefs).id == "data_protection"
+    assert select_persona(_cluster(rule="Ransomware file encryption"), prefs).id == "data_protection"
 
 
 def test_persona_defaults_to_generalist_when_no_signal() -> None:
@@ -75,7 +78,14 @@ def test_persona_override_pins_persona() -> None:
 
 def test_persona_registry_helpers() -> None:
     ids = {p.id for p in all_personas()}
-    assert {"generalist", "identity_access", "web_application", "malware"} <= ids
+    assert {
+        "generalist",
+        "cloud_identity",
+        "identity_access",
+        "web_application",
+        "data_protection",
+        "malware",
+    } <= ids
     assert get_persona("does_not_exist").id == GENERALIST_ID
     assert get_persona("malware").id == "malware"
 
@@ -124,7 +134,14 @@ def test_parse_frontmatter_scalars_and_lists() -> None:
 
 def test_load_runbooks_ships_seed_files() -> None:
     rbs = {rb.id for rb in load_runbooks()}
-    assert {"brute_force", "web_attack", "port_scan", "malware"} <= rbs
+    assert {
+        "brute_force",
+        "cloud_iam_compromise",
+        "data_exfiltration",
+        "web_attack",
+        "port_scan",
+        "malware",
+    } <= rbs
 
 
 def test_runbook_corpus_items_shape() -> None:

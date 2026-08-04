@@ -1,17 +1,11 @@
 /**
- * Intelligence — Playbooks label alignment (Round-6 #32).
+ * Intelligence — explicit leaf labels and direct Persona discovery.
  *
- * A `#/playbooks` deep-link renders `<Intelligence tab="catalog" />`. Previously the
- * host's catalog tab read "Playbooks & Agents" while the nav child + the breadcrumb leaf
- * read "Playbooks" — three disagreeing labels for one destination. This pins that the
- * rendered label matches the single derived breadcrumb label (`navLabel('playbooks')`),
- * and the stale "& Agents" label is gone.
+ * Every Intelligence job has one direct destination and one derived label. Agent
+ * personas no longer hide behind a second Playbooks/Catalog tab, while the legacy
+ * `catalog` alias resolves to Response playbooks.
  *
- * The redundant in-page tab strip was removed (the left nav already links Knowledge /
- * Memory / Playbooks), so the destination label now lives in the host PageHeader `<h1>`
- * rather than a `tab` trigger — the assertion tracks that move while keeping the intent.
- *
- * The three sub-pages are stubbed so the host renders without their network surface.
+ * The sub-pages are stubbed so the host renders without their network surface.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
@@ -19,24 +13,26 @@ import { render, screen } from '@testing-library/react';
 vi.mock('../Knowledge', () => ({ default: () => <div>knowledge body</div> }));
 vi.mock('../Runbooks', () => ({ default: () => <div>runbooks body</div> }));
 vi.mock('../Memory', () => ({ default: () => <div>memory body</div> }));
-vi.mock('../Catalog', () => ({ default: () => <div>catalog body</div> }));
+vi.mock('../Catalog', () => ({
+  default: ({ defaultTab }: { defaultTab?: string }) => (
+    <div>catalog body · {defaultTab}</div>
+  ),
+}));
 
 import { TooltipProvider } from '@/ui/tooltip';
 import Intelligence from '../Intelligence';
 import { navLabel } from '@/soc/nav';
 
-describe('Intelligence host — Playbooks label alignment (#32)', () => {
-  it('the Catalog header label equals the derived breadcrumb leaf ("Playbooks")', () => {
+describe('Intelligence host — direct leaf labels', () => {
+  it('maps the legacy Catalog alias to Response playbooks', () => {
     render(
       <TooltipProvider>
         <Intelligence tab="catalog" />
       </TooltipProvider>,
     );
-    // The single source-of-truth breadcrumb label for the deep-link leaf.
-    expect(navLabel('playbooks')).toBe('Playbooks');
-    // The rendered header now agrees with it (was the "Playbooks & Agents" tab label).
-    expect(screen.getByRole('heading', { name: 'Playbooks' })).toBeInTheDocument();
-    expect(screen.queryByText(/Playbooks & Agents/i)).toBeNull();
+    expect(navLabel('playbooks')).toBe('Response playbooks');
+    expect(screen.getByRole('heading', { name: 'Response playbooks' })).toBeInTheDocument();
+    expect(screen.getByText('catalog body · playbooks')).toBeInTheDocument();
   });
 
   it('renders the dedicated Runbooks Intelligence child at its registry label', () => {
@@ -45,8 +41,19 @@ describe('Intelligence host — Playbooks label alignment (#32)', () => {
         <Intelligence tab="runbooks" />
       </TooltipProvider>,
     );
-    expect(navLabel('runbooks')).toBe('Runbooks');
-    expect(screen.getByRole('heading', { name: 'Runbooks' })).toBeInTheDocument();
+    expect(navLabel('runbooks')).toBe('Reference runbooks');
+    expect(screen.getByRole('heading', { name: 'Reference runbooks' })).toBeInTheDocument();
     expect(screen.getByText('runbooks body')).toBeInTheDocument();
+  });
+
+  it('renders Agent personas as its own Intelligence destination', () => {
+    render(
+      <TooltipProvider>
+        <Intelligence tab="personas" />
+      </TooltipProvider>,
+    );
+    expect(navLabel('personas')).toBe('Agent personas');
+    expect(screen.getByRole('heading', { name: 'Agent personas' })).toBeInTheDocument();
+    expect(screen.getByText('catalog body · personas')).toBeInTheDocument();
   });
 });

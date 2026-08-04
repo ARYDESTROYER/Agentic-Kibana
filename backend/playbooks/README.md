@@ -128,12 +128,17 @@ hardcoded beyond seeding these real detections.
 | File / `id` | Name | Priority | Scope (`rule_ids` / `entity_types`) |
 |---|---|---|---|
 | `brute_force_login.md` | Brute-force / password-spray login | 50 | `mail_auth, waf_auth, web_auth, roundcube_login, postfix` / `ip, user, host` |
+| `cloud_identity_compromise.md` | Cloud identity compromise | 82 | cloud IAM, role, token, service-principal, and impossible-travel rule families / `user, host, ip, rule` |
+| `data_exfiltration_response.md` | Data exfiltration response | 88 | staging, bulk-download, covert-channel, insider, and data-access rule families / `user, host, ip, rule` |
+| `moodle_application_abuse.md` | Moodle application abuse | 80 | exact Moodle application-abuse families / `ip, user, host, rule` |
 | `phishing_reported_email.md` | Reported phishing email | 45 | `postfix, roundcube_login, mail_auth, mail_apache_access, suricata_mail` / `user, ip` |
+| `privileged_web_access.md` | Privileged web access | 85 | successful external administrative-access family / `ip, user, host, rule` |
+| `ransomware_response.md` | Ransomware impact response | 92 | mass-encryption and ransomware-impact rule families / `host, user, ip, rule` |
 | `suspicious_outbound_connection.md` | Suspicious outbound / beacon-like connection | 40 | `suricata_mail, ml_stats` / `ip, host` |
+| `web_scanner_activity.md` | Web scanner and exploit activity | 75 | vulnerability-scanner and web-shell families / `ip, host, rule` |
 
-Each also carries `mitre` (T1110/T1078, T1566, T1071 respectively) and
-`any_tags` hints — see each file's front matter for the full match contract and
-its Markdown body for the phased investigation procedure.
+Each carries ATT&CK and tag hints where useful. See the file's front matter for
+the exact match contract and its Markdown body for the investigation procedure.
 
 ## API + configuration
 
@@ -154,7 +159,7 @@ its Markdown body for the phased investigation procedure.
   playbook directory instead. `Preferences.playbooks.enabled` (default `true`)
   turns the whole system off if you never want playbook injection.
 
-The three procedures shipped in this directory are protected reference content in
+The nine procedures shipped in this directory are protected reference content in
 the runtime editor: browse/copy is allowed, overwrite is not. Files created through
 the Console are operator-owned and editable. Every valid file in a configured
 override directory is treated as operator-owned. Runtime deletion is intentionally

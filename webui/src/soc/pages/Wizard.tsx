@@ -51,12 +51,11 @@ import { Button } from '@/ui/button';
 import { Label } from '@/ui/label';
 import { Progress } from '@/ui/progress';
 import { RadioGroup, RadioGroupItem } from '@/ui/radio-group';
-import { Skeleton } from '@/ui/skeleton';
 
+import { LoadingState } from '@/design-system';
 import { ConfirmDialog } from '@/soc/components/ConfirmDialog';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
-import { LoadingBar } from '@/soc/components/LoadingBar';
 import { SecretField } from '@/soc/components/SecretField';
 import { SourceEditor } from '@/soc/components/SourceEditor';
 import { useAuth } from '@/soc/auth';
@@ -465,7 +464,12 @@ export default function Wizard({ onComplete, onExit }: WizardProps) {
               </div>
 
               {loading ? (
-                <WizardSkeleton />
+                <LoadingState
+                  label="Loading setup"
+                  description="Preparing workspace choices and deployment readiness."
+                  layout="panel"
+                  shape="panel"
+                />
               ) : bootError ? (
                 <LoadError
                   error={bootError}
@@ -656,35 +660,6 @@ function StepButton({
         </span>
       </span>
     </button>
-  );
-}
-
-function WizardSkeleton() {
-  return (
-    <div className="space-y-6" role="status" aria-label="Loading setup" aria-busy="true">
-      <LoadingBar />
-      <div className="space-y-2">
-        <Skeleton className="h-8 w-72 max-w-full" />
-        <Skeleton className="h-4 w-full max-w-xl" />
-      </div>
-      <div className="divide-y divide-border border-y border-border">
-        <div className="flex gap-4 py-6">
-          <Skeleton className="h-10 w-10 shrink-0" />
-          <div className="w-full space-y-2">
-            <Skeleton className="h-5 w-48" />
-            <Skeleton className="h-4 w-full max-w-lg" />
-          </div>
-        </div>
-        <div className="flex gap-4 py-6">
-          <Skeleton className="h-10 w-10 shrink-0" />
-          <div className="w-full space-y-2">
-            <Skeleton className="h-5 w-40" />
-            <Skeleton className="h-4 w-full max-w-md" />
-          </div>
-        </div>
-      </div>
-      <span className="sr-only">Loading setup…</span>
-    </div>
   );
 }
 

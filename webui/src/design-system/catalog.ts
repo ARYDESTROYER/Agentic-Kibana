@@ -3,7 +3,7 @@ import { SOURCE_MARK_CATALOG } from './assets/source-marks';
 /**
  * JSON-safe contract for tooling that needs to discover the Console's reusable
  * visual primitives. It is source metadata only: there is deliberately no running
- * MCP server or network transport in version 0.1.2.
+ * MCP server or network transport in version 0.1.3.
  */
 export const DESIGN_SYSTEM_CATALOG = {
   schemaVersion: '1.0.0',
@@ -83,8 +83,12 @@ export const DESIGN_SYSTEM_CATALOG = {
       module: '@/soc/components/ControlBar',
       exportName: 'ControlBar',
       purpose: 'Three-zone operational heading and action row',
-      variants: ['flat', 'bordered', 'plain', 'sticky'],
-      accessibility: ['labelled control group when named', 'responsive wrapping'],
+      variants: ['flat', 'bordered', 'plain', 'sticky', 'primary/secondary slots', 'simple-action overflow'],
+      accessibility: [
+        'labelled control group when named',
+        'primary-first responsive wrapping',
+        'focus-managed labelled overflow menu',
+      ],
     },
     {
       id: 'layout.filter-bar',
@@ -123,7 +127,7 @@ export const DESIGN_SYSTEM_CATALOG = {
   futureAgentInterface: {
     catalogExport: 'DESIGN_SYSTEM_CATALOG',
     transport: 'none',
-    note: 'This serialisable catalog can back a future MCP resource/tool, but version 0.1.2 ships no MCP server.',
+    note: 'This serialisable catalog can back a future MCP resource/tool, but version 0.1.3 ships no MCP server.',
   },
 } as const;
 

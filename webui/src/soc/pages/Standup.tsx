@@ -351,6 +351,7 @@ export default function Standup({ onNavigate }: StandupProps) {
         <Card>
           <CardContent className="p-0">
             <EmptyState
+              state="unavailable"
               icon={FileText}
               title="Standup is turned off"
               description="The daily handoff is disabled. Enable it under Settings → Standup to start generating the shift attention queue."
@@ -381,7 +382,11 @@ export default function Standup({ onNavigate }: StandupProps) {
       {!initialLoading && !disabled && report ? (
         <>
           {/* ATTENTION QUEUE — the lead. */}
-          <AttentionQueueCard attention={attention} onNavigate={navigate} />
+          <AttentionQueueCard
+            attention={attention}
+            evidenceComplete={!degraded}
+            onNavigate={navigate}
+          />
 
           {/* SLA + workload. */}
           <div className="grid gap-6 lg:grid-cols-2">
@@ -485,9 +490,11 @@ function DeltaTiles({ deltas }: { deltas: Record<string, DeltaCell> }) {
 
 function AttentionQueueCard({
   attention,
+  evidenceComplete,
   onNavigate,
 }: {
   attention: AttentionRow[];
+  evidenceComplete: boolean;
   onNavigate?: Navigate;
 }) {
   return (
@@ -496,18 +503,29 @@ function AttentionQueueCard({
         <CardTitle className="flex items-center gap-2 text-sm font-semibold">
           <Flame className="h-4 w-4 text-critical" aria-hidden />
           Attention queue
-          <Badge variant="secondary" className="ml-1">
-            {fmtNumber(attention.length)}
-          </Badge>
+          {evidenceComplete ? (
+            <Badge variant="secondary" className="ml-1">
+              {fmtNumber(attention.length)}
+            </Badge>
+          ) : (
+            <Badge variant="warning" className="ml-1">
+              Limited data
+            </Badge>
+          )}
         </CardTitle>
       </CardHeader>
       <CardContent>
         {attention.length === 0 ? (
           <EmptyState
             compact
-            icon={CheckCircle2}
-            title="Nothing needs you right now"
-            description="No open, escalated, or NEEDS_HUMAN case is currently in the attention queue for this window."
+            state={evidenceComplete ? 'success' : 'unavailable'}
+            icon={evidenceComplete ? CheckCircle2 : AlertTriangle}
+            title={evidenceComplete ? 'Nothing needs you right now' : 'Attention queue is incomplete'}
+            description={
+              evidenceComplete
+                ? 'The current window has no open, escalated, or NEEDS_HUMAN case in the attention queue. Continue with planned work and refresh after new cases arrive.'
+                : 'The case store returned a degraded snapshot, so an empty queue cannot be verified. Refresh or check source health before treating this shift as clear.'
+            }
           />
         ) : (
           <ul className="flex flex-col divide-y divide-border" aria-label="Attention queue">
@@ -625,6 +643,7 @@ function SlaCard({
         {!enabled ? (
           <EmptyState
             compact
+            state="unavailable"
             icon={ShieldAlert}
             title="SLA tracking is off"
             description="Enable an SLA policy with per-priority response targets in Settings to surface breach pressure here."
@@ -704,9 +723,10 @@ function WorkloadCard({ workload }: { workload: StandupReport['workload'] }) {
         {workload.length === 0 ? (
           <EmptyState
             compact
+            state="no-data"
             icon={Users}
             title="No open workload"
-            description="Open cases will group by their assignee here."
+            description="This handoff has no assignee workload rows. Open cases will appear here grouped by assignee."
           />
         ) : (
           <ul className="flex flex-col gap-3" aria-label="Analyst workload">

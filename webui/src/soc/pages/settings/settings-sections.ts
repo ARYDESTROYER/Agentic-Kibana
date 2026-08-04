@@ -135,8 +135,8 @@ export interface SectionRenderContext {
   /** Write-only secret draft state (Keys section only). */
   secretDraft: Record<string, string>;
   setSecretDraft: (d: Record<string, string>) => void;
-  onSaveSecrets: () => void;
-  savingSecrets: boolean;
+  /** Settings-wide save in flight; secret fields stay stable until it settles. */
+  saving: boolean;
 }
 
 /** A section renderer: given the shared context, returns the section body. */
@@ -215,8 +215,7 @@ const SECTION_COMPONENTS: Record<string, SectionRenderer> = {
       configured: ctx.configured,
       draft: ctx.secretDraft,
       setDraft: ctx.setSecretDraft,
-      onSave: ctx.onSaveSecrets,
-      saving: ctx.savingSecrets,
+      saving: ctx.saving,
       readOnly: ctx.readOnly,
     }),
   appearance: (ctx) => h(BrandingEditor, { readOnly: ctx.readOnly }),

@@ -64,8 +64,12 @@ describe('ROUTES — host-tab children route through their host with a forced ta
     ['standup', 'overview', 'standup'],
     ['investigate', 'chat', 'investigate'],
     ['knowledge', 'intelligence', 'knowledge'],
+    ['runbooks', 'intelligence', 'runbooks'],
     ['memory', 'intelligence', 'memory'],
-    ['catalog', 'intelligence', 'catalog'],
+    ['playbooks', 'intelligence', 'playbooks'],
+    ['personas', 'intelligence', 'personas'],
+    // Compatibility deep-link: the retired combined Catalog lands on Playbooks.
+    ['catalog', 'intelligence', 'playbooks'],
   ] as const)(
     '#/%s renders its host element with a forced tab',
     (child, host, tab) => {
@@ -210,11 +214,8 @@ describe('CommandPalette — disclosure children are reachable jump targets', ()
 
   it('lists a children-only destination (Cost) and routes it via onNavigate', async () => {
     const { onNavigate } = renderPalette();
-    await waitFor(() =>
-      expect(
-        screen.getByPlaceholderText(/jump to a page, search cases\/sources/i),
-      ).toBeInTheDocument(),
-    );
+    const input = await screen.findByPlaceholderText(/search cases, sources, settings/i);
+    fireEvent.change(input, { target: { value: 'Cost' } });
     // The Cost child (a tab of Analytics — previously unreachable from Cmd-K) is present
     // with its unique `navc-<parent>-<id>` value.
     const cost = document.querySelector('[cmdk-item][data-value="navc-metrics-cost"]');

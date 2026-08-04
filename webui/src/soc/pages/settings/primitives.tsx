@@ -418,6 +418,7 @@ export function SecretInput({
   value,
   help,
   onChange,
+  disabled,
 }: {
   label: string;
   secretKey: string;
@@ -425,6 +426,7 @@ export function SecretInput({
   value: string;
   help?: string;
   onChange: (v: string) => void;
+  disabled?: boolean;
 }) {
   // `secretKey` is retained in the call-site contract for a stable field identity; the
   // shared SecretField manages its own control id, so it isn't threaded onto the DOM here.
@@ -436,6 +438,7 @@ export function SecretInput({
       configured={Boolean(configured)}
       value={value}
       onChange={onChange}
+      disabled={disabled}
       placeholder={configured ? '•••••••• (enter a new value to replace)' : 'Enter a value'}
       configuredLabel="Configured"
     />

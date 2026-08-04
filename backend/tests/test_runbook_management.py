@@ -661,7 +661,7 @@ def test_runbook_api_publishes_backend_owned_authoring_standard(client) -> None:
 
 def test_bundled_runbooks_conform_to_strict_authoring_standard() -> None:
     bundled = load_runbooks()
-    assert len(bundled) == 7
+    assert len(bundled) == 9
     for runbook in bundled:
         parsed = parse_runbook_document(
             Path(runbook.source_path).read_text(encoding="utf-8"),

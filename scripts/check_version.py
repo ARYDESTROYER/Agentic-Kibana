@@ -8,6 +8,7 @@ before backend or web dependencies are installed.
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import os
 import re
@@ -26,17 +27,21 @@ SEMVER = re.compile(
 )
 
 
-def _python_version(path: Path) -> str | None:
+def _python_constant(path: Path, name: str) -> str | None:
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     for node in tree.body:
         if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Constant):
             continue
         if any(
-            isinstance(target, ast.Name) and target.id == "__version__"
+            isinstance(target, ast.Name) and target.id == name
             for target in node.targets
         ):
             return str(node.value.value)
     return None
+
+
+def _python_version(path: Path) -> str | None:
+    return _python_constant(path, "__version__")
 
 
 def main() -> int:
@@ -56,6 +61,9 @@ def main() -> int:
 
     observed = {
         "backend runtime": backend_runtime,
+        "updater runtime": _python_constant(
+            ROOT / "updater/agentic_soc_updater/__init__.py", "UPDATER_VERSION"
+        ),
         "backend package": backend_package,
         "web package": web_package.get("version"),
         "web lock root": web_lock.get("version"),
@@ -93,13 +101,6 @@ def main() -> int:
         failures.append("FastAPI application version must reference app.__version__")
 
     compose_expectations = {
-        "deploy/docker-compose.agnostic.yml": (
-            (
-                f"tlsoc-agentic-triage-backend:${{TLSOC_VERSION:-{version}}}",
-                f"tlsoc-agentic-triage-webui:${{TLSOC_VERSION:-{version}}}",
-            ),
-            2,
-        ),
         "deploy/docker-compose.tlsoc.yml": (
             (f"tlsoc-agentic-triage-backend:${{TLSOC_VERSION:-{version}}}",),
             1,
@@ -124,6 +125,43 @@ def main() -> int:
                 f"{relative}: expected {expected_build_arg_count} release-channel "
                 f"build args, found {actual_channel_count}"
             )
+
+    # The supervised-update v1 base must remain version-invariant. Stable image
+    # identity belongs exclusively to the signed, updater-generated override; a
+    # patch-version edit here would make N -> N+1 work only once and then strand N+1.
+    agnostic_compose_source = (
+        ROOT / "deploy/docker-compose.agnostic.yml"
+    ).read_text(encoding="utf-8")
+    for marker in (
+        "TLSOC_VERSION: ${TLSOC_VERSION:-source}",
+        "tlsoc-agentic-triage-backend:${TLSOC_VERSION:-source}",
+        "tlsoc-agentic-triage-webui:${TLSOC_VERSION:-source}",
+        "agentic-soc-updater:${TLSOC_VERSION:-source}",
+    ):
+        if marker not in agnostic_compose_source:
+            failures.append(
+                "deploy/docker-compose.agnostic.yml: missing version-invariant "
+                f"supervised-update marker {marker!r}"
+            )
+    if f"TLSOC_VERSION:-{version}" in agnostic_compose_source:
+        failures.append(
+            "deploy/docker-compose.agnostic.yml: canonical updater base must not "
+            "embed the current patch version"
+        )
+    compose_baseline_path = ROOT / "deploy/update-base-v1.sha256"
+    compose_baseline = (
+        compose_baseline_path.read_text(encoding="utf-8").strip()
+        if compose_baseline_path.is_file()
+        else ""
+    )
+    actual_compose_sha = hashlib.sha256(
+        agnostic_compose_source.encode("utf-8")
+    ).hexdigest()
+    if compose_baseline != actual_compose_sha:
+        failures.append(
+            "deploy/update-base-v1.sha256: canonical updater base changed; introduce "
+            "a versioned protocol/bootstrap contract instead of stranding installed hosts"
+        )
 
     for relative in ("backend/Dockerfile", "webui/Dockerfile"):
         source = (ROOT / relative).read_text(encoding="utf-8")
@@ -154,7 +192,7 @@ def main() -> int:
                 f"{marker!r} twice, found {count}"
             )
     for marker in (
-        "FROM python:3.11-alpine AS docs",
+        "FROM python:3.11-alpine@sha256:",
         "scripts/build_docs_bundle.py --output /artifact/docs",
         "COPY --from=docs /artifact/docs ./public/docs",
         "RUN npm run build:app",
@@ -237,6 +275,160 @@ def main() -> int:
             "deploy/docker-compose.agnostic.yml: webui must use the repository-root "
             "build context so the image can compile docs/"
         )
+    backend_service = compose_source.partition("  tlsoc-backend:\n")[2].partition(
+        "\n  tlsoc-webui:"
+    )[0]
+    backend_dependencies = backend_service.partition("    depends_on:\n")[2].partition(
+        "\n    environment:"
+    )[0]
+    if "agentic-soc-updater:" in backend_dependencies:
+        failures.append(
+            "deploy/docker-compose.agnostic.yml: backend startup must not depend on "
+            "updater health; update availability degrades independently"
+        )
+
+    release_workflow_path = ROOT / ".github/workflows/release.yml"
+    if not release_workflow_path.is_file():
+        failures.append(".github/workflows/release.yml: missing Stable release workflow")
+    else:
+        release_workflow_source = release_workflow_path.read_text(encoding="utf-8")
+        tag_ci_step = release_workflow_source.partition(
+            "- name: Require the exact tag CI run and its fail-closed aggregate"
+        )[2].partition("\n      - name:")[0]
+        if not tag_ci_step:
+            failures.append(
+                ".github/workflows/release.yml: exact Stable-tag CI gate is missing"
+            )
+        for marker in (
+            '-f event=push -f branch="${{ steps.release.outputs.tag }}"',
+            '.event == "push" and .head_sha == $sha and .head_branch == $tag',
+            '.status == "completed" and .conclusion == "success"',
+            "| sort_by(.run_started_at, .id)",
+            '.name == "CI passed" and .status == "completed"',
+        ):
+            if marker not in tag_ci_step:
+                failures.append(
+                    ".github/workflows/release.yml: exact Stable-tag CI gate is "
+                    f"missing {marker!r}"
+                )
+        for stale_marker in (
+            "release_created_at",
+            "fromdateiso8601",
+            "$delta >= -300",
+        ):
+            if stale_marker in tag_ci_step:
+                failures.append(
+                    ".github/workflows/release.yml: release reruns must not couple "
+                    f"tag CI acceptance to current-run time via {stale_marker!r}"
+                )
+        verifier_step = release_workflow_source.partition(
+            "- name: Prove anonymous pullability and exact OCI release labels"
+        )[2].partition("\n      - name:")[0]
+        if not verifier_step:
+            failures.append(
+                ".github/workflows/release.yml: anonymous GHCR verifier step is missing"
+            )
+        for marker in (
+            "import hashlib",
+            "import re",
+            'hashlib.sha256(payload).hexdigest()',
+            'DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")',
+        ):
+            if marker not in verifier_step:
+                failures.append(
+                    ".github/workflows/release.yml: anonymous GHCR verifier is "
+                    f"missing {marker!r}"
+                )
+
+        asset_inspection_step = release_workflow_source.partition(
+            "- name: Inspect and safely recover an exact draft release"
+        )[2].partition("\n      - ")[0]
+        if not asset_inspection_step:
+            failures.append(
+                ".github/workflows/release.yml: immutable release-asset inspection "
+                "step is missing"
+            )
+        for marker in (
+            "scripts/release_asset_state.py",
+            "--paginate --slurp",
+            ".delete_asset_ids[]",
+            "== draft",
+            "releases/assets/${asset_id}",
+            'echo "release_state=${release_state}"',
+            'echo "release_exists=${release_exists}"',
+            'echo "release_id=${release_id}"',
+        ):
+            if marker not in asset_inspection_step:
+                failures.append(
+                    ".github/workflows/release.yml: immutable release-asset guard is "
+                    f"missing {marker!r}"
+                )
+
+        for marker in (
+            "if: steps.assets.outputs.plan_exists == 'true'",
+            "if: steps.assets.outputs.plan_exists != 'true'",
+            "EXPECTED_RELEASE_STATE: ${{ steps.assets.outputs.release_state }}",
+            "Release state changed after inspection",
+            "draft:true",
+            "cosign verify-blob",
+            "-F draft=false",
+            '.release_state == "published"',
+            'git ls-remote origin "refs/tags/${tag}"',
+            'git ls-remote origin "refs/tags/${tag}^{}"',
+            "agentic-soc-release-commit:${GITHUB_SHA}",
+        ):
+            if marker not in release_workflow_source:
+                failures.append(
+                    ".github/workflows/release.yml: immutable release execution "
+                    f"boundary is missing {marker!r}"
+                )
+        if "--clobber" in release_workflow_source:
+            failures.append(
+                ".github/workflows/release.yml: draft recovery must never overwrite "
+                "a canonical release asset"
+            )
+        publication_step = release_workflow_source.partition(
+            "- name: Stage, verify, and atomically publish the GitHub Release"
+        )[2]
+        ordered_markers = (
+            'gh release upload "${tag}" upgrade-plan.json',
+            'gh release upload "${tag}" upgrade-plan.sigstore.json',
+            "cosign verify-blob",
+            "-F draft=false",
+        )
+        if not publication_step or any(
+            marker not in publication_step for marker in ordered_markers
+        ):
+            failures.append(
+                ".github/workflows/release.yml: draft upload, verification, and "
+                "publish transaction is incomplete"
+            )
+        elif list(map(publication_step.index, ordered_markers)) != sorted(
+            map(publication_step.index, ordered_markers)
+        ):
+            failures.append(
+                ".github/workflows/release.yml: canonical assets must be uploaded "
+                "and verified before the draft is published"
+            )
+        release_classifier = ROOT / "scripts/release_asset_state.py"
+        if not release_classifier.is_file():
+            failures.append(
+                "scripts/release_asset_state.py: missing exact draft release classifier"
+            )
+        else:
+            classifier_source = release_classifier.read_text(encoding="utf-8")
+            for marker in (
+                "agentic-soc-release-commit",
+                "published release is missing a canonical upgrade-plan asset",
+                "delete_asset_ids",
+                'state == "starter"',
+                "unexpected release asset",
+            ):
+                if marker not in classifier_source:
+                    failures.append(
+                        "scripts/release_asset_state.py: draft recovery contract is "
+                        f"missing {marker!r}"
+                    )
 
     gitignore_source = (ROOT / ".gitignore").read_text(encoding="utf-8")
     if "/webui/public/docs/" not in gitignore_source:

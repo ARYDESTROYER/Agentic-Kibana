@@ -1,7 +1,7 @@
 name: CI
 
-# Twelve independently visible status checks: eleven repository-native quality
-# gates plus one aggregate branch-protection target. Keep "CI passed" required on
+# Eighteen independently visible status checks: seventeen repository-native quality
+# gates plus one fail-closed branch-protection target. Keep "CI passed" required on
 # main and Testing; the individual jobs make a failure immediately diagnosable.
 
 on:
@@ -27,8 +27,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Check canonical version and release metadata
@@ -45,8 +45,8 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
@@ -68,8 +68,8 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
@@ -125,7 +125,7 @@ jobs:
           print(f"installed wheel verified with {len(names)} feature routers")
           PY
       - name: Upload backend distributions
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: backend-distributions-${{ github.sha }}
           path: backend/dist/*
@@ -140,8 +140,8 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
@@ -213,6 +213,136 @@ jobs:
           wait "${server_pid}" || true
           trap - EXIT
 
+  postgres-redis:
+    name: PostgreSQL & Redis acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16@sha256:a36250871de0833b8757561c72f2477ef1ddd1101afa4e617fb552e0de514c6b
+        env:
+          POSTGRES_USER: tlsoc
+          POSTGRES_PASSWORD: ci-postgres-password
+          POSTGRES_DB: tlsoc
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tlsoc -d tlsoc"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      redis:
+        image: redis:7-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Install production dependencies
+        run: |
+          python -m pip install --requirement requirements.txt
+          python -m pip check
+      - name: Boot and verify the supported production state path
+        env:
+          STATE_BACKEND: postgres
+          STATE_DB_URL: postgresql+asyncpg://tlsoc:ci-postgres-password@127.0.0.1:5432/tlsoc
+          REDIS_URL: redis://127.0.0.1:6379/0
+          AUTH_ENABLED: "false"
+          ES_STORE_ENABLED: "false"
+          LOG_LEVEL: WARNING
+        run: |
+          state_log="${RUNNER_TEMP}/agentic-soc-postgres-state.log"
+          python -m uvicorn app.main:app --host 127.0.0.1 --port 18088 \
+            >"${state_log}" 2>&1 &
+          server_pid=$!
+          cleanup() {
+            status=$?
+            trap - EXIT
+            kill "${server_pid}" 2>/dev/null || true
+            wait "${server_pid}" 2>/dev/null || true
+            if (( status != 0 )); then
+              cat "${state_log}"
+            fi
+            exit "${status}"
+          }
+          trap cleanup EXIT
+          python - <<'PY'
+          import json
+          import time
+          import urllib.error
+          import urllib.request
+          from pathlib import Path
+
+          expected_version = Path("../VERSION").read_text(encoding="utf-8").strip()
+          ready_url = "http://127.0.0.1:18088/api/health/ready"
+          last_error = None
+          for _ in range(120):
+              try:
+                  with urllib.request.urlopen(ready_url, timeout=1) as response:
+                      ready = json.load(response)
+                  assert response.status == 200
+                  assert ready == {
+                      "status": "ready",
+                      "ready": True,
+                      "version": expected_version,
+                      "store_type": "PostgresStateStore",
+                      "checks": {"state_store": True},
+                  }, ready
+                  break
+              except (AssertionError, OSError, urllib.error.URLError) as exc:
+                  last_error = exc
+                  time.sleep(0.25)
+          else:
+              raise SystemExit(f"PostgreSQL backend did not become ready: {last_error}")
+          PY
+          python - <<'PY'
+          import asyncio
+          import os
+
+          import redis.asyncio as redis
+          from sqlalchemy import text
+          from sqlalchemy.ext.asyncio import create_async_engine
+
+          async def verify() -> None:
+              engine = create_async_engine(os.environ["STATE_DB_URL"])
+              try:
+                  async with engine.connect() as connection:
+                      sentinel = await connection.scalar(text(
+                          "SELECT count(*) FROM kv "
+                          "WHERE namespace = 'health' AND key = 'readiness'"
+                      ))
+                      vector = await connection.scalar(text(
+                          "SELECT count(*) FROM pg_extension WHERE extname = 'vector'"
+                      ))
+                  assert sentinel == 1, f"readiness sentinel count={sentinel}"
+                  assert vector == 1, f"pgvector extension count={vector}"
+              finally:
+                  await engine.dispose()
+
+              client = redis.from_url(os.environ["REDIS_URL"])
+              try:
+                  assert await client.ping() is True
+              finally:
+                  await client.aclose()
+
+          asyncio.run(verify())
+          PY
+          kill "${server_pid}"
+          wait "${server_pid}" || true
+          trap - EXIT
+
   webui-tests:
     name: Web UI tests (Vitest)
     runs-on: ubuntu-latest
@@ -221,29 +351,29 @@ jobs:
       run:
         working-directory: webui
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: webui/package-lock.json
       - name: Install locked dependencies
         run: npm ci
-      - name: Run the complete Vitest suite
-        run: npm test
+      - name: Run the complete quiet Vitest suite
+        run: npm run test:strict
 
   types-and-api:
     name: TypeScript & OpenAPI drift
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
           cache-dependency-path: backend/requirements.txt
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -267,8 +397,8 @@ jobs:
       run:
         working-directory: webui
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -286,8 +416,8 @@ jobs:
       run:
         working-directory: webui
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -302,8 +432,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
@@ -331,13 +461,13 @@ jobs:
       run:
         working-directory: webui
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: webui/package-lock.json
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
@@ -351,28 +481,78 @@ jobs:
           TLSOC_RELEASE_CHANNEL: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && 'stable' || 'testing' }}
           TLSOC_BUILD_SHA: ${{ github.sha }}
         run: |
-          export TLSOC_BUILD_DATE="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          TLSOC_BUILD_DATE="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          export TLSOC_BUILD_DATE
           npm run build
       - name: Upload Web UI production bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: webui-production-${{ github.sha }}
           path: webui/dist/
           if-no-files-found: error
           retention-days: 7
 
-  deploy-contracts:
-    name: Deploy & shell contracts
+  workflow-shell-contracts:
+    name: Workflow & shell contracts
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: .ci/requirements.txt
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.23.6"
+          cache: false
+      - name: Install pinned CI policy dependencies
+        run: python -m pip install --requirement .ci/requirements.txt
+      - name: Enforce fail-closed workflow policy
+        run: |
+          python scripts/check_ci_contract.py
+          python -m unittest scripts.test_check_ci_contract -v
+      - name: Install the verified ShellCheck binary
+        env:
+          SHELLCHECK_VERSION: "0.10.0"
+          SHELLCHECK_SHA256: 6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87
+        run: |
+          archive="${RUNNER_TEMP}/shellcheck.tar.xz"
+          curl --fail --silent --show-error --location \
+            --output "${archive}" \
+            "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+          echo "${SHELLCHECK_SHA256}  ${archive}" | sha256sum --check
+          tar -xJf "${archive}" -C "${RUNNER_TEMP}"
+          install -d "${RUNNER_TEMP}/bin"
+          install -m 0755 \
+            "${RUNNER_TEMP}/shellcheck-v${SHELLCHECK_VERSION}/shellcheck" \
+            "${RUNNER_TEMP}/bin/shellcheck"
+          echo "${RUNNER_TEMP}/bin" >> "${GITHUB_PATH}"
+      - name: Validate every GitHub Actions workflow with ShellCheck
+        run: |
+          shellcheck --version
+          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
       - name: Validate every tracked shell script
         run: |
           while IFS= read -r -d '' script; do
             echo "checking ${script}"
             bash -n "${script}"
           done < <(git ls-files -z '*.sh')
+
+  deploy-contracts:
+    name: Deploy & updater contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Install updater wire-contract dependencies
+        run: python -m pip install pydantic==2.6.4 httpx==0.27.0
       - name: Reject an invalid local demo mode before startup
         run: |
           set +e
@@ -387,11 +567,139 @@ jobs:
           TLSOC_PG_PASSWORD: ci-compose-password
         run: |
           docker compose -f deploy/docker-compose.agnostic.yml config --quiet
+          docker compose -f deploy/docker-compose.agnostic.yml config --format json \
+            > /tmp/standalone-compose.json
+          jq -e '.services["tlsoc-backend"].depends_on["agentic-soc-updater"] == null' \
+            /tmp/standalone-compose.json
           docker compose -f deploy/docker-compose.agnostic.yml config --services \
             | LC_ALL=C sort > /tmp/actual-services
-          printf '%s\n' tlsoc-backend tlsoc-postgres tlsoc-redis tlsoc-webui \
+          printf '%s\n' agentic-soc-updater tlsoc-backend tlsoc-postgres tlsoc-redis tlsoc-webui \
             | LC_ALL=C sort > /tmp/expected-services
           diff -u /tmp/expected-services /tmp/actual-services
+      - name: Test signed updater contracts and rollback state machine
+        run: |
+          python -m unittest discover -s updater/tests -v
+          python -m py_compile updater/agentic_soc_updater/*.py \
+            scripts/build_upgrade_plan.py scripts/compose_lifecycle_guard.py
+
+  python-static:
+    name: Python static correctness
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: .ci/requirements.txt
+      - name: Install pinned static-analysis tools
+        run: python -m pip install --requirement .ci/requirements.txt
+      - name: Reject fatal Python defects
+        run: >-
+          python -m ruff check backend/app backend/tests
+          updater/agentic_soc_updater scripts --select E9,F63,F7,F82
+
+  container-images:
+    name: Release image build (${{ matrix.component }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: backend
+            context: backend
+            dockerfile: backend/Dockerfile
+            target: full
+            image: agentic-soc-ci/backend
+          - component: webui
+            context: .
+            dockerfile: webui/Dockerfile
+            target: ""
+            image: agentic-soc-ci/webui
+          - component: updater
+            context: updater
+            dockerfile: updater/Dockerfile
+            target: ""
+            image: agentic-soc-ci/updater
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 1
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Resolve immutable candidate metadata
+        id: metadata
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          version="$(tr -d '[:space:]' < VERSION)"
+          build_date="$(git show -s --format=%cI HEAD)"
+          channel="testing"
+          if [[ "${GITHUB_REF}" == refs/heads/main || "${GITHUB_REF}" == refs/tags/v* ]]; then
+            channel="stable"
+          fi
+          {
+            echo "version=${version}"
+            echo "build_date=${build_date}"
+            echo "channel=${channel}"
+          } >> "${GITHUB_OUTPUT}"
+      - name: Build the shipping image without publishing
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
+          platforms: linux/amd64
+          push: false
+          load: true
+          provenance: false
+          sbom: false
+          tags: ${{ matrix.image }}:${{ github.sha }}
+          cache-from: type=gha,scope=release-image-${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=release-image-${{ matrix.component }}
+          build-args: |
+            TLSOC_VERSION=${{ steps.metadata.outputs.version }}
+            TLSOC_RELEASE_CHANNEL=${{ steps.metadata.outputs.channel }}
+            TLSOC_BUILD_SHA=${{ github.sha }}
+            TLSOC_BUILD_DATE=${{ steps.metadata.outputs.build_date }}
+      - name: Verify image identity and runtime contract
+        env:
+          IMAGE: ${{ matrix.image }}:${{ github.sha }}
+          COMPONENT: ${{ matrix.component }}
+          EXPECTED_VERSION: ${{ steps.metadata.outputs.version }}
+          EXPECTED_CHANNEL: ${{ steps.metadata.outputs.channel }}
+          EXPECTED_DATE: ${{ steps.metadata.outputs.build_date }}
+        run: |
+          docker image inspect "${IMAGE}" > "${RUNNER_TEMP}/${COMPONENT}-image.json"
+          jq -e \
+            --arg version "${EXPECTED_VERSION}" \
+            --arg channel "${EXPECTED_CHANNEL}" \
+            --arg sha "${GITHUB_SHA}" \
+            --arg created "${EXPECTED_DATE}" '
+              .[0].Config.Labels["org.opencontainers.image.title"] != null and
+              .[0].Config.Labels["org.opencontainers.image.version"] == $version and
+              .[0].Config.Labels["dev.tlsoc.release.channel"] == $channel and
+              .[0].Config.Labels["org.opencontainers.image.revision"] == $sha and
+              .[0].Config.Labels["org.opencontainers.image.created"] == $created and
+              .[0].Config.Healthcheck != null
+            ' "${RUNNER_TEMP}/${COMPONENT}-image.json"
+          case "${COMPONENT}" in
+            backend)
+              jq -e '.[0].Config.User == "10001:10001" and .[0].Config.ExposedPorts["8088/tcp"] != null' \
+                "${RUNNER_TEMP}/${COMPONENT}-image.json"
+              ;;
+            webui)
+              jq -e '.[0].Config.ExposedPorts["80/tcp"] != null' \
+                "${RUNNER_TEMP}/${COMPONENT}-image.json"
+              ;;
+            updater)
+              jq -e '
+                .[0].Config.Labels["io.agentic-soc.update-protocol"] == "1" and
+                .[0].Config.Entrypoint == ["python3", "-m", "agentic_soc_updater"]
+              ' "${RUNNER_TEMP}/${COMPONENT}-image.json"
+              ;;
+          esac
 
   ci:
     name: CI passed
@@ -403,13 +711,17 @@ jobs:
       - backend-tests
       - backend-package
       - backend-smoke
+      - postgres-redis
       - webui-tests
       - types-and-api
       - webui-lint
       - design-gates
       - docs
       - webui-build
+      - workflow-shell-contracts
       - deploy-contracts
+      - python-static
+      - container-images
     steps:
       - name: Require every quality gate
         run: |
@@ -418,13 +730,17 @@ jobs:
             "${{ needs.backend-tests.result }}"
             "${{ needs.backend-package.result }}"
             "${{ needs.backend-smoke.result }}"
+            "${{ needs.postgres-redis.result }}"
             "${{ needs.webui-tests.result }}"
             "${{ needs.types-and-api.result }}"
             "${{ needs.webui-lint.result }}"
             "${{ needs.design-gates.result }}"
             "${{ needs.docs.result }}"
             "${{ needs.webui-build.result }}"
+            "${{ needs.workflow-shell-contracts.result }}"
             "${{ needs.deploy-contracts.result }}"
+            "${{ needs.python-static.result }}"
+            "${{ needs.container-images.result }}"
           )
           printf 'quality gate results: %s\n' "${results[*]}"
           for result in "${results[@]}"; do

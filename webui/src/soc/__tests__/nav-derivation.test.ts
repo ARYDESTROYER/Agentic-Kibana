@@ -56,8 +56,15 @@ describe('navLabel — the registry is the authoritative label source', () => {
     });
   });
 
-  it('gates every Intelligence child with the matching backend read grant', () => {
+  it('keeps Intelligence labels explicit and aligned with backend read grants', () => {
     const intelligence = FEATURES.find((feature) => feature.id === 'intelligence');
+    expect((intelligence?.children ?? []).map(({ id, label }) => ({ id, label }))).toEqual([
+      { id: 'knowledge', label: 'Knowledge corpus' },
+      { id: 'runbooks', label: 'Reference runbooks' },
+      { id: 'memory', label: 'Operator memory' },
+      { id: 'playbooks', label: 'Response playbooks' },
+      { id: 'personas', label: 'Agent personas' },
+    ]);
     const permissions = Object.fromEntries(
       (intelligence?.children ?? []).map((child) => [child.id, child.perm]),
     );
@@ -67,6 +74,9 @@ describe('navLabel — the registry is the authoritative label source', () => {
       memory: { resource: 'memory', action: 'read' },
       playbooks: { resource: 'playbooks', action: 'read' },
     });
+    // The read-only persona endpoint is authenticated but has no resource-specific
+    // grant. The UI must not invent a stricter permission than the API contract.
+    expect(permissions.personas).toBeUndefined();
   });
 
   it('gates Approvals with the proposal-list read grant', () => {

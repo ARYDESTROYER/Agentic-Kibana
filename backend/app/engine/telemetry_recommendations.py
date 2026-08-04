@@ -14,6 +14,18 @@ from ..models import Case
 
 TELEMETRY_GAP_SCHEMA = "agentic-soc.telemetry-gap/v1"
 
+# No production query/tool path currently returns a controlled field-level failure
+# code that can be mapped to this schema.  Do not infer a gap from a missing connector
+# or parse arbitrary exception text: both would manufacture recommendations without
+# evidence.  The API publishes this explicit capability state until a connector-neutral
+# query result can carry one of ``_PROOF_RESULTS`` at the actual failure boundary.
+TELEMETRY_GAP_CAPTURE_STATUS = "not_available"
+TELEMETRY_GAP_CAPTURE_REASON = (
+    "Automatic telemetry-gap capture is not available because query tools do not yet "
+    "emit controlled field-level failure evidence. Connector absence and free-form "
+    "errors are intentionally not treated as proof."
+)
+
 # Explicit, operator-auditable mapping. Unknown fields/sources are ignored rather
 # than allowing source-influenced text to manufacture product recommendations.
 _SUPPORTED_GAPS: dict[tuple[str, str], tuple[str, str]] = {
@@ -87,4 +99,3 @@ def recommend_sources(cases: Iterable[Case]) -> list[dict[str, Any]]:
         })
     rows.sort(key=lambda row: (-row["affected_case_count"], row["source_type"]))
     return rows
-

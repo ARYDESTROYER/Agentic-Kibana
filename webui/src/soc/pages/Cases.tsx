@@ -69,6 +69,7 @@ import {
 import { PageContainer } from '@/soc/components/PageContainer';
 import { PageHeader } from '@/soc/components/PageHeader';
 import { ControlBar } from '@/soc/components/ControlBar';
+import { RefreshButton } from '@/soc/components/RefreshButton';
 import { ConfirmDialog } from '@/soc/components/ConfirmDialog';
 import {
   DataTable,
@@ -1406,16 +1407,11 @@ export default function Cases({
               )}
               {oldestFirst ? 'Oldest first' : 'Newest first'}
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
+            <RefreshButton
               className="h-8 rounded-[4px] text-xs"
               onClick={() => void load()}
-              disabled={loading}
-            >
-              <RefreshCw className={cn('mr-1.5 size-4', loading && 'animate-spin')} aria-hidden />
-              Refresh
-            </Button>
+              refreshing={loading}
+            />
           </>
         }
       />

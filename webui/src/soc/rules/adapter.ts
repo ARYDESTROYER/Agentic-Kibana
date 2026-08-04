@@ -13,11 +13,11 @@
  * └──────────────────────────────────────────────────────────────────────────────┘
  *
  * Wire realities the mapping honours:
- *  - `RuleDefinition.match` is a SINGLE `RuleMatch`, not a list. The flat condition
- *    builder's FIRST predicate row is authoritative for the wire `match`; additional
- *    rows are a UI-forward affordance (nested/multi-predicate is the gated Phase-3
- *    wave) and are dropped on save with a visible note — never silently ANDed into a
- *    shape the backend cannot evaluate.
+ *  - `RuleDefinition.match` is a SINGLE `RuleMatch`, not a list. The normal editor
+ *    authors exactly one predicate and the FIRST row is authoritative defensively.
+ *  - `mitre`/`schedule`/`suppression` are compatibility metadata. The normal editor
+ *    does not expose inactive authoring controls, but existing values MUST survive an
+ *    unrelated edit instead of being erased.
  *  - `CorrelationRule.mode` is derived from `n` on save (`n === 1 → 'every'`, else
  *    `'threshold'`) unless the operator explicitly chose `'never'`.
  *  - anomaly maps onto the shared `Preferences.baseline` (`BaselineConfig`) block; a
@@ -81,6 +81,23 @@ export function detectionMatchToWire(form: Extract<RuleForm, { tier: 'detection_
   if (form.about.modelOverride && Object.keys(form.about.modelOverride).length > 0) {
     def.model_override = form.about.modelOverride;
   }
+  if (form.about.mitre !== undefined) {
+    def.mitre = [...form.about.mitre];
+  }
+  if (form.schedule !== undefined) {
+    def.schedule = {
+      interval_seconds: form.schedule.intervalSeconds ?? null,
+      lookback_seconds: form.schedule.lookbackSeconds ?? null,
+    };
+  }
+  if (form.suppression !== undefined) {
+    def.suppression = {
+      by: [...form.suppression.by],
+      scope: form.suppression.scope,
+      window_seconds: form.suppression.windowSeconds ?? null,
+      missing_field: form.suppression.missingField,
+    };
+  }
   return def;
 }
 
@@ -88,6 +105,20 @@ export function detectionMatchToWire(form: Extract<RuleForm, { tier: 'detection_
 export function wireToDetectionMatch(def: RuleDefinition): Extract<RuleForm, { tier: 'detection_match' }> {
   const corr = def.correlation ?? {};
   const n = typeof corr.n === 'number' ? corr.n : 5;
+  const schedule = def.schedule
+    ? {
+        intervalSeconds: def.schedule.interval_seconds ?? undefined,
+        lookbackSeconds: def.schedule.lookback_seconds ?? undefined,
+      }
+    : undefined;
+  const suppression = def.suppression
+    ? {
+        by: [...(def.suppression.by ?? [])],
+        scope: def.suppression.scope === 'per_window' ? ('per_window' as const) : ('per_run' as const),
+        windowSeconds: def.suppression.window_seconds ?? undefined,
+        missingField: def.suppression.missing_field === 'keep' ? ('keep' as const) : ('suppress' as const),
+      }
+    : undefined;
   const first = def.match
     ? {
         field: def.match.field ?? '',
@@ -103,7 +134,7 @@ export function wireToDetectionMatch(def: RuleDefinition): Extract<RuleForm, { t
       enabled: def.enabled ?? true,
       priority: typeof def.priority === 'number' ? def.priority : 100,
       modelOverride: def.model_override ?? {},
-      mitre: [],
+      mitre: [...(def.mitre ?? [])],
     },
     predicates: [first],
     threshold: {
@@ -112,6 +143,8 @@ export function wireToDetectionMatch(def: RuleDefinition): Extract<RuleForm, { t
       windowSeconds: typeof corr.window_seconds === 'number' ? corr.window_seconds : 120,
       mode: (corr.mode as CorrelationMode) ?? modeForN(n),
     },
+    ...(schedule ? { schedule } : {}),
+    ...(suppression ? { suppression } : {}),
   };
 }
 

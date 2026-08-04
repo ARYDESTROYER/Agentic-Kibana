@@ -41,6 +41,7 @@ import {
   RefreshCw,
   GitBranch,
   ExternalLink,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { Button } from '@/ui/button';
 import { badgeVariants } from '@/ui/badge';
@@ -51,7 +52,9 @@ import {
   Sheet,
   SheetContent,
   SheetDescription,
+  SheetHeader,
   SheetTitle,
+  SheetTrigger,
 } from '@/ui/sheet';
 import {
   DropdownMenu,
@@ -91,7 +94,13 @@ import { GlassSurface } from './components/GlassSurface';
 import { NavSidebar, useNavPrefs } from './components/NavSidebar';
 import { NotificationBell } from './components/NotificationBell';
 import { ConfirmDialog } from './components/ConfirmDialog';
+import {
+  SystemUpdateControl,
+  systemUpdateTriggerPresentation,
+} from './components/SystemUpdateControl';
+import { useAuth } from './auth';
 import { useDeploymentUpdate } from './hooks/useDeploymentUpdate';
+import { useDeploymentUpgrade } from './hooks/useDeploymentUpgrade';
 import { useUpstreamReleaseUpdates } from './hooks/useUpstreamReleaseUpdates';
 import { useHasUnsavedChanges } from './hooks/useDirtyDraft';
 import { useIsMobile } from './hooks/useMediaQuery';
@@ -105,6 +114,55 @@ import type { RouteMotionProps } from './components/motion/RouteMotion';
 
 /** The single content inset (gutter + vertical rhythm) applied to every routed page. */
 const CONTENT_INSET = 'mx-auto w-full min-w-0 px-4 py-6 sm:px-6 lg:px-8 2xl:px-12';
+
+/**
+ * Self-update is deliberately stricter than the Console's auth-off/RBAC-off
+ * compatibility behavior: only an authenticated built-in super_admin with the
+ * explicit server grant may even probe or render the installation control.
+ */
+export function canUseSystemUpdateControl(
+  authEnabled: boolean,
+  role: string | null,
+  hasPermission: (resource: string, action: string) => boolean,
+): boolean {
+  return authEnabled && role === 'super_admin' && hasPermission('system_updates', 'read');
+}
+
+/** Auto-activation is allowed only for the exact signed Stable pair reported by the supervisor. */
+export function supervisedTargetMatchesRunningStable(
+  current: { version: string; channel: string; commit_sha: string } | null,
+  target: DeployedReleaseManifest | null,
+): boolean {
+  if (!current || !target) return false;
+  const serverCommit = current.commit_sha.trim();
+  const targetCommit = target.commitSha.trim();
+  return (
+    current.channel === 'stable' &&
+    target.channel === 'stable' &&
+    target.version === current.version &&
+    serverCommit !== '' &&
+    targetCommit !== '' &&
+    serverCommit.toLowerCase() !== 'unknown' &&
+    targetCommit.toLowerCase() !== 'unknown' &&
+    targetCommit === serverCommit
+  );
+}
+
+/** Keep the verified manual activation action after the one automatic attempt. */
+export function shouldShowDeploymentActivationFallback(
+  target: DeployedReleaseManifest | null,
+  needsBrowserActivation: boolean,
+  supervisedUpdateActive: boolean,
+  activationAttemptedJobId: string | null,
+  supervisedJobId: string | null,
+): boolean {
+  return Boolean(
+    target &&
+      !supervisedUpdateActive &&
+      (!needsBrowserActivation ||
+        (supervisedJobId !== null && activationAttemptedJobId === supervisedJobId)),
+  );
+}
 
 export interface AppShellProps {
   /** The currently-active page id (drives the rail highlight + breadcrumb). */
@@ -288,8 +346,8 @@ export function ReleaseBadge({
           )}
         >
           <span>v{release.version}</span>
-          <span aria-hidden="true">·</span>
-          <span>{release.channelLabel}</span>
+          <span className="hidden min-[360px]:inline" aria-hidden="true">·</span>
+          <span className="hidden min-[360px]:inline">{release.channelLabel}</span>
         </button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-[min(22rem,calc(100vw-2rem))] space-y-3 text-xs">
@@ -689,14 +747,39 @@ export const AppShell: React.FC<AppShellProps> = ({
     [isDark, setThemeMode],
   );
   const { health, err } = useHealth();
+  const { authEnabled, role, hasPermission } = useAuth();
   const deploymentUpdate = useDeploymentUpdate();
+  const checkDeployedRelease = deploymentUpdate.checkNow;
+  const activateDeployedRelease = deploymentUpdate.activate;
+  const deployedReleaseTarget = deploymentUpdate.target;
+  const deployedReleaseActivating = deploymentUpdate.activating;
+  // Self-update is intentionally stricter than ordinary backwards-compatible RBAC:
+  // auth must be ON and the principal must be the built-in platform owner. The
+  // backend repeats this check, requires a registered current session + fresh auth,
+  // and remains authoritative if the Console state is stale.
+  const canReadSystemUpdates = canUseSystemUpdateControl(authEnabled, role, hasPermission);
+  const canApplySystemUpdates =
+    canReadSystemUpdates && hasPermission('system_updates', 'apply');
+  const canRollbackSystemUpdates =
+    canReadSystemUpdates && hasPermission('system_updates', 'rollback');
+  const deploymentUpgrade = useDeploymentUpgrade({ enabled: canReadSystemUpdates });
+  const supervisedJobId = deploymentUpgrade.job?.job_id ?? null;
+  const supervisedUpdateActive = Boolean(
+    deploymentUpgrade.job &&
+      ['queued', 'running', 'rolling_back'].includes(deploymentUpgrade.job.status),
+  );
+  const supervisedCurrent = deploymentUpgrade.status?.current ?? null;
+  const needsBrowserActivation = deploymentUpgrade.needsBrowserActivation;
   const upstreamUpdates = useUpstreamReleaseUpdates();
   const buildInfo = deploymentUpdate.buildInfo;
   const hasUnsavedChanges = useHasUnsavedChanges();
+  const [activationAttemptedJobId, setActivationAttemptedJobId] = React.useState<string | null>(null);
   const { active: demoActive, refresh: refreshDemo } = useDemo();
   const profile = useAccountProfile(Boolean(username));
   const [paletteOpen, setPaletteOpen] = React.useState(false);
   const [mobileNavOpen, setMobileNavOpen] = React.useState(false);
+  const [compactControlsOpen, setCompactControlsOpen] = React.useState(false);
+  const paletteReturnFocusRef = React.useRef<HTMLElement | null>(null);
   const mobileNavRef = React.useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
   const reducedMotion = usePrefersReducedMotion();
@@ -708,6 +791,87 @@ export const AppShell: React.FC<AppShellProps> = ({
         channel: releasePresentation.channel,
         commitSha: releasePresentation.console.commitSha,
       });
+  const showSourceNotice = Boolean(
+    sourceNotice &&
+      !deploymentUpdate.target &&
+      deploymentUpgrade.status?.release_discovery.state !== 'candidate_observed' &&
+      !deploymentUpgrade.status?.active_job,
+  );
+  const updatePresentation = systemUpdateTriggerPresentation(deploymentUpgrade);
+  const keepSystemUpdateDirectOnMobile =
+    updatePresentation.priority === 'actionable' || deploymentUpgrade.progressOpen;
+  const showSystemUpdateDirect =
+    canApplySystemUpdates && (!isMobile || keepSystemUpdateDirectOnMobile);
+  const showSystemUpdateInCompactControls =
+    canApplySystemUpdates &&
+    isMobile &&
+    updatePresentation.visible &&
+    !keepSystemUpdateDirectOnMobile;
+  const showDeploymentUpdate = Boolean(
+    deploymentUpdate.target &&
+      shouldShowDeploymentActivationFallback(
+        deploymentUpdate.target,
+        deploymentUpgrade.needsBrowserActivation,
+        supervisedUpdateActive,
+        activationAttemptedJobId,
+        supervisedJobId,
+      ),
+  );
+
+  const openPalette = React.useCallback((opener?: HTMLElement | null) => {
+    const active =
+      opener ??
+      (document.activeElement instanceof HTMLElement && document.activeElement !== document.body
+        ? document.activeElement
+        : null);
+    paletteReturnFocusRef.current = active;
+    setPaletteOpen(true);
+  }, []);
+  const handlePaletteOpenChange = React.useCallback((open: boolean) => {
+    setPaletteOpen(open);
+    if (open) return;
+    const returnTarget = paletteReturnFocusRef.current;
+    paletteReturnFocusRef.current = null;
+    window.requestAnimationFrame(() => {
+      if (returnTarget?.isConnected) returnTarget.focus();
+    });
+  }, []);
+
+  // A successful supervisor job has updated the server-side pair, but this open tab
+  // still runs the old hashed assets. Reuse the existing same-origin release verifier
+  // before replacing the document; it preserves the exact hash route. One attempted
+  // activation per durable job prevents a verification failure from turning into a
+  // reload loop—the coherent-pair fallback action remains available for manual retry.
+  React.useEffect(() => {
+    if (!needsBrowserActivation || hasUnsavedChanges) return;
+    void checkDeployedRelease();
+  }, [checkDeployedRelease, needsBrowserActivation, hasUnsavedChanges]);
+  React.useEffect(() => {
+    const jobId = supervisedJobId;
+    const current = supervisedCurrent;
+    const target = deployedReleaseTarget;
+    if (
+      !jobId ||
+      !current ||
+      !target ||
+      !needsBrowserActivation ||
+      hasUnsavedChanges ||
+      deployedReleaseActivating ||
+      activationAttemptedJobId === jobId
+    ) return;
+    if (!supervisedTargetMatchesRunningStable(current, target)) return;
+    setActivationAttemptedJobId(jobId);
+    void activateDeployedRelease();
+  }, [
+    activateDeployedRelease,
+    activationAttemptedJobId,
+    deployedReleaseActivating,
+    deployedReleaseTarget,
+    hasUnsavedChanges,
+    needsBrowserActivation,
+    supervisedCurrent,
+    supervisedJobId,
+  ]);
   // Nav collapse + open-group state (shell-owned; hydrates synchronously from a
   // localStorage mirror to avoid a first-paint flash, then reconciles with the
   // server-side UserPrefs.misc and persists every change). See useNavPrefs.
@@ -746,6 +910,14 @@ export const AppShell: React.FC<AppShellProps> = ({
     [onNavigate],
   );
 
+  const navigateFromCompactControls = React.useCallback(
+    (id: PageId) => {
+      setCompactControlsOpen(false);
+      onNavigate(id);
+    },
+    [onNavigate],
+  );
+
   // After activating a destination, hand focus to the routed main landmark so a
   // collapsed-rail group flyout closes and keyboard/screen-reader users receive an
   // immediate, predictable starting point in the content they just opened.
@@ -759,9 +931,15 @@ export const AppShell: React.FC<AppShellProps> = ({
     [onNavigate],
   );
   React.useEffect(() => {
-    if (!isMobile) setMobileNavOpen(false);
+    if (!isMobile) {
+      setMobileNavOpen(false);
+      setCompactControlsOpen(false);
+    }
   }, [isMobile]);
-  React.useEffect(() => setMobileNavOpen(false), [page]);
+  React.useEffect(() => {
+    setMobileNavOpen(false);
+    setCompactControlsOpen(false);
+  }, [page]);
 
   // Refetch the demo status on every route change so the banner/badges stay fresh
   // even between the background poll ticks (cheap GET; inert when demo is off).
@@ -813,11 +991,25 @@ export const AppShell: React.FC<AppShellProps> = ({
   // Product name for the breadcrumb prefix; falls back to a neutral default.
   const productName = branding.product_name?.trim() || branding.org_name?.trim() || 'Agentic SOC';
   const logoUrl = branding.logo_data_url?.trim() || '';
+  const accountDisplay = (profile?.display_name || username || '').trim();
+  const accountRole = profile?.role ? humanizeToken(String(profile.role)) : '';
   // Breadcrumb leaf label — resolves top-level items, disclosure children, and the
   // consolidated sub-pages (navItem only knows top-level rail items).
   const pageLabel = navItem(page)?.label ?? navLabel(page);
 
-  const baseHv = healthView(health, err);
+  const plannedReconnect = deploymentUpgrade.connection === 'reconnecting';
+  const baseHv: HealthView = plannedReconnect
+    ? {
+        tone: 'muted',
+        label: 'Updating…',
+        icon: RefreshCw,
+        detail: 'Reconnecting after a planned service restart',
+        title: 'System update in progress',
+        help:
+          'The updater is restarting the backend and Console as planned. The durable job ' +
+          'continues outside this browser and reconnects automatically.',
+      }
+    : healthView(health, err);
   // Round-2 Wave 5 tie-in (promised in W1): while demo mode is active the app's own
   // state runs in a throwaway in-memory store, so a "Store degraded"/unreachable
   // warning is expected and irrelevant — MUTE it to a calm demo note rather than
@@ -838,14 +1030,17 @@ export const AppShell: React.FC<AppShellProps> = ({
       : baseHv;
   const HealthIcon = hv.icon;
 
-  // Cmd/Ctrl-K opens the palette; Cmd/Ctrl-B toggles the sidebar width.
+  // Cmd/Ctrl-K opens the palette; Cmd/Ctrl-B toggles the sidebar width. The palette
+  // has no Radix DialogTrigger of its own, so retain the actual external opener and
+  // explicitly restore it when Escape, selection, or the close button dismisses it.
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return;
       const k = e.key.toLowerCase();
       if (k === 'k') {
         e.preventDefault();
-        setPaletteOpen((v) => !v);
+        if (paletteOpen) handlePaletteOpenChange(false);
+        else openPalette();
       } else if (k === 'b') {
         e.preventDefault();
         toggleCollapsed();
@@ -853,7 +1048,7 @@ export const AppShell: React.FC<AppShellProps> = ({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [toggleCollapsed]);
+  }, [handlePaletteOpenChange, openPalette, paletteOpen, toggleCollapsed]);
 
   // The hamburger toggle, shared by the expanded-header + collapsed-rail slots.
   const navToggle = (
@@ -886,7 +1081,7 @@ export const AppShell: React.FC<AppShellProps> = ({
     // shares announce() so deep components (DataTable sort/bulk outcomes, etc.) can
     // speak status to assistive tech without a visible UI change.
     <AnnouncerProvider>
-    <div className="flex min-h-dvh bg-canvas text-foreground">
+    <div className="flex min-h-dvh overflow-x-hidden bg-canvas text-foreground">
       {/* Skip-to-main link (#1 — WCAG 2.4.1). Visually hidden until it receives
           keyboard focus, then it pins to the top-left so a keyboard/SR user can jump
           straight past the nav to the routed content (#socMain). */}
@@ -989,7 +1184,7 @@ export const AppShell: React.FC<AppShellProps> = ({
           as="header"
           blur="md"
           rim={false}
-          className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-border px-4"
+          className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-border px-2 sm:gap-3 sm:px-4"
         >
           {isMobile ? (
             <Button
@@ -1021,7 +1216,7 @@ export const AppShell: React.FC<AppShellProps> = ({
               `aria-label` so it stays distinct from the mobile "Open search" opener. */}
           <button
             type="button"
-            onClick={() => setPaletteOpen(true)}
+            onClick={(event) => openPalette(event.currentTarget)}
             aria-label="Search cases, sources, and actions"
             aria-keyshortcuts="Control+K Meta+K"
             className={cn(
@@ -1046,46 +1241,58 @@ export const AppShell: React.FC<AppShellProps> = ({
               variant="ghost"
               size="icon"
               className="h-8 w-8 md:hidden"
-              onClick={() => setPaletteOpen(true)}
+              onClick={(event) => openPalette(event.currentTarget)}
               aria-label="Open search"
               aria-keyshortcuts="Control+K Meta+K"
             >
               <Search className="h-4 w-4" aria-hidden />
             </Button>
 
-            {/* In-app notification bell (#8) — self-contained: polls the unread
-                count, opens a recent-items dropdown, links to the Inbox page. */}
-            <NotificationBell onNavigate={onNavigate} />
+            {!isMobile ? (
+              <>
+                {/* In-app notification bell (#8) — self-contained: polls the unread
+                    count, opens a recent-items dropdown, links to the Inbox page. */}
+                <NotificationBell onNavigate={onNavigate} />
 
-            {/* Theme toggle */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={toggleTheme}
-                  aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-                >
-                  {isDark ? (
-                    <Sun className="h-4 w-4" aria-hidden />
-                  ) : (
-                    <Moon className="h-4 w-4" aria-hidden />
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{isDark ? 'Light mode' : 'Dark mode'}</TooltipContent>
-            </Tooltip>
+                {/* Theme toggle */}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={toggleTheme}
+                      aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+                    >
+                      {isDark ? (
+                        <Sun className="h-4 w-4" aria-hidden />
+                      ) : (
+                        <Moon className="h-4 w-4" aria-hidden />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{isDark ? 'Light mode' : 'Dark mode'}</TooltipContent>
+                </Tooltip>
+              </>
+            ) : null}
 
             {/* Release identity is build-time first, then reconciled with the public
                 backend build-info endpoint. It never infers Stable from SemVer. */}
             <ReleaseBadge buildInfo={buildInfo} />
 
-            {sourceNotice && !deploymentUpdate.target ? (
+            {!isMobile && sourceNotice && showSourceNotice ? (
               <UpstreamSourceNoticeButton notice={sourceNotice} />
             ) : null}
 
-            {deploymentUpdate.target ? (
+            {showSystemUpdateDirect ? (
+              <SystemUpdateControl
+                upgrade={deploymentUpgrade}
+                hasUnsavedChanges={hasUnsavedChanges}
+                canRollback={canRollbackSystemUpdates}
+              />
+            ) : null}
+
+            {deploymentUpdate.target && showDeploymentUpdate ? (
               <DeploymentUpdateButton
                 target={deploymentUpdate.target}
                 activating={deploymentUpdate.activating}
@@ -1094,52 +1301,256 @@ export const AppShell: React.FC<AppShellProps> = ({
               />
             ) : null}
 
-            {/* Health pill — a click-to-open Popover with plain-language help.
-                store_type/help text is backend-derived and rendered as PLAIN
-                text only (never markup). */}
-            <Popover>
-              <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  className={cn(
-                    'inline-flex items-center gap-1.5 rounded-md border bg-card px-2.5 py-1 text-xs font-medium',
-                    'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                    TONE_PILL[hv.tone],
-                  )}
-                  aria-live="polite"
-                  aria-label={`Platform health: ${hv.label}`}
-                >
-                  <HealthIcon className="h-3.5 w-3.5" aria-hidden />
-                  <span className="hidden lg:inline">{hv.label}</span>
-                </button>
-              </PopoverTrigger>
-              <PopoverContent
-                align="end"
-                className="w-[min(20rem,calc(100vw-2rem))] space-y-1.5 text-xs leading-relaxed"
-              >
-                <p className="flex items-center gap-1.5 font-semibold text-foreground">
-                  <HealthIcon className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                  {hv.title}
-                </p>
-                <p className="whitespace-pre-line text-muted-foreground">{hv.help}</p>
-                <p className="border-t border-border pt-1.5 font-mono text-[11px] text-muted-foreground">
-                  {hv.detail}
-                </p>
-              </PopoverContent>
-            </Popover>
-
-            {/* User chip + menu (only when auth enabled + authenticated) */}
-            {username ? (
+            {!isMobile ? (
               <>
-                <Separator orientation="vertical" className="hidden h-6 lg:block" />
-                <UserMenu
-                  username={username}
-                  profile={profile}
-                  onNavigate={onNavigate}
-                  onLogout={onLogout}
-                />
+                {/* Health pill — a click-to-open Popover with plain-language help.
+                    store_type/help text is backend-derived and rendered as PLAIN
+                    text only (never markup). */}
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className={cn(
+                        'inline-flex items-center gap-1.5 rounded-md border bg-card px-2.5 py-1 text-xs font-medium',
+                        'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                        TONE_PILL[hv.tone],
+                      )}
+                      aria-live="polite"
+                      aria-label={`Platform health: ${hv.label}`}
+                    >
+                      <HealthIcon className="h-3.5 w-3.5" aria-hidden />
+                      <span className="hidden lg:inline">{hv.label}</span>
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    align="end"
+                    className="w-[min(20rem,calc(100vw-2rem))] space-y-1.5 text-xs leading-relaxed"
+                  >
+                    <p className="flex items-center gap-1.5 font-semibold text-foreground">
+                      <HealthIcon className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                      {hv.title}
+                    </p>
+                    <p className="whitespace-pre-line text-muted-foreground">{hv.help}</p>
+                    <p className="border-t border-border pt-1.5 font-mono text-[11px] text-muted-foreground">
+                      {hv.detail}
+                    </p>
+                  </PopoverContent>
+                </Popover>
+
+                {/* User chip + menu (only when auth enabled + authenticated) */}
+                {username ? (
+                  <>
+                    <Separator orientation="vertical" className="hidden h-6 lg:block" />
+                    <UserMenu
+                      username={username}
+                      profile={profile}
+                      onNavigate={onNavigate}
+                      onLogout={onLogout}
+                    />
+                  </>
+                ) : null}
               </>
-            ) : null}
+            ) : (
+              <Sheet open={compactControlsOpen} onOpenChange={setCompactControlsOpen}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <SheetTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 shrink-0"
+                        aria-label="Open console controls"
+                      >
+                        <SlidersHorizontal className="h-4 w-4" aria-hidden />
+                      </Button>
+                    </SheetTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent>Console controls</TooltipContent>
+                </Tooltip>
+                <SheetContent
+                  side="right"
+                  size="sm"
+                  data-testid="compact-console-controls"
+                  className="gap-0 overflow-y-auto"
+                >
+                  <SheetHeader>
+                    <SheetTitle>Console controls</SheetTitle>
+                    <SheetDescription>
+                      Notifications, appearance, platform status, and account controls.
+                    </SheetDescription>
+                  </SheetHeader>
+
+                  <div className="space-y-5 p-5">
+                    <section aria-labelledby="compact-preferences-title" className="space-y-2">
+                      <h3
+                        id="compact-preferences-title"
+                        className="text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                      >
+                        Preferences
+                      </h3>
+                      <div className="flex min-h-11 items-center justify-between gap-3 rounded-md border border-border px-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-foreground">Notifications</p>
+                          <p className="text-xs text-muted-foreground">Recent operator activity</p>
+                        </div>
+                        <NotificationBell
+                          onNavigate={navigateFromCompactControls}
+                          className="h-11 w-11 shrink-0"
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-11 w-full justify-between px-3 font-normal"
+                        onClick={toggleTheme}
+                        aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+                      >
+                        <span className="flex items-center gap-2">
+                          {isDark ? (
+                            <Sun className="h-4 w-4" aria-hidden />
+                          ) : (
+                            <Moon className="h-4 w-4" aria-hidden />
+                          )}
+                          Appearance
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {isDark ? 'Dark' : 'Light'}
+                        </span>
+                      </Button>
+                    </section>
+
+                    {(showSourceNotice || showSystemUpdateInCompactControls) && (
+                      <section aria-labelledby="compact-maintenance-title" className="space-y-2">
+                        <h3
+                          id="compact-maintenance-title"
+                          className="text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                        >
+                          Maintenance
+                        </h3>
+                        {sourceNotice && showSourceNotice ? (
+                          <div className="flex min-h-11 items-center justify-between gap-3 rounded-md border border-border px-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-foreground">Source revision</p>
+                              <p className="text-xs text-muted-foreground">Observed upstream only</p>
+                            </div>
+                            <UpstreamSourceNoticeButton notice={sourceNotice} />
+                          </div>
+                        ) : null}
+                        {showSystemUpdateInCompactControls ? (
+                          <div className="flex min-h-11 items-center justify-between gap-3 rounded-md border border-border px-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-foreground">System update</p>
+                              <p className="truncate text-xs text-muted-foreground">
+                                {updatePresentation.label}
+                              </p>
+                            </div>
+                            <SystemUpdateControl
+                              upgrade={deploymentUpgrade}
+                              hasUnsavedChanges={hasUnsavedChanges}
+                              canRollback={canRollbackSystemUpdates}
+                            />
+                          </div>
+                        ) : null}
+                      </section>
+                    )}
+
+                    <section aria-labelledby="compact-health-title" className="space-y-2">
+                      <h3
+                        id="compact-health-title"
+                        className="text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                      >
+                        Platform
+                      </h3>
+                      <div
+                        className="rounded-md border border-border p-3"
+                        role="status"
+                        aria-live="polite"
+                        aria-label={`Platform health: ${hv.label}`}
+                      >
+                        <p className="flex items-center gap-2 text-sm font-medium text-foreground">
+                          <span className={cn('inline-flex rounded-md border p-1.5', TONE_PILL[hv.tone])}>
+                            <HealthIcon className="h-4 w-4" aria-hidden />
+                          </span>
+                          {hv.label}
+                        </p>
+                        <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{hv.help}</p>
+                        <p className="mt-2 border-t border-border pt-2 font-mono text-xs text-muted-foreground">
+                          {hv.detail}
+                        </p>
+                      </div>
+                    </section>
+
+                    {username ? (
+                      <section aria-labelledby="compact-account-title" className="space-y-2">
+                        <h3
+                          id="compact-account-title"
+                          className="text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                        >
+                          Account
+                        </h3>
+                        <div className="flex items-center gap-3 rounded-md border border-border p-3">
+                          <UserAvatar
+                            src={profile?.avatar}
+                            name={accountDisplay}
+                            className="h-9 w-9 text-xs"
+                          />
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-foreground">{accountDisplay}</p>
+                            <p className="truncate text-xs text-muted-foreground">
+                              {accountRole ? `${accountRole} · @${username}` : `@${username}`}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="grid gap-1">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            className="h-11 justify-start gap-2 px-3 font-normal"
+                            onClick={() => navigateFromCompactControls('account')}
+                          >
+                            <UserCircle2 className="h-4 w-4" aria-hidden />
+                            Profile
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            className="h-11 justify-start gap-2 px-3 font-normal"
+                            onClick={() => navigateFromCompactControls('security')}
+                          >
+                            <ShieldCheck className="h-4 w-4" aria-hidden />
+                            Security &amp; two-factor
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            className="h-11 justify-start gap-2 px-3 font-normal"
+                            onClick={() => navigateFromCompactControls('sessions')}
+                          >
+                            <MonitorSmartphone className="h-4 w-4" aria-hidden />
+                            Sessions &amp; activity
+                          </Button>
+                          {onLogout ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              className="h-11 justify-start gap-2 px-3 font-normal text-critical hover:text-critical"
+                              onClick={() => {
+                                setCompactControlsOpen(false);
+                                onLogout();
+                              }}
+                            >
+                              <LogOut className="h-4 w-4" aria-hidden />
+                              Log out
+                            </Button>
+                          ) : null}
+                        </div>
+                      </section>
+                    ) : null}
+                  </div>
+                </SheetContent>
+              </Sheet>
+            )}
           </div>
         </GlassSurface>
 
@@ -1153,7 +1564,12 @@ export const AppShell: React.FC<AppShellProps> = ({
             (PageContainer no longer re-declares the gutter), so PageContainer and
             not-yet-migrated pages share one consistent inset. Keep `min-w-0` so
             flex/grid children can shrink + truncate. */}
-        <main id="socMain" role="main" tabIndex={-1} className="min-w-0 flex-1 outline-none">
+        <main
+          id="socMain"
+          role="main"
+          tabIndex={-1}
+          className="min-w-0 flex-1 overflow-x-hidden outline-none"
+        >
           {/* Once a real navigation has engaged motion (the lazy chunk was loaded AT the
               time of that navigation — see the `motionActive` latch above), the routed
               content is wrapped in RouteMotion's AnimatePresence for a page → page
@@ -1179,7 +1595,7 @@ export const AppShell: React.FC<AppShellProps> = ({
 
       <CommandPalette
         open={paletteOpen}
-        onOpenChange={setPaletteOpen}
+        onOpenChange={handlePaletteOpenChange}
         onNavigate={onNavigate}
       />
     </div>

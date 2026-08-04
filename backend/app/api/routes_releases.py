@@ -1,10 +1,11 @@
 """Authenticated, read-only public upstream release discovery.
 
-These endpoints expose only VERSION and branch-head metadata for the operator's
-strictly validated public GitHub repository.  They do not download release artifacts
-and cannot clone, pull, execute, deploy, migrate, restart, promote, activate, or roll
-back the application.  The browser's separate same-origin deployed-release contract
-remains the only activation affordance.
+These endpoints expose VERSION and branch-head metadata for the operator's strictly
+validated public GitHub repository, plus the dereferenced annotated-tag commit for
+Stable.  They do not download release artifacts and cannot clone, pull, execute,
+deploy, migrate, restart, promote, activate, or roll back the application.  Branch
+HEAD remains observation-only; supervised installation has a separate signed release
+and private-supervisor contract.
 """
 
 from __future__ import annotations

@@ -4,7 +4,7 @@
  * Mocks the co-located Batch.api module (so no network) and asserts:
  *   - jobs render with their provider / model / state / discount / retrieved counts,
  *   - the state badge reflects the lifecycle (submitted..retrieved/errored),
- *   - the aggregate stat tiles reflect the loaded jobs,
+ *   - the divider-led KPI strip reflects the loaded jobs,
  *   - job ids / models render in a fenced InlineCode (plain text, #9 — no markup),
  *   - the empty state shows when there are no jobs,
  *   - a load error surfaces a retry affordance.
@@ -140,7 +140,7 @@ describe('BatchJobs', () => {
     expect(screen.getByText('msgbatch_01xyz')).toBeInTheDocument();
   });
 
-  it('summarises the loaded jobs in the stat tiles', async () => {
+  it('summarises the loaded jobs in one divider-led KPI strip', async () => {
     jobsMock.mockResolvedValue({ jobs: JOBS, count: JOBS.length });
     renderPage();
 
@@ -158,6 +158,18 @@ describe('BatchJobs', () => {
     expect(screen.getByText('Requests retrieved')).toBeInTheDocument();
     // "Retrieved" now names only the lifecycle state badge (not a tile).
     expect(screen.getAllByText('Retrieved').length).toBeGreaterThan(0);
+
+    const totalJobs = screen.getByTestId('kpi-total-jobs');
+    expect(totalJobs.parentElement).toHaveClass(
+      'grid',
+      'border-y',
+      'sm:grid-cols-2',
+      'lg:grid-cols-4',
+    );
+    expect(totalJobs).toHaveClass('border-b', 'sm:border-r', 'lg:border-b-0');
+    expect(totalJobs).not.toHaveClass('rounded-lg');
+    expect(screen.getByTestId('kpi-in-flight')).toHaveClass('lg:border-r');
+    expect(screen.getByTestId('kpi-jobs-done')).toHaveClass('sm:border-r');
   });
 
   it('Refresh reloads the jobs table without discarding unsaved policy edits', async () => {

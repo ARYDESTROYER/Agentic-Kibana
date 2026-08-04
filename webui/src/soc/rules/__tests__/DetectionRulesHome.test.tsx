@@ -68,6 +68,23 @@ describe('DetectionRulesHome', () => {
     expect(screen.getByText(/never the verdict/i)).toBeInTheDocument();
   });
 
+  it('keeps the rule catalog inside a narrow Console viewport', () => {
+    renderHome();
+    const table = screen.getByRole('table');
+    expect(table).toHaveClass('table-fixed', 'sm:table-auto');
+    expect(screen.getByRole('columnheader', { name: 'Type' })).toHaveClass(
+      'hidden',
+      'sm:table-cell',
+    );
+    expect(screen.getByRole('columnheader', { name: 'Priority' })).toHaveClass(
+      'hidden',
+      'sm:table-cell',
+    );
+    expect(screen.getByRole('button', { name: 'ssh-bruteforce' })).toHaveClass(
+      '[overflow-wrap:anywhere]',
+    );
+  });
+
   it('deleting a detection rule writes rule_catalog via the deep-merge buffer (never decide())', () => {
     const { update } = renderHome();
     // Delete is confirm-gated (no single-misclick data loss) — click through the dialog.

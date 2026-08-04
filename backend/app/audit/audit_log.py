@@ -35,15 +35,22 @@ class AuditLogger(AuditRepository):
         """Append one row and propagate failure for privileged durability gates.
 
         A deterministic ``event_id`` is reserved for retryable privileged events.
-        Confirm an existing byte-equivalent row before returning; otherwise write
-        it under that id so concurrent/retried proposal decisions converge on one
-        immutable evidence document.
+        Confirm an existing semantically equivalent row before returning (the first
+        append retains its timestamp); otherwise write it under that id so
+        concurrent/retried privileged decisions converge on one immutable evidence
+        document.
         """
         payload = doc.model_dump(mode="json")
         if doc.event_id:
             existing = await self._es.get_doc_strict(AUDIT_WRITE_ALIAS, doc.event_id)
             if existing is not None:
-                if existing != payload:
+                # The first append owns the event timestamp. A retry of the same
+                # deterministic logical event is equivalent when every semantic
+                # field matches, even though its newly constructed AuditDoc has a
+                # later default timestamp.
+                existing_semantic = {k: v for k, v in existing.items() if k != "ts"}
+                payload_semantic = {k: v for k, v in payload.items() if k != "ts"}
+                if existing_semantic != payload_semantic:
                     raise RuntimeError(f"audit event id collision: {doc.event_id}")
                 return
             await self._es.index_doc(

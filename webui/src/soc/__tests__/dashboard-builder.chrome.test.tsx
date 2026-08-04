@@ -81,6 +81,28 @@ async function enterEdit() {
   await screen.findByText('Save dashboard');
 }
 
+describe('DashboardBuilder — adaptive controls', () => {
+  it('keeps the primary edit/add commands before refresh and narrow overflow actions', async () => {
+    render(<DashboardBuilder dashboard={BOARD} />);
+
+    const viewControls = screen.getByRole('group', { name: 'Dashboard view controls' });
+    const viewPrimary = viewControls.querySelector('[data-controlbar-slot="primary"]') as HTMLElement;
+    const viewSecondary = viewControls.querySelector('[data-controlbar-slot="secondary"]') as HTMLElement;
+    expect(within(viewPrimary).getByRole('button', { name: 'Edit dashboard' })).toBeInTheDocument();
+    expect(
+      within(viewSecondary).getByRole('button', { name: 'Refresh dashboard data' }),
+    ).toBeInTheDocument();
+    expect(viewPrimary.nextElementSibling).toBe(viewSecondary);
+
+    await enterEdit();
+    const editControls = screen.getByRole('group', { name: 'Dashboard editing controls' });
+    expect(within(editControls).getByRole('button', { name: 'Add widget' })).toBeInTheDocument();
+    expect(
+      within(editControls).getByRole('button', { name: 'More dashboard actions' }),
+    ).toHaveAttribute('aria-haspopup', 'menu');
+  });
+});
+
 describe('DashboardBuilder — reset the never-persisted default (local, no DELETE)', () => {
   it('reverts locally without calling api.dashboards.remove (no spurious 404)', async () => {
     const onReset = vi.fn();

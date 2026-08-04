@@ -250,6 +250,41 @@ describe('Intelligence Runbooks management', () => {
     expect(screen.queryByRole('button', { name: /^delete$/i })).not.toBeInTheDocument();
   });
 
+  it('explains first use and points to the safe create action', async () => {
+    mocks.getRunbooks.mockResolvedValue(response([]));
+
+    renderRunbooks();
+
+    const empty = await screen.findByRole('group', { name: 'No runbooks are available' });
+    expect(empty).toHaveAttribute('data-empty-state', 'first-use');
+    expect(empty).toHaveAccessibleDescription(
+      /no bundled or operator-authored references yet.*use New runbook.*then index/i,
+    );
+    expect(screen.getByRole('button', { name: /new runbook/i })).toBeVisible();
+  });
+
+  it('distinguishes filtered no-results and clears back to the loaded library', async () => {
+    const row = runbook();
+    mocks.getRunbooks.mockResolvedValue(response([row]));
+
+    renderRunbooks();
+    expect(await screen.findByText(row.title)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/search runbooks/i), {
+      target: { value: 'definitely-not-present' },
+    });
+
+    const noResults = screen.getByRole('status', {
+      name: 'No runbooks match these filters',
+    });
+    expect(noResults).toHaveAttribute('data-empty-state', 'no-results');
+    expect(noResults).toHaveAccessibleDescription(/library loaded.*filter.*exclude/i);
+    fireEvent.click(within(noResults).getByRole('button', { name: /clear filters/i }));
+
+    expect(screen.getByText(row.title)).toBeInTheDocument();
+    expect(screen.queryByRole('status', { name: /no runbooks match/i })).not.toBeInTheDocument();
+  });
+
   it('creates a runbook but reports a partial indexing outcome truthfully', async () => {
     const saved = runbook({
       id: 'dns_beaconing',

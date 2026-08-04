@@ -71,6 +71,18 @@ _SEVERITY_FLOOR_MAX = 6
 _SEVERITY_FLOOR_MIN = 1
 
 
+def tuning_window_start(cadence: str, *, now: datetime | None = None) -> datetime:
+    """Return the evidence/guard window shared by every tuning entry point.
+
+    The background worker, read-only preview, and explicit per-rule apply must all
+    agree on whether a threshold was already changed for the current evidence
+    window.  Keeping the calculation here prevents the API from recommending a
+    second bump that :func:`run_once` would correctly suppress.
+    """
+    clock = now or now_utc()
+    return clock - timedelta(days=_WINDOW_DAYS.get(str(cadence or "nightly"), 14))
+
+
 # --------------------------------------------------------------------------- #
 # Pure statistics
 # --------------------------------------------------------------------------- #
@@ -652,9 +664,13 @@ def derive_proposals(
 
 
 def _find_feed_for_rule(prefs: Preferences, rule_id: str) -> tuple[str, str, int | None] | None:
-    """Best-effort: the FIRST enabled, non-ignore feed whose per-feed ``query`` names
-    the rule, else the first enabled non-ignore feed of any source. Returns
-    ``(source_id, feed_id, current_floor)`` or None. Deterministic (sorted)."""
+    """Find an enabled, non-ignore feed whose query explicitly names ``rule_id``.
+
+    There is deliberately no "first feed" fallback.  A noisy rule without a
+    trustworthy rule-to-feed mapping is not authority to raise an unrelated feed's
+    severity floor.  The caller may surface the missing mapping for operator repair,
+    but it must not manufacture a mutation target.
+    """
     for src in sorted(prefs.sources, key=lambda s: s.id):
         try:
             feeds = src.feeds()
@@ -668,15 +684,6 @@ def _find_feed_for_rule(prefs: Preferences, rule_id: str) -> tuple[str, str, int
                 continue
             q = feed.query or ""
             if rule_id and rule_id in q:
-                return (src.id, feed.id or _slug(feed.pattern), feed.severity_floor)
-    # Fallback: no query names it — pick the first eligible feed deterministically.
-    for src in sorted(prefs.sources, key=lambda s: s.id):
-        try:
-            feeds = src.feeds()
-        except Exception:  # noqa: BLE001
-            continue
-        for feed in feeds:
-            if feed.enabled and getattr(feed.role, "value", str(feed.role)) != "ignore":
                 return (src.id, feed.id or _slug(feed.pattern), feed.severity_floor)
     return None
 
@@ -776,54 +783,36 @@ async def _read_window(
     return out
 
 
-async def _recently_tuned_ns(tuning_store: TuningStore, window_start: datetime) -> dict[str, int]:
-    """The ``{rule_id -> after}`` map of ``correlation_n`` auto-raises that landed WITHIN
-    the current cadence window and are still active (not rolled back). A rule in this set
-    was already relieved this window, so ``derive_proposals`` skips re-raising it for the
-    same noise (FINDING #14). Never raises — a store glitch yields an empty map."""
+def tuning_guards_from_records(
+    records: list[TuningRecord], window_start: datetime,
+) -> tuple[dict[str, int], set[str]]:
+    """Project the once-per-window guards from one confirmed ledger snapshot.
+
+    This pure projection is shared by the scheduler and both API entry points.  The
+    caller owns persistence semantics: mutation/preview boundaries use
+    :meth:`TuningStore.list_strict` so an outage can never masquerade as "nothing has
+    been tuned yet".
+    """
     out: dict[str, int] = {}
-    try:
-        records = await tuning_store.list(active_only=True)
-    except Exception as exc:  # noqa: BLE001 — best-effort; degrade to "nothing tuned yet"
-        logger.debug("recently-tuned read failed (%s); assuming none", exc)
-        return out
+    floors: set[str] = set()
     for rec in records:
-        if getattr(rec, "target", None) != "correlation_n":
+        if bool(getattr(rec, "rolled_back", False)):
             continue
         applied = _parse_iso(getattr(rec, "applied_at", None))
         if applied is None or applied < window_start:
+            continue
+        if getattr(rec, "target", None) != "correlation_n":
+            if getattr(rec, "target", None) == "severity_floor":
+                # feed_key is stored as rule_id for severity-floor records.
+                feed_key = str(getattr(rec, "rule_id", "") or "").strip()
+                if feed_key:
+                    floors.add(feed_key)
             continue
         rid = normalize_rule_id(getattr(rec, "rule_id", ""))
-        if not rid:
-            continue
-        # Keep the HIGHEST after we already raised this rule to this window.
-        out[rid] = max(out.get(rid, 0), int(getattr(rec, "after", 0) or 0))
-    return out
-
-
-async def _recently_tuned_floors(tuning_store: TuningStore, window_start: datetime) -> set[str]:
-    """The set of ``feed_key``s whose ``severity_floor`` was auto-raised WITHIN the current
-    cadence window and is still active. A feed in this set was already relieved this window,
-    so ``derive_proposals`` skips re-raising it — otherwise the floor climbs +1 every run to
-    the max on the SAME (unchanging) trailing-window noise (audit #23). The ledger stores a
-    severity_floor record's ``feed_key`` as its ``rule_id`` (see ``_record_ledger``). Never
-    raises — a store glitch yields an empty set."""
-    out: set[str] = set()
-    try:
-        records = await tuning_store.list(active_only=True)
-    except Exception as exc:  # noqa: BLE001 — best-effort; degrade to "nothing tuned yet"
-        logger.debug("recently-tuned-floors read failed (%s); assuming none", exc)
-        return out
-    for rec in records:
-        if getattr(rec, "target", None) != "severity_floor":
-            continue
-        applied = _parse_iso(getattr(rec, "applied_at", None))
-        if applied is None or applied < window_start:
-            continue
-        fk = str(getattr(rec, "rule_id", "") or "")  # feed_key is stored as rule_id
-        if fk:
-            out.add(fk)
-    return out
+        if rid:
+            # Keep the highest threshold already reached in this window.
+            out[rid] = max(out.get(rid, 0), int(getattr(rec, "after", 0) or 0))
+    return out, floors
 
 
 async def run_once(
@@ -872,8 +861,7 @@ async def run_once(
             **(config_writers or {}),
         }
         clock = now or now_utc()
-        window_days = _WINDOW_DAYS.get(cfg.cadence, 14)
-        window_start = clock - timedelta(days=window_days)
+        window_start = tuning_window_start(cfg.cadence, now=clock)
 
         window_cases = await _read_window(cases, window_start=window_start, page_size=page_size)
         stats = _accumulate_rule_stats(window_cases, ewma_alpha=cfg.ewma_alpha, z=cfg.wilson_z)
@@ -888,12 +876,13 @@ async def run_once(
             outcome.reason = "proposal persistence failed; scheduler retry required"
             return outcome
 
-        # Build the set of rules we ALREADY auto-raised within this cadence window so a
-        # rule is not re-bumped repeatedly for the SAME (unchanging) trailing-window noise
-        # (FINDING #14 — unbounded knob growth). Best-effort: a store glitch degrades to an
-        # empty set (the derive/shadow rails still bound each single bump).
-        already_tuned = await _recently_tuned_ns(tuning_store, window_start)
-        already_tuned_floors = await _recently_tuned_floors(tuning_store, window_start)
+        # Build both guards from one strict, coherent ledger snapshot.  If the ledger
+        # cannot prove what already changed, fail this pass rather than risk a second
+        # bump over the same evidence window.
+        guard_records = await tuning_store.list_strict(active_only=True)
+        already_tuned, already_tuned_floors = tuning_guards_from_records(
+            guard_records, window_start
+        )
 
         proposals_to_make = derive_proposals(
             prefs, stats, already_tuned=already_tuned,

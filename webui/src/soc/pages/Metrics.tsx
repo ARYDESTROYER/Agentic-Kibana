@@ -361,12 +361,12 @@ export default function MetricsPage({
   const hasKnowledge = rag !== null || memory !== null;
   const hasAny = (data?.total_cases ?? 0) > 0;
 
-  // ---- inline tab-row controls ------------------------------------------ //
-  // Density lever (G4): the window toggle + sort + refresh live in the SAME row as
-  // the TabsList — no separate control band. The Cost tab owns its OWN window +
-  // refresh controls (a different endpoint on its own cadence), so the shared
-  // window/sort/refresh row is suppressed there to avoid two competing selectors.
-  const tabRowControls = tab === 'cost' || tab === 'effectiveness' ? null : (
+  // ---- adaptive tab-row controls ---------------------------------------- //
+  // The time window and reload are the primary commands, so they stay first when the
+  // shared ControlBar wraps. Ranked-breakdown sorting is contextual and may wrap after
+  // them on a narrow container. Cost owns a different endpoint/cadence, while
+  // Effectiveness owns its evidence window, so neither receives these controls.
+  const tabPrimaryControls = tab === 'cost' || tab === 'effectiveness' ? null : (
     <>
       <SegmentedControl<WindowId>
         aria-label="Time window"
@@ -376,25 +376,24 @@ export default function MetricsPage({
         options={WINDOWS.map((w) => ({ value: w.id, label: w.label }))}
       />
 
-      {tab === 'operational' ? (
-        <SegmentedControl<RankSort>
-          aria-label="Sort ranked breakdowns"
-          size="sm"
-          value={rankSort}
-          onValueChange={setRankSort}
-          options={[
-            { value: 'count', label: 'Count' },
-            { value: 'alpha', label: 'A–Z' },
-          ]}
-        />
-      ) : null}
-
       <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
         <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} aria-hidden />
         Refresh
       </Button>
     </>
   );
+  const tabSecondaryControls = tab === 'operational' ? (
+    <SegmentedControl<RankSort>
+      aria-label="Sort ranked breakdowns"
+      size="sm"
+      value={rankSort}
+      onValueChange={setRankSort}
+      options={[
+        { value: 'count', label: 'Count' },
+        { value: 'alpha', label: 'A–Z' },
+      ]}
+    />
+  ) : null;
 
   const header = embedded ? null : (
     <PageHeader
@@ -837,7 +836,8 @@ export default function MetricsPage({
               </TabsTrigger>
             </TabsList>
           )}
-          controls={tabRowControls}
+          controls={tabPrimaryControls}
+          secondaryControls={tabSecondaryControls}
           label="Analytics controls"
         />
 

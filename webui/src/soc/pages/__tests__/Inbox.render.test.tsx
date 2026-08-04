@@ -101,6 +101,8 @@ describe('Inbox page (read-state)', () => {
     await waitFor(() => expect(listMock).toHaveBeenCalled());
 
     expect(await screen.findByText('Inbox')).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Inbox controls' })).toBeInTheDocument();
+    expect(screen.getByText('1 unread · 2 total')).toBeInTheDocument();
     // Both titles render as plain text.
     expect(screen.getByText('Case escalated: brute force')).toBeInTheDocument();
     expect(screen.getByText('Assigned to you')).toBeInTheDocument();

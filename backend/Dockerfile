@@ -4,7 +4,7 @@
 #   full (default/final) — every connector client advertised by the built-in registry.
 #   core                 — pull + stdlib/Redis receivers only; explicitly opt in with
 #                          ``docker build --target core ...``.
-FROM python:3.11.15-slim-bookworm AS runtime-base
+FROM python:3.11.15-slim-bookworm@sha256:b18992999dbe963a45a8a4da40ac2b1975be1a776d939d098c647482bcad5cba AS runtime-base
 
 ARG TLSOC_VERSION=unknown
 ARG TLSOC_RELEASE_CHANNEL=testing
@@ -18,7 +18,8 @@ LABEL org.opencontainers.image.title="Agentic SOC API" \
       dev.tlsoc.release.channel="${TLSOC_RELEASE_CHANNEL}" \
       org.opencontainers.image.revision="${TLSOC_BUILD_SHA}" \
       org.opencontainers.image.created="${TLSOC_BUILD_DATE}" \
-      org.opencontainers.image.source="${TLSOC_SOURCE_URL}"
+      org.opencontainers.image.source="${TLSOC_SOURCE_URL}" \
+      io.agentic-soc.state.schema="1"
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

@@ -196,9 +196,7 @@ export function DetectionRulesHome({ prefs, update }: DetectionRulesHomeProps) {
       const base = tier === 'detection_anomaly' ? baselineToAnomaly(prefs.baseline) : newRuleForm(tier);
       const carried = cur?.about;
       if (!carried) return base;
-      // Carry the shared About metadata across a tier switch so name/description/priority
-      // (and MITRE, for detection tiers) the operator already typed isn't wiped (#31).
-      const isDetection = RULE_TIER_BY_ID[tier].detection;
+      // Carry only normal, editable About metadata across a new-rule tier switch.
       return {
         ...base,
         about: {
@@ -206,7 +204,6 @@ export function DetectionRulesHome({ prefs, update }: DetectionRulesHomeProps) {
           name: carried.name,
           description: carried.description,
           priority: carried.priority,
-          ...(isDetection ? { mitre: carried.mitre ?? base.about.mitre ?? [] } : {}),
         },
       } as RuleForm;
     });
@@ -361,25 +358,30 @@ export function DetectionRulesHome({ prefs, update }: DetectionRulesHomeProps) {
           }
         />
       ) : (
-        // overflow-x-auto (not overflow-hidden) so a long/unbreakable rule name on a
-        // narrow viewport can be scrolled to instead of being clipped with no access (#33).
-        <div className="overflow-x-auto rounded-md border border-border">
-          <table className="w-full text-sm">
+        // On narrow viewports, keep the complete rule name readable while collapsing
+        // secondary Type/Priority columns. The locally scrollable wrapper remains a
+        // last-resort guard for translated or unusually long status labels, but the
+        // normal mobile table now fits without widening the whole Console.
+        <div className="max-w-full overflow-x-auto rounded-md border border-border">
+          <table className="w-full table-fixed text-sm sm:table-auto">
             <thead>
               <tr className="border-b border-border bg-muted/50 text-left text-xs text-muted-foreground">
                 <th scope="col" className="px-3 py-2 font-medium">
                   Name
                 </th>
-                <th scope="col" className="px-3 py-2 font-medium">
+                <th scope="col" className="hidden px-3 py-2 font-medium sm:table-cell">
                   Type
                 </th>
-                <th scope="col" className="px-3 py-2 font-medium">
+                <th scope="col" className="w-24 px-3 py-2 font-medium sm:w-auto">
                   State
                 </th>
-                <th scope="col" className="px-3 py-2 font-medium tabular-nums">
+                <th
+                  scope="col"
+                  className="hidden px-3 py-2 font-medium tabular-nums sm:table-cell"
+                >
                   Priority
                 </th>
-                <th scope="col" className="px-3 py-2 text-right font-medium">
+                <th scope="col" className="w-28 px-2 py-2 text-right font-medium sm:w-auto sm:px-3">
                   <span className="sr-only">Actions</span>
                 </th>
               </tr>
@@ -389,16 +391,16 @@ export function DetectionRulesHome({ prefs, update }: DetectionRulesHomeProps) {
                 const Icon = TIER_ICON[item.tier];
                 return (
                   <tr key={item.key} className="border-b border-border last:border-0 hover:bg-muted/40">
-                    <td className="px-3 py-2">
+                    <td className="min-w-0 px-3 py-2">
                       <button
                         type="button"
                         onClick={() => startEdit(item)}
-                        className="text-left font-medium text-foreground hover:underline"
+                        className="block w-full text-left font-medium text-foreground [overflow-wrap:anywhere] hover:underline"
                       >
                         {item.name || <span className="italic text-muted-foreground">(unnamed)</span>}
                       </button>
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="hidden px-3 py-2 sm:table-cell">
                       <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
                         <Icon className="h-3.5 w-3.5" aria-hidden />
                         {RULE_TIER_BY_ID[item.tier].label}
@@ -407,8 +409,10 @@ export function DetectionRulesHome({ prefs, update }: DetectionRulesHomeProps) {
                     <td className="px-3 py-2">
                       <LifecycleStateChip state={item.lifecycle} />
                     </td>
-                    <td className="px-3 py-2 tabular-nums text-muted-foreground">{item.priority}</td>
-                    <td className="px-3 py-2">
+                    <td className="hidden px-3 py-2 tabular-nums text-muted-foreground sm:table-cell">
+                      {item.priority}
+                    </td>
+                    <td className="px-2 py-2 sm:px-3">
                       <div className="flex items-center justify-end gap-1">
                         {item.tier !== 'detection_anomaly' ? (
                           <IconButton
@@ -467,7 +471,7 @@ export function DetectionRulesHome({ prefs, update }: DetectionRulesHomeProps) {
             </SheetDescription>
           </SheetHeader>
 
-          <div className="flex-1 overflow-y-auto py-4 pr-1">
+          <div className="flex-1 overflow-y-auto px-6 py-4">
             {draft ? (
               <RuleEditor
                 value={draft}
@@ -483,7 +487,7 @@ export function DetectionRulesHome({ prefs, update }: DetectionRulesHomeProps) {
           </div>
 
           {saveError ? (
-            <Alert variant="warning">
+            <Alert variant="warning" className="mx-6">
               <AlertTriangle className="h-4 w-4" aria-hidden />
               <AlertTitle>Can&apos;t save yet</AlertTitle>
               <AlertDescription>{saveError}</AlertDescription>

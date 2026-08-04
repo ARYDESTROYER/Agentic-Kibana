@@ -52,31 +52,38 @@ acceptance.
 The Console's **Settings → Organization → Updates & releases** section observes these
 two source refs by default. A fork or renamed repository can replace the public GitHub
 URL and either branch name without changing the application wire namespace. This is
-metadata discovery only: an observed source commit is linked for review and cannot
-deploy or activate itself. The actual top-bar update action still requires a different,
-already-deployed Console manifest that exactly matches a healthy backend build.
+metadata discovery only: an observed branch-head commit is linked for review and
+cannot deploy or activate itself. Stable discovery separately dereferences the exact
+annotated `vVERSION` tag; only that immutable tag commit can become an update
+candidate. For a bootstrapped supported deployment, the actual top-bar action
+additionally requires a newer Stable version, a compatible signed release plan,
+the private updater's preflight, durable secrets and PostgreSQL state, exact image
+digests, a verified backup, and recent built-in-super-admin reauthentication. After a
+successful installation, the same-origin Console manifest must still exactly match a
+healthy backend build before the new document activates.
 
 ## Version 0.1 nomenclature
 
 The first standardized release line is documentation version **0.1**. The current
-beta patch candidate is product version **0.1.2**; `v0.1.1` remains the published
-Stable tag until the accepted candidate is promoted, re-verified, and tagged.
+source version is product version **0.1.3**, built on the unpublished 0.1.2 Testing
+snapshot. It is a Testing candidate before exact verified promotion and the Stable
+release record only after the accepted `main` commit is immutably tagged `v0.1.3`.
 
 | Surface | Canonical value |
 | --- | --- |
 | Product | Agentic SOC |
 | Operator interface | Agentic SOC Console |
 | Backend service/API | Agentic SOC API |
-| SemVer package and image version | `0.1.2` |
-| Git release tag | `v0.1.2` after verified `main` promotion; `v0.1.1` remains the prior Stable tag |
+| SemVer package and image version | `0.1.3` |
+| Git release tag | `v0.1.3` only from the exact verified `main` commit; absent before publication and immutable afterward |
 | Documentation selector and URL line | `0.1` and `/0.1/` |
 | Integration branch/channel | `Testing` |
 | Stable branch/channel | `main` / Stable |
 
 Patch releases remain within the same documentation line. For example, app
-versions `0.1.1` and `0.1.2` update the `0.1` documentation rather than creating
-new selector entries. A new minor release creates a new documentation line such
-as `0.2`.
+versions `0.1.1`, `0.1.2`, and `0.1.3` use the `0.1` documentation rather than
+creating new selector entries. A new minor release creates a new documentation
+line such as `0.2`.
 
 ## Promotion procedure
 
@@ -121,7 +128,17 @@ Replace `X.Y.Z` with the real `VERSION` value and replace the summary placeholde
 with the release's concrete operator-visible scope. Publish the GitHub Release from
 that existing tag with the versioned release page and changelog as canonical notes;
 `.github/release.yml` adds the categorized reviewed-PR inventory. Published tags are
-immutable; never force-update one.
+immutable; never force-update one. The workflow first creates a non-public draft bound
+to the exact tag and commit SHA, uploads both canonical upgrade-plan assets, downloads
+and byte-compares them, verifies the Sigstore bundle, and only then changes the draft to
+published in one API transition. An interrupted retry may resume only that exact draft:
+an authenticated plan is reused, incomplete `starter` uploads are removed, and a
+missing signature bundle is recreated and verified before publication. A published
+release is never repaired or overwritten; a missing, duplicate, unexpected, or partial
+asset inventory fails closed and requires a new patch release. A later workflow retry
+may reuse the latest completed, successful `ci.yml` push run only when its tag ref and
+commit SHA exactly match that immutable release; it is deliberately not coupled to the
+retry's wall-clock time.
 
 ### Changelog discipline
 
@@ -154,6 +171,12 @@ describe its real operating boundary. At minimum:
 - canonical version metadata, OpenAPI, TypeScript contracts, image defaults, and
   release notes agree;
 - backend tests, web console lint/tests/build, and strict documentation build pass;
+- the supported PostgreSQL+pgvector/Redis state lane performs a real readiness
+  write/read, and every shipping backend, Console, and updater image builds with the
+  exact candidate identity before any tag can publish it;
+- workflow/ShellCheck and deploy/updater contracts run as separate required lanes so
+  one early failure cannot hide another; the fail-closed `CI passed` aggregate must
+  succeed on `Testing`, the resulting `main` commit, and the immutable tag;
 - the documented Console release-candidate browser matrix passes on the exact built
   candidate in Light, Dark, and System at desktop and narrow widths, with build SHA,
   release badge, keyboard/focus, loading/error/empty behavior, same-origin Help Center,
@@ -169,14 +192,19 @@ Passing unit tests does not by itself make a commit Stable. The accepted source,
 release metadata, documentation, and published artifacts must describe the same
 thing.
 
+Never remove, soften, skip, or mark a required lane `continue-on-error` merely to
+make a release green. Repair the underlying contract and re-run the exact candidate.
+The application release and Stable Help Center publication both verify the exact
+tag CI run and its successful **CI passed** aggregate before publishing anything.
+
 Use the [release-candidate browser acceptance matrix](../development/testing.md#release-candidate-browser-acceptance)
 for the required route and interaction coverage. A screenshot of one successful page
 is not a Console acceptance receipt.
 
 ## Build and badge provenance
 
-SemVer and channel are independent. The 0.1.2 Testing candidate and its accepted
-Stable build can both report version `0.1.2`; the channel says where that build sits in
+SemVer and channel are independent. The 0.1.3 Testing candidate and its accepted
+Stable build can both report version `0.1.3`; the channel says where that build sits in
 the acceptance lifecycle. Stamp the mutable provenance fields explicitly; keep or
 override the Dockerfile's canonical source URL as appropriate:
 
@@ -200,12 +228,16 @@ visible channel and remains inspectable.
 
 The web artifact also publishes a same-origin `/release.json` with its immutable
 version, channel, commit, and build time. Serve that file with `no-store` semantics.
-The top bar may show **Update available** beside the version badge only when a
-different, fully stamped manifest identity exactly matches public backend build-info and a healthy
-`/api/health` response. Activation requires operator confirmation and a final
-no-store check of the manifest, backend identity/readiness, and `/index.html`; known
-unsaved drafts block it. Discovery or preflight failure leaves the current document
-running, and the Console never auto-reloads.
+For a bootstrapped supported Compose/PostgreSQL deployment, the top bar may show
+**Update vX.Y.Z** when the backend observes a newer Stable release and the isolated
+updater reports a compatible protocol. Branch HEAD remains observation-only; the
+release candidate is bound to the dereferenced annotated tag commit. A freshly
+authenticated built-in super
+administrator must confirm a server-bound preflight. The updater then verifies the
+signed plan and digest-pinned artifacts, backs up owned state, performs the rollout,
+observes health, and automatically rolls back on failure. A completed rollout uses
+the existing no-store manifest, backend identity/readiness, and `/index.html` checks
+to reload the open tab; known unsaved drafts block that reload.
 
 Separately, authenticated `settings:read` users may receive a read-only upstream
 observation from `GET /api/releases/upstream`. The backend checks only the saved public
@@ -216,12 +248,12 @@ never called an update. `POST /api/releases/upstream/check` refreshes that metad
 subject to a cooldown. Neither endpoint has Git, deployment, process, migration, or
 activation authority.
 
-This is not a release-promotion signal or deployment authority. It activates an
-already-deployed coherent web/backend pair; it cannot pull artifacts, restart
-services, run migrations, carry deploy credentials, or perform rollback. Operators
-must retain the previous build's hashed assets—or use blue-green serving—through the
-observation window so an existing tab can continue lazy-loading while the new target
-is offered.
+Neither source-observation endpoint is a release-promotion signal or deployment
+authority. Only the private updater socket can reach the host runtime, and its fixed
+v1 contract rejects browser-supplied URLs, commands, paths, Compose fragments,
+untrusted registries, infrastructure upgrades, and migrations. Deployments without
+that supervisor—or outside its exact reference profile—continue to use the manual
+upgrade path and receive a precise blocker instead of a misleading install button.
 
 Local `run-demo.sh` derives Stable only from a literal `main` checkout; every
 other branch, detached checkout, or unknown channel fails safe to Testing unless
@@ -248,6 +280,27 @@ Before `1.0.0`, a minor increment can contain breaking changes. Those changes mu
 still have explicit migration notes and cannot be hidden behind the Testing/Stable
 channel labels.
 
+### Version every published change, not every internal commit
+
+Every published change to user-visible behavior, dependencies, configuration,
+public API contracts, documentation, packaging, or operational procedure receives a
+new SemVer and patch notes. Backward-compatible corrections in the existing 0.1
+documentation line advance PATCH by one. The patch component is an integer, so
+`0.1.21` means patch 21; it is not a fourth-level version for a very small change.
+
+A candidate may bundle several related commits and changes under one version.
+Internal refactors, test additions, review fixes, and intermediate commits do not each
+need their own version while they remain unpublished inside the same candidate. If
+the candidate has already been published and any release content changes—even only
+Stable documentation or an operational instruction—prepare the next patch instead of
+moving the existing tag or silently republishing its artifacts.
+
+Each release record must cover the operator-visible change, compatibility and
+migration impact, rollback considerations, verification evidence, and known
+limitations. Choose the candidate version before final acceptance, align every
+artifact to it, promote the accepted tree to `main`, verify that exact `main` commit,
+and only then create its immutable Stable tag.
+
 ## Documentation publication
 
 Every Console build first generates its own version-matched Help Center under
@@ -257,9 +310,10 @@ promotion direction as the source:
 
 - a pull request or push to `Testing` runs a strict docs-plus-app build and can
   publish a Development review artifact, but does not move the public Stable site;
-- a push to `main`, or a manual Documentation run selected on `main`, updates the
-  current major.minor history with Mike, assigns the `stable` and `latest` aliases,
-  and keeps older documentation directories;
+- the promoted `main` commit is a final verification input, not publication authority;
+  only its matching immutable annotated release tag updates the current major.minor
+  history with Mike, assigns the `stable` and `latest` aliases, and keeps older
+  documentation directories;
 - the generated `gh-pages` branch is the version-history backing store; GitHub Pages
   itself must use **GitHub Actions** as its source, and the workflow deploys a
   validated link-free artifact with the native Pages actions;

@@ -6,37 +6,67 @@
 > source of truth for *where we are*, *how to run it*, *what's done*, and *what's next*.
 > Everything in here is verified against the repo as of the date below — not from memory.
 
-- **Repo:** `ARYDESTROYER/Agentic-Kibana`  ·  **Working branch:** `Testing`  ·  **Date:** 2026-08-03
+- **Repo:** `ARYDESTROYER/Agentic-Kibana`  ·  **Working branch:** `Testing`  ·  **Date:** 2026-08-04
 - **Status:** Round 10 and the additive Security Command Center / Case Manager work are
   integrated on `Testing`. A **backend deep-audit hardening pass
   (2026-07-14/15)** fixed **47 verified findings** (0 crit / 10 high / 24 med / 13 low)
   from a 24-auditor + adversarial-verify Workflow — **one atomic commit per finding, no
   co-author**, on `Testing` (`c5516e5`→`abd0385`).
-  The current product version is the **`0.1.2` beta patch candidate**. `Testing` is the permanent integration and
+  The current source version is **`0.1.3`**. It is a beta patch candidate on
+  `Testing` and a Stable release only when the exact accepted `main` commit has the
+  immutable `v0.1.3` tag and matching artifacts. `Testing` is the permanent integration and
   acceptance branch; accepted changes are promoted through a pull request to the Stable
   `main` branch and re-verified there. The remote now uses `main` as its default, retains
-  `Testing` for integration, and has the prior `v0.1.1` Stable tag. The immutable
-  `v0.1.2` tag is created only from the fully verified promoted commit; see
+  `Testing` for integration. The immutable `v0.1.3` tag is created only from the
+  fully verified promoted commit; see
   `docs/releases/channels.md`. Repository administrators remain responsible for enforcing
   the documented branch and environment protections.
-- **Release identity UI:** the top-right badge always reads
-  `v0.1.2 · Testing|Stable`; its popover reconciles build-time Console and public backend
+- **Current CI contract:** every candidate exposes seventeen independent quality lanes
+  plus the fail-closed **CI passed** aggregate. In addition to the complete backend,
+  Console, contract, design, package, and documentation checks, CI boots the supported
+  PostgreSQL+pgvector/Redis state path, runs fail-closed workflow/ShellCheck and fatal
+  Python static checks separately from deploy/updater contracts, and builds the
+  shipping backend, Console/Help Center, and updater images without publishing them.
+  Require **CI passed** on `Testing` and
+  `main`; do not merge, tag, publish, skip, or soften a red/pending/cancelled lane.
+- **Release identity and supervised updates:** the top-right badge always reads
+  `v0.1.3 · Testing|Stable`; its popover reconciles build-time Console and public backend
   build-info. Any known version/channel/SHA mismatch downgrades to Testing. Local demo auto-
   derives Stable only on literal `main`; Docker release builds must stamp channel/SHA/date.
-  When a different static Console release has already been deployed, a separate
-  **Update available** action appears beside the badge only if no-store `/release.json`
-  exactly matches healthy backend build-info/readiness with non-`unknown` SHA and build
-  time. Activation is confirmed,
-  blocked by known unsaved drafts, and rechecks the manifest, backend, health, and
-  `/index.html` before reloading the same hash route. Failure leaves the running Console
-  untouched. The browser never deploys, restarts, migrates, promotes, stores deployment
-  credentials, or performs rollback; operators must retain old hashed assets or use
-  blue-green serving through the observation window.
+  The reference standalone PostgreSQL Compose deployment can install a compatible,
+  immutable Stable release through a separately bootstrapped updater. The top bar exposes
+  server-derived preflight, durable progress, planned reconnect, verification, and rollback
+  state; it requires a built-in super-admin, a registered current session, recent reauth,
+  verified backup capacity, and a signed digest-pinned release plan. The job creates
+  and catalog-verifies the backup before application switching. Target pins remain a
+  private pending handoff input until writer quiescence, verified backup, and the
+  durable no-cancel switch boundary; only then are they published to the active host
+  override. The supported Compose wrapper shares the updater lifecycle lock, keeps
+  inspection available, and refuses mutations for the whole transaction. Startup
+  removes a leftover marker only for an exact durable terminal job; unknown state
+  fails closed. The browser and
+  ordinary backend never receive the Docker socket, host commands, arbitrary artifact
+  coordinates, or registry credentials. Deployments predating 0.1.3 require one manual
+  updater bootstrap. Bootstrap safely reuses or replaces only inspectable idle
+  supervisor state; an active/unreadable state fails closed. Bootstrap transfers
+  lifecycle ownership before job submission and reuses a private per-release start key
+  until the exact job is terminal, so client interruption cannot restore pins behind
+  the supervisor. The updater does not
+  transport the base Compose file. Its self-replacement helper is restartable and its
+  name-swap transaction is idempotent across ordinary helper, Docker-daemon, and host
+  restarts; loss of the trusted host or Docker metadata/storage remains manual. SQLite,
+  Elasticsearch-owned state, legacy merged ELK, Kubernetes,
+  customized Compose, missing durable secrets, or unsupported migrations fail closed as
+  manual upgrade required. PostgreSQL and Redis infrastructure stay operator-managed.
+  The existing same-origin coherent-pair check remains only as an activation fallback when
+  an external deployment already installed both application components.
   A separate amber source notice may come from the cached, authenticated
   `/api/releases/upstream` observation. Fresh preferences watch the public Agentic SOC
   repository at Stable `main` and Testing `Testing`; forks can change that repository
-  and either branch in Settings. This is review metadata only, suppresses downgrades,
-  and cannot create the deployment activation action.
+  and either branch in Settings. Stable branch HEAD is review metadata; an update
+  candidate uses the immutable commit from the exact annotated `vVERSION` tag. This
+  observation suppresses downgrades,
+  and cannot authorize installation or change the updater's host-pinned trust policy.
 - **Current Console contract:** the shared rail and route-loading states follow
   `docs/development/ui-standard.md`; `webui/src/design-system/` now exposes the one
   centered loading grammar, original source marks, and a serializable catalog for
@@ -57,7 +87,9 @@
   an unsent draft per visited thread, refreshes history on focus, treats history access
   failures as failures rather than an empty account, and marks bounded history as
   incomplete when older material has been removed.
-- **Intelligence → Runbooks** is now a first-class operator workspace: analysts can
+- **Intelligence** now exposes five direct jobs: **Knowledge corpus**, **Reference
+  runbooks**, **Operator memory**, **Response playbooks**, and **Agent personas**.
+  Analysts can
   search and open protected bundled references, while authorized managers can create,
   edit, delete, and reindex durable operator Markdown. Full guidance is chunked into
   stable per-runbook RAG documents, optimistic revisions reject stale writes, and
@@ -74,9 +106,9 @@
   and embedding changes validate capability/dimension before replacing a vector space.
   Operator Playbooks are durable strict-CAS StateStore records layered over immutable
   bundled procedures, with deterministic dry-run and bounded coverage reporting.
-  `/api/schedulers/health` reports process-local worker state, and telemetry-source
-  recommendations appear only from versioned query/tool evidence—never merely because a
-  connector is absent.
+  `/api/schedulers/health` reports process-local worker state. Telemetry-source advice
+  accepts only versioned query/tool evidence—never merely an absent connector—and the
+  current release reports capture unavailable until that controlled producer exists.
 - **Current feature integration:** Cases is still the table-oriented list, but an
   opened row hands the exact case to the canonical Case Manager detail workspace;
   its desktop split is accessible and persisted. Case Manager Overview now
@@ -190,7 +222,7 @@ can never override.
 cd backend
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt        # greenlet is pinned, so a fresh install is green
-python -m pytest -q                         # latest recorded full run: 2,254 passed; see Journal.md
+python -m pytest -q                         # latest recorded full run: 2,306 passed; see Journal.md
 ```
 
 ### WebUI build + tests + lint
@@ -199,7 +231,7 @@ cd webui
 npm ci
 npm run check:types # hard-fail API drift in CI with TLSOC_REQUIRE_TYPEGEN=1
 npm run gates       # tokens, contrast, CVD, and raw-style regression guards
-npm test            # latest recorded full run: 1,853 passed / 280 files
+npm run test:strict # latest recorded full run: 1,927 passed + 9 skipped / 286 files; CI-parity quiet-output gate
 npm run lint -- --max-warnings=0
 npm run build      # version-matched MkDocs Help Center + tsc --noEmit + Vite
 npm run docs:check # verify the generated docs artifact matches VERSION
@@ -336,7 +368,8 @@ webui/src/
                    durable per-user transcripts, and one docked composer + Entity
                    investigation), Analytics(Operational+Performance+Posture+
                    Effectiveness+Cost),
-                   Home(Overview+Standup), Intelligence(Knowledge+Memory+Playbooks),
+                   Home(Overview+Standup), Intelligence(Knowledge corpus+Reference
+                   runbooks+Operator memory+Response playbooks+Agent personas),
                    Docs + a hidden legacy Scans compatibility route + Round-3 Models,
                    Roles, Inbox, ...
   soc/pages/settings/  Round-5 — one file per Settings section (general/security/models/detection/
@@ -660,7 +693,6 @@ architectural decision). Full detail + file:line in `docs/research/2026-06-round
   racing a touch/create could be lost under high concurrency (single-process is fine today).
 - **Multi-generation refresh-reuse detection** — only the last rotation generation is tracked.
 - **Shared `CONFIG_INDEX` nested-type collision** (ES-only, speculative).
-- **Deep-link breadcrumb** for folded sub-pages shows "Overview" (cosmetic).
 
 **Round 4 loose ends — now CLOSED in Round 5:**
 - The **admin-page consolidation** landed with the Settings IA overhaul (data-driven registry +
@@ -672,9 +704,11 @@ shipped OFF) · OCSF classification/observables surfacing + the 1.4→1.8 versio
 wiring + `PUT /api/branding` server-side contrast computation shipped in the Round-3 W4 wave.)
 See `ROADMAP.md`.
 
-**Best-of-best roadmap (Tier 2/3, not yet built)** — `ROUND2_BEST_OF_BEST.md`: API keys / programmatic
-access, a dashboard builder, scheduled reports, watchlists, SLA timers, a hunting/query builder,
-case linking/merge, an integrations marketplace.
+**Best-of-best roadmap (Tier 2/3)** — `ROUND2_BEST_OF_BEST.md`: the dashboard builder
+has shipped. SLA policy and aggregate breached/at-risk analytics have also shipped;
+persisted per-case deadlines and the Cases at-risk badge/filter remain open. Other
+open items include API keys/programmatic access, scheduled reports, watchlists, a
+hunting/query builder, case linking/merge, and an integrations marketplace.
 
 ---
 
@@ -710,7 +744,7 @@ case linking/merge, an integrations marketplace.
    but **verify any file/function/flag it names still exists before acting** (the codebase moves).
 2. The memory files (auto-recalled) point back here. The Round-2/Round-3 design docs are the implementation blueprint.
 3. **Before committing anything:** `pytest -q` green, `npm run build` clean,
-   `npx vitest run` green, `npm run lint` 0 errors, and
+   `npm run test:strict` green, `npm run lint -- --max-warnings=0` clean, and
    `git diff backend/app/engine/case_manager.py` **empty** (decision logic unchanged —
    byte-identical to `27f0983`). The `route_auth_coverage` + `design-gate` tests must also stay
    green. Commit focused changes; **don't push** unless asked.
