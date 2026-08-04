@@ -138,7 +138,8 @@ jobs:
             python3 scripts/release_asset_state.py \
               --inventory "${inventory}" \
               --tag "${{ steps.release.outputs.tag }}" \
-              --commit-sha "${GITHUB_SHA}"
+              --commit-sha "${GITHUB_SHA}" \
+              --release-notes "docs/releases/${{ steps.release.outputs.version }}.md"
           }
           state="$(classify)"
           mapfile -t cleanup_ids < <(jq -r '.delete_asset_ids[]' <<<"${state}")
@@ -232,8 +233,7 @@ jobs:
 
       - if: steps.assets.outputs.plan_exists != 'true'
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
-      - if: steps.assets.outputs.plan_exists != 'true'
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
@@ -252,7 +252,7 @@ jobs:
           push: true
           provenance: mode=max
           sbom: true
-          tags: ${{ steps.release.outputs.image_prefix }}/backend:${{ steps.release.outputs.tag }}
+          tags: ${{ steps.release.outputs.image_prefix }}/backend:candidate-${{ github.run_id }}-${{ github.run_attempt }}
           build-args: |
             TLSOC_VERSION=${{ steps.release.outputs.version }}
             TLSOC_RELEASE_CHANNEL=stable
@@ -271,7 +271,7 @@ jobs:
           push: true
           provenance: mode=max
           sbom: true
-          tags: ${{ steps.release.outputs.image_prefix }}/webui:${{ steps.release.outputs.tag }}
+          tags: ${{ steps.release.outputs.image_prefix }}/webui:candidate-${{ github.run_id }}-${{ github.run_attempt }}
           build-args: |
             TLSOC_VERSION=${{ steps.release.outputs.version }}
             TLSOC_RELEASE_CHANNEL=stable
@@ -290,7 +290,7 @@ jobs:
           push: true
           provenance: mode=max
           sbom: true
-          tags: ${{ steps.release.outputs.image_prefix }}/updater:${{ steps.release.outputs.tag }}
+          tags: ${{ steps.release.outputs.image_prefix }}/updater:candidate-${{ github.run_id }}-${{ github.run_attempt }}
           build-args: |
             TLSOC_VERSION=${{ steps.release.outputs.version }}
             TLSOC_RELEASE_CHANNEL=stable
@@ -358,6 +358,26 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
+          anonymous_docker_config="$(mktemp -d)"
+          chmod 0700 "${anonymous_docker_config}"
+          trap 'rm -rf -- "${anonymous_docker_config}"' EXIT
+          unset DOCKER_AUTH_CONFIG REGISTRY_AUTH_FILE
+          export DOCKER_CONFIG="${anonymous_docker_config}"
+          [[ ! -e "${DOCKER_CONFIG}/config.json" ]]
+          for reference in "${BACKEND}" "${WEBUI}" "${UPDATER}"; do
+            for platform in linux/amd64 linux/arm64; do
+              docker pull --platform "${platform}" "${reference}" >/dev/null
+              printf 'verified anonymous Docker pull: %s (%s)\n' \
+                "${reference}" "${platform}"
+            done
+          done
+          if [[ -f "${DOCKER_CONFIG}/config.json" ]]; then
+            jq -e '
+              ((.auths // {}) | length == 0) and
+              ((.credHelpers // {}) | length == 0) and
+              (has("credsStore") | not)
+            ' "${DOCKER_CONFIG}/config.json" >/dev/null
+          fi
           python3 - <<'PY'
           import hashlib
           import json
@@ -571,7 +591,8 @@ jobs:
               -H 'X-GitHub-Api-Version: 2022-11-28' \
               "repos/${GITHUB_REPOSITORY}/releases?per_page=100" >"${inventory}"
             python3 scripts/release_asset_state.py \
-              --inventory "${inventory}" --tag "${tag}" --commit-sha "${GITHUB_SHA}"
+              --inventory "${inventory}" --tag "${tag}" --commit-sha "${GITHUB_SHA}" \
+              --release-notes "docs/releases/${{ steps.release.outputs.version }}.md"
           }
           classify_id() {
             local release_id="$1"
@@ -580,7 +601,8 @@ jobs:
               -H 'X-GitHub-Api-Version: 2022-11-28' \
               "repos/${GITHUB_REPOSITORY}/releases/${release_id}" | jq -s '.' >"${inventory}"
             python3 scripts/release_asset_state.py \
-              --inventory "${inventory}" --tag "${tag}" --commit-sha "${GITHUB_SHA}"
+              --inventory "${inventory}" --tag "${tag}" --commit-sha "${GITHUB_SHA}" \
+              --release-notes "docs/releases/${{ steps.release.outputs.version }}.md"
           }
 
           state="$(classify_all)"
@@ -671,6 +693,11 @@ jobs:
             "${verify_dir}/upgrade-plan.json"
 
           if [[ "$(jq -r '.release_state' <<<"${state}")" == draft ]]; then
+            state="$(classify_id "${release_id}")"
+            jq -e '
+              .release_state == "draft" and .plan_exists == true and
+              .bundle_exists == true and .delete_asset_ids == []
+            ' <<<"${state}" >/dev/null
             published="$(gh api --method PATCH \
               -H 'Accept: application/vnd.github+json' \
               -H 'X-GitHub-Api-Version: 2022-11-28' \
@@ -678,9 +705,11 @@ jobs:
             jq -e \
               --arg tag "${tag}" \
               --arg sha "${GITHUB_SHA}" \
+              --arg name "Agentic SOC ${tag}" \
+              --rawfile notes "docs/releases/${{ steps.release.outputs.version }}.md" \
               --argjson release_id "${release_id}" '
-              .id == $release_id and .tag_name == $tag and
-              (.body | contains("<!-- agentic-soc-release-commit:" + $sha + " -->")) and
+              .id == $release_id and .tag_name == $tag and .name == $name and
+              .body == ("<!-- agentic-soc-release-commit:" + $sha + " -->\n\n" + $notes) and
               .draft == false and .prerelease == false
             ' <<<"${published}" >/dev/null
           fi
@@ -692,3 +721,30 @@ jobs:
             .plan_exists == true and .bundle_exists == true and
             .delete_asset_ids == []
           ' <<<"${final_state}" >/dev/null
+
+      - name: Publish Stable convenience tags after release publication
+        env:
+          IMAGE_PREFIX: ${{ steps.release.outputs.image_prefix }}
+          STABLE_TAG: ${{ steps.release.outputs.tag }}
+          BACKEND: ${{ steps.images.outputs.backend }}
+          WEBUI: ${{ steps.images.outputs.webui }}
+          UPDATER: ${{ steps.images.outputs.updater }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          for component in backend webui updater; do
+            case "${component}" in
+              backend) reference="${BACKEND}" ;;
+              webui) reference="${WEBUI}" ;;
+              updater) reference="${UPDATER}" ;;
+            esac
+            digest="${reference##*@}"
+            tagged="${IMAGE_PREFIX}/${component}:${STABLE_TAG}"
+            [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+            docker buildx imagetools create --tag "${tagged}" "${reference}"
+            inspected="$(docker buildx imagetools inspect "${tagged}")"
+            tagged_digest="$(awk '$1 == "Digest:" {print $2; exit}' <<<"${inspected}")"
+            [[ "${tagged_digest}" == "${digest}" ]]
+            printf 'published Stable convenience tag: %s -> %s\n' \
+              "${tagged}" "${digest}"
+          done

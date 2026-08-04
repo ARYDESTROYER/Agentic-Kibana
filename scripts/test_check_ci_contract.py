@@ -22,22 +22,38 @@ def _job() -> dict[str, object]:
 
 
 def _ci_workflow() -> dict[str, object]:
+    container_images = _job()
+    container_images["steps"] = [
+        {"uses": PINNED_CHECKOUT},
+        {
+            "name": "Smoke the shipping Web Console health contract",
+            "if": "${{ matrix.component == 'webui' }}",
+            "run": (
+                "docker run --detach --health-interval 1s image\n"
+                "docker inspect --format '{{.State.Health.Status}}' container\n"
+                "curl --fail http://127.0.0.1/\n"
+            ),
+        },
+    ]
     return {
         "on": {"pull_request": {}, "push": {}},
         "permissions": {"contents": "read"},
         "jobs": {
             "quality": _job(),
+            "container-images": container_images,
             "ci": {
                 "name": "CI passed",
                 "runs-on": "ubuntu-latest",
                 "timeout-minutes": 5,
                 "if": "${{ always() }}",
-                "needs": ["quality"],
+                "needs": ["quality", "container-images"],
                 "steps": [
                     {
                         "run": (
                             'result="${{ needs.quality.result }}"\n'
-                            '[[ "$result" == "success" ]]'
+                            'images="${{ needs.container-images.result }}"\n'
+                            '[[ "$result" == "success" ]]\n'
+                            '[[ "$images" == "success" ]]'
                         )
                     }
                 ],
@@ -128,9 +144,22 @@ class WorkflowPolicyTests(unittest.TestCase):
     def test_aggregate_must_explicitly_require_success(self) -> None:
         workflow = _ci_workflow()
         workflow["jobs"]["ci"]["steps"] = [  # type: ignore[index]
-            {"run": 'echo "${{ needs.quality.result }}"'}
+            {
+                "run": (
+                    'echo "${{ needs.quality.result }}"\n'
+                    'echo "${{ needs.container-images.result }}"'
+                )
+            }
         ]
         with self.assertRaisesRegex(ValueError, "explicit success"):
+            policy._assert_ci(Path("ci.yml"), workflow)
+
+    def test_shipping_webui_runtime_smoke_cannot_be_removed(self) -> None:
+        workflow = _ci_workflow()
+        workflow["jobs"]["container-images"]["steps"] = [  # type: ignore[index]
+            {"uses": PINNED_CHECKOUT}
+        ]
+        with self.assertRaisesRegex(ValueError, "health smoke"):
             policy._assert_ci(Path("ci.yml"), workflow)
 
     def test_repository_publishers_require_exact_tag_ci(self) -> None:
@@ -138,6 +167,87 @@ class WorkflowPolicyTests(unittest.TestCase):
         release_path = policy.WORKFLOW_DIR / "release.yml"
         policy._assert_docs(docs_path, policy._load(docs_path))
         policy._assert_release(release_path, policy._load(release_path))
+
+    def test_release_builds_cannot_publish_stable_tags_early(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        build = next(
+            step
+            for step in workflow["jobs"]["publish"]["steps"]
+            if step.get("name") == "Build and publish backend by immutable digest"
+        )
+        build["with"]["tags"] = (
+            "${{ steps.release.outputs.image_prefix }}/backend:"
+            "${{ steps.release.outputs.tag }}"
+        )
+        with self.assertRaisesRegex(ValueError, "non-Stable candidate tag"):
+            policy._assert_release(release_path, workflow)
+
+    def test_release_anonymous_pull_gate_requires_fresh_docker_config(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        gate = next(
+            step
+            for step in workflow["jobs"]["publish"]["steps"]
+            if step.get("name")
+            == "Prove anonymous pullability and exact OCI release labels"
+        )
+        gate["run"] = gate["run"].replace(
+            'export DOCKER_CONFIG="${anonymous_docker_config}"',
+            'export DOCKER_CONFIG="${HOME}/.docker"',
+        )
+        with self.assertRaisesRegex(ValueError, "isolated multi-platform pull"):
+            policy._assert_release(release_path, workflow)
+
+    def test_release_anonymous_pull_gate_requires_both_platforms(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        gate = next(
+            step
+            for step in workflow["jobs"]["publish"]["steps"]
+            if step.get("name")
+            == "Prove anonymous pullability and exact OCI release labels"
+        )
+        gate["run"] = gate["run"].replace(
+            "for platform in linux/amd64 linux/arm64",
+            "for platform in linux/amd64",
+        )
+        with self.assertRaisesRegex(ValueError, "isolated multi-platform pull"):
+            policy._assert_release(release_path, workflow)
+
+    def test_release_anonymous_pull_gate_rejects_publisher_credentials(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        gate = next(
+            step
+            for step in workflow["jobs"]["publish"]["steps"]
+            if step.get("name")
+            == "Prove anonymous pullability and exact OCI release labels"
+        )
+        gate["env"]["GH_TOKEN"] = "${{ github.token }}"
+        with self.assertRaisesRegex(ValueError, "may not receive publisher credentials"):
+            policy._assert_release(release_path, workflow)
+
+    def test_release_stable_tags_must_follow_release_publication(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        steps = workflow["jobs"]["publish"]["steps"]
+        stable = next(
+            step
+            for step in steps
+            if step.get("name")
+            == "Publish Stable convenience tags after release publication"
+        )
+        steps.remove(stable)
+        publish_index = next(
+            index
+            for index, step in enumerate(steps)
+            if step.get("name")
+            == "Stage, verify, and atomically publish the GitHub Release"
+        )
+        steps.insert(publish_index, stable)
+        with self.assertRaisesRegex(ValueError, "publish before images"):
+            policy._assert_release(release_path, workflow)
 
     def test_docs_publisher_cannot_drop_exact_tag_ci_gate(self) -> None:
         docs_path = policy.WORKFLOW_DIR / "docs.yml"

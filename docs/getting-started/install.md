@@ -27,13 +27,13 @@ when infrastructure and external model calls are not part of your evaluation.
 Use the immutable Stable tag:
 
 ```bash
-git clone --branch v0.1.3 --depth 1 \
+git clone --branch v0.1.4 --depth 1 \
   https://github.com/ARYDESTROYER/Agentic-Kibana.git
 cd Agentic-Kibana
 ```
 
 For an unreleased preview, use the repository's `Testing` branch instead. The remote
-uses default `main` for accepted Stable source; `v0.1.3` exists only after the
+uses default `main` for accepted Stable source; `v0.1.4` exists only after the
 candidate has completed promotion and tagging. Do not
 create or move a release tag locally. Pulling `main` means pulling the current
 accepted Stable source—not the next Testing candidate—but repository protections

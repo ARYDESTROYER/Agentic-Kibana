@@ -700,6 +700,54 @@ jobs:
               ' "${RUNNER_TEMP}/${COMPONENT}-image.json"
               ;;
           esac
+      - name: Smoke the shipping Web Console health contract
+        if: ${{ matrix.component == 'webui' }}
+        env:
+          IMAGE: ${{ matrix.image }}:${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          container="agentic-soc-ci-webui-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          backend_peer="agentic-soc-ci-webui-backend-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          network="agentic-soc-ci-webui-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          cleanup() {
+            docker rm --force "${container}" >/dev/null 2>&1 || true
+            docker rm --force "${backend_peer}" >/dev/null 2>&1 || true
+            docker network rm "${network}" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          # nginx resolves the production Compose service name at startup. Give
+          # this standalone image smoke the same DNS contract without starting a
+          # second application stack or reaching the host network.
+          docker network create "${network}" >/dev/null
+          docker run --detach \
+            --name "${backend_peer}" \
+            --network "${network}" \
+            --network-alias tlsoc-backend \
+            --entrypoint /bin/sh \
+            "${IMAGE}" \
+            -c 'sleep 300' >/dev/null
+          docker run --detach \
+            --name "${container}" \
+            --network "${network}" \
+            --publish 127.0.0.1:18080:80 \
+            --health-interval 1s \
+            --health-timeout 3s \
+            --health-retries 5 \
+            "${IMAGE}" >/dev/null
+          for _ in $(seq 1 30); do
+            status="$(docker inspect --format '{{.State.Health.Status}}' "${container}")"
+            if [[ "${status}" == "healthy" ]]; then
+              break
+            fi
+            if [[ "${status}" == "unhealthy" ]]; then
+              docker inspect "${container}"
+              docker logs "${container}"
+              exit 1
+            fi
+            sleep 1
+          done
+          test "$(docker inspect --format '{{.State.Health.Status}}' "${container}")" = healthy
+          curl --fail --silent --show-error http://127.0.0.1:18080/ >/dev/null
 
   ci:
     name: CI passed

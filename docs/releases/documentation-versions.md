@@ -26,7 +26,7 @@ for newer material; it is not the primary product-help destination.
 
 Every application build carries two related identifiers:
 
-- the full product SemVer, such as **0.1.3**; and
+- the full product SemVer, such as **0.1.4**; and
 - the compatible documentation line, such as **0.1**.
 
 The documentation build and the application build originate from the same source
@@ -47,10 +47,11 @@ newer Stable or Development material.
 
 | Documentation label | Application SemVer | Source identity | Channel |
 | --- | --- | --- | --- |
-| 0.1 installed Testing guide | 0.1.3 | candidate commit on `Testing` | Testing |
+| 0.1 installed Testing guide | 0.1.4 | candidate commit on `Testing` | Testing |
 | 0.1 installed prior Stable guide | 0.1.1 | verified `main` commit tagged `v0.1.1` | Stable |
 | 0.1 historical Testing guide | 0.1.2 | unpublished Testing snapshot; not a Stable tag or operational bootstrap source | Testing archive |
-| 0.1 installed 0.1.3 Stable guide | 0.1.3 | exact verified `main` commit after it is tagged `v0.1.3` | Stable |
+| 0.1 historical Testing guide | 0.1.3 | unpublished Testing snapshot; not a Stable tag or artifact source | Testing archive |
+| 0.1 installed 0.1.4 Stable guide | 0.1.4 | exact verified `main` commit after it is tagged `v0.1.4` | Stable |
 | 0.1 public Stable guide | 0.1.x | current immutable release tag for the supported 0.1 line | Stable |
 
 The shorter documentation label keeps patch-compatible guidance together. When a
@@ -60,7 +61,7 @@ incompatible or feature release receives a new documentation line rather than
 rewriting 0.1 silently.
 
 The channel is independent of SemVer. A Testing candidate and a Stable artifact may
-both report application version `0.1.3`; only accepted `main`/tag provenance may
+both report application version `0.1.4`; only accepted `main`/tag provenance may
 claim a Stable application build. Public documentation can receive corrections on
 `Testing`, but a published Stable correction receives a new patch version and tag.
 The installed Help Center therefore remains authoritative for the exact binaries
