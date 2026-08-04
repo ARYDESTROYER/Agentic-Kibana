@@ -42,7 +42,11 @@ def test_all_manifest_connector_clients_ship_in_full_requirement_set() -> None:
 
 def test_dockerfile_is_non_root_complete_and_explicitly_tiered() -> None:
     dockerfile = (BACKEND / "Dockerfile").read_text(encoding="utf-8")
-    assert "FROM python:3.11.15-slim-bookworm AS runtime-base" in dockerfile
+    runtime_base = re.compile(
+        r"^FROM python:3\.11\.15-slim-bookworm@sha256:[0-9a-f]{64} AS runtime-base$",
+        flags=re.MULTILINE,
+    )
+    assert runtime_base.search(dockerfile) is not None
     assert "FROM runtime-base AS core" in dockerfile
     assert "FROM runtime-base AS full" in dockerfile
     assert "COPY --chown=tlsoc:tlsoc playbooks ./playbooks" in dockerfile

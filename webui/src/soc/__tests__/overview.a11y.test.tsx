@@ -17,7 +17,7 @@
  * Offline: no network, no #3 / runtime behaviour touched.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { axe, toHaveNoViolations } from 'jest-axe';
 
 expect.extend(toHaveNoViolations);
@@ -103,6 +103,15 @@ describe('Overview — a11y smoke (jest-axe)', () => {
     await waitFor(() => expect(screen.getByTestId('kpi-open-cases')).toBeInTheDocument(), {
       timeout: 5000,
     });
+    // KPI numerals progressively upgrade from CountUp to the lazy motion number.
+    // Wait through Testing Library's act-aware loop so the a11y snapshot represents
+    // the settled strip and the Suspense completion cannot leak a React warning.
+    await waitFor(
+      () => {
+        expect(within(screen.getByTestId('kpi-strip')).queryAllByTestId('count-up')).toHaveLength(0);
+      },
+      { timeout: 5000 },
+    );
     // Exactly one page-level h1 (the hero title); widget groups are h2.
     expect(container.querySelectorAll('h1')).toHaveLength(1);
     expect(await axe(container)).toHaveNoViolations();

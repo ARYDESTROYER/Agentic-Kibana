@@ -231,7 +231,7 @@ cd webui
 npm ci
 npm run check:types # hard-fail API drift in CI with TLSOC_REQUIRE_TYPEGEN=1
 npm run gates       # tokens, contrast, CVD, and raw-style regression guards
-npm run test:strict # latest recorded full run: 1,935 passed / 286 files; CI-parity quiet-output gate
+npm run test:strict # latest recorded full run: 1,927 passed + 9 skipped / 286 files; CI-parity quiet-output gate
 npm run lint -- --max-warnings=0
 npm run build      # version-matched MkDocs Help Center + tsc --noEmit + Vite
 npm run docs:check # verify the generated docs artifact matches VERSION

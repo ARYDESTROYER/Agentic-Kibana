@@ -506,7 +506,7 @@ uvicorn app.main:app --port 8088
 # Web UI + installed Help Center build, tests, and lint (Node 22)
 cd webui && npm install && npm run build   # MkDocs bundle + tsc --noEmit + Vite -> webui/dist/
 npm run docs:check                         # validate app 0.1.3 ↔ bundled docs 0.1
-npm run test:strict                        # -> latest recorded full run: 1,935 passed / 286 files; zero stderr/console output
+npm run test:strict                        # -> latest recorded full run: 1,927 passed + 9 skipped / 286 files; zero stderr/console output
 npm run lint                               # 0 errors, 0 warnings; jsx-a11y at error
 
 # One-command demo (backend :8088 AUTH ENABLED + webui dev :5173; login Admin / Admin@123)
@@ -564,7 +564,7 @@ cp .env.example .env   # set TLSOC_PG_PASSWORD + at least one LLM key
   `models.py`.
 - **Secrets:** env only; UI shows booleans (`configured ✓`) never values.
 - **Tests:** add/keep offline tests; `pytest -q` green (latest recorded full run: 2,306) +
-  `npm run build` clean + `npm run test:strict` (latest recorded full run: 1,935 / 286 files) +
+  `npm run build` clean + `npm run test:strict` (latest recorded full run: 1,927 passed + 9 skipped / 286 files) +
   `npm run lint` (0 errors, jsx-a11y at error) before
   every commit. (Counts rise each round — see `Journal.md` for the exact current totals.)
 - **Git:** active branch `Testing`. Commit focused changes; push when asked. The
@@ -687,7 +687,7 @@ protection, required-check, and `github-pages` environment policy remain adminis
 controls and must be verified independently of source changes.
 
 **Current baseline (2026-08-04):** backend **2,306 pytest** passed (0 failures);
-webui **1,935 Vitest** specs / 286 files with zero stderr or captured console output,
+webui **1,936 Vitest** specs / 286 files (1,927 passed + 9 intentionally skipped) with zero stderr or captured console output,
 full docs+app build clean (3,189 modules;
 motion remains lazy and off the entry path); eslint **0 errors, 0 warnings**; **zero new webui runtime
 deps except the deliberate lazy `motion`** (12.42.2). Version 0.1 adds only the

@@ -73,6 +73,13 @@ stricter release acceptance.**
 
 ### Fixed
 
+- The backend distribution test now accepts only the reviewed Python tag plus a
+  64-character immutable image digest and the expected runtime stage, so Docker
+  reproducibility hardening no longer makes the complete offline suite fail.
+- The Overview accessibility smoke test now waits for its lazy KPI numerals to
+  settle through Testing Library's act-aware lifecycle before taking the snapshot,
+  eliminating a scheduling-sensitive React warning on slower Linux runners without
+  suppressing Console output.
 - The Web UI production-build step now declares and exports its generated build date
   separately, satisfying ShellCheck SC2155 on GitHub's runner instead of failing the
   workflow-validation lane before deployment and updater checks execute.

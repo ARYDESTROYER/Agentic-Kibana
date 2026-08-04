@@ -9134,3 +9134,17 @@
 - Tests: Full backend **2,306/2,306**; strict Console **1,935/1,935 across 286 files**; updater **77/77**; policy **15/15**; exact actionlint/ShellCheck, fatal Ruff, version, 68-page Help Center, docs bundle/theme tests, tracked shell syntax, repository whitespace, real PostgreSQL/Redis acceptance, Compose topology, three Docker build checks, three actual shipping-image builds, and production Web build all passed. Temporary `memory.md` is absent and deterministic `case_manager.py` is unchanged. No Codex Security review was run.
 - Status: complete and green locally; changes remain unstaged on `Testing`. Nothing was committed, pushed, merged, tagged, released, deployed, or published.
 - Next: Review and commit this exact patch to `Testing`, push it, require the remote `CI passed` result, then promote the unchanged accepted SHA through `main` and the annotated `v0.1.3` tag gates.
+
+### 2026-08-04 18:26Z — `/root` — second remote CI failure investigation started
+- Context: The pushed hardened candidate passed seventeen checks but failed the complete backend and strict Web UI suites; the aggregate failed as designed.
+- Did: Began exact GitHub Actions log retrieval and clean-runner reproduction for both root lanes before making any further source or workflow changes.
+- Tests: Pending. No Codex Security review is in scope.
+- Status: in progress; no new file is staged, committed, pushed, merged, tagged, released, deployed, or published by this session.
+- Next: Extract both failing assertions, reproduce each under the pinned CI toolchains and clean dependency installs, fix root causes rather than the aggregate, then execute the complete local CI/CD surface.
+
+### 2026-08-04 18:56Z — `/root` — second remote CI failures fixed and complete local acceptance repeated
+- Context: Repair the exact backend and Web UI failures from Testing run `30937842800`, without retries, warning suppression, or weakening the fail-closed aggregate.
+- Did: Made the distribution contract validate the intentionally digest-pinned Python runtime base; made the Overview accessibility test await all lazy KPI counters through Testing Library's act-aware lifecycle; added negative regressions proving the documentation publisher cannot remove the exact-tag `CI passed` gate or its `actions: read` permission; and reconciled the v0.1.3 test snapshot and release notes.
+- Tests: Backend **2,306/2,306**; strict native-Linux Node 22 Console **1,927 passed + 9 intentionally skipped across 286 files**, zero stderr/console warnings; focused asynchronous KPI regression **20/20** under constrained Node 22; updater **77/77**; workflow/Docker policy **17/17**; exact actionlint/ShellCheck and fatal Ruff; package build/install with **27** routers; SQLite startup; real PostgreSQL+pgvector/Redis readiness; 217 OpenAPI/generated-client paths; typecheck, lint, design-system gates; 68-page Help Center, docs bundle/theme tests; Compose/deploy contracts; and all three actual `linux/amd64` shipping-image builds with OCI/runtime assertions passed. No Codex Security review was run.
+- Status: complete and green locally; the source fixes remain unstaged on `Testing`. Nothing was committed, pushed, merged, tagged, released, deployed, or published.
+- Next: Commit and push this exact patch to `Testing`, require the remote `CI passed` aggregate, then promote only that accepted immutable SHA through `main` and the annotated v0.1.3 tag gates.

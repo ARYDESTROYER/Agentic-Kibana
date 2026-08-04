@@ -60,7 +60,8 @@ pass** (`c5516e5`→`abd0385`, 2026-07-14/15, now present on `origin/Testing`) f
 (0 crit / 10 high / 24 med / 13 low) from a 24-auditor + adversarial-verify Workflow —
     one atomic commit per finding, no co-author, each with a regression test. The current 0.1
     candidate was re-verified on 2026-08-04: backend **2,306 pytest** (0 failures);
-    Console **1,935 Vitest** across 286 files under the strict zero-stderr/zero-console-output
+    Console **1,936 Vitest** across 286 files (1,927 passed + 9 intentionally
+    skipped) under the strict zero-stderr/zero-console-output
     gate; full version-matched Help Center + app build clean at **3,189 modules**; and
     zero-warning ESLint plus all five design-system gates clean. `engine/case_manager.py`
     `decide()` remains **byte-identical** (verified clean), and the generated-contract,

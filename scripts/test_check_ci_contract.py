@@ -139,6 +139,26 @@ class WorkflowPolicyTests(unittest.TestCase):
         policy._assert_docs(docs_path, policy._load(docs_path))
         policy._assert_release(release_path, policy._load(release_path))
 
+    def test_docs_publisher_cannot_drop_exact_tag_ci_gate(self) -> None:
+        docs_path = policy.WORKFLOW_DIR / "docs.yml"
+        workflow = policy._load(docs_path)
+        publish = workflow["jobs"]["publish"]
+        publish["steps"] = [
+            step
+            for step in publish["steps"]
+            if step.get("name")
+            != "Require the exact tag CI run and fail-closed aggregate"
+        ]
+        with self.assertRaisesRegex(ValueError, "exact tag CI"):
+            policy._assert_docs(docs_path, workflow)
+
+    def test_docs_publisher_requires_actions_read_permission(self) -> None:
+        docs_path = policy.WORKFLOW_DIR / "docs.yml"
+        workflow = policy._load(docs_path)
+        workflow["jobs"]["publish"]["permissions"] = {"contents": "write"}
+        with self.assertRaisesRegex(ValueError, "publisher permissions drifted"):
+            policy._assert_docs(docs_path, workflow)
+
     def test_external_dockerfile_base_requires_digest(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "Dockerfile"
