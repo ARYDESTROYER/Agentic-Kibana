@@ -27,13 +27,13 @@ when infrastructure and external model calls are not part of your evaluation.
 Use the immutable Stable tag:
 
 ```bash
-git clone --branch v0.1.2 --depth 1 \
+git clone --branch v0.1.3 --depth 1 \
   https://github.com/ARYDESTROYER/Agentic-Kibana.git
 cd Agentic-Kibana
 ```
 
 For an unreleased preview, use the repository's `Testing` branch instead. The remote
-uses default `main` for accepted Stable source; `v0.1.2` exists only after the
+uses default `main` for accepted Stable source; `v0.1.3` exists only after the
 candidate has completed promotion and tagging. Do not
 create or move a release tag locally. Pulling `main` means pulling the current
 accepted Stable source—not the next Testing candidate—but repository protections
@@ -70,9 +70,9 @@ Generate random values with `openssl rand -hex 32`. Never commit `.env`.
 ## 3. Validate and start
 
 ```bash
-docker compose -f deploy/docker-compose.agnostic.yml config --quiet
-docker compose -f deploy/docker-compose.agnostic.yml up --detach --build
-docker compose -f deploy/docker-compose.agnostic.yml ps
+./scripts/agentic-soc-compose.sh config --quiet
+./scripts/agentic-soc-compose.sh up --detach --build
+./scripts/agentic-soc-compose.sh ps
 ```
 
 Open `http://localhost:8080` for a workstation evaluation. Terminate TLS at a trusted
@@ -102,7 +102,7 @@ If readiness fails, inspect the backend service logs and use the
 ## 5. Stop the stack
 
 ```bash
-docker compose -f deploy/docker-compose.agnostic.yml down
+./scripts/agentic-soc-compose.sh down
 ```
 
 The named PostgreSQL volume remains. Adding `--volumes` removes application state

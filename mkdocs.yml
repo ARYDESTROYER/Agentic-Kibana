@@ -75,7 +75,7 @@ extra_javascript:
   - javascripts/extra.js
 
 extra:
-  product_version: "0.1.2"
+  product_version: "0.1.3"
   docs_version: "0.1"
   stable_docs_url: !ENV [TLSOC_DOCS_STABLE_URL, "https://arydestroyer.github.io/Agentic-Kibana/stable/"]
   release:
@@ -187,7 +187,8 @@ nav:
           - Testing and contracts: development/testing.md
   - Releases and versions:
       - Agentic SOC 0.1: releases/0.1.md
-      - Agentic SOC 0.1.2: releases/0.1.2.md
+      - Agentic SOC 0.1.3: releases/0.1.3.md
+      - Agentic SOC 0.1.2 (unpublished snapshot): releases/0.1.2.md
       - Documentation versions: releases/documentation-versions.md
       - Channels and versioning: releases/channels.md
       - Known limitations: releases/known-limitations.md

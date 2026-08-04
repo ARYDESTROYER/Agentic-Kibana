@@ -31,7 +31,7 @@ import { DASH, formatTimestamp, humanizeToken } from '@/lib/format';
 import { Badge } from '@/ui/badge';
 import { Button } from '@/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/ui/collapsible';
-import { Skeleton } from '@/ui/skeleton';
+import { LoadingState } from '@/design-system';
 import { CodeBlock } from '@/soc/components/CodeBlock';
 import { Markdown } from '@/soc/components/Markdown';
 import { EmptyState } from '@/soc/components/EmptyState';
@@ -600,10 +600,14 @@ export const StageTimeline: React.FC<StageTimelineProps> = ({
 }) => {
   if (loading) {
     return (
-      <div className={cn('space-y-4', presentation === 'default' && 'p-6')}>
-        <Skeleton className="h-8 w-2/3" />
-        <Skeleton className="h-24 w-full" />
-        <Skeleton className="h-24 w-full" />
+      <div className={cn(presentation === 'default' && 'p-6')}>
+        <LoadingState
+          label="Loading timeline"
+          description="Preparing the case journey from ingestion through decision."
+          layout="panel"
+          shape="rows"
+          shapeRows={4}
+        />
       </div>
     );
   }

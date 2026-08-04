@@ -48,14 +48,14 @@ rule. The image/build pipeline passes these names directly:
 
 | Variable | Meaning |
 |---|---|
-| `TLSOC_VERSION` | Compose image tag/build argument; must match the code's Semantic Version (`0.1.2`) |
+| `TLSOC_VERSION` | Compose image tag/build argument; must match the code's Semantic Version (`0.1.3`) |
 | `TLSOC_RELEASE_CHANNEL` | `testing` by default; set to `stable` only for the accepted `main`/tag build |
 | `TLSOC_BUILD_SHA` | Exact source commit embedded in `/api/health/build-info` and image metadata |
 | `TLSOC_BUILD_DATE` | Build timestamp embedded in `/api/health/build-info` and image metadata |
 | `TLSOC_SOURCE_URL` | Dockerfile build argument for the canonical source URL embedded in OCI image metadata; the reference Compose files currently use the Dockerfile's repository default |
 
 The release channel is independent of SemVer: both the accepted Testing candidate and
-its Stable promotion are application `0.1.2`. Promotion changes provenance/channel,
+its Stable promotion are application `0.1.3`. Promotion changes provenance/channel,
 not the source version.
 
 The Console compiles version/channel/SHA/date into its own build and displays an
@@ -127,7 +127,7 @@ always off.
 This is desired policy, not a cross-provider promise. The status/preview API reports
 the effective state and blockers before any mutation:
 
-| State backend | Effective 0.1.2 behavior |
+| State backend | Effective 0.1.3 behavior |
 |---|---|
 | Elasticsearch | Explicit Apply can install ILM for append-only `tlsoc-agent-audit-*` and `tlsoc-agent-usage-*` only, after the cluster/privilege/tier probe succeeds |
 | PostgreSQL | Advisory; no built-in partitions, tablespace movement, or archive scheduler |
@@ -158,15 +158,24 @@ repository. It is enabled on fresh installations with this configuration:
 
 Only a canonical public `https://github.com/owner/repository` URL is accepted. Branch
 refs are bounded and reject ambiguous Git syntax. The discovery client is pinned to
-`api.github.com`, rejects redirects and oversized/malformed responses, and reads only
-the branch head plus root `VERSION`. The interval is 15 minutes to 7 days. This
+`api.github.com`, rejects redirects and oversized/malformed responses, and reads the
+branch head plus root `VERSION`. Stable discovery additionally requires the exact
+annotated `vVERSION` tag and dereferences it to an immutable commit; branch HEAD stays
+observation-only. The interval is 15 minutes to 7 days. This
 preference grants no clone, pull, execution, deployment, restart, promotion, rollback,
-or migration capability.
+or migration capability. It is discovery metadata only. A separately bootstrapped,
+host-pinned update supervisor may act on a newer Stable release only after the backend
+derives the canonical GitHub Release asset URLs and the supervisor independently
+validates the signed plan, trusted publisher, exact image digests, and local
+compatibility. Changing this observation repository never silently retargets an
+already installed supervisor.
 
 Fork operators may change the repository and either release branch in **Settings →
 Organization → Updates & releases**. Save the preference before running a manual
-check. The same-origin `/release.json` and backend readiness identity remain the only
-authority for activating an already-deployed Console build.
+check. The same-origin `/release.json` and backend readiness identity remain the final
+authority for activating a successfully installed Console build. Installation
+authority stays in the private host supervisor described in
+[Upgrades](../operations/upgrades.md), never in this preference or the browser.
 
 ## Durable preferences
 

@@ -1030,16 +1030,13 @@ const WorkspaceReadyState: React.FC<{
   onPick: (prompt: string) => void;
 }> = ({ starters, loading, onPick }) => (
   <div className="w-full pt-7 sm:pt-9" data-testid="workspace-chat-ready">
-    <div className="flex items-start gap-3">
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-sm border border-border bg-surface text-primary">
-        <Bot className="h-4 w-4" aria-hidden />
-      </span>
-      <div className="min-w-0">
-        <div className="text-sm font-semibold text-foreground">SOC agent</div>
-        <p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          Ask about an indicator, current posture, or the evidence behind a case.
-        </p>
-      </div>
+    <div className="max-w-2xl">
+      <h3 className="text-base font-semibold text-foreground">
+        Start an investigation
+      </h3>
+      <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
+        Ask about an indicator, current posture, or the evidence behind a case.
+      </p>
     </div>
 
     {starters.length ? (
@@ -1755,7 +1752,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(
 
             {isWorkspace ? (
               <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-1 text-xs text-muted-foreground">
-                <span>Enter to send · Shift+Enter for a new line</span>
+                <span className="hidden sm:inline">
+                  Enter to send · Shift+Enter for a new line
+                </span>
                 <span className="flex min-w-0 items-center gap-3 truncate">
                   <span className="inline-flex min-w-0 items-center gap-1.5 truncate">
                     <Database className="h-3.5 w-3.5 shrink-0" aria-hidden />

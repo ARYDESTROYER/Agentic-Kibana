@@ -574,6 +574,26 @@ async def test_severity_floor_not_re_raised_within_cadence_window(app_state: App
     assert out2.auto_applied == [], "severity_floor must not climb again within the window"
 
 
+def test_severity_floor_requires_an_explicit_rule_to_feed_mapping() -> None:
+    """A noisy rule must never raise the first unrelated feed as a fallback."""
+    source = SourceInstance(
+        id="src1", source_type=SourceType.ELASTICSEARCH, ingest_mode=IngestMode.PULL,
+        config={"index_patterns": [{
+            "pattern": "alerts-*", "id": "feedA", "role": "events",
+            "severity_floor": 2, "query": "different_rule",
+        }]},
+    )
+    prefs = _tuning_prefs(min_samples=25, max_n_step=0, sources=[source])
+    cases = [_closed_case(case_id=f"u{i}", rule="unmapped_noisy_rule") for i in range(30)]
+    stats = tuner._accumulate_rule_stats(
+        cases,
+        ewma_alpha=prefs.threshold_tuning.ewma_alpha,
+        z=prefs.threshold_tuning.wilson_z,
+    )
+
+    assert derive_proposals(prefs, stats) == []
+
+
 # --------------------------------------------------------------------------- #
 # TuningStore CRUD + durability
 # --------------------------------------------------------------------------- #

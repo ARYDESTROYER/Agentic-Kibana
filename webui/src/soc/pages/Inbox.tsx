@@ -45,6 +45,8 @@ import {
 
 import { PageHeader } from '@/soc/components/PageHeader';
 import { PageContainer } from '@/soc/components/PageContainer';
+import { ControlBar } from '@/soc/components/ControlBar';
+import { RefreshButton } from '@/soc/components/RefreshButton';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
 import { SegmentedControl } from '@/soc/components/SegmentedControl';
@@ -470,10 +472,7 @@ export default function Inbox({ onNavigate }: InboxProps = {}) {
         <Settings2 className="size-4" aria-hidden />
         Preferences
       </Button>
-      <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
-        <RefreshCw className={cn('size-4', loading && 'animate-spin')} aria-hidden />
-        Refresh
-      </Button>
+      <RefreshButton onClick={() => void load()} refreshing={loading} />
     </>
   );
 
@@ -484,7 +483,13 @@ export default function Inbox({ onNavigate }: InboxProps = {}) {
         eyebrow="Notifications"
         title="Inbox"
         description="Your in-app notification center — case events, mentions, assignments and approvals. Everything is recorded here; configure extra delivery channels under Preferences."
-        actions={actions}
+      />
+
+      <ControlBar
+        title="Inbox view"
+        meta={`${unreadCount} unread · ${total} total`}
+        controls={actions}
+        label="Inbox controls"
       />
 
       {error ? (

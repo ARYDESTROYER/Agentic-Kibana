@@ -8,6 +8,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 const { addCustomMock, removeCustomMock, providersTestMock, catalogMock, providersMock } =
   vi.hoisted(() => ({
@@ -172,5 +173,20 @@ describe('Models — Add local model', () => {
     expect(screen.getByText(/local & self-hosted models/i)).toBeInTheDocument();
     fireEvent.click(removeBtn);
     await waitFor(() => expect(removeCustomMock).toHaveBeenCalledWith('team-llama'));
+  });
+
+  it('explains first-use recovery when no provider is registered', async () => {
+    providersMock.mockResolvedValue({ providers: [] });
+    renderPage();
+
+    await userEvent.click(await screen.findByRole('tab', { name: 'Providers' }));
+
+    const empty = await screen.findByRole('group', {
+      name: 'No model providers are registered',
+    });
+    expect(empty).toHaveAttribute('data-empty-state', 'first-use');
+    expect(empty).toHaveAccessibleDescription(
+      /open Settings.*Secret keys.*hosted provider.*self-hosted model/i,
+    );
   });
 });

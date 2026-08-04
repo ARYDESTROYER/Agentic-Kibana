@@ -22,6 +22,8 @@ from app.state import AppState
 
 _SHA_STABLE = "a" * 40
 _SHA_TESTING = "b" * 40
+_SHA_TAG_OBJECT = "c" * 40
+_SHA_STABLE_RELEASE = "d" * 40
 
 
 def _config(**updates) -> ReleaseUpdateConfig:
@@ -102,6 +104,12 @@ def _fake_github(*, fail_branch: str | None = None, version: str = "v0.1.2"):
             return {
                 "object": {"sha": _SHA_STABLE if branch == "main" else _SHA_TESTING}
             }
+        if "/git/ref/tags/" in parsed.path:
+            return {"object": {"type": "tag", "sha": _SHA_TAG_OBJECT}}
+        if "/git/tags/" in parsed.path:
+            return {
+                "object": {"type": "commit", "sha": _SHA_STABLE_RELEASE}
+            }
         assert parsed.path.endswith("/contents/VERSION")
         branch = parse_qs(parsed.query)["ref"][0]
         if branch == fail_branch:
@@ -133,6 +141,11 @@ async def test_discovery_returns_both_channels_and_uses_ttl_cache() -> None:
         "commit_url": (
             "https://github.com/ARYDESTROYER/Agentic-Kibana/commit/" + _SHA_STABLE
         ),
+        "release_commit_sha": _SHA_STABLE_RELEASE,
+        "release_commit_url": (
+            "https://github.com/ARYDESTROYER/Agentic-Kibana/commit/"
+            + _SHA_STABLE_RELEASE
+        ),
         "source_url": "https://github.com/ARYDESTROYER/Agentic-Kibana/tree/main",
         "checked_at": first.checked_at,
         "stale": False,
@@ -141,15 +154,15 @@ async def test_discovery_returns_both_channels_and_uses_ttl_cache() -> None:
     }
     assert first.channels["testing"].branch == "Testing"
     assert first.channels["testing"].commit_sha == _SHA_TESTING
-    assert len(calls) == 4
+    assert len(calls) == 6
 
     second = await service.discover(_config())
     assert second.cache.hit is True
-    assert len(calls) == 4
+    assert len(calls) == 6
     # A manual click cannot hammer GitHub inside the five-minute floor.
     manual = await service.discover(_config(), force=True)
     assert manual.cache.hit is True
-    assert len(calls) == 4
+    assert len(calls) == 6
 
 
 @pytest.mark.asyncio

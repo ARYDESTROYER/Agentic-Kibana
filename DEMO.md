@@ -98,7 +98,7 @@ cp .env.example .env                 # set TLSOC_PG_PASSWORD + one LLM key
 # Enable the auth demo posture:
 #   TLSOC_AUTH_ENABLED=true
 #   TLSOC_AUTH_JWT_SECRET=<32+ random bytes>
-docker compose -f deploy/docker-compose.agnostic.yml up -d --build
+./scripts/agentic-soc-compose.sh up -d --build
 ```
 
 Open **http://localhost:8080**. (See `DEPLOY.md` §3 for the full stack and §8/§10
@@ -470,7 +470,7 @@ cursors. It is **fully reversible in one click**.
   incident / reset / disable entries. (Use **Reset** instead to re-seed the same
   dataset for another run.)
 - **`run-demo.sh`:** press **Ctrl-C** — it tears down both processes.
-- **Docker:** `docker compose -f deploy/docker-compose.agnostic.yml down`
+- **Docker:** `./scripts/agentic-soc-compose.sh down`
   (add `-v` to also drop the Postgres volume for a clean slate).
 - **Auth & session state** live in the state backend; for the in-memory/local demo
   they reset on backend restart (the `Admin/Admin@123` super_admin re-seeds, and

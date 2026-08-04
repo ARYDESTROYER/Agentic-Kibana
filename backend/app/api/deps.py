@@ -489,3 +489,157 @@ def require_fresh_auth(window: int | None = None):
         return user
 
     return _dep
+
+
+def require_system_update_operator(window: int | None = None):
+    """Fail-closed owner/session/step-up gate for deployment mutations.
+
+    This is intentionally stricter than the general compatibility-oriented auth
+    dependencies above.  A supervised update can restart the application and must
+    therefore require every one of these signals at the same time:
+
+    * authentication is enabled and the principal is the *built-in*
+      ``super_admin`` (custom roles and RBAC-off mode never elevate here);
+    * the signed access token carries a ``sid`` and an explicit token-version;
+    * that exact session is present, belongs to the principal, is active, and was
+      issued at the current token-version; and
+    * the session has a known recent reauthentication timestamp.
+
+    Missing state, an unknown session, malformed claims, and SessionStore failures
+    deny the operation.  This dependency is only for update/preflight/rollback
+    mutations; read-only status still uses ``system_updates:read`` so it can explain
+    why a deployment is not capable of one-click updates.
+    """
+
+    async def _dep(request: Request):
+        state = get_state(request)
+        auth = getattr(state, "auth", None)
+        if auth is None or not auth.is_enabled:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "update_auth_required",
+                    "reason": "auth_disabled",
+                    "message": "Enable authentication before using supervised updates.",
+                },
+            )
+
+        token = request.cookies.get("tlsoc_token") or _bearer(request)
+        user = auth.verify(token) if token else None
+        if user is None:
+            raise HTTPException(status_code=401, detail="authentication required")
+
+        from ..constants import UserRole
+
+        if getattr(user, "role", "") != UserRole.SUPER_ADMIN.value:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "update_owner_required",
+                    "message": "Only the built-in super administrator can manage updates.",
+                },
+            )
+        if bool(getattr(user, "must_change_password", False)):
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "password_change_required",
+                    "message": "Change the temporary password before managing updates.",
+                },
+            )
+
+        claims = auth.claims_of(token) if token else None
+        sid = getattr(user, "sid", None)
+        sessions = getattr(state, "sessions", None)
+        if not isinstance(claims, dict) or not sid or sessions is None:
+            raise HTTPException(
+                status_code=401,
+                detail={"code": "session_invalid", "reason": "registered_session_required"},
+            )
+        try:
+            stamped_tv_raw = claims["tv"]
+            if isinstance(stamped_tv_raw, bool):
+                raise ValueError("boolean token version")
+            stamped_tv = int(stamped_tv_raw)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=401,
+                detail={"code": "reauth_required", "reason": "token_version_missing"},
+            ) from exc
+
+        policy = getattr(getattr(state, "prefs", None), "session_policy", None)
+        idle = int(getattr(policy, "idle_timeout", 0) or 0)
+        absolute = int(getattr(policy, "absolute_lifetime", 0) or 0)
+        win = int(
+            window
+            if window is not None
+            else getattr(policy, "sudo_reauth_window", 600) or 600
+        )
+        try:
+            row = await sessions.get(sid)
+            current_tv = int(await sessions.token_version_for(user.username))
+        except Exception as exc:  # noqa: BLE001 — privileged control plane fails closed
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "code": "session_store_unavailable",
+                    "message": "The session registry could not verify this update request.",
+                },
+            ) from exc
+
+        if (
+            not isinstance(row, dict)
+            or str(row.get("username", "")).strip().lower()
+            != str(user.username).strip().lower()
+            # A compatibility token lazily registered by the ordinary auth gate
+            # has no authentication method. It is sufficient for old read routes,
+            # but never for deployment authority: require an explicit password,
+            # MFA, or SSO login-created session row.
+            or not str(row.get("mfa_method", "")).strip()
+        ):
+            raise HTTPException(
+                status_code=401,
+                detail={"code": "session_invalid", "reason": "registered_session_required"},
+            )
+        try:
+            row_tv = int(row.get("token_version", -1))
+        except (TypeError, ValueError):
+            row_tv = -1
+        if stamped_tv != current_tv or row_tv != current_tv:
+            raise HTTPException(
+                status_code=401,
+                detail={"code": "reauth_required", "reason": "tv_mismatch"},
+            )
+        try:
+            reason = sessions.is_active(
+                row, idle_timeout=idle, absolute_lifetime=absolute
+            )
+            age = sessions.reauth_age_seconds(row)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "code": "session_store_unavailable",
+                    "message": "The session registry could not verify this update request.",
+                },
+            ) from exc
+        if reason is not None:
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "code": _SESSION_REASON_CODE.get(reason, "session_invalid"),
+                    "reason": reason,
+                },
+            )
+        if age is None or age > win:
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "code": "reauth_required",
+                    "reason": "stale_authn" if age is not None else "authn_time_unknown",
+                    "window": win,
+                },
+            )
+        return user
+
+    return _dep

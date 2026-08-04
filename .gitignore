@@ -27,6 +27,7 @@ build/
 site/
 # Version-matched Help Center copied into Vite's public tree at build time.
 /webui/public/docs/
+/.agentic-soc-runtime/
 *.log
 
 # ---- Node / Kibana plugin build scratch ----

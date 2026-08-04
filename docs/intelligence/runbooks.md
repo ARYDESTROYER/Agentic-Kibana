@@ -5,7 +5,7 @@ description: Create compact investigation guidance without changing case policy.
 
 # Runbooks
 
-Open **Intelligence → Runbooks** to browse the investigation guidance available to
+Open **Intelligence → Reference runbooks** to browse the investigation guidance available to
 knowledge retrieval. A Runbook combines a small machine-readable manifest with a
 strict plain-text guidance body. It is a trusted reference for analysts and the
 investigator, not an executable response workflow. A Runbook cannot close, escalate,
@@ -59,6 +59,13 @@ entities, and keywords. Each row identifies its ownership and retrieval state:
 
 Reading the catalog and full content requires `runbooks:read`. The Console hides
 management actions without `runbooks:manage`, and the API enforces the same boundary.
+
+The installed catalog includes nine protected references spanning authentication
+abuse, cloud IAM compromise, data exfiltration, IOC reputation, mail abuse,
+malware/C2, reconnaissance, vulnerability scanning, and web exploitation. These are
+portable starting points, not claims that every environment emits the required
+telemetry. Operators should add a local Runbook only when its exact detection IDs,
+evidence fields, ownership context, and benign lookalikes are reviewed.
 
 The stricter authoring standard does not hide or invalidate older stored Runbooks.
 Legacy and bundled content remains readable and reindexable. When an operator edits a

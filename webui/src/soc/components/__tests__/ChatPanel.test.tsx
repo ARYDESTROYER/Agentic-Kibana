@@ -167,6 +167,9 @@ describe("ChatPanel", () => {
     expect(
       within(workbench).getByTestId("workspace-chat-ready"),
     ).toBeInTheDocument();
+    expect(
+      within(workbench).getByRole("heading", { name: "Start an investigation" }),
+    ).toBeInTheDocument();
     expect(workbench).not.toHaveAttribute("role", "log");
     expect(
       screen.queryByRole("log", { name: "Chat transcript" }),

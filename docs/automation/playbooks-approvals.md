@@ -34,7 +34,7 @@ Before running:
 
 ## Browse and manage procedures
 
-Open **Intelligence → Playbooks**. Every card identifies its ownership:
+Open **Intelligence → Response playbooks**. Every card identifies its ownership:
 
 - **Bundled** procedures ship with Agentic SOC. You can open and copy their plain Markdown,
   but they are protected from runtime edits so an upgrade has a stable reference set.
@@ -57,6 +57,14 @@ If Playbooks is disabled in Settings, the catalog remains manageable but procedu
 not injected into investigations. This is useful for preparing a change before enabling
 it. Changing a playbook affects future selection or explicit re-investigation only; it
 does not rewrite historical case decisions.
+
+The installed catalog contains nine protected procedures for credential attacks,
+cloud-identity compromise, data exfiltration, Moodle abuse, reported phishing,
+privileged web access, ransomware impact, suspicious outbound traffic, and web
+scanner/exploit activity. Selection uses exact declared rule IDs; an unrelated rule
+does not receive a procedure merely because its text sounds similar. Use **Dry run**
+and **Coverage** before adding operator procedures, and prefer filling a demonstrated
+unmatched family over duplicating an existing playbook with broader matching.
 
 ## Case automation and proposals
 

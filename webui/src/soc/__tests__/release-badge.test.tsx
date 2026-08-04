@@ -12,8 +12,11 @@ vi.mock('@/ui/tooltip', () => ({
 }));
 
 import {
+  canUseSystemUpdateControl,
   DeploymentUpdateButton,
   ReleaseBadge,
+  shouldShowDeploymentActivationFallback,
+  supervisedTargetMatchesRunningStable,
   UpstreamSourceNoticeButton,
 } from '@/soc/AppShell';
 import type { DeployedReleaseManifest } from '@/lib/deployment-update';
@@ -86,6 +89,65 @@ describe('ReleaseBadge', () => {
     expect(screen.getByTestId('release-badge')).toHaveTextContent('v0.1.2·Testing');
     fireEvent.click(screen.getByTestId('release-badge'));
     expect(await screen.findByText(/Build provenance is incomplete/i)).toBeVisible();
+  });
+});
+
+describe('system update visibility', () => {
+  it('fails closed for auth-off and every non-owner role', () => {
+    const granted = vi.fn(() => true);
+    expect(canUseSystemUpdateControl(false, 'super_admin', granted)).toBe(false);
+    expect(canUseSystemUpdateControl(true, 'soc_manager', granted)).toBe(false);
+    expect(canUseSystemUpdateControl(true, null, granted)).toBe(false);
+    expect(canUseSystemUpdateControl(true, 'super_admin', () => false)).toBe(false);
+    expect(canUseSystemUpdateControl(true, 'super_admin', granted)).toBe(true);
+    expect(granted).toHaveBeenLastCalledWith('system_updates', 'read');
+  });
+
+  it('requires exact known Stable provenance before automatic Console activation', () => {
+    const target: DeployedReleaseManifest = {
+      schema: 1,
+      product: 'agentic-soc',
+      version: '0.1.3',
+      channel: 'stable',
+      commitSha: 'deadbeef',
+      buildTime: '2026-08-03T03:35:00Z',
+      entryId: 'stable-0.1.3-deadbeef',
+    };
+    expect(
+      supervisedTargetMatchesRunningStable(
+        { version: '0.1.3', channel: 'stable', commit_sha: 'deadbeef' },
+        target,
+      ),
+    ).toBe(true);
+    expect(
+      supervisedTargetMatchesRunningStable(
+        { version: '0.1.3', channel: 'stable', commit_sha: 'unknown' },
+        { ...target, commitSha: 'unknown' },
+      ),
+    ).toBe(false);
+    expect(
+      supervisedTargetMatchesRunningStable(
+        { version: '0.1.3', channel: 'testing', commit_sha: 'deadbeef' },
+        { ...target, channel: 'testing' },
+      ),
+    ).toBe(false);
+  });
+
+  it('restores the manual activation fallback after the single automatic attempt', () => {
+    const target = {
+      schema: 1,
+      product: 'agentic-soc',
+      version: '0.1.3',
+      channel: 'stable',
+      commitSha: 'deadbeef',
+      buildTime: '2026-08-03T03:35:00Z',
+      entryId: 'stable-0.1.3-deadbeef',
+    } satisfies DeployedReleaseManifest;
+    expect(shouldShowDeploymentActivationFallback(target, true, false, null, 'job-1')).toBe(false);
+    expect(shouldShowDeploymentActivationFallback(target, true, false, 'job-1', 'job-1')).toBe(true);
+    expect(shouldShowDeploymentActivationFallback(target, false, false, null, null)).toBe(true);
+    expect(shouldShowDeploymentActivationFallback(target, false, true, null, 'job-1')).toBe(false);
+    expect(shouldShowDeploymentActivationFallback(null, false, false, null, null)).toBe(false);
   });
 });
 

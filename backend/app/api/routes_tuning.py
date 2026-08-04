@@ -92,6 +92,34 @@ async def _window_cases(state: AppState) -> list[Case]:
     return out
 
 
+async def _confirmed_ledger_and_guards(
+    state: AppState,
+    cfg: ThresholdTuningConfig,
+) -> tuple[list[Any], dict[str, int], set[str]]:
+    """Read one complete ledger snapshot and derive the shared window guards.
+
+    Recommendations and explicit apply are authority-bearing views: if history is
+    unavailable they must not say "no prior tuning" and derive another bump.  The
+    background scheduler uses the same pure projection in ``run_once``.
+    """
+    try:
+        ledger = await state.tuning_store.list_strict()
+    except Exception as exc:  # noqa: BLE001 — false-empty would be unsafe here
+        logger.warning("tuning ledger unavailable: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Tuning history is temporarily unavailable; recommendations and "
+                "manual apply were not computed"
+            ),
+        ) from exc
+    already_tuned, already_tuned_floors = tuner.tuning_guards_from_records(
+        ledger,
+        tuner.tuning_window_start(cfg.cadence),
+    )
+    return ledger, already_tuned, already_tuned_floors
+
+
 def _proposal_json(
     prop: tuner.TuningProposal,
     *,
@@ -155,7 +183,15 @@ async def tuning_recommendations(
     stats = tuner._accumulate_rule_stats(
         cases, ewma_alpha=cfg.ewma_alpha, z=cfg.wilson_z,
     )
-    proposals = tuner.derive_proposals(prefs, stats)
+    ledger, already_tuned, already_tuned_floors = await _confirmed_ledger_and_guards(
+        state, cfg
+    )
+    proposals = tuner.derive_proposals(
+        prefs,
+        stats,
+        already_tuned=already_tuned,
+        already_tuned_floors=already_tuned_floors,
+    )
     recos: list[dict[str, Any]] = []
     for prop in proposals:
         blocked = bool(
@@ -187,12 +223,6 @@ async def tuning_recommendations(
             "over_target": st.total >= int(cfg.min_samples) and st.fp_lower_bound > float(cfg.fp_rate_target),
         })
 
-    try:
-        ledger = await state.tuning_store.list()
-    except Exception as exc:  # noqa: BLE001 — ledger is best-effort
-        logger.warning("tuning ledger read failed (%s); returning empty", exc)
-        ledger = []
-
     return {
         "enabled": bool(cfg.enabled),
         "cadence": _safe(cfg.cadence),
@@ -203,6 +233,8 @@ async def tuning_recommendations(
         "rule_noise": rule_noise,
         "recommendations": recos,
         "applied": [r.to_json() for r in ledger],
+        "history_status": "available",
+        "history_count": len(ledger),
     }
 
 
@@ -268,8 +300,16 @@ async def apply_tuning(
     cfg = getattr(prefs, "threshold_tuning", None) or ThresholdTuningConfig()
     cases = await _window_cases(state)
     stats = tuner._accumulate_rule_stats(cases, ewma_alpha=cfg.ewma_alpha, z=cfg.wilson_z)
+    _ledger, already_tuned, already_tuned_floors = await _confirmed_ledger_and_guards(
+        state, cfg
+    )
     proposals = [
-        p for p in tuner.derive_proposals(prefs, stats)
+        p for p in tuner.derive_proposals(
+            prefs,
+            stats,
+            already_tuned=already_tuned,
+            already_tuned_floors=already_tuned_floors,
+        )
         if tuner.normalize_rule_id(p.rule_id) == rid
     ]
     if not proposals:

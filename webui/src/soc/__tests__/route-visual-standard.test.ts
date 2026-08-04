@@ -98,18 +98,31 @@ describe("Console route visual standard", () => {
     }
   });
 
-  it("keeps Workspace Chat in the focused route container without a detached embedded toolbar", () => {
+  it("lets Workspace Chat own one fluid route container without a detached embedded toolbar", () => {
     const workspace = source("soc/pages/Workspace.tsx");
     const chat = source("soc/pages/Chat.tsx");
     const history = source("soc/components/ChatHistoryRail.tsx");
 
-    expect(workspace).toContain('<PageContainer variant="fixed">');
-    expect(workspace).toContain("<Chat caseId={caseId} />");
+    expect(workspace).not.toContain('<PageContainer variant="fixed">');
+    expect(workspace).toContain("return <Chat caseId={caseId} />");
+    expect(chat).toContain('variant="fluid"');
     expect(workspace).not.toContain("<Chat embedded");
     expect(chat).toContain("actions={actions}");
     expect(chat).toContain("<ChatHistoryRail");
     expect(history).toContain('aria-label="Conversation history"');
     expect(chat).toContain('presentation="workspace"');
+  });
+
+  it("uses one shared blocking-load grammar across case evidence panels", () => {
+    for (const file of [
+      "soc/pages/casedetail/WhyPanel.tsx",
+      "soc/pages/casedetail/ThreatContextPanel.tsx",
+      "soc/pages/casedetail/StageTimeline.tsx",
+    ]) {
+      const text = source(file);
+      expect(text, `${file} must use the shared LoadingState`).toContain("<LoadingState");
+      expect(text, `${file} must not invent a blocking Skeleton state`).not.toContain("<Skeleton");
+    }
   });
 
   it("resets row-start dividers when flat telemetry strips wrap", () => {

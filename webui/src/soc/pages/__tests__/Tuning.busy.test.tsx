@@ -35,6 +35,10 @@ vi.mock('@/soc/auth', () => ({
   useAuth: () => ({ username: 'tester', hasPermission: () => true, authEnabled: false }),
 }));
 
+vi.mock('@/soc/hooks/useMediaQuery', () => ({
+  useMediaQuery: () => true,
+}));
+
 vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
 }));
@@ -107,22 +111,26 @@ describe('Tuning — apply is grouped and busy state is scoped to the rule', () 
         <Tuning />
       </TooltipProvider>,
     );
-    const authAction = await screen.findByRole('button', {
+    const authRule = await screen.findByRole('button', {
+      name: 'Inspect rule auth-brute',
+    });
+    fireEvent.click(authRule);
+    const authAction = screen.getByRole('button', {
       name: 'Process all changes for auth-brute',
     });
-    const mailAction = screen.getByRole('button', {
-      name: 'Process all changes for mail-volume',
-    });
-    expect(screen.getAllByRole('button', { name: /process all changes for/i })).toHaveLength(2);
 
     fireEvent.click(authAction);
 
     await waitFor(() => {
       expect(authAction).toBeDisabled();
-      expect(mailAction).not.toBeDisabled();
     });
     expect(applyMock).toHaveBeenCalledTimes(1);
     expect(applyMock).toHaveBeenCalledWith('auth-brute');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect rule mail-volume' }));
+    expect(
+      screen.getByRole('button', { name: 'Process all changes for mail-volume' }),
+    ).not.toBeDisabled();
 
     fireEvent.keyDown(screen.getByRole('tab', { name: 'Policy & history' }), {
       key: 'Enter',

@@ -53,7 +53,6 @@ import { Badge } from '@/ui/badge';
 import { Switch } from '@/ui/switch';
 import { Label } from '@/ui/label';
 import { Alert, AlertTitle, AlertDescription } from '@/ui/alert';
-import { Skeleton } from '@/ui/skeleton';
 import {
   Select,
   SelectTrigger,
@@ -71,9 +70,11 @@ import {
 } from '@/ui/table';
 import { CodeBlock } from '@/soc/components/CodeBlock';
 import { EmptyState } from '@/soc/components/EmptyState';
+import { LoadError } from '@/soc/components/LoadError';
 import { SeverityBadge } from '@/soc/components/badges';
 import { PageHeader } from '@/soc/components/PageHeader';
 import { PageContainer } from '@/soc/components/PageContainer';
+import { LoadingState } from '@/design-system';
 
 /** Auto-refresh cadence for the "Live tail" switch (ms). */
 const LIVE_TAIL_INTERVAL_MS = 10_000;
@@ -289,21 +290,20 @@ export const UnifiedLogsBody: React.FC = () => {
 
       {/* Body */}
       {error ? (
-        <div className="space-y-3">
-          <Alert variant="destructive">
-            <AlertTitle>Could not load logs</AlertTitle>
-            <AlertDescription>{errorMessage(error)}</AlertDescription>
-          </Alert>
-          <Button variant="outline" size="sm" onClick={() => void load(true)}>
-            <RefreshCw className="h-4 w-4" aria-hidden /> Retry
-          </Button>
-        </div>
+        <LoadError
+          error={error}
+          title="Could not load logs"
+          fallback={errorMessage(error)}
+          onRetry={() => void load(true)}
+        />
       ) : loading ? (
-        <div className="space-y-2">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <Skeleton key={i} className="h-9 w-full" />
-          ))}
-        </div>
+        <LoadingState
+          label="Loading logs"
+          description="Reading recent normalized events across connected sources."
+          layout="panel"
+          shape="rows"
+          shapeRows={8}
+        />
       ) : (
         <div className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">

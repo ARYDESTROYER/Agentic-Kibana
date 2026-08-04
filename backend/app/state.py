@@ -93,10 +93,20 @@ class AppState:
         self._batch_service = None
         # Round-4 Wave-4: the gated background schedulers (threshold-tuner / campaign /
         # batch-jobs). Started in startup() (behind start_poller), cancelled in
-        # shutdown(). All default-OFF: each loop is a NO-OP until its Preferences block is
-        # enabled, so a byte-identical boot spawns tasks that immediately go back to sleep.
+        # shutdown(). Tuning observation and campaign grouping are default ON; async
+        # Batch remains opt-in. Every loop still checks its live Preferences gate before
+        # doing work.
         self._scheduler_tasks: list[asyncio.Task] = []
         self._scheduler_running = False
+        # Terminal updater outcomes are durable in the host-side supervisor, but
+        # the browser that initiated an update may disappear while this backend is
+        # being replaced.  A separate reconciler replays the supervisor's bounded
+        # public completion feed into our append-only audit after restart.  It is
+        # intentionally outside the feature schedulers: audit recovery must run
+        # even when setup is incomplete, polling is disabled, or the kill switch
+        # is engaged.
+        self._update_audit_task: asyncio.Task | None = None
+        self._update_audit_running = False
         # Operator-visible worker health. A scheduler is not "healthy" merely
         # because its asyncio task exists: each pass records attempt, confirmed
         # success, failure, and processed count so silent/false-success loops are
@@ -410,10 +420,12 @@ class AppState:
         # above), so building them here is safe and they are NOT rebuilt later — the
         # later _build_wave1_stores() call below is removed in favour of this one.
         self._build_wave1_stores()
-        # Round-4 Wave-3: the 4 new default-OFF KV stores (tuning ledger / campaign list /
-        # anomaly-baseline sketch / batch-job registry) over the SAME shared KV. Built here
-        # so a live handle survives every _wire() rebuild (same rationale as the Round-3
-        # stores). Their engines/schedulers/API are Wave-4 and do NOT run at boot.
+        # Round-4 Wave-3: the 4 KV stores (tuning ledger / campaign list /
+        # anomaly-baseline sketch / batch-job registry) over the SAME shared KV. Tuning,
+        # campaign, and baseline are enabled by current defaults; async Batch remains
+        # opt-in. Built here so a live handle survives every _wire() rebuild (same
+        # rationale as the Round-3 stores). Store construction itself performs no engine
+        # work; Wave-4 schedulers start later and honour the live feature gates.
         self._build_round4_stores()
         # Round-5 (G7): per-user custom-dashboard store over the SAME shared KV — no new
         # index/table/migration. Built here so a live handle survives every _wire()
@@ -983,7 +995,9 @@ class AppState:
         return self.poller.source_for_id(source_id) if source_id else self.log_source
 
     # ------------------------------------------------------------------ #
-    # Round-4 Wave-3 services — LAZY, default-OFF, wired for Wave-4 to drive.
+    # Round-4 Wave-3 services — LAZY, wired for Wave-4 to drive. Current defaults
+    # enable tuning observation, campaign grouping, and baseline production; async
+    # Batch remains opt-in.
     #
     # Each is a thin, constructable/lazy accessor over the Wave-3 KV stores +
     # engine modules. NOTHING here starts a scheduler loop, reroutes an EVENT feed,
@@ -997,10 +1011,12 @@ class AppState:
     def threshold_tuner(self):
         """The deterministic nightly threshold-tuning observer, exposed as a bound
         ``run_once`` callable Wave-4 schedules. It reads CLOSED cases + the live
-        ``Preferences.threshold_tuning`` block (default OFF → immediate no-op), writes
-        only to the ``tuning_store`` ledger + the HITL Proposal queue, and persists any
-        auto-applied config change through ``update_prefs`` (config-writer only). It
-        NEVER runs at boot; a caller must invoke ``state.threshold_tuner(...)``.
+        ``Preferences.threshold_tuning`` block (observation defaults ON; automatic
+        writes remain OFF), writes only to the ``tuning_store`` ledger + the HITL
+        Proposal queue, and persists an auto-applied config change only when explicitly
+        enabled through ``update_prefs`` (config-writer only). It NEVER runs merely by
+        constructing this accessor; a scheduler or route must invoke
+        ``state.threshold_tuner(...)``.
 
         Signature mirrors ``engine.threshold_tuner.run_once`` with this AppState's
         stores/writer pre-bound: ``await state.threshold_tuner(prefs, cases, **kw)``."""
@@ -1021,8 +1037,8 @@ class AppState:
     def campaign_correlator(self):
         """The deterministic cross-case CAMPAIGN pass, exposed as a bound
         ``correlate_campaigns`` callable Wave-4 schedules. It is a read-time aggregator
-        over already-persisted cases (default OFF via ``Preferences.campaign`` — the
-        Wave-4 caller gates on it), upserted into ``campaign_store``. It NEVER
+        over already-persisted cases (default ON via ``Preferences.campaign``; the
+        Wave-4 caller still gates on it), upserted into ``campaign_store``. It NEVER
         investigates, mutates a case, calls an LLM (#6), or touches ``decide()`` (#3).
 
         Call as ``await state.campaign_correlator(cases, prefs)`` (pass ``cases=None``
@@ -1035,7 +1051,7 @@ class AppState:
 
     def build_baseline_engine(self):
         """Construct a fresh streaming anomaly-BASELINE model from the live
-        ``Preferences.baseline`` config (default OFF). Pure math advisory PRODUCER — it
+        ``Preferences.baseline`` config (default ON). Pure math advisory PRODUCER — it
         holds per-(signature, bucket) sketches in memory and is warmed/flushed via the
         ``baseline_store`` snapshot/restore bridge by the Wave-4 caller. NOTHING runs at
         construction; #3/#4/#6-safe. A fresh instance per call (the caller owns warming
@@ -1473,6 +1489,67 @@ class AppState:
             asyncio.create_task(self._batch_scheduler_loop()),
         ]
         logger.info("Background schedulers started; runtime feature gates apply per tick")
+
+    async def reconcile_system_update_audit(self, *, limit: int = 64) -> int:
+        """Replay durable terminal updater outcomes into application audit.
+
+        This method is safe to call repeatedly and after process restarts.  The
+        updater exposes only its bounded public job projection, while deterministic
+        audit event IDs make replays exactly-once at the repository boundary.
+        """
+        from pydantic import ValidationError
+
+        from .engine.update_audit import audit_terminal_jobs
+        from .engine.update_service import UpdateService
+        from .engine.update_supervisor import SupervisorRejected, SupervisorUnavailable
+
+        service = UpdateService(self)
+        if not service.client.socket_is_available():
+            return 0
+        try:
+            page = await service.terminal_jobs(limit=limit)
+        except (SupervisorUnavailable, SupervisorRejected):
+            # The updater may be absent, older, or in its self-handoff window. The
+            # loop retries; no application audit evidence is invented.
+            return 0
+        except ValidationError:
+            # Protocol drift is not equivalent to absence. Let the supervisor loop
+            # log and retry it rather than silently accepting malformed evidence.
+            raise
+        return await audit_terminal_jobs(self.control_audit, page.jobs)
+
+    async def _system_update_audit_loop(self) -> None:
+        """Continuously reconcile completion evidence independent of UI sessions."""
+        while self._update_audit_running:
+            try:
+                await self.reconcile_system_update_audit()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 — retry durable evidence next tick
+                logger.warning("System-update audit reconciliation failed: %s", exc)
+            await asyncio.sleep(15)
+
+    async def _start_system_update_audit_reconciler(self) -> None:
+        """Start one immediate-then-periodic terminal audit reconciliation loop."""
+        if self._update_audit_running:
+            return
+        self._update_audit_running = True
+        self._update_audit_task = asyncio.create_task(
+            self._system_update_audit_loop()
+        )
+
+    async def _stop_system_update_audit_reconciler(self) -> None:
+        """Cancel the terminal audit reconciler cleanly (idempotent)."""
+        self._update_audit_running = False
+        task = self._update_audit_task
+        self._update_audit_task = None
+        if task is None:
+            return
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):  # noqa: BLE001
+            pass
 
     def _schedulers_gated_off(self) -> bool:
         """The shared gate every scheduler tick honours BEFORE doing any real work:
@@ -2199,6 +2276,7 @@ class AppState:
             # offline tests already use to skip background tasks, so the test suite never
             # spawns them unless asked.
             await self._run_schedulers()
+            await self._start_system_update_audit_reconciler()
         logger.info(
             "AppState started (es=%s, setup_complete=%s, polling_enabled=%s)",
             type(self.es).__name__, self.prefs.setup_complete, self.prefs.polling_enabled,
@@ -3004,6 +3082,10 @@ class AppState:
     async def shutdown(self) -> None:
         try:
             await self.disable_demo()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            await self._stop_system_update_audit_reconciler()
         except Exception:  # noqa: BLE001
             pass
         try:

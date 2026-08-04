@@ -112,7 +112,7 @@ the backend change.
 npm run typecheck
 npm run lint
 npm run gates
-npm test
+npm run test:strict
 npm run build
 ```
 
@@ -121,6 +121,10 @@ The production build first generates the version-matched Help Center under
 `npm run build:app` only for a deliberately app-only check. Lint includes React hook
 ordering and accessibility rules. Design gates protect architecture, tokens, bundle
 boundaries, and other repository-wide UI constraints.
+
+Use `npm test -- <file-or-pattern>` while iterating. `npm run test:strict` is the
+release/CI gate: it runs the full suite and also rejects any stderr byte or
+Vitest-captured console stdout block.
 
 See [Testing](testing.md) for the full cross-stack gate and
 [API reference](../reference/api.md) for the runtime surface.

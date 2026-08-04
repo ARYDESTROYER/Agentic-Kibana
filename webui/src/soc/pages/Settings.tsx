@@ -346,7 +346,6 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
 
   // buffered secret entries (write-only)
   const [secretDraft, setSecretDraft] = React.useState<Record<string, string>>({});
-  const [savingSecrets, setSavingSecrets] = React.useState(false);
 
   // Per-section dirty map: the set of CHANGED top-level editable keys (vs the saved
   // snapshot). Drives the sticky save bar, per-section "modified" dots, and a MINIMAL
@@ -417,52 +416,75 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
       prefs as Record<string, unknown>,
       savedPrefs as Record<string, unknown> | null,
     );
-    if (!Object.keys(patch).length) {
+    const secretPatch: Record<string, string> = {};
+    for (const [key, value] of Object.entries(secretDraft)) {
+      if (value && value.trim()) secretPatch[key] = value;
+    }
+    const preferenceCount = Object.keys(patch).length;
+    const secretCount = Object.keys(secretPatch).length;
+    if (!preferenceCount && !secretCount) {
       toast.message('No changes to save.');
       return;
     }
     setSaving(true);
-    try {
-      const res = await api.putSettings(patch as Partial<Preferences>);
-      setPrefs(res.prefs);
-      setSavedPrefs(res.prefs);
-      // Re-derive the settings lock from the saved response (mirrors the backend's
-      // `read_only` = `read_only_settings_mode`), so toggling the lock ON/OFF takes
-      // effect immediately instead of only after a full reload.
-      setReadOnly(Boolean((res.prefs as Record<string, unknown>).read_only_settings_mode));
-      toast.success('Settings saved.');
-    } catch (e) {
-      toast.error(errMsg(e, 'Could not save settings.'));
-    } finally {
-      setSaving(false);
+    let preferencesSaved = false;
+    if (preferenceCount) {
+      try {
+        const res = await api.putSettings(patch as Partial<Preferences>);
+        setPrefs(res.prefs);
+        setSavedPrefs(res.prefs);
+        // Re-derive the settings lock from the saved response (mirrors the backend's
+        // `read_only` = `read_only_settings_mode`), so toggling the lock ON/OFF takes
+        // effect immediately instead of only after a full reload.
+        setReadOnly(Boolean((res.prefs as Record<string, unknown>).read_only_settings_mode));
+        preferencesSaved = true;
+      } catch (e) {
+        toast.error(errMsg(e, 'Could not save settings.'));
+        setSaving(false);
+        return;
+      }
     }
-  }, [prefs, savedPrefs]);
+
+    if (secretCount) {
+      try {
+        const res = await api.updateSecrets(secretPatch);
+        setConfigured(res.configured);
+        // Clear only the values that were actually submitted. This keeps a newer value
+        // recoverable if an input event landed while the request was being scheduled.
+        setSecretDraft((current) => {
+          const next = { ...current };
+          for (const [key, submitted] of Object.entries(secretPatch)) {
+            if (next[key] === submitted) delete next[key];
+          }
+          return next;
+        });
+      } catch (e) {
+        toast.error(
+          preferencesSaved
+            ? `Preferences were saved, but secret keys still need attention. ${errMsg(e, 'Could not update keys.')}`
+            : errMsg(e, 'Could not update keys.'),
+        );
+        setSaving(false);
+        return;
+      }
+    }
+
+    toast.success(
+      preferenceCount && secretCount
+        ? 'Settings and secret keys saved.'
+        : secretCount
+          ? 'Secret keys updated.'
+          : 'Settings saved.',
+    );
+    setSaving(false);
+  }, [prefs, savedPrefs, secretDraft]);
 
   // Discard: revert the working draft to the last saved snapshot (a clean revert,
   // not a re-fetch, so an in-flight server change is not pulled in mid-edit).
   const discard = React.useCallback(() => {
     setPrefs(savedPrefs);
+    setSecretDraft({});
   }, [savedPrefs]);
-
-  const saveSecrets = React.useCallback(async () => {
-    const body: Record<string, string> = {};
-    for (const [k, v] of Object.entries(secretDraft)) if (v && v.trim()) body[k] = v;
-    if (!Object.keys(body).length) {
-      toast.message('No new secret values entered.');
-      return;
-    }
-    setSavingSecrets(true);
-    try {
-      const res = await api.updateSecrets(body);
-      setConfigured(res.configured);
-      setSecretDraft({});
-      toast.success('Secret keys updated.');
-    } catch (e) {
-      toast.error(errMsg(e, 'Could not update keys.'));
-    } finally {
-      setSavingSecrets(false);
-    }
-  }, [secretDraft]);
 
   // Filtered, RBAC-aware grouped section list for the rail. A section with a `perm`
   // is hidden from users without the grant; the search matches title/blurb/keywords.
@@ -542,8 +564,7 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
     setSection,
     secretDraft,
     setSecretDraft,
-    onSaveSecrets: () => void saveSecrets(),
-    savingSecrets,
+    saving,
   };
 
   /**
@@ -759,21 +780,25 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
             {renderSection(activeDef)}
           </section>
 
-          {/* Sticky save/discard bar — only visible while there are unsaved changes.
-              Save sends only the changed keys; Discard reverts to the saved snapshot. */}
+          {/* One Settings-wide save/discard bar for ordinary preferences and write-only
+              secret drafts. Each API keeps its narrow partial-update contract. */}
           <StickySaveBar
-            visible={dirty}
+            visible={dirty || pendingSecretCount > 0}
             busy={saving}
             saveDisabled={saveLocked}
             onSave={() => void save()}
             onDiscard={discard}
-            saveLabel={unlockingNow ? 'Unlock settings' : 'Save settings'}
+            saveLabel={unlockingNow ? 'Unlock & save' : 'Save changes'}
             message={
               saveLocked
                 ? 'Settings are read-only — turn the lock off (Advanced › Settings lock) to save.'
                 : unlockingNow
-                  ? 'Saving will unlock settings for editing.'
-                  : `${changedCount} unsaved ${changedCount === 1 ? 'change' : 'changes'}.`
+                  ? `Saving will unlock settings and apply ${pendingChangeCount} pending ${pendingChangeCount === 1 ? 'change' : 'changes'}.`
+                  : changedCount > 0 && pendingSecretCount > 0
+                    ? `${pendingChangeCount} unsaved changes: ${changedCount} ${changedCount === 1 ? 'preference' : 'preferences'} and ${pendingSecretCount} secret ${pendingSecretCount === 1 ? 'value' : 'values'}.`
+                    : pendingSecretCount > 0
+                      ? `${pendingSecretCount} unsaved secret ${pendingSecretCount === 1 ? 'value' : 'values'}.`
+                      : `${changedCount} unsaved ${changedCount === 1 ? 'change' : 'changes'}.`
             }
           />
 

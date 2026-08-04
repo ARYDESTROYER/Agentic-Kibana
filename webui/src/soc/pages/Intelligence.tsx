@@ -1,21 +1,23 @@
 /**
- * Intelligence — the host for the agent's knowledge surfaces (Knowledge, Runbooks,
- * Memory, Playbooks/Catalog), each with its own independent CRUD:
+ * Intelligence — the host for the agent's knowledge and procedure surfaces, each
+ * with its own explicit operator job:
  *
- *   - Knowledge: the RAG retrieval corpus (import / inspect / search / delete).
- *   - Runbooks:  trusted investigation-reference knowledge (browse / author / index).
- *   - Memory:    durable operator facts injected into every investigation + chat.
- *   - Catalog:   Playbooks management plus the reference agent-persona catalog.
+ *   - Knowledge corpus: indexed RAG material (import / inspect / search / delete).
+ *   - Reference runbooks: retrievable investigation guidance (browse / author / index).
+ *   - Operator memory: approved durable facts injected into investigations + chat.
+ *   - Response playbooks: deterministically selected operator procedures.
+ *   - Agent personas: the read-only specialist roster used by deterministic routing.
  *
  * The redundant in-page "Knowledge | Memory | Playbooks" segmented strip was removed
- * (task: the left-nav Intelligence group already exposes a clickable child for all
- * three, so an in-page tab bar duplicating those buttons was clutter). The active
+ * (the left-nav Intelligence group exposes a clickable child for every job, so an
+ * in-page tab bar duplicating those buttons is clutter). The active
  * sub-view is selected by the `tab` route opt (forced by the `knowledge` / `memory` /
- * `catalog` / `playbooks` routes and by `navigate('intelligence', { tab })`); the host
+ * `runbooks` / `playbooks` / `personas` routes and by
+ * `navigate('intelligence', { tab })`); the host
  * owns the single PageHeader (each sub-page renders `embedded`), whose title/icon
  * reflect the active sub-view so a left-nav click lands on a correctly-titled page.
  */
-import { Boxes, Brain, BookMarked, BookOpenCheck, type LucideIcon } from 'lucide-react';
+import { Boxes, Brain, BookMarked, BookOpenCheck, Users, type LucideIcon } from 'lucide-react';
 import { useNavigateOptional, type Navigate } from '@/soc/router';
 import { PageHeader } from '@/soc/components/PageHeader';
 import { PageContainer } from '@/soc/components/PageContainer';
@@ -26,32 +28,37 @@ import Catalog from './Catalog';
 
 export interface IntelligenceProps {
   onNavigate?: Navigate;
-  /** Active sub-view from the route opts ('knowledge' | 'memory' | 'catalog'). */
+  /** Active sub-view from the route opts (the legacy 'catalog' alias opens Playbooks). */
   tab?: string;
 }
 
-type SubView = 'knowledge' | 'runbooks' | 'memory' | 'catalog';
+type SubView = 'knowledge' | 'runbooks' | 'memory' | 'playbooks' | 'personas';
 
 const HEADERS: Record<SubView, { icon: LucideIcon; title: string; description: string }> = {
   knowledge: {
     icon: Boxes,
-    title: 'Knowledge',
-    description: 'The RAG retrieval corpus — import, inspect, search, and manage what the agents can look up.',
+    title: 'Knowledge corpus',
+    description: 'Indexed RAG material the agent can retrieve — import, inspect, search, and manage each source.',
   },
   runbooks: {
     icon: BookMarked,
-    title: 'Runbooks',
-    description: 'Trusted reference knowledge the agent can retrieve while investigating an alert.',
+    title: 'Reference runbooks',
+    description: 'Trusted investigation guidance retrieved as reference knowledge; never executable authority.',
   },
   memory: {
     icon: Brain,
-    title: 'Memory',
-    description: 'Durable operator facts injected into every automated investigation and chat.',
+    title: 'Operator memory',
+    description: 'Approved durable operator facts available to automated investigations and Workspace chat.',
   },
-  catalog: {
+  playbooks: {
     icon: BookOpenCheck,
-    title: 'Playbooks',
-    description: 'The catalog of playbooks and agent personas that specialise each automated investigation.',
+    title: 'Response playbooks',
+    description: 'Operator procedures selected deterministically to guide an investigation; never decision authority.',
+  },
+  personas: {
+    icon: Users,
+    title: 'Agent personas',
+    description: 'Read-only specialist profiles selected deterministically to focus one investigator per cluster.',
   },
 };
 
@@ -65,9 +72,11 @@ export default function Intelligence({ onNavigate, tab }: IntelligenceProps = {}
       ? 'runbooks'
       : tab === 'memory'
         ? 'memory'
-        : tab === 'catalog'
-          ? 'catalog'
-          : 'knowledge';
+        : tab === 'personas'
+          ? 'personas'
+          : tab === 'playbooks' || tab === 'catalog'
+            ? 'playbooks'
+            : 'knowledge';
   const header = HEADERS[view];
   return (
     <PageContainer variant="wide" className="space-y-6">
@@ -81,8 +90,8 @@ export default function Intelligence({ onNavigate, tab }: IntelligenceProps = {}
         <Memory embedded onNavigate={navigate} />
       ) : view === 'runbooks' ? (
         <Runbooks embedded />
-      ) : view === 'catalog' ? (
-        <Catalog embedded defaultTab="playbooks" />
+      ) : view === 'playbooks' || view === 'personas' ? (
+        <Catalog embedded defaultTab={view} />
       ) : (
         <Knowledge embedded onNavigate={navigate} />
       )}

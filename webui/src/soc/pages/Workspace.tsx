@@ -35,11 +35,10 @@ export default function Workspace({ onNavigate, tab, caseId }: WorkspaceProps = 
   const isInvestigate = tab === "investigate";
 
   if (!isInvestigate) {
-    return (
-      <PageContainer variant="fixed">
-        <Chat caseId={caseId} />
-      </PageContainer>
-    );
+    // Chat owns a fluid PageContainer because its history rail + conversation pane
+    // are a split workspace. Wrapping it in the focused 1200px container wastes a
+    // large part of desktop screens and creates two competing width authorities.
+    return <Chat caseId={caseId} />;
   }
 
   return (

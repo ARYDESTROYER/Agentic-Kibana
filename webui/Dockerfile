@@ -50,7 +50,8 @@ LABEL org.opencontainers.image.title="Agentic SOC" \
       dev.tlsoc.release.channel="${TLSOC_RELEASE_CHANNEL}" \
       org.opencontainers.image.revision="${TLSOC_BUILD_SHA}" \
       org.opencontainers.image.created="${TLSOC_BUILD_DATE}" \
-      org.opencontainers.image.source="${TLSOC_SOURCE_URL}"
+      org.opencontainers.image.source="${TLSOC_SOURCE_URL}" \
+      io.agentic-soc.state.schema="1"
 
 COPY webui/nginx.conf /etc/nginx/conf.d/default.conf
 COPY webui/nginx-security-headers.conf /etc/nginx/agentic-soc-security-headers.conf

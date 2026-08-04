@@ -27,7 +27,7 @@
  * WidgetGrid lazy boundary) — view mode + first paint ship zero grid JS.
  */
 import * as React from 'react';
-import { Pencil, Plus, RefreshCw } from 'lucide-react';
+import { Pencil, Plus, RefreshCw, RotateCcw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { api, ApiError } from '@/lib/api';
@@ -39,6 +39,7 @@ import { Input } from '@/ui/input';
 import { IconButton } from '@/soc/components/IconButton';
 import { Can } from '@/soc/components/Can';
 import { ConfirmDialog } from '@/soc/components/ConfirmDialog';
+import { ControlBar } from '@/soc/components/ControlBar';
 import { StickySaveBar } from '@/soc/components/SettingsGrid';
 import { useDirtyDraft, useUnsavedChanges } from '@/soc/hooks/useDirtyDraft';
 
@@ -343,57 +344,83 @@ export function DashboardBuilder({
 
   return (
     <div className={className}>
-      {/* Header action row: view = single "Edit" CTA; edit = rename + Add-widget. */}
+      {/* Adaptive control band: the task-defining command stays first, complex fields
+          wrap, and the consequential reset/delete command moves behind the labelled
+          overflow menu when this component is narrow. */}
       {editing ? (
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-2">
-            <label
-              htmlFor="dashboard-name-input"
-              className="shrink-0 text-xs font-medium text-muted-foreground"
-            >
-              Name
-            </label>
-            {/* Dashboard name is UNTRUSTED → stored + rendered as plain text (#9). */}
-            <Input
-              id="dashboard-name-input"
-              data-testid="dashboard-name-input"
-              value={draft.name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Dashboard name"
-              maxLength={80}
-              className="h-8 w-56"
-            />
-          </div>
-          <Button type="button" variant="outline" size="sm" onClick={() => setGalleryOpen(true)}>
-            <Plus className="h-3.5 w-3.5" aria-hidden />
-            Add widget
-          </Button>
-        </div>
-      ) : (
-        <div className="mb-4 flex items-center justify-end gap-2">
-          {/* Manual refresh — re-pull every widget's shared source now. Tooltip is off so
-              the control needs no TooltipProvider ancestor (it stays labelled either way). */}
-          <IconButton
-            label="Refresh dashboard data"
-            tooltip={false}
-            variant="outline"
-            onClick={() => setReloadNonce((n) => n + 1)}
-            data-testid="dashboard-refresh-btn"
-          >
-            <RefreshCw aria-hidden />
-          </IconButton>
-          <Can resource={EDIT_RESOURCE} action={EDIT_ACTION}>
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => setEditing(true)}
-              data-testid="dashboard-edit-btn"
-            >
-              <Pencil className="h-3.5 w-3.5" aria-hidden />
-              Edit dashboard
+        <ControlBar
+          className="mb-4"
+          title={
+            <div className="flex min-w-0 items-center gap-2">
+              <label
+                htmlFor="dashboard-name-input"
+                className="shrink-0 text-xs font-medium text-muted-foreground"
+              >
+                Name
+              </label>
+              {/* Dashboard name is UNTRUSTED → stored + rendered as plain text (#9). */}
+              <Input
+                id="dashboard-name-input"
+                data-testid="dashboard-name-input"
+                value={draft.name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Dashboard name"
+                maxLength={80}
+                className="h-8 w-56"
+              />
+            </div>
+          }
+          label="Dashboard editing controls"
+          controls={
+            <Button type="button" variant="outline" size="sm" onClick={() => setGalleryOpen(true)}>
+              <Plus className="h-3.5 w-3.5" aria-hidden />
+              Add widget
             </Button>
-          </Can>
-        </div>
+          }
+          overflowLabel="More dashboard actions"
+          overflowActions={[
+            {
+              id: 'reset-dashboard',
+              label: isDefaultBoard ? 'Reset to default layout' : 'Delete dashboard',
+              icon: isDefaultBoard ? RotateCcw : Trash2,
+              destructive: !isDefaultBoard,
+              disabled: saving,
+              onSelect: () => setConfirmReset(true),
+            },
+          ]}
+        />
+      ) : (
+        <ControlBar
+          className="mb-4"
+          title={dashboard.name || 'Untitled dashboard'}
+          label="Dashboard view controls"
+          controls={
+            <Can resource={EDIT_RESOURCE} action={EDIT_ACTION}>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => setEditing(true)}
+                data-testid="dashboard-edit-btn"
+              >
+                <Pencil className="h-3.5 w-3.5" aria-hidden />
+                Edit dashboard
+              </Button>
+            </Can>
+          }
+          secondaryControls={
+            // Manual refresh — re-pull every widget's shared source now. Tooltip is off
+            // so the labelled control needs no TooltipProvider ancestor.
+            <IconButton
+              label="Refresh dashboard data"
+              tooltip={false}
+              variant="outline"
+              onClick={() => setReloadNonce((n) => n + 1)}
+              data-testid="dashboard-refresh-btn"
+            >
+              <RefreshCw aria-hidden />
+            </IconButton>
+          }
+        />
       )}
 
       {/* The grid — wrapped in ONE data provider so widgets fetch each source once,
@@ -427,23 +454,6 @@ export function DashboardBuilder({
           }
           className="flex-wrap"
         />
-      ) : null}
-
-      {/* In edit mode, offer the destructive action next to the sticky bar controls.
-          The role default RESTORES; a user-created board is permanently DELETED. */}
-      {editing ? (
-        <div className="mt-2 flex justify-end">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="text-muted-foreground"
-            onClick={() => setConfirmReset(true)}
-            disabled={saving}
-          >
-            {isDefaultBoard ? 'Reset to default layout' : 'Delete dashboard'}
-          </Button>
-        </div>
       ) : null}
 
       {/* Add-from-gallery */}

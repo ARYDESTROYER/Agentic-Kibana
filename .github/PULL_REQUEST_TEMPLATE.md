@@ -28,7 +28,7 @@
 <!-- Include exact commands and results. Do not paste secrets, customer data, or raw alerts. -->
 
 - [ ] Backend tests passed offline: `cd backend && .venv/bin/python -m pytest -q`
-- [ ] Console tests passed: `cd webui && npm test`
+- [ ] Strict Console tests passed: `cd webui && npm run test:strict`
 - [ ] OpenAPI and TypeScript contracts passed: `cd webui && npm run check:types`
 - [ ] Console lint passed with zero warnings: `cd webui && npm run lint -- --max-warnings=0`
 - [ ] Design-system gates passed: `cd webui && npm run gates`
@@ -61,4 +61,3 @@ Add concise command results here.
 - [ ] I preserved the 12 non-negotiables in `AGENTS.md`.
 - [ ] I did not modify the archived Kibana plugin.
 - [ ] This pull request is targeted at `Testing`, or it is a verified promotion from `Testing` to `main`.
-

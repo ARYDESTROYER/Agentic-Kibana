@@ -1,0 +1,694 @@
+name: Stable release images and update plan
+
+on:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: stable-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  contents: write
+  packages: write
+  id-token: write
+  attestations: write
+
+jobs:
+  publish:
+    name: Publish signed Stable release
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    environment: stable-release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prove immutable tag, exact main commit, and canonical version
+        id: release
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          version="$(tr -d '[:space:]' < VERSION)"
+          tag="v${version}"
+          [[ "${GITHUB_REF}" == "refs/tags/${tag}" ]]
+          [[ "$(git cat-file -t "refs/tags/${tag}")" == "tag" ]]
+          [[ "$(git rev-parse "refs/tags/${tag}^{commit}")" == "${GITHUB_SHA}" ]]
+          git fetch --no-tags origin main
+          [[ "$(git rev-parse origin/main)" == "${GITHUB_SHA}" ]]
+          remote_tag_object="$(git ls-remote origin "refs/tags/${tag}" | awk 'NR == 1 {print $1}')"
+          remote_tag_commit="$(git ls-remote origin "refs/tags/${tag}^{}" | awk 'NR == 1 {print $1}')"
+          [[ "${remote_tag_object}" == "$(git rev-parse "refs/tags/${tag}")" ]]
+          [[ "${remote_tag_commit}" == "${GITHUB_SHA}" ]]
+          repository_lc="${GITHUB_REPOSITORY,,}"
+          tag_epoch="$(git for-each-ref --format='%(taggerdate:unix)' "refs/tags/${tag}")"
+          [[ "${tag_epoch}" =~ ^[0-9]+$ ]]
+          published_at="$(date -u -d "@${tag_epoch}" +'%Y-%m-%dT%H:%M:%SZ')"
+          {
+            echo "version=${version}"
+            echo "tag=${tag}"
+            echo "image_prefix=ghcr.io/${repository_lc}"
+            echo "published_at=${published_at}"
+          } >> "${GITHUB_OUTPUT}"
+          TLSOC_SOURCE_REF="${GITHUB_REF}" TLSOC_RELEASE_CHANNEL=stable \
+            python3 scripts/check_version.py
+          test -f "docs/releases/${version}.md"
+
+      - name: Require the exact tag CI run and its fail-closed aggregate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          release_run="$(gh api --method GET \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}")"
+          jq -e --arg sha "${GITHUB_SHA}" --arg tag "${{ steps.release.outputs.tag }}" '
+            .event == "push" and .head_sha == $sha and .head_branch == $tag
+          ' <<<"${release_run}" >/dev/null
+          deadline=$((SECONDS + 2400))
+          while (( SECONDS < deadline )); do
+            runs="$(gh api --method GET \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs" \
+              -f event=push -f branch="${{ steps.release.outputs.tag }}" -f per_page=100)"
+            latest="$(jq -c \
+              --arg sha "${GITHUB_SHA}" \
+              --arg tag "${{ steps.release.outputs.tag }}" '
+              [.workflow_runs[]
+                | select(.event == "push" and .head_sha == $sha and .head_branch == $tag)
+                | select(.status == "completed" and .conclusion == "success")]
+              | sort_by(.run_started_at, .id)
+              | last // empty
+            ' <<<"${runs}")"
+            if [[ -z "${latest}" ]]; then
+              sleep 15
+              continue
+            fi
+            jq -e --arg sha "${GITHUB_SHA}" --arg tag "${{ steps.release.outputs.tag }}" '
+              .event == "push" and .head_sha == $sha and .head_branch == $tag
+              and .status == "completed" and .conclusion == "success"
+            ' <<<"${latest}" >/dev/null
+            run_id="$(jq -r '.id' <<<"${latest}")"
+            jobs="$(gh api --method GET \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs" \
+              -f filter=latest -f per_page=100)"
+            aggregate="$(jq -c '
+              [.jobs[] | select(.name == "CI passed" and .status == "completed")]
+              | sort_by(.completed_at, .id)
+              | last // empty
+            ' <<<"${jobs}")"
+            [[ -n "${aggregate}" ]] || {
+              printf 'Exact tag CI run %s has no completed CI passed job\n' "${run_id}" >&2
+              exit 1
+            }
+            [[ "$(jq -r '.conclusion' <<<"${aggregate}")" == "success" ]] || {
+              printf 'CI passed job %s did not succeed for exact tag run %s\n' \
+                "$(jq -r '.id' <<<"${aggregate}")" "${run_id}" >&2
+              exit 1
+            }
+            printf 'Accepted CI run %s attempt %s and CI passed job %s for %s\n' \
+              "${run_id}" "$(jq -r '.run_attempt' <<<"${latest}")" \
+              "$(jq -r '.id' <<<"${aggregate}")" "${GITHUB_SHA}"
+            exit 0
+          done
+          echo "Timed out waiting for the exact tag CI run on ${GITHUB_SHA}" >&2
+          exit 1
+
+      - name: Inspect and safely recover an exact draft release
+        id: assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p existing-release-assets
+          inventory="${RUNNER_TEMP}/stable-releases.json"
+          classify() {
+            gh api --method GET --paginate --slurp \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "repos/${GITHUB_REPOSITORY}/releases?per_page=100" >"${inventory}"
+            python3 scripts/release_asset_state.py \
+              --inventory "${inventory}" \
+              --tag "${{ steps.release.outputs.tag }}" \
+              --commit-sha "${GITHUB_SHA}"
+          }
+          state="$(classify)"
+          mapfile -t cleanup_ids < <(jq -r '.delete_asset_ids[]' <<<"${state}")
+          if (( ${#cleanup_ids[@]} > 0 )); then
+            [[ "$(jq -r '.release_state' <<<"${state}")" == draft ]]
+            for asset_id in "${cleanup_ids[@]}"; do
+              [[ "${asset_id}" =~ ^[1-9][0-9]*$ ]]
+              gh api --method DELETE \
+                -H 'Accept: application/vnd.github+json' \
+                -H 'X-GitHub-Api-Version: 2022-11-28' \
+                "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}"
+            done
+            state="$(classify)"
+            jq -e '.delete_asset_ids == []' <<<"${state}" >/dev/null
+          fi
+          release_state="$(jq -er '.release_state' <<<"${state}")"
+          release_exists="$(jq -er '.release_exists' <<<"${state}")"
+          release_id="$(jq -r '.release_id // ""' <<<"${state}")"
+          plan_exists="$(jq -er '.plan_exists' <<<"${state}")"
+          bundle_exists="$(jq -er '.bundle_exists' <<<"${state}")"
+          if [[ "${plan_exists}" == true ]]; then
+            plan_asset_id="$(jq -er '.plan_asset_id' <<<"${state}")"
+            gh api --method GET \
+              -H 'Accept: application/octet-stream' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "repos/${GITHUB_REPOSITORY}/releases/assets/${plan_asset_id}" \
+              > existing-release-assets/upgrade-plan.json
+            cp existing-release-assets/upgrade-plan.json upgrade-plan.json
+          fi
+          if [[ "${bundle_exists}" == true ]]; then
+            bundle_asset_id="$(jq -er '.bundle_asset_id' <<<"${state}")"
+            gh api --method GET \
+              -H 'Accept: application/octet-stream' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "repos/${GITHUB_REPOSITORY}/releases/assets/${bundle_asset_id}" \
+              > existing-release-assets/upgrade-plan.sigstore.json
+            cp existing-release-assets/upgrade-plan.sigstore.json upgrade-plan.sigstore.json
+          fi
+          {
+            echo "release_state=${release_state}"
+            echo "release_exists=${release_exists}"
+            echo "release_id=${release_id}"
+            echo "plan_exists=${plan_exists}"
+            echo "bundle_exists=${bundle_exists}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - uses: sigstore/cosign-installer@v4.1.2
+        with:
+          cosign-release: v3.0.6
+
+      - name: Verify and reuse an exact prior upgrade plan
+        if: steps.assets.outputs.plan_exists == 'true'
+        env:
+          BUNDLE_EXISTS: ${{ steps.assets.outputs.bundle_exists }}
+          EXPECTED_VERSION: ${{ steps.release.outputs.version }}
+          EXPECTED_TAG: ${{ steps.release.outputs.tag }}
+          EXPECTED_PUBLISHED_AT: ${{ steps.release.outputs.published_at }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, str(Path("updater").resolve()))
+          from agentic_soc_updater.contract import validate_plan
+
+          plan = validate_plan(
+              json.loads(Path("upgrade-plan.json").read_text(encoding="utf-8")),
+              os.environ["GITHUB_REPOSITORY"],
+          )
+          expected = {
+              "version": os.environ["EXPECTED_VERSION"],
+              "tag": os.environ["EXPECTED_TAG"],
+              "commit_sha": os.environ["GITHUB_SHA"],
+              "published_at": os.environ["EXPECTED_PUBLISHED_AT"],
+          }
+          actual = {key: getattr(plan, key) for key in expected}
+          if actual != expected:
+              raise SystemExit(f"existing immutable plan identity mismatch: {actual!r} != {expected!r}")
+          PY
+          if [[ "${BUNDLE_EXISTS}" == true ]]; then
+            cosign verify-blob \
+              --bundle upgrade-plan.sigstore.json \
+              --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@${GITHUB_REF}" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              upgrade-plan.json
+          fi
+
+      - if: steps.assets.outputs.plan_exists != 'true'
+        uses: docker/setup-qemu-action@v3
+      - if: steps.assets.outputs.plan_exists != 'true'
+        uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish backend by immutable digest
+        if: steps.assets.outputs.plan_exists != 'true'
+        id: backend
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          file: backend/Dockerfile
+          target: full
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: mode=max
+          sbom: true
+          tags: ${{ steps.release.outputs.image_prefix }}/backend:${{ steps.release.outputs.tag }}
+          build-args: |
+            TLSOC_VERSION=${{ steps.release.outputs.version }}
+            TLSOC_RELEASE_CHANNEL=stable
+            TLSOC_BUILD_SHA=${{ github.sha }}
+            TLSOC_BUILD_DATE=${{ steps.release.outputs.published_at }}
+            TLSOC_SOURCE_URL=https://github.com/${{ github.repository }}
+
+      - name: Build and publish Web Console by immutable digest
+        if: steps.assets.outputs.plan_exists != 'true'
+        id: webui
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: webui/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: mode=max
+          sbom: true
+          tags: ${{ steps.release.outputs.image_prefix }}/webui:${{ steps.release.outputs.tag }}
+          build-args: |
+            TLSOC_VERSION=${{ steps.release.outputs.version }}
+            TLSOC_RELEASE_CHANNEL=stable
+            TLSOC_BUILD_SHA=${{ github.sha }}
+            TLSOC_BUILD_DATE=${{ steps.release.outputs.published_at }}
+            TLSOC_SOURCE_URL=https://github.com/${{ github.repository }}
+
+      - name: Build and publish update supervisor by immutable digest
+        if: steps.assets.outputs.plan_exists != 'true'
+        id: updater
+        uses: docker/build-push-action@v6
+        with:
+          context: updater
+          file: updater/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: mode=max
+          sbom: true
+          tags: ${{ steps.release.outputs.image_prefix }}/updater:${{ steps.release.outputs.tag }}
+          build-args: |
+            TLSOC_VERSION=${{ steps.release.outputs.version }}
+            TLSOC_RELEASE_CHANNEL=stable
+            TLSOC_BUILD_SHA=${{ github.sha }}
+            TLSOC_BUILD_DATE=${{ steps.release.outputs.published_at }}
+            TLSOC_SOURCE_URL=https://github.com/${{ github.repository }}
+
+      - name: Resolve the exact component digests
+        id: images
+        env:
+          PLAN_EXISTS: ${{ steps.assets.outputs.plan_exists }}
+          BUILT_BACKEND_DIGEST: ${{ steps.backend.outputs.digest }}
+          BUILT_WEBUI_DIGEST: ${{ steps.webui.outputs.digest }}
+          BUILT_UPDATER_DIGEST: ${{ steps.updater.outputs.digest }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          for component in backend webui updater; do
+            if [[ "${PLAN_EXISTS}" == true ]]; then
+              image="$(jq -er --arg component "${component}" '.components[$component].image' upgrade-plan.json)"
+              digest="$(jq -er --arg component "${component}" '.components[$component].digest' upgrade-plan.json)"
+            else
+              case "${component}" in
+                backend) digest="${BUILT_BACKEND_DIGEST}" ;;
+                webui) digest="${BUILT_WEBUI_DIGEST}" ;;
+                updater) digest="${BUILT_UPDATER_DIGEST}" ;;
+              esac
+              image="${{ steps.release.outputs.image_prefix }}/${component}@${digest}"
+            fi
+            [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+            [[ "${image}" == "${{ steps.release.outputs.image_prefix }}/${component}@${digest}" ]]
+            {
+              echo "${component}=${image}"
+              echo "${component}_digest=${digest}"
+            } >> "${GITHUB_OUTPUT}"
+          done
+
+      - name: Sign new images and verify all immutable image signatures
+        env:
+          PLAN_EXISTS: ${{ steps.assets.outputs.plan_exists }}
+          BACKEND: ${{ steps.images.outputs.backend }}
+          WEBUI: ${{ steps.images.outputs.webui }}
+          UPDATER: ${{ steps.images.outputs.updater }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@${GITHUB_REF}"
+          for image in "${BACKEND}" "${WEBUI}" "${UPDATER}"; do
+            if [[ "${PLAN_EXISTS}" != true ]]; then
+              cosign sign --yes "${image}"
+            fi
+            cosign verify \
+              --certificate-identity "${identity}" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              "${image}" >/dev/null
+          done
+
+      - name: Prove anonymous pullability and exact OCI release labels
+        env:
+          BACKEND: ${{ steps.images.outputs.backend }}
+          WEBUI: ${{ steps.images.outputs.webui }}
+          UPDATER: ${{ steps.images.outputs.updater }}
+          EXPECTED_VERSION: ${{ steps.release.outputs.version }}
+          EXPECTED_CREATED: ${{ steps.release.outputs.published_at }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          from urllib.error import HTTPError, URLError
+          from urllib.parse import quote, urlencode
+          from urllib.request import Request, urlopen
+
+          ACCEPT = ", ".join((
+              "application/vnd.oci.image.index.v1+json",
+              "application/vnd.docker.distribution.manifest.list.v2+json",
+              "application/vnd.oci.image.manifest.v1+json",
+              "application/vnd.docker.distribution.manifest.v2+json",
+          ))
+          DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+          EXPECTED_PLATFORMS = {("linux", "amd64"), ("linux", "arm64")}
+          EXPECTED_LABELS = {
+              "org.opencontainers.image.version": os.environ["EXPECTED_VERSION"],
+              "org.opencontainers.image.revision": os.environ["GITHUB_SHA"],
+              "org.opencontainers.image.source": f"https://github.com/{os.environ['GITHUB_REPOSITORY']}",
+              "org.opencontainers.image.created": os.environ["EXPECTED_CREATED"],
+              "dev.tlsoc.release.channel": "stable",
+              "io.agentic-soc.state.schema": "1",
+          }
+
+          def fetch(url: str, token: str, accept: str = ACCEPT):
+              request = Request(url, headers={"Accept": accept, "Authorization": f"Bearer {token}"})
+              try:
+                  with urlopen(request, timeout=60) as response:
+                      return response.read(), response.headers
+              except HTTPError as exc:
+                  raise SystemExit(
+                      f"anonymous GHCR read failed ({exc.code}) for {url}; "
+                      "make backend, webui, and updater packages Public, then rerun this tag workflow"
+                  ) from exc
+              except (URLError, TimeoutError) as exc:
+                  raise SystemExit(f"anonymous GHCR read failed for {url}: {exc}") from exc
+
+          def require_digest(payload: bytes, expected: str, subject: str) -> None:
+              if not DIGEST_RE.fullmatch(expected):
+                  raise SystemExit(f"{subject} has an invalid digest: {expected!r}")
+              actual = "sha256:" + hashlib.sha256(payload).hexdigest()
+              if actual != expected:
+                  raise SystemExit(f"{subject} content digest {actual} != {expected}")
+
+          for component in ("BACKEND", "WEBUI", "UPDATER"):
+              reference = os.environ[component]
+              prefix = "ghcr.io/"
+              if not reference.startswith(prefix) or "@sha256:" not in reference:
+                  raise SystemExit(f"{component.lower()} is not an exact GHCR digest reference")
+              repository, digest = reference[len(prefix):].rsplit("@", 1)
+              token_url = "https://ghcr.io/token?" + urlencode({
+                  "service": "ghcr.io",
+                  "scope": f"repository:{repository}:pull",
+              })
+              try:
+                  with urlopen(Request(token_url, headers={"Accept": "application/json"}), timeout=30) as response:
+                      token = json.loads(response.read())["token"]
+              except (HTTPError, URLError, KeyError, ValueError, TimeoutError) as exc:
+                  raise SystemExit(
+                      f"anonymous GHCR token unavailable for {repository}; make the package Public"
+                  ) from exc
+
+              base = f"https://ghcr.io/v2/{quote(repository, safe='/')}"
+              raw_index, index_headers = fetch(f"{base}/manifests/{quote(digest, safe=':')}", token)
+              require_digest(raw_index, digest, f"{component.lower()} image index")
+              reported_digest = index_headers.get("Docker-Content-Digest")
+              if reported_digest and reported_digest != digest:
+                  raise SystemExit(f"{component.lower()} registry digest mismatch")
+              index = json.loads(raw_index)
+              manifests = [
+                  descriptor for descriptor in index.get("manifests", [])
+                  if descriptor.get("platform", {}).get("os") != "unknown"
+              ]
+              actual_platforms = {
+                  (item.get("platform", {}).get("os"), item.get("platform", {}).get("architecture"))
+                  for item in manifests
+              }
+              if actual_platforms != EXPECTED_PLATFORMS or len(manifests) != 2:
+                  raise SystemExit(
+                      f"{component.lower()} platforms {sorted(map(repr, actual_platforms))!r} != "
+                      f"{sorted(EXPECTED_PLATFORMS)!r}"
+                  )
+
+              for descriptor in manifests:
+                  platform = descriptor["platform"]
+                  manifest_digest = descriptor["digest"]
+                  raw_manifest, _ = fetch(
+                      f"{base}/manifests/{quote(manifest_digest, safe=':')}", token
+                  )
+                  require_digest(
+                      raw_manifest,
+                      manifest_digest,
+                      f"{component.lower()} {platform['os']}/{platform['architecture']} manifest",
+                  )
+                  manifest = json.loads(raw_manifest)
+                  config_digest = manifest.get("config", {}).get("digest", "")
+                  raw_config, _ = fetch(
+                      f"{base}/blobs/{quote(config_digest, safe=':')}",
+                      token,
+                      "application/vnd.oci.image.config.v1+json, application/vnd.docker.container.image.v1+json",
+                  )
+                  require_digest(
+                      raw_config,
+                      config_digest,
+                      f"{component.lower()} {platform['os']}/{platform['architecture']} config",
+                  )
+                  config = json.loads(raw_config)
+                  actual_platform = (config.get("os"), config.get("architecture"))
+                  expected_platform = (platform["os"], platform["architecture"])
+                  if actual_platform != expected_platform:
+                      raise SystemExit(
+                          f"{component.lower()} config platform {actual_platform!r} != {expected_platform!r}"
+                      )
+                  labels = config.get("config", {}).get("Labels", {}) or {}
+                  mismatches = {
+                      key: {"expected": expected, "actual": labels.get(key)}
+                      for key, expected in EXPECTED_LABELS.items()
+                      if labels.get(key) != expected
+                  }
+                  if component == "UPDATER" and labels.get("io.agentic-soc.update-protocol") != "1":
+                      mismatches["io.agentic-soc.update-protocol"] = {
+                          "expected": "1",
+                          "actual": labels.get("io.agentic-soc.update-protocol"),
+                      }
+                  if mismatches:
+                      raise SystemExit(
+                          f"{component.lower()} {platform['os']}/{platform['architecture']} "
+                          f"OCI label mismatch: {mismatches!r}"
+                      )
+              print(f"verified anonymous pull + release labels: {reference}")
+          PY
+
+      - name: Generate the declarative upgrade plan when absent
+        if: steps.assets.outputs.plan_exists != 'true'
+        env:
+          BACKEND: ${{ steps.images.outputs.backend }}
+          WEBUI: ${{ steps.images.outputs.webui }}
+          UPDATER: ${{ steps.images.outputs.updater }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/build_upgrade_plan.py \
+            --version "${{ steps.release.outputs.version }}" \
+            --tag "${{ steps.release.outputs.tag }}" \
+            --commit-sha "${GITHUB_SHA}" \
+            --published-at "${{ steps.release.outputs.published_at }}" \
+            --repository "${GITHUB_REPOSITORY}" \
+            --updater-image "${UPDATER}" \
+            --backend-image "${BACKEND}" \
+            --webui-image "${WEBUI}" \
+            --output upgrade-plan.json
+      - name: Sign the declarative upgrade plan when its draft bundle is absent
+        if: steps.assets.outputs.bundle_exists != 'true'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cosign sign-blob --yes \
+            --bundle upgrade-plan.sigstore.json \
+            upgrade-plan.json
+
+      - name: Verify the canonical upgrade plan before draft staging
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cosign verify-blob \
+            --bundle upgrade-plan.sigstore.json \
+            --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@${GITHUB_REF}" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            upgrade-plan.json
+
+      - name: Attest published image provenance
+        if: steps.assets.outputs.plan_exists != 'true'
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-name: ${{ steps.release.outputs.image_prefix }}/backend
+          subject-digest: ${{ steps.images.outputs.backend_digest }}
+          push-to-registry: true
+      - name: Attest Web Console image provenance
+        if: steps.assets.outputs.plan_exists != 'true'
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-name: ${{ steps.release.outputs.image_prefix }}/webui
+          subject-digest: ${{ steps.images.outputs.webui_digest }}
+          push-to-registry: true
+      - name: Attest update supervisor image provenance
+        if: steps.assets.outputs.plan_exists != 'true'
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-name: ${{ steps.release.outputs.image_prefix }}/updater
+          subject-digest: ${{ steps.images.outputs.updater_digest }}
+          push-to-registry: true
+
+      - name: Stage, verify, and atomically publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_RELEASE_STATE: ${{ steps.assets.outputs.release_state }}
+          EXPECTED_RELEASE_ID: ${{ steps.assets.outputs.release_id }}
+          EXPECTED_PLAN_EXISTS: ${{ steps.assets.outputs.plan_exists }}
+          EXPECTED_BUNDLE_EXISTS: ${{ steps.assets.outputs.bundle_exists }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@${GITHUB_REF}"
+          tag="${{ steps.release.outputs.tag }}"
+          inventory="${RUNNER_TEMP}/publish-release-inventory.json"
+          classify_all() {
+            gh api --method GET --paginate --slurp \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "repos/${GITHUB_REPOSITORY}/releases?per_page=100" >"${inventory}"
+            python3 scripts/release_asset_state.py \
+              --inventory "${inventory}" --tag "${tag}" --commit-sha "${GITHUB_SHA}"
+          }
+          classify_id() {
+            local release_id="$1"
+            gh api --method GET \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "repos/${GITHUB_REPOSITORY}/releases/${release_id}" | jq -s '.' >"${inventory}"
+            python3 scripts/release_asset_state.py \
+              --inventory "${inventory}" --tag "${tag}" --commit-sha "${GITHUB_SHA}"
+          }
+
+          state="$(classify_all)"
+          actual_state="$(jq -er '.release_state' <<<"${state}")"
+          actual_id="$(jq -r '.release_id // ""' <<<"${state}")"
+          actual_plan="$(jq -er '.plan_exists' <<<"${state}")"
+          actual_bundle="$(jq -er '.bundle_exists' <<<"${state}")"
+          if [[ "${actual_state}" != "${EXPECTED_RELEASE_STATE}" \
+            || "${actual_id}" != "${EXPECTED_RELEASE_ID}" \
+            || "${actual_plan}" != "${EXPECTED_PLAN_EXISTS}" \
+            || "${actual_bundle}" != "${EXPECTED_BUNDLE_EXISTS}" ]]; then
+            echo "Release state changed after inspection; rerun before any mutation." >&2
+            exit 1
+          fi
+
+          if [[ "${actual_state}" == absent ]]; then
+            payload="$(jq -n \
+              --arg tag "${tag}" \
+              --arg target "${GITHUB_SHA}" \
+              --arg name "Agentic SOC ${tag}" \
+              --arg marker "<!-- agentic-soc-release-commit:${GITHUB_SHA} -->" \
+              --rawfile body "docs/releases/${{ steps.release.outputs.version }}.md" \
+              '{tag_name:$tag,target_commitish:$target,name:$name,body:($marker+"\n\n"+$body),draft:true,prerelease:false}')"
+            created="$(gh api --method POST \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "repos/${GITHUB_REPOSITORY}/releases" --input - <<<"${payload}")"
+            release_id="$(jq -er '.id' <<<"${created}")"
+            state="$(classify_id "${release_id}")"
+            [[ "$(jq -er '.release_state' <<<"${state}")" == draft ]]
+            jq -e '.plan_exists == false and .bundle_exists == false and .delete_asset_ids == []' \
+              <<<"${state}" >/dev/null
+          else
+            release_id="${actual_id}"
+          fi
+
+          state="$(classify_id "${release_id}")"
+          release_state="$(jq -er '.release_state' <<<"${state}")"
+          if [[ "${release_state}" == draft ]]; then
+            jq -e '.delete_asset_ids == []' <<<"${state}" >/dev/null
+            if [[ "$(jq -r '.plan_exists' <<<"${state}")" != true ]]; then
+              gh release upload "${tag}" upgrade-plan.json
+            fi
+            state="$(classify_id "${release_id}")"
+            if [[ "$(jq -r '.bundle_exists' <<<"${state}")" != true ]]; then
+              gh release upload "${tag}" upgrade-plan.sigstore.json
+            fi
+          elif [[ "${release_state}" != published ]]; then
+            printf 'Unexpected release state %q.\n' "${release_state}" >&2
+            exit 1
+          fi
+
+          state="$(classify_id "${release_id}")"
+          jq -e '
+            .release_state == "draft" or .release_state == "published"
+          ' <<<"${state}" >/dev/null
+          jq -e '
+            .plan_exists == true and .bundle_exists == true and .delete_asset_ids == []
+          ' <<<"${state}" >/dev/null
+
+          verify_dir="$(mktemp -d)"
+          trap 'rm -rf "${verify_dir}"' EXIT
+          plan_asset_id="$(jq -er '.plan_asset_id' <<<"${state}")"
+          bundle_asset_id="$(jq -er '.bundle_asset_id' <<<"${state}")"
+          gh api --method GET \
+            -H 'Accept: application/octet-stream' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "repos/${GITHUB_REPOSITORY}/releases/assets/${plan_asset_id}" \
+            >"${verify_dir}/upgrade-plan.json"
+          gh api --method GET \
+            -H 'Accept: application/octet-stream' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "repos/${GITHUB_REPOSITORY}/releases/assets/${bundle_asset_id}" \
+            >"${verify_dir}/upgrade-plan.sigstore.json"
+          cmp --silent upgrade-plan.json "${verify_dir}/upgrade-plan.json" || {
+            echo "Draft upgrade-plan.json differs from the exact validated plan." >&2
+            exit 1
+          }
+          cmp --silent upgrade-plan.sigstore.json \
+            "${verify_dir}/upgrade-plan.sigstore.json" || {
+            echo "Draft upgrade-plan signature bundle differs from this exact run." >&2
+            exit 1
+          }
+          cosign verify-blob \
+            --bundle "${verify_dir}/upgrade-plan.sigstore.json" \
+            --certificate-identity "${identity}" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            "${verify_dir}/upgrade-plan.json"
+
+          if [[ "$(jq -r '.release_state' <<<"${state}")" == draft ]]; then
+            published="$(gh api --method PATCH \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "repos/${GITHUB_REPOSITORY}/releases/${release_id}" -F draft=false)"
+            jq -e \
+              --arg tag "${tag}" \
+              --arg sha "${GITHUB_SHA}" \
+              --argjson release_id "${release_id}" '
+              .id == $release_id and .tag_name == $tag and
+              (.body | contains("<!-- agentic-soc-release-commit:" + $sha + " -->")) and
+              .draft == false and .prerelease == false
+            ' <<<"${published}" >/dev/null
+          fi
+
+          final_state="$(classify_id "${release_id}")"
+          jq -e \
+            --argjson release_id "${release_id}" '
+            .release_state == "published" and .release_id == $release_id and
+            .plan_exists == true and .bundle_exists == true and
+            .delete_asset_ids == []
+          ' <<<"${final_state}" >/dev/null

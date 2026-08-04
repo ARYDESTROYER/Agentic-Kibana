@@ -456,7 +456,7 @@ export default function Chat({ caseId }: ChatProps = {}) {
     },
     [draftKey],
   );
-  const threadTitle = activeSummary?.title || conversation?.title || "New investigation";
+  const threadTitle = activeSummary?.title || conversation?.title || "New conversation";
   const threadSubtitle = activeSummary
     ? `${activeSummary.message_count} ${activeSummary.message_count === 1 ? "message" : "messages"} · updated ${humanizeAge(activeSummary.updated_at)}`
     : conversation
@@ -487,7 +487,10 @@ export default function Chat({ caseId }: ChatProps = {}) {
     <PageContainer
       variant="fluid"
       className={cn(
-        "flex min-h-[28rem] min-w-0 flex-col gap-3 sm:min-h-[34rem]",
+        // The dynamic viewport height already provides the frame boundary. Fixed
+        // minimums made short desktop windows overflow and could put the one docked
+        // composer below the visible workspace.
+        "flex min-h-0 min-w-0 flex-col gap-3",
         frameHeight,
       )}
       data-testid="workspace-chat-page"

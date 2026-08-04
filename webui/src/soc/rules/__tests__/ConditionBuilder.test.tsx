@@ -1,7 +1,7 @@
 /**
- * ConditionBuilder spec (Round-5 G6 · R3) — the flat `{field, op, value}` AND-row
- * builder. Proves rows add/remove, the value input hides for the `exists` op, and
- * edits flow through `onChange` as the `RuleMatch`-shaped predicate list.
+ * ConditionBuilder spec (Round-5 G6 · R3) — the single `{field, op, value}`
+ * predicate editor. Proves unsupported multi-predicate controls stay absent, the
+ * value input hides for `exists`, and edits emit exactly one wire-shaped row.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
@@ -31,29 +31,22 @@ describe('ConditionBuilder', () => {
     expect(screen.queryByLabelText('Condition 2 field')).toBeNull();
   });
 
-  it('adds a new AND row via "Add condition"', () => {
-    const { onChange } = setup([{ field: 'rule.id', op: 'equals', value: '5710' }]);
-    fireEvent.click(screen.getByRole('button', { name: /add condition/i }));
-    expect(onChange).toHaveBeenCalledTimes(1);
-    const next = onChange.mock.calls[0][0] as PredicateRow[];
-    expect(next).toHaveLength(2);
-    expect(next[1]).toEqual({ field: '', op: 'equals', value: '' });
-  });
-
-  it('removes a row, keeping at least one', () => {
-    const { onChange } = setup([
+  it('does not expose unsupported multi-predicate controls or rows', () => {
+    setup([
       { field: 'a', op: 'equals', value: '1' },
       { field: 'b', op: 'equals', value: '2' },
     ]);
-    fireEvent.click(screen.getByLabelText('Remove condition 2'));
-    const next = onChange.mock.calls[0][0] as PredicateRow[];
-    expect(next).toEqual([{ field: 'a', op: 'equals', value: '1' }]);
+    expect(screen.getByLabelText('Condition 1 field')).toHaveValue('a');
+    expect(screen.queryByLabelText('Condition 2 field')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /add condition/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /remove condition/i })).not.toBeInTheDocument();
   });
 
   it('edits a field through onChange', () => {
     const { onChange } = setup([{ field: '', op: 'equals', value: '' }]);
     fireEvent.change(screen.getByLabelText('Condition 1 field'), { target: { value: 'user.name' } });
     const next = onChange.mock.calls[0][0] as PredicateRow[];
+    expect(next).toHaveLength(1);
     expect(next[0].field).toBe('user.name');
   });
 
@@ -63,13 +56,5 @@ describe('ConditionBuilder', () => {
     expect(screen.getByLabelText('Condition 1 field')).toBeInTheDocument();
     expect(screen.queryByLabelText('Condition 1 value')).toBeNull();
     expect(screen.getByText(/no value needed/i)).toBeInTheDocument();
-  });
-
-  it('labels the second row with an implicit AND', () => {
-    setup([
-      { field: 'a', op: 'equals', value: '1' },
-      { field: 'b', op: 'equals', value: '2' },
-    ]);
-    expect(screen.getByText('and')).toBeInTheDocument();
   });
 });

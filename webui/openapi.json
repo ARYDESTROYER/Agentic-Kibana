@@ -1686,6 +1686,36 @@
         "title": "CorrelationRule",
         "type": "object"
       },
+      "CurrentReleaseIdentity": {
+        "additionalProperties": false,
+        "properties": {
+          "channel": {
+            "enum": [
+              "stable",
+              "testing"
+            ],
+            "title": "Channel",
+            "type": "string"
+          },
+          "commit_sha": {
+            "maxLength": 128,
+            "title": "Commit Sha",
+            "type": "string"
+          },
+          "version": {
+            "maxLength": 80,
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "channel",
+          "commit_sha"
+        ],
+        "title": "CurrentReleaseIdentity",
+        "type": "object"
+      },
       "CustomModelBody": {
         "properties": {
           "api_key": {
@@ -3033,6 +3063,43 @@
         "title": "NotifyCaseBody",
         "type": "object"
       },
+      "ObservedStableRelease": {
+        "additionalProperties": false,
+        "description": "Untrusted discovery hint safe to show before signed preflight.\n\nThe public projection intentionally omits repository/artifact URLs, commit and\nimage digests, and component coordinates.  It is not an install authority.",
+        "properties": {
+          "channel": {
+            "const": "stable",
+            "default": "stable",
+            "title": "Channel"
+          },
+          "provenance": {
+            "const": "mutable_stable_branch_metadata",
+            "default": "mutable_stable_branch_metadata",
+            "title": "Provenance"
+          },
+          "release_id": {
+            "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$",
+            "title": "Release Id",
+            "type": "string"
+          },
+          "verification": {
+            "const": "signed_supervisor_preflight_required",
+            "default": "signed_supervisor_preflight_required",
+            "title": "Verification"
+          },
+          "version": {
+            "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "release_id",
+          "version"
+        ],
+        "title": "ObservedStableRelease",
+        "type": "object"
+      },
       "OverviewRequest": {
         "properties": {
           "data_view": {
@@ -3468,6 +3535,28 @@
               }
             ],
             "title": "Error Message"
+          },
+          "release_commit_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Release Commit Sha"
+          },
+          "release_commit_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Release Commit Url"
           },
           "source_url": {
             "anyOf": [
@@ -4430,6 +4519,47 @@
         "title": "StorageLifecycleConfig",
         "type": "object"
       },
+      "SupervisorIdentity": {
+        "additionalProperties": false,
+        "properties": {
+          "available": {
+            "default": false,
+            "title": "Available",
+            "type": "boolean"
+          },
+          "min_protocol_version": {
+            "default": "1",
+            "title": "Min Protocol Version",
+            "type": "string"
+          },
+          "protocol_version": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Protocol Version"
+          },
+          "updater_version": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updater Version"
+          }
+        },
+        "title": "SupervisorIdentity",
+        "type": "object"
+      },
       "TableStateBody": {
         "description": "One table's column state (order / hidden / widths). An empty body clears it\n(the table reverts to its built-in default columns).",
         "properties": {
@@ -4814,6 +4944,868 @@
           }
         },
         "title": "TriggerReason",
+        "type": "object"
+      },
+      "UpdateBackup": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Description",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "postgres_custom_format",
+              "none"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "required": {
+            "title": "Required",
+            "type": "boolean"
+          },
+          "state": {
+            "enum": [
+              "planned",
+              "ready",
+              "not_required",
+              "unavailable"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "verified": {
+            "default": false,
+            "title": "Verified",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "required",
+          "kind",
+          "state",
+          "description"
+        ],
+        "title": "UpdateBackup",
+        "type": "object"
+      },
+      "UpdateCapability": {
+        "additionalProperties": false,
+        "properties": {
+          "blockers": {
+            "items": {
+              "$ref": "#/components/schemas/UpdateIssue"
+            },
+            "maxItems": 32,
+            "title": "Blockers",
+            "type": "array"
+          },
+          "bootstrap_required": {
+            "default": false,
+            "title": "Bootstrap Required",
+            "type": "boolean"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/UpdateScope"
+          },
+          "supervisor": {
+            "$ref": "#/components/schemas/SupervisorIdentity"
+          },
+          "supported": {
+            "title": "Supported",
+            "type": "boolean"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/UpdateIssue"
+            },
+            "maxItems": 32,
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "supported",
+          "scope",
+          "supervisor"
+        ],
+        "title": "UpdateCapability",
+        "type": "object"
+      },
+      "UpdateCheck": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "maxLength": 80,
+            "minLength": 1,
+            "pattern": "^[a-z0-9_]+$",
+            "title": "Code",
+            "type": "string"
+          },
+          "detail": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Detail",
+            "type": "string"
+          },
+          "label": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pass",
+              "fail",
+              "warning"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "label",
+          "status",
+          "detail"
+        ],
+        "title": "UpdateCheck",
+        "type": "object"
+      },
+      "UpdateComponent": {
+        "additionalProperties": false,
+        "properties": {
+          "current_version": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Version"
+          },
+          "id": {
+            "enum": [
+              "updater",
+              "backend",
+              "webui",
+              "help_center",
+              "postgres",
+              "redis"
+            ],
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "scope": {
+            "enum": [
+              "updated",
+              "bundled",
+              "unchanged"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "target_version": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Version"
+          },
+          "will_update": {
+            "title": "Will Update",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "scope",
+          "will_update"
+        ],
+        "title": "UpdateComponent",
+        "type": "object"
+      },
+      "UpdateIdentity": {
+        "additionalProperties": false,
+        "properties": {
+          "commit_sha": {
+            "default": "unknown",
+            "maxLength": 128,
+            "title": "Commit Sha",
+            "type": "string"
+          },
+          "version": {
+            "default": "unknown",
+            "maxLength": 80,
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "title": "UpdateIdentity",
+        "type": "object"
+      },
+      "UpdateIssue": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "maxLength": 80,
+            "minLength": 1,
+            "pattern": "^[a-z0-9_]+$",
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          },
+          "remediation": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remediation"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "UpdateIssue",
+        "type": "object"
+      },
+      "UpdateJob": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UpdateJobError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "job_id": {
+            "pattern": "^[A-Za-z0-9-]{1,80}$",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "message": {
+            "default": "",
+            "maxLength": 500,
+            "title": "Message",
+            "type": "string"
+          },
+          "progress": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Progress",
+            "type": "integer"
+          },
+          "receipt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UpdateReceipt"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "release_id": {
+            "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$",
+            "title": "Release Id",
+            "type": "string"
+          },
+          "rollback": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UpdateRollback"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rollback_receipt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UpdateReceipt"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stage": {
+            "enum": [
+              "validating",
+              "verifying_artifacts",
+              "pulling_images",
+              "quiescing",
+              "backing_up",
+              "updating_backend",
+              "verifying_backend",
+              "updating_webui",
+              "verifying_webui",
+              "observing",
+              "rolling_back",
+              "restoring_release",
+              "completed"
+            ],
+            "title": "Stage",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed",
+              "rolling_back",
+              "rolled_back",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "job_id",
+          "release_id",
+          "status",
+          "stage",
+          "progress"
+        ],
+        "title": "UpdateJob",
+        "type": "object"
+      },
+      "UpdateJobError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "maxLength": 80,
+            "minLength": 1,
+            "pattern": "^[a-z0-9_]+$",
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          },
+          "remediation": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remediation"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "UpdateJobError",
+        "type": "object"
+      },
+      "UpdateOperationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "idempotency_key": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$",
+            "title": "Idempotency Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "idempotency_key"
+        ],
+        "title": "UpdateOperationRequest",
+        "type": "object"
+      },
+      "UpdatePreflight": {
+        "additionalProperties": false,
+        "properties": {
+          "backup": {
+            "$ref": "#/components/schemas/UpdateBackup"
+          },
+          "blockers": {
+            "items": {
+              "$ref": "#/components/schemas/UpdateIssue"
+            },
+            "maxItems": 32,
+            "title": "Blockers",
+            "type": "array"
+          },
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/UpdateCheck"
+            },
+            "maxItems": 64,
+            "title": "Checks",
+            "type": "array"
+          },
+          "components": {
+            "items": {
+              "$ref": "#/components/schemas/UpdateComponent"
+            },
+            "maxItems": 16,
+            "title": "Components",
+            "type": "array"
+          },
+          "expires_at": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Expires At",
+            "type": "string"
+          },
+          "preflight_token": {
+            "maxLength": 512,
+            "minLength": 16,
+            "title": "Preflight Token",
+            "type": "string"
+          },
+          "release": {
+            "$ref": "#/components/schemas/UpdateRelease"
+          },
+          "rollback": {
+            "$ref": "#/components/schemas/UpdateRollback"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/UpdateIssue"
+            },
+            "maxItems": 32,
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "preflight_token",
+          "expires_at",
+          "release",
+          "backup",
+          "rollback"
+        ],
+        "title": "UpdatePreflight",
+        "type": "object"
+      },
+      "UpdatePreflightRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "idempotency_key": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$",
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "release_id": {
+            "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$",
+            "title": "Release Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "release_id",
+          "idempotency_key"
+        ],
+        "title": "UpdatePreflightRequest",
+        "type": "object"
+      },
+      "UpdateReceipt": {
+        "additionalProperties": false,
+        "properties": {
+          "after": {
+            "$ref": "#/components/schemas/UpdateIdentity"
+          },
+          "backup_id": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Backup Id"
+          },
+          "before": {
+            "$ref": "#/components/schemas/UpdateIdentity"
+          },
+          "completed_at": {
+            "default": "",
+            "maxLength": 80,
+            "title": "Completed At",
+            "type": "string"
+          },
+          "components": {
+            "items": {
+              "enum": [
+                "updater",
+                "backend",
+                "webui",
+                "help_center"
+              ],
+              "type": "string"
+            },
+            "maxItems": 4,
+            "title": "Components",
+            "type": "array"
+          },
+          "job_id": {
+            "pattern": "^[A-Za-z0-9-]{1,80}$",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "release_id": {
+            "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$",
+            "title": "Release Id",
+            "type": "string"
+          },
+          "rollback_performed": {
+            "default": false,
+            "title": "Rollback Performed",
+            "type": "boolean"
+          },
+          "started_at": {
+            "default": "",
+            "maxLength": 80,
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed",
+              "rolling_back",
+              "rolled_back",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "release_id",
+          "status",
+          "before",
+          "after"
+        ],
+        "title": "UpdateReceipt",
+        "type": "object"
+      },
+      "UpdateRelease": {
+        "additionalProperties": false,
+        "description": "Release identity safe to return to the browser (no artifact URL inputs).",
+        "properties": {
+          "channel": {
+            "const": "stable",
+            "default": "stable",
+            "title": "Channel"
+          },
+          "commit_sha": {
+            "pattern": "^[0-9a-f]{40}$",
+            "title": "Commit Sha",
+            "type": "string"
+          },
+          "release_id": {
+            "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$",
+            "title": "Release Id",
+            "type": "string"
+          },
+          "repository_url": {
+            "maxLength": 512,
+            "title": "Repository Url",
+            "type": "string"
+          },
+          "tag": {
+            "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$",
+            "title": "Tag",
+            "type": "string"
+          },
+          "version": {
+            "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "release_id",
+          "version",
+          "tag",
+          "commit_sha",
+          "repository_url"
+        ],
+        "title": "UpdateRelease",
+        "type": "object"
+      },
+      "UpdateReleaseDiscovery": {
+        "additionalProperties": false,
+        "description": "Truthful browser projection of the last Stable metadata observation.",
+        "properties": {
+          "branch": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Branch",
+            "type": "string"
+          },
+          "checked_at": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked At"
+          },
+          "issue": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UpdateIssue"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "observed_release": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ObservedStableRelease"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "enum": [
+              "not_checked",
+              "current",
+              "candidate_observed",
+              "unavailable",
+              "stale",
+              "error"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "branch"
+        ],
+        "title": "UpdateReleaseDiscovery",
+        "type": "object"
+      },
+      "UpdateRollback": {
+        "additionalProperties": false,
+        "properties": {
+          "automatic": {
+            "title": "Automatic",
+            "type": "boolean"
+          },
+          "description": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Description",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "planned",
+              "ready",
+              "unavailable",
+              "not_required"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "supported": {
+            "title": "Supported",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "automatic",
+          "supported",
+          "state",
+          "description"
+        ],
+        "title": "UpdateRollback",
+        "type": "object"
+      },
+      "UpdateScope": {
+        "additionalProperties": false,
+        "properties": {
+          "components_updated": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Components Updated",
+            "type": "array"
+          },
+          "deployment_profile": {
+            "const": "standalone_compose_postgres_v1",
+            "default": "standalone_compose_postgres_v1",
+            "title": "Deployment Profile"
+          },
+          "infrastructure_not_updated": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Infrastructure Not Updated",
+            "type": "array"
+          },
+          "state_backend": {
+            "maxLength": 40,
+            "title": "State Backend",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state_backend"
+        ],
+        "title": "UpdateScope",
+        "type": "object"
+      },
+      "UpdateStartRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "idempotency_key": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$",
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "preflight_token": {
+            "maxLength": 512,
+            "minLength": 16,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Preflight Token",
+            "type": "string"
+          },
+          "release_id": {
+            "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$",
+            "title": "Release Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "release_id",
+          "idempotency_key",
+          "preflight_token"
+        ],
+        "title": "UpdateStartRequest",
+        "type": "object"
+      },
+      "UpdateStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "active_job": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UpdateJob"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "capability": {
+            "$ref": "#/components/schemas/UpdateCapability"
+          },
+          "checked_at": {
+            "title": "Checked At",
+            "type": "string"
+          },
+          "current": {
+            "$ref": "#/components/schemas/CurrentReleaseIdentity"
+          },
+          "last_job": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UpdateJob"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "release_discovery": {
+            "$ref": "#/components/schemas/UpdateReleaseDiscovery"
+          }
+        },
+        "required": [
+          "capability",
+          "current",
+          "release_discovery"
+        ],
+        "title": "UpdateStatus",
         "type": "object"
       },
       "UserCreateBody": {
@@ -5232,7 +6224,7 @@
   "info": {
     "description": "Vendor-neutral Agentic SOC API. It consumes source data read-only and owns only Agentic SOC application state.",
     "title": "Agentic SOC API",
-    "version": "0.1.2"
+    "version": "0.1.3"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -12911,7 +13903,7 @@
     },
     "/api/schedulers/health": {
       "get": {
-        "description": "Enabled/gated/runtime status plus truthful last attempt/success/error.",
+        "description": "Enabled/gated/runtime status plus truthful last attempt/success/error.\n\nThis is part of the continuous-improvement operator surface, so it deliberately\nshares the same ``automation:read`` grant as the Auto-tuning page that consumes\nit.  Keeping this route behind ``settings:read`` made the page silently lose its\nworker-health evidence for otherwise-authorized tuning operators.",
         "operationId": "scheduler_health_api_schedulers_health_get",
         "responses": {
           "200": {
@@ -14252,6 +15244,298 @@
         "summary": "Storage Lifecycle Preview",
         "tags": [
           "storage"
+        ]
+      }
+    },
+    "/api/system-updates/jobs": {
+      "post": {
+        "operationId": "start_update_api_system_updates_jobs_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateStartRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateJob"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Update",
+        "tags": [
+          "system-updates"
+        ]
+      }
+    },
+    "/api/system-updates/jobs/{job_id}": {
+      "get": {
+        "operationId": "get_update_job_api_system_updates_jobs__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateJob"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Update Job",
+        "tags": [
+          "system-updates"
+        ]
+      }
+    },
+    "/api/system-updates/jobs/{job_id}/cancel": {
+      "post": {
+        "operationId": "cancel_update_job_api_system_updates_jobs__job_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateOperationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateJob"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Update Job",
+        "tags": [
+          "system-updates"
+        ]
+      }
+    },
+    "/api/system-updates/jobs/{job_id}/receipt": {
+      "get": {
+        "operationId": "get_update_receipt_api_system_updates_jobs__job_id__receipt_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateReceipt"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Update Receipt",
+        "tags": [
+          "system-updates"
+        ]
+      }
+    },
+    "/api/system-updates/jobs/{job_id}/rollback": {
+      "post": {
+        "operationId": "rollback_update_job_api_system_updates_jobs__job_id__rollback_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateOperationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateJob"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rollback Update Job",
+        "tags": [
+          "system-updates"
+        ]
+      }
+    },
+    "/api/system-updates/preflight": {
+      "post": {
+        "operationId": "update_preflight_api_system_updates_preflight_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePreflightRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdatePreflight"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Preflight",
+        "tags": [
+          "system-updates"
+        ]
+      }
+    },
+    "/api/system-updates/status": {
+      "get": {
+        "description": "Capability, observed Stable metadata, and resumable supervisor job state.",
+        "operationId": "update_status_api_system_updates_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Update Status",
+        "tags": [
+          "system-updates"
         ]
       }
     },

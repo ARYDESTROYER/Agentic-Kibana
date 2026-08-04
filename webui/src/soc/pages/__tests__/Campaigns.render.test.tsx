@@ -40,9 +40,13 @@ vi.mock('@/soc/pages/Campaigns.api', async (importOriginal) => {
 
 // The page loads/saves its config through the shared `api.campaign` client
 // (getConfig/putConfig → GET/PUT campaigns/config).
-vi.mock('@/lib/api', () => ({
-  api: { campaign: { getConfig: apiGetMock, putConfig: apiPutMock }, post: vi.fn() },
-}));
+vi.mock('@/lib/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api')>();
+  return {
+    ...actual,
+    api: { campaign: { getConfig: apiGetMock, putConfig: apiPutMock }, post: vi.fn() },
+  };
+});
 
 vi.mock('@/soc/auth', () => ({
   useAuth: () => ({
@@ -121,6 +125,10 @@ describe('Campaigns page', () => {
     );
     renderCampaigns();
 
+    fireEvent.keyDown(await screen.findByRole('tab', { name: /policy & schedule/i }), {
+      key: 'Enter',
+    });
+
     expect(
       await screen.findByRole('status', { name: 'Loading campaign policy' }),
     ).toBeInTheDocument();
@@ -130,8 +138,72 @@ describe('Campaigns page', () => {
 
     resolveConfig({ config: { enabled: true, cadence: 'daily' } });
     expect(
-      await screen.findByRole('switch', { name: /enable campaign clustering/i }),
+      await screen.findByRole('switch', { name: /enable scheduled correlation/i }),
     ).toBeInTheDocument();
+  });
+
+  it('keeps administrator policy controls out of the default review workspace', async () => {
+    renderCampaigns();
+    await screen.findByText('Lateral movement — 10.0.0.5');
+
+    expect(screen.getByRole('tab', { name: /campaign review/i })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    expect(screen.queryByRole('switch', { name: /enable scheduled correlation/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /run correlation now/i })).toBeNull();
+
+    fireEvent.keyDown(screen.getByRole('tab', { name: /policy & schedule/i }), {
+      key: 'Enter',
+    });
+    expect(
+      await screen.findByRole('switch', { name: /enable scheduled correlation/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /run correlation now/i })).toBeInTheDocument();
+  });
+
+  it('renders a useful empty review state when no related groups exist', async () => {
+    listMock.mockResolvedValue({ campaigns: [], total: 0, enabled: true });
+    renderCampaigns();
+
+    expect(await screen.findByText('No campaigns yet')).toBeInTheDocument();
+    expect(
+      screen.getByText(/deterministic campaign pass finds a shared entity/i),
+    ).toBeInTheDocument();
+  });
+
+  it('keeps a retryable review error inside the analyst workspace', async () => {
+    listMock.mockRejectedValue(new Error('offline'));
+    renderCampaigns();
+
+    expect(await screen.findByText('Could not load campaigns')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
+    expect(screen.queryByText('No campaigns yet')).toBeNull();
+  });
+
+  it('keeps an unsaved policy visible across workspaces and saves the exact draft', async () => {
+    renderCampaigns();
+
+    fireEvent.keyDown(await screen.findByRole('tab', { name: /policy & schedule/i }), {
+      key: 'Enter',
+    });
+    fireEvent.click(
+      await screen.findByRole('switch', { name: /enable scheduled correlation/i }),
+    );
+
+    expect(screen.getByRole('region', { name: /unsaved changes/i })).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole('tab', { name: /campaign review/i }), {
+      key: 'Enter',
+    });
+    expect(screen.getByRole('region', { name: /unsaved changes/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
+    await waitFor(() =>
+      expect(apiPutMock).toHaveBeenCalledWith({ enabled: false, cadence: 'daily' }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole('region', { name: /unsaved changes/i })).toBeNull(),
+    );
   });
 
   it('renders campaigns with name, case count and shared entities as plain text', async () => {
@@ -170,8 +242,10 @@ describe('Campaigns page', () => {
   it('Refresh reloads the campaign list without discarding unsaved policy edits', async () => {
     renderCampaigns();
 
-    // The config form renders after the policy load resolves (loading skeleton first).
-    const toggle = await screen.findByRole('switch', { name: /enable campaign clustering/i });
+    fireEvent.keyDown(await screen.findByRole('tab', { name: /policy & schedule/i }), {
+      key: 'Enter',
+    });
+    const toggle = await screen.findByRole('switch', { name: /enable scheduled correlation/i });
     expect(toggle).toHaveAttribute('aria-checked', 'true');
     expect(apiGetMock).toHaveBeenCalledTimes(1);
 
@@ -179,20 +253,30 @@ describe('Campaigns page', () => {
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-checked', 'false');
 
+    fireEvent.keyDown(screen.getByRole('tab', { name: /campaign review/i }), {
+      key: 'Enter',
+    });
     fireEvent.click(screen.getByRole('button', { name: /refresh/i }));
 
-    // The list reloaded, but the config was NOT re-fetched (no clobber) and the
-    // unsaved edit survives.
     await waitFor(() => expect(listMock).toHaveBeenCalledTimes(2));
     expect(apiGetMock).toHaveBeenCalledTimes(1);
-    expect(toggle).toHaveAttribute('aria-checked', 'false');
+
+    fireEvent.keyDown(screen.getByRole('tab', { name: /policy & schedule/i }), {
+      key: 'Enter',
+    });
+    expect(
+      await screen.findByRole('switch', { name: /enable scheduled correlation/i }),
+    ).toHaveAttribute('aria-checked', 'false');
   });
 
   it('recorrelates via campaignsApi.recorrelate', async () => {
     renderCampaigns();
     await screen.findByText('Lateral movement — 10.0.0.5');
 
-    const btn = screen.getByRole('button', { name: /recorrelate/i });
+    fireEvent.keyDown(screen.getByRole('tab', { name: /policy & schedule/i }), {
+      key: 'Enter',
+    });
+    const btn = await screen.findByRole('button', { name: /run correlation now/i });
     fireEvent.click(btn);
     await waitFor(() => expect(recorrelateMock).toHaveBeenCalled());
   });

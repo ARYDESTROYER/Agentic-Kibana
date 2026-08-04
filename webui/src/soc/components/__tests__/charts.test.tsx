@@ -10,10 +10,14 @@
  * assert via inline `style` / `className` (house style), never pixel bounds. The default
  * `height` is 200, so `holePx = round(innerPct/100 * 200)`.
  */
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
 import { DonutChart } from '../charts';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('DonutChart — center overlay is bounded to the hole (bug #1)', () => {
   it('sizes the center wrapper to the px hole, not the full box, and clips overflow', () => {
@@ -52,11 +56,24 @@ describe('DonutChart — center overlay is bounded to the hole (bug #1)', () => 
   });
 
   it('still centers short content that fits comfortably', () => {
+    const warn = vi.spyOn(console, 'warn');
     render(<DonutChart segments={[{ label: 'a', value: 5 }]} center={<span>5</span>} />);
     // The chart container is still an accessible role="img"; the center renders in it.
-    const chart = screen.getByRole('img');
+    // Recharts also adds role="img" to each rendered sector, so target the named
+    // parent rather than relying on the old jsdom zero-size placeholder.
+    const chart = screen.getByRole('img', {
+      name: 'Distribution chart with 1 segment(s), total 5',
+    });
     expect(chart).toBeInTheDocument();
     expect(screen.getByText('5')).toBeInTheDocument();
+
+    // The shared test layout models a real 800px-wide canvas and inherits the
+    // component's explicit 200px height. This keeps ResponsiveContainer honest
+    // without changing or mocking the chart component itself.
+    expect(chart.querySelector('.recharts-surface')).toHaveAttribute('width', '800');
+    expect(chart.querySelector('.recharts-surface')).toHaveAttribute('height', '200');
+    expect(screen.getByRole('img', { name: 'a: 5' })).toBeInTheDocument();
+    expect(warn.mock.calls.flat().join(' ')).not.toContain('chart should be greater than 0');
   });
 
   it('can suppress segment hover tooltips for compact instrument rings', () => {

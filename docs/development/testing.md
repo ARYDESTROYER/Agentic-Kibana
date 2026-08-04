@@ -8,15 +8,17 @@ description: Backend, Console, API-contract, version, documentation, and release
 Agentic SOC changes are accepted on `Testing` only after the relevant offline, contract,
 build, and documentation gates pass. Stable promotion moves that accepted source
 tree through a protected pull request to `main`; the resulting commit is gated again
-before application version `v0.1.2` is tagged.
+before application version `v0.1.3` is tagged.
 
-The latest fully recorded local baseline is **2,254 backend tests** and **1,853
-Console tests across 280 files**. Counts rise as coverage is added; the
+The latest fully recorded local baseline is **2,306 backend tests** and **1,935
+Console tests across 286 files**. The Console baseline also has zero stderr bytes
+and zero Vitest-captured console stdout blocks under `npm run test:strict`. Counts rise as coverage is added; the
 commands and zero-failure result are the contract, not a frozen target.
 
 The remote uses `Testing` for integration and default `main` for accepted Stable
-source. `v0.1.1` is the prior Stable tag; the 0.1.2 candidate receives `v0.1.2`
-only after the resulting `main` commit passes. Branch protection, required checks,
+source. Version 0.1.3 is a candidate on `Testing` and is Stable only when the
+resulting verified `main` commit has the immutable `v0.1.3` tag and matching
+artifacts. Branch protection, required checks,
 Pages source selection, and `github-pages` environment policy are repository settings;
 verify them independently before treating a merge or deployment as accepted.
 
@@ -70,13 +72,19 @@ npm ci
 npm run typecheck
 npm run lint
 npm run gates
-npm test
+npm run test:strict
 npm run build
 ```
 
 Component/page tests should cover loading, empty, error, populated, and permission-
 denied states. Interaction tests should use user-observable behavior and include
 keyboard/focus/accessibility assertions where the component is interactive.
+
+Use plain `npm test -- <file-or-pattern>` for focused iteration. The release-only
+`npm run test:strict` command first tests its own output parser, then runs the complete
+suite and fails if Vitest writes any stderr byte or reports any captured `console.log`
+block. CI uses the strict command; the focused developer path remains direct and
+argument-friendly.
 
 ### Release-candidate browser acceptance
 
@@ -93,9 +101,9 @@ the receipt or linked automated evidence.
 | Identity and setup | Sign-in username → password flow, optional demo/SSO controls when configured, theme switch, error/retry, software-keyboard-safe narrow layout, first-run setup progress/content/footer, and close/re-run behavior |
 | Overview | Dashboard time/refresh controls, KPI and case drill-down, Latest Cases hover and focus detail, Noise Reduction expand/close, custom Dashboards, and Standup |
 | Triage | Cases filters/table/loading and exact Case Manager handoff; Case Manager Active/All queue, resize/keyboard reset, selection/bulk menu, Overview/Timeline/Investigation/Threat context/Collaboration/Chat tabs, Campaigns, Logs, Workspace Chat/history, Entity investigation, and Approvals |
-| Intelligence and analytics | Knowledge, Memory, Playbooks browse/edit boundaries, Metrics, Agent effectiveness, Cost, Models, Baseline, Batch jobs, and Auto-tuning Operations/Outcomes/Policy & history |
+| Intelligence and analytics | Knowledge corpus, Reference runbooks, Operator memory, Response playbooks, Agent personas, Metrics, Agent effectiveness, Cost, Models, Baseline, Batch jobs, and Auto-tuning Operations/Outcomes/Policy & history |
 | Platform and help | Sources catalog/detail/health, Audit log, Settings section search/deep links/dirty state/sticky actions, narrow Settings Sheet, appearance/branding isolation, and the in-app Help Center plus an installed `/docs/<major.minor>/` article |
-| Release activation | Current release badge/popover; coherent different `/release.json` offer; confirmation/focus return; known-dirty blocking; stale-target, identity-mismatch, unhealthy, offline, and invalid-entry preflight failures; successful same-hash-route activation |
+| Release update | Current release badge/popover; mutable Stable candidate versus signed preflight; unsupported-supervisor/manual boundary; blocker remediation; reauth and known-dirty blocking; durable progress/reconnect; cancellation-before-switch; automatic rollback; post-success image-only rollback; successful same-hash-route activation |
 | Compatibility paths | Hidden or consolidated bookmarked routes load or redirect to their documented replacement without reappearing in primary navigation |
 
 For Auto-tuning, verify Collecting/Within target/Needs attention classification,
@@ -104,19 +112,65 @@ safe/restricted outcomes, same-rule busy locking with unrelated rules still enab
 permission-isolated Outcomes loading, dirty policy preservation, newest-active
 rollback, and no horizontal overflow in Light/Dark desktop and 390px layouts.
 
-For release activation, run against a deployment fixture that can independently
-control `/release.json`, `/api/health/build-info`, `/api/health`, and `/index.html`.
-Confirm the action is absent for the loaded build and every incomplete/incoherent
-combination. Offer it only for a different exact manifest/backend identity with
-healthy readiness. After the dialog opens, change the target or fail each final
-preflight request in turn; the old document and current work must remain usable and
-must not enter a request/reload loop. Verify a known dirty Runbook or Settings draft
-removes the Update action, the native exit guard still covers the actual navigation,
-cancel restores focus, and a successful activation retains the exact hash route. Run
-the case with the previous hashed asset set retained (or against blue-green static
-origins) and prove an open tab can lazy-load both before and during the observation
-window. The browser must never receive a deployment credential or invoke a pull,
-restart, migration, promotion, or rollback path.
+For release update, separate mutable discovery from immutable authority. A newer
+Stable branch `VERSION` plus supervisor capability may display a candidate only when
+the exact annotated `vVERSION` tag dereferences to an immutable commit; branch HEAD is
+review metadata, not the candidate commit. It must not become confirmable until the
+backend derives the canonical GitHub Release assets and signed updater preflight
+returns zero blockers. Exercise unavailable,
+stale, same-version, malformed release, bad signature, wrong workflow/repository/tag/
+commit, unsupported source version, SQLite/Elasticsearch/custom topology, unhealthy
+Postgres/updater, canonical base-Compose hash mismatch, insufficient backup capacity,
+concurrent job, runtime-only secret,
+and expired preflight-token paths. Separately verify that private/missing registry
+images and digest/label mismatches fail after job creation but before application
+mutation. Every denial or failed job must remain usable and provide exact remediation
+without sending host paths, commands, Compose fragments, registry credentials, or
+Docker authority to the browser.
+
+Exercise the complete supported job against an isolated copy of the reference
+single-replica PostgreSQL Compose stack. Assert pull-before-mutation, quiesced and
+catalog-verified custom-format backup, exact backend/Web identity and readiness,
+installed Help Center checks, observation window, durable progress across backend and
+updater handoff, and same-hash-route browser reload. Inject failure before switching,
+after backend switch, after Web switch, and during observation. An automatic
+post-switch failure must restore prior images without rewriting PostgreSQL and must
+preserve a sentinel write accepted after the backup. Cancellation before switch and a
+rollback requested after success must also restore images only. Prove the verified
+dump remains available for an explicit break-glass recovery rehearsal, but is never
+consumed automatically. Any plan with a migration strategy other than `none` must fail
+preflight.
+
+Verify the one-time v0.1.1→v0.1.3 bootstrap separately from later Console updates:
+it must refuse a dirty checkout, a lightweight/mismatched tag, a tag whose commit is
+not contained in `origin/main`, missing durable secrets, an unsupported running
+topology, an active job, and unreadable/invalid existing supervisor state. Prove it
+reuses a compatible idle supervisor and replaces only an inspectable idle incompatible
+one while preserving/restoring the active digest override. Repeat the replacement test
+without an active override and prove bootstrap captures the exact immutable prior
+updater image ID, restores it after an injected replacement failure, and removes the
+temporary recovery override only after confirmed success. Its happy path installs only
+the initial supervisor transport before delegating the full v0.1.3 transition to the
+signed state machine. Afterward, prove
+`scripts/agentic-soc-compose.sh` layers the active digest override and document raw
+Compose lifecycle commands as unsupported. Verify a known dirty Runbook or Settings
+draft blocks confirmation, cancel restores focus, and the browser never receives a
+deployment credential or direct pull/restart/migration/rollback authority.
+
+Fault-inject helper-process, Docker-daemon, and host restarts at every updater
+self-replacement name-swap boundary. Confirm the restartable helper re-observes container
+names and immutable image IDs, then either resumes the target or restores the exact
+prior supervisor. Separately rehearse manual disaster recovery when Docker cannot run
+any container or its durable metadata/storage is unavailable; do not conflate that
+host-loss boundary with an ordinary restart.
+
+Fault-inject the Stable publication workflow before draft creation, after each
+canonical asset upload, after remote byte/signature verification, and immediately
+before and after the draft-to-published transition. A retry must recover only an exact
+tag/SHA draft, remove only validated incomplete draft assets, and publish only after
+both downloaded assets match and the Sigstore bundle verifies. A complete published
+release must become verify-only; a partial, duplicate, unexpected, or wrong-SHA release
+must fail closed without upload, overwrite, or publication.
 
 For each area, verify the states that can be reproduced safely: loading, populated,
 empty, refresh-in-place, retryable failure, permission denied/hidden navigation, and
@@ -136,14 +190,15 @@ the corrected or high-risk surfaces and state that no unexplained console/networ
 remained. Re-run the focused browser path after a fix and repeat the complete matrix on
 the final promoted `main` commit before tagging.
 
-### Known test-harness noise
+### Console output contract
 
-The complete Console suite currently passes without failures. Its jsdom output has
-**152** Recharts zero-dimension notices and **168** React/Radix `act(...)` notices;
-there are **0** controlled-state transitions, error heads, or unimplemented-runtime
-errors. These are test-harness cleanup items rather than accepted product errors. Do
-not suppress them globally; remove each notice at its owning fixture or component so
-new regressions remain visible.
+The complete Console suite is quiet: passing tests must not emit React/Radix `act(...)`
+warnings, Recharts measurement warnings, other stderr, or captured console stdout.
+`npm run test:strict` streams Vitest output unchanged and fails closed on any such
+output even when every assertion passes. Fix noise at its owning fixture or component;
+do not add a global warning filter or weaken the strict runner. A test that deliberately
+exercises logging should install a local spy, assert the expected call, and restore it
+before the test ends.
 
 ## API contract drift
 
@@ -172,7 +227,7 @@ Run the repository's standard-library metadata gate from the root:
 python3 scripts/check_version.py
 ```
 
-For the 0.1 line it checks that the root `VERSION` (`0.1.2`) agrees with backend,
+For the 0.1 line it checks that the root `VERSION` (`0.1.3`) agrees with backend,
 Console, lockfile, OpenAPI, Compose image/build metadata, release records, and the
 MkDocs/Mike documentation line (`0.1`).
 
@@ -234,8 +289,14 @@ Validate Compose interpolation without starting services:
 TLSOC_PG_PASSWORD=validation-only \
   docker compose -f deploy/docker-compose.agnostic.yml config --quiet
 bash -n scripts/run-demo.sh
+python3 -m unittest discover -s updater/tests -v
+python3 -m py_compile updater/agentic_soc_updater/*.py scripts/build_upgrade_plan.py
+go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
 ```
 
+The raw Compose invocation above is a read-only CI render, not a deployed-lifecycle
+command. After updater bootstrap, manual start/stop/build/restart operations must use
+`scripts/agentic-soc-compose.sh` so the active release override remains layered.
 `deploy/docker-compose.tlsoc.yml` is deliberately a fragment to merge into an
 operator's existing ELK project; validating it as a standalone topology would be a
 false failure because its Elasticsearch service is external. For a release candidate, additionally test
@@ -254,10 +315,20 @@ Before promoting `Testing` to Stable:
    release gate again on the resulting `main` commit.
 5. Build and stamp the verified commit with the correct channel, exact SHA, build
    date, and source URL.
-6. Create the immutable `v0.1.2` tag and publish matching application artifacts by
+6. Create the immutable `v0.1.3` tag and publish matching application artifacts by
    digest; let the Documentation workflow publish the accepted public 0.1 line from
    `main`.
-7. Verify `/api/health/build-info`, image metadata, the native Pages deployment, and
+7. Verify all three GHCR packages are public and anonymously pullable by the exact
+   backend, Web, and updater digests in the signed plan. Confirm the GitHub Release
+   carries the plan and Sigstore bundle and that the plan's tag, commit, workflow
+   identity, labels, and compatibility range match the release.
+8. In an isolated test repository, interrupt the tag workflow before either draft
+   upload, after the plan upload, after both uploads, and immediately after publication.
+   Prove each exact tag/SHA draft resumes without rebuilding a validated plan and that a
+   complete published release becomes verify-only. Separately present a partial or
+   unexpected published asset inventory and prove the retry fails closed without
+   upload, overwrite, or publication.
+9. Verify `/api/health/build-info`, image metadata, the native Pages deployment, and
    the 0.1 Stable docs selector and aliases.
 
 See [Development](index.md), [Compatibility](../reference/compatibility.md), and

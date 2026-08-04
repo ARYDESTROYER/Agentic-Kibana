@@ -1,15 +1,16 @@
 ---
 title: Known limitations
-description: Promotion blockers and explicit operating constraints for Agentic SOC 0.1.2.
+description: Release gates and explicit operating constraints for Agentic SOC 0.1.3.
 ---
 
 # Known limitations
 
-This list is part of the product contract for Agentic SOC `0.1.2`. It distinguishes
-blockers to Stable promotion from documented version 0.1 constraints so a green
-unit-test suite is never mistaken for production evidence.
+This list is part of the product contract for Agentic SOC `0.1.3` in Testing and,
+if the exact verified commit is published, its Stable artifacts. It distinguishes
+release gates from documented beta constraints so a green unit-test suite is never
+mistaken for release or production evidence.
 
-## Stable-promotion blockers
+## Release gates
 
 ### Repository protections require administrator verification
 
@@ -32,18 +33,48 @@ binaries, containers, or an “open-source” announcement. Apache-2.0 is permis
 patent-explicit; AGPL-3.0 requires network-service modifications to be offered to
 users. This is an owner/product decision and must not be guessed by automation.
 
-### Reproducible release publication is not automated
+### Signed update acceptance is external to local unit tests
 
-Direct Python and npm dependencies are version-pinned, and image metadata accepts
-the version, revision, and build time. Transitive Python resolution and container
-base images are not yet locked by hash/digest, and there is no tag workflow that
-publishes signed images, an SBOM, provenance attestation, or checksums for one exact
-commit. Rebuilding the same tag later could therefore produce different bits.
+The updater protocol, release plan, signature verification, rollback state machine,
+and reference Compose contracts have offline coverage. That does not prove the exact
+published `v0.1.3` images and signed assets work through a real PostgreSQL Compose
+upgrade, interruption, cancellation, automatic rollback, and post-success rollback.
 
-**Required change:** generate reviewed hash-locked Python constraints, pin base
-images by digest with an update policy, build backend/web images and packages once
-from the protected tag SHA, scan them, emit SBOM/provenance/checksums, and promote
-those exact digests without rebuilding.
+**Required control:** after the exact accepted `main` commit passes remote CI, publish
+the immutable tag artifacts, then run the documented isolated signed-update acceptance
+matrix against those public digests before enabling the Console update action for a
+supported deployment. Keep the action fail-closed until that evidence exists.
+
+## Priority beta limitations
+
+The following constraints limit reproducibility, durability, topology, or stronger
+production claims. They remain explicit engineering priorities, but they are not all
+automatic blockers to publishing a clearly labelled beta release within its stated
+support boundary.
+
+### Published release inputs are not fully reproducible
+
+The immutable Stable-tag workflow now requires the annotated `vX.Y.Z` tag to resolve
+to the exact accepted `main` commit and pass the fail-closed CI aggregate. It builds
+multi-architecture backend, Web, and updater images once, publishes exact GHCR
+digests, emits SBOM/provenance attestations, signs every image and the declarative
+upgrade plan with the tag-bound GitHub Actions identity, and attaches the plan and
+Sigstore bundle to the GitHub Release.
+
+Transitive Python resolution and container base images are not yet locked by reviewed
+hash/digest constraints. An attempt that fails before an exact draft contains its
+canonical plan can therefore resolve different upstream inputs when rerun. The draft
+is not public: the workflow stages both assets, downloads and byte-compares them, and
+verifies the signature before publishing it in one transition. A rerun may clean an
+interrupted `starter` upload or resume an exact tag/SHA draft, but never changes a
+published release. A complete plan pins the resulting application images exactly; a
+partial published asset set fails closed and requires a new patch release, and the plan
+does not prove its transitive inputs reproducible.
+
+**Required change:** generate reviewed hash-locked Python constraints, pin every base
+image and tool action by immutable digest or commit with an update policy, record and
+compare a complete materials manifest, then prove reproducible rebuilds before making
+that stronger claim.
 
 ### Push receipt is not durable
 
@@ -115,6 +146,75 @@ NAT/shared IPs, distant/reopened activity, legacy migration, and cross-source
 related-but-not-merged cases.
 
 ## Version 0.1 constraints
+
+### One-click updates support one deployment profile
+
+The unpublished 0.1.2 snapshot introduced source discovery and coherent-pair
+activation but did not publish the host supervisor or signed upgrade plan. Version
+0.1.3 introduces the version-1 supervisor protocol and canonical base-Compose
+contract without broadening its supported topology. It still cannot retroactively
+install a privileged host component. An
+existing installation requires one manual
+`scripts/bootstrap-updater.sh` step from the clean, exact annotated `v0.1.3` tag whose
+commit remains contained in `origin/main`; that step delegates the full
+v0.1.1→v0.1.3 transition to the signed plan. Subsequent compatible Stable releases can be
+installed from the Console only for the reference, single-replica standalone Docker
+Compose topology with PostgreSQL-owned state, durable authentication/secrets, a
+coherent known build/schema identity, a base Compose file matching the signed
+canonical SHA-256, canonical project/network/service and PostgreSQL-volume identity,
+and a signed plan whose migration strategy is `none`.
+
+The updater never transports or replaces the base Compose file. The 0.1.x protocol
+pins its version-invariant bytes in `deploy/update-base-v1.sha256`, while signed
+release overrides carry component versions and digests. Sequential patch upgrades
+therefore retain one base; changing it requires a new protocol and manual bootstrap.
+
+PostgreSQL and Redis infrastructure images are deliberately unchanged. SQLite,
+Elasticsearch-owned state, external PostgreSQL, the legacy ELK composition,
+custom/forked Compose layouts, Kubernetes, horizontal replicas, runtime-only UI
+secrets, migration-bearing releases, and incompatible updater protocols are blocked
+with a manual remediation. Automatic rollback depends on retained prior application
+image IDs and never restores PostgreSQL. The verified quiesced dump is a break-glass
+artifact for explicit operator recovery; a host or storage failure that destroys
+those recovery assets remains a manual disaster-recovery event. Image rollback cannot
+undo an incompatible data change, which is why migration-bearing plans fail preflight.
+Supervisor self-replacement uses a restartable helper whose name-swap transaction is
+idempotent across ordinary helper-process, Docker-daemon, and host restarts. A failure
+that prevents Docker and all of its containers from running, or destroys Docker
+metadata/storage, remains an operator-owned host recovery event.
+After bootstrap, raw Compose invocations are unsupported; use
+`scripts/agentic-soc-compose.sh` so the active digest override remains in force and
+mutating lifecycle commands serialize with the supervised updater. The guard cannot
+protect an operator who deliberately bypasses it with raw Docker or Compose commands.
+An unknown, malformed, or orphaned durable update marker intentionally fails closed
+and requires operator reconciliation; only an exact terminal ledger job is cleared
+automatically after restart.
+
+The supervisor has Docker-socket authority, which is effectively root-equivalent on
+the host, and is therefore part of the trusted computing base rather than an ordinary
+application sidecar. Official update plans are also anonymously pull-only: the three
+GHCR packages must be public because the supervisor intentionally stores no registry
+credential. See [Upgrades](../operations/upgrades.md).
+
+### Updater artifacts are not auto-pruned
+
+The updater foundation carried into version 0.1.3 retains updater jobs, preflights,
+signed plan assets, receipts, and deployment snapshots in the updater-state volume
+and verified PostgreSQL dumps in the
+updater-backup volume. It does not implement age-, count-, or status-based pruning.
+Operators must monitor capacity for both volumes and retain, at minimum, every active
+job, the latest terminal record, the current installed release's rollback evidence,
+any terminal outcome not yet mirrored into application audit, and every break-glass
+artifact still covered by local policy.
+
+History is eligible for operator-controlled archive or removal only after a later
+successful release supersedes its rollback authority, its exact terminal transition
+is confirmed in append-only application audit, and backup/retention policy permits.
+There is no supported live per-record purge in this release. Automatic cleanup needs
+a future updater/backend protocol that acknowledges the audit mirror, identifies the
+authoritative rollback generation, carries policy holds, and commits crash-safe
+retention decisions; the updater cannot safely infer those facts from timestamps or a
+terminal status alone.
 
 ### Single replica only
 

@@ -395,6 +395,7 @@ class ActionType(str, Enum):
     TUNING = "tuning"              # a threshold-tuning suggestion applied / shadow-evaluated
     RESET = "reset"                # an operator reset of cases/sources/factory state
     DATA_EXPORT = "data_export"    # privileged, secret-free portable application-state export
+    SYSTEM_UPDATE = "system_update"  # operator-authorized supervised app update / rollback
 
 
 class UserRole(str, Enum):

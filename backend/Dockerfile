@@ -18,7 +18,8 @@ LABEL org.opencontainers.image.title="Agentic SOC API" \
       dev.tlsoc.release.channel="${TLSOC_RELEASE_CHANNEL}" \
       org.opencontainers.image.revision="${TLSOC_BUILD_SHA}" \
       org.opencontainers.image.created="${TLSOC_BUILD_DATE}" \
-      org.opencontainers.image.source="${TLSOC_SOURCE_URL}"
+      org.opencontainers.image.source="${TLSOC_SOURCE_URL}" \
+      io.agentic-soc.state.schema="1"
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

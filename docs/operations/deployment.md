@@ -31,25 +31,38 @@ built, tested, or shipped as part of 0.1.
 - source credentials scoped to the minimum required indices/APIs;
 - HTTPS termination for any shared or non-loopback deployment.
 
+Supervised updates additionally require authentication enabled, a durable JWT secret
+of at least 32 characters, a durable PostgreSQL password, the unmodified reference
+Compose topology, and public anonymous pull access to the release's `backend`,
+`webui`, and `updater` GHCR packages.
+
 ## Standalone stack
 
-1. Check out the accepted `v0.1.2` tag for Stable after release, or the `Testing` branch only for
+1. Check out the accepted `v0.1.3` tag for Stable after release, or the `Testing` branch only for
    acceptance testing.
 2. Copy `.env.example` to `.env` and set a strong PostgreSQL password.
 3. Configure authentication and provider credentials.
-4. Validate the rendered Compose configuration.
-5. Build and start `deploy/docker-compose.agnostic.yml`.
+4. Validate the rendered Compose configuration through
+   `./scripts/agentic-soc-compose.sh config --quiet`.
+5. Build and start it through `./scripts/agentic-soc-compose.sh up --detach --build`.
 6. Confirm liveness, readiness, and build information before opening the UI.
 7. Complete first-run setup and add a synthetic source before real data.
 
-The stack contains PostgreSQL/pgvector, Redis, the backend, and the nginx-hosted
-Console. The web image serves both the compiled SPA and the version-matched Help
-Center at `/docs/0.1/`, and proxies `/api/*` to the backend. Redis is a cache, not
-the authoritative case/config store.
+The stack contains PostgreSQL/pgvector, Redis, the backend, the nginx-hosted Console,
+and the isolated update supervisor. The web image serves both the compiled SPA and
+the version-matched Help Center at `/docs/0.1/`, and proxies `/api/*` to the backend.
+Redis is a cache, not the authoritative case/config store.
+
+The updater is a privileged host boundary: it alone receives the Docker socket. The
+ordinary backend sees only its bounded private Unix control socket; the Web container
+and browser see neither. Docker-socket access is effectively root-equivalent on the
+host, so deploy only the reviewed supervisor image, restrict access to the host and
+Compose project, protect `.env` and updater volumes, and never expose the control
+socket over TCP.
 
 The remote uses `Testing` for integration and default `main` for accepted Stable
-source. `v0.1.1` remains the prior Stable tag until the verified 0.1.2 promotion is
-tagged `v0.1.2`. A pull of `main` receives the current accepted Stable tree while
+source. Version 0.1.3 is Stable only when the exact verified `main` commit has the
+immutable `v0.1.3` tag and matching artifacts. A pull of `main` receives the current accepted Stable tree while
 integration work continues on `Testing`. Branch
 protections, required checks, and release-environment policy remain repository
 settings that administrators must verify independently.
@@ -81,7 +94,7 @@ warm tier capability before an administrator performs the explicit, freshly
 authenticated Apply. Cases and operational metadata stay Hot because they are
 mutable. PostgreSQL reports the policy as advisory; SQLite reports export-only.
 
-Archive is a desired target, not an active pipeline in 0.1.2. Build a separate
+Archive is a desired target, not an active pipeline in 0.1.3. Build a separate
 immutable export with a manifest and checksums, verify restore, and only then place
 those independent archive objects under an S3 lifecycle rule. **Never transition an
 Elasticsearch snapshot-repository prefix to Glacier**; Elasticsearch expects its
@@ -89,14 +102,14 @@ repository objects to remain directly readable.
 
 ## Image identity
 
-Backend and web images use the machine version `0.1.2` and accept OCI version,
+Backend and web images use the machine version `0.1.3` and accept OCI version,
 revision, build-date, and source metadata. Record the image digest and
 `/api/health/build-info` result with each deployment. Do not treat a mutable branch or
 image tag as an immutable release identity.
 
 Release channel is stamped independently from SemVer. Source builds default to
-`TLSOC_RELEASE_CHANNEL=testing`; the accepted `main`/`v0.1.2` build must explicitly
-set it to `stable`. This preserves the same `0.1.2` candidate identity through
+`TLSOC_RELEASE_CHANNEL=testing`; the accepted `main`/`v0.1.3` build must explicitly
+set it to `stable`. This preserves the same `0.1.3` candidate identity through
 acceptance without allowing a Testing build to report itself as Stable.
 
 Set `TLSOC_VERSION`, `TLSOC_RELEASE_CHANNEL`, `TLSOC_BUILD_SHA`, and
@@ -111,20 +124,86 @@ channel, or known-SHA mismatch displays Testing. This operator aid complements,
 but does not replace, digest and endpoint verification.
 
 The web artifact's `/release.json` and `/index.html` must be served with no-store
-semantics. After a different release has been deployed, **Update available** may
-appear beside the badge only when its version, channel, non-`unknown` SHA, and
-non-`unknown` build time exactly match backend build-info
-and healthy readiness. The operator confirms activation; the Console repeats the
-manifest/build-info/health checks, verifies `/index.html`, and only then reloads the
-same hash route. Any failed or incoherent check leaves the existing document usable.
-This browser flow does not deploy, restart, migrate, promote, or roll back anything.
-Builds left at the safe `unknown` SHA/date defaults remain operable but do not advertise
-an update; release automation must stamp both artifacts identically.
+semantics. A deployment bootstrapped with the external update supervisor may show one
+compact **Update to vX.Y.Z** candidate beside the release badge when mutable public
+Stable-branch observation reports a newer SemVer and the host reports the supported
+capability. The candidate is not installation authority. Selecting it asks the
+backend to derive canonical GitHub Release assets and the supervisor to perform the
+signed preflight. Confirmation remains blocked until the private supervisor verifies
+the declarative plan and signed digest-pinned backend/Web/updater image identities,
+compatibility, backup capacity, and installed identity. The browser supplies only the
+exact release ID and opaque idempotency/preflight tokens. Actual registry pulls and
+image-label inspection happen after job creation but before application mutation.
+Stable branch HEAD remains observation-only: the candidate commit is the immutable
+commit dereferenced from the exact annotated `vVERSION` tag.
 
-Retain the previous release's immutable hashed assets for the full observation
-window, or use blue-green serving that keeps the old origin available until open
-sessions drain. Otherwise an existing tab can fail while requesting an old lazy
-chunk before activation, which violates the graceful-rollout contract.
+Starting the update creates a durable host-side job. The supervisor pulls and verifies
+all images first, creates and catalog-verifies a PostgreSQL custom-format backup,
+hands off to the signed updater when required, replaces the backend and Web Console,
+verifies readiness/build identity/Help Center, and observes the coherent pair. A
+post-switch failure automatically restores the prior application image IDs and
+leaves PostgreSQL untouched. The verified backup is retained only as a break-glass
+recovery artifact. The Console expects a temporary reconnect and resumes the
+same job; a successful installation still repeats the no-store manifest, backend
+identity/readiness, entry-document checks, and preserves the current hash route before
+activating the new Web document.
+
+Automatic in-flight failure, cancellation before switching, and deliberate rollback
+after success all restore application images only; none rewrites PostgreSQL. This
+preserves every write accepted after the snapshot was taken. The catalog-verified
+quiesced dump remains available for an explicit operator-controlled break-glass
+recovery, and v1 therefore permits only plans with `migration.strategy=none`.
+
+This support is deliberately narrow in 0.1.3: the reference single-replica standalone
+Docker Compose deployment whose mounted base file matches the signed canonical
+SHA-256, canonical project/network/service identities and PostgreSQL volume,
+PostgreSQL-owned state, coherent schema labels, authentication enabled with durable
+secrets, no database migration, and the separately bootstrapped supervisor. PostgreSQL
+and Redis infrastructure images are unchanged. SQLite, Elasticsearch-owned state,
+external PostgreSQL, legacy ELK, custom Compose/Kubernetes layouts, horizontal
+replicas, runtime-only secrets, unknown build identity, incompatible plans, or any
+release requiring a migration are blocked with a manual remediation. A pre-supervisor
+installation needs the documented one-time
+`scripts/bootstrap-updater.sh` host step; software cannot retroactively install its own
+privileged supervisor.
+
+The updater never transports or replaces `deploy/docker-compose.agnostic.yml`. The
+0.1.x protocol pins its version-invariant bytes in
+`deploy/update-base-v1.sha256`; the signed generated override carries versioned image
+digests. Changing that base requires a new updater protocol and manual bootstrap.
+
+The v0.1.1→v0.1.3 bootstrap must run from the clean, exact annotated `v0.1.3` tag
+whose commit remains contained in `origin/main`. It installs the initial supervisor
+transport and then delegates the complete v0.1.3 transition to the signed release plan
+and durable update state machine. After bootstrap, use
+`./scripts/agentic-soc-compose.sh` for
+every manual lifecycle command. Raw `docker compose -f
+deploy/docker-compose.agnostic.yml ...` bypasses the active digest override and is
+unsupported.
+
+The wrapper and supervisor also share a lifecycle lock: inspection commands remain
+available, while mutating or unknown Compose commands are refused for the full durable
+update transaction. Target pins remain private through self-handoff, writer quiescence,
+and verified backup, and become host-visible only at the switch boundary. Restart
+reconciliation clears a leftover marker only for an exact durable terminal job;
+unknown lifecycle state remains fail-closed.
+
+Bootstrap reuses a compatible idle supervisor and can replace an inspectable idle
+incompatible one while preserving/restoring the active digest override. It refuses an
+active job or unreadable/invalid supervisor state rather than replacing it blindly.
+Preserved pins may be restored only before `/v1/jobs` submission. At submission the
+durable supervisor owns the lifecycle; bootstrap retains and reuses an unpredictable
+per-release start key after interruption and deletes it only after observing the exact
+job terminal.
+
+Keep the prior backend/Web image digests and verified backup until the observation
+window and operator retention policy are satisfied. The supervisor's durable job and
+receipt remain the recovery source if the browser disconnects during replacement.
+Updater self-replacement uses a restartable helper and an idempotent name-swap
+transaction. It resumes replacement or restores the exact prior supervisor after an
+ordinary helper-process, Docker-daemon, or host restart. A failure that prevents Docker
+and all of its containers from running, or destroys Docker metadata/storage, remains a
+manual host recovery event.
 
 After deployment, open **Documentation** from the navigation rail and confirm it
 stays on the deployment origin at `/docs/0.1/`. Installed help is part of the web

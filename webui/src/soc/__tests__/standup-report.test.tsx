@@ -11,6 +11,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, within, act } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 const { fetchReportMock } = vi.hoisted(() => ({ fetchReportMock: vi.fn() }));
 
@@ -204,6 +205,59 @@ describe('Standup shift handoff (Round 3 / F11)', () => {
     expect(within(nhTile).getByText('+1')).toBeInTheDocument();
   });
 
+  it('distinguishes a clear queue, unavailable SLA tracking, and an empty workload', async () => {
+    fetchReportMock.mockResolvedValue({
+      ...REPORT,
+      attention_queue: [],
+      workload: [],
+      sla_aging: {
+        ...REPORT.sla_aging,
+        enabled: false,
+        totals: { open: 0, breached: 0, about_to_breach: 0 },
+        breached: [],
+        about_to_breach: [],
+      },
+    });
+
+    render(<Standup onNavigate={vi.fn()} />);
+
+    const clearQueue = await screen.findByRole('status', {
+      name: 'Nothing needs you right now',
+    });
+    expect(clearQueue).toHaveAttribute('data-empty-state', 'success');
+    expect(clearQueue).toHaveAccessibleDescription(/current window has no open.*refresh/i);
+
+    const unavailable = screen.getByRole('status', { name: 'SLA tracking is off' });
+    expect(unavailable).toHaveAttribute('data-empty-state', 'unavailable');
+    expect(unavailable).toHaveAccessibleDescription(/enable an SLA policy/i);
+
+    const noWorkload = screen.getByRole('group', { name: 'No open workload' });
+    expect(noWorkload).toHaveAttribute('data-empty-state', 'no-data');
+    expect(noWorkload).toHaveAccessibleDescription(/no assignee workload rows/i);
+  });
+
+  it('never presents a degraded empty attention queue as a successful clear shift', async () => {
+    fetchReportMock.mockResolvedValue({
+      ...REPORT,
+      attention_queue: [],
+      degraded: true,
+    });
+
+    render(<Standup onNavigate={vi.fn()} />);
+
+    const incompleteQueue = await screen.findByRole('status', {
+      name: 'Attention queue is incomplete',
+    });
+    expect(incompleteQueue).toHaveAttribute('data-empty-state', 'unavailable');
+    expect(incompleteQueue).toHaveAccessibleDescription(
+      /degraded snapshot.*empty queue cannot be verified.*before treating this shift as clear/i,
+    );
+    expect(screen.getByText('Limited data')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('status', { name: 'Nothing needs you right now' }),
+    ).not.toBeInTheDocument();
+  });
+
   it('hides the Copy summary button on an insecure origin (no clipboard)', async () => {
     // jsdom has no navigator.clipboard by default → the dead button must not render.
     render(<Standup onNavigate={vi.fn()} />);
@@ -214,12 +268,16 @@ describe('Standup shift handoff (Round 3 / F11)', () => {
   });
 
   it('shows + wires the Copy summary button when a clipboard is available', async () => {
+    const user = userEvent.setup();
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
 
     render(<Standup onNavigate={vi.fn()} />);
     const btn = await screen.findByRole('button', { name: /copy the shift summary/i });
-    fireEvent.click(btn);
+    await user.click(btn);
     expect(writeText).toHaveBeenCalledWith('Quiet shift overall.');
+    // Clipboard completion updates the visible affordance asynchronously. Assert the
+    // state the operator sees so the promise-driven update settles inside this test.
+    await waitFor(() => expect(btn).toHaveTextContent('Copied'));
   });
 });

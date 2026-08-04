@@ -37,6 +37,21 @@ not a public issue or pull request.
   frozen release-preparation change creates `[X.Y.Z]`, reopens `[Unreleased]`, and is
   promoted, verified, and annotated-tagged without content drift; see the release
   checklist linked above.
+- **Installable Stable releases:** the accepted `main` commit must receive one
+  immutable annotated `vX.Y.Z` tag. The release workflow must publish the backend,
+  Web, and updater once by exact digest, sign the images and command-free upgrade
+  plan with the tag-bound workflow identity, and attach the plan plus Sigstore bundle
+  to the GitHub Release. Make all three GHCR packages public and prove anonymous
+  digest pulls before calling the release installable. Never rebuild or move a
+  published tag to repair artifacts; prepare a new patch release.
+- **Updater compatibility:** v1 plans support only the reference single-replica
+  PostgreSQL Compose topology, the signed canonical Compose SHA-256 and schema labels,
+  and `migration.strategy=none`. Changes to the Compose project identity, service
+  names, network, PostgreSQL volume, private control socket, updater protocol, release
+  plan, backup/rollback contract, or lifecycle wrapper require matching updater,
+  release, deployment, security, and operator documentation tests. After bootstrap,
+  manual lifecycle examples must use `scripts/agentic-soc-compose.sh`, not raw
+  Compose.
 - **The Journal mandate (non-negotiable process rule).** Every agent (and the
   orchestrator) **MUST** append an entry to [`Journal.md`](Journal.md) at the
   start and end of any session, and after any meaningful milestone (a feature
@@ -112,6 +127,7 @@ npm run typecheck    # type check only
 npm run lint         # ESLint + accessibility rules
 npm run gates        # design/contract gates
 npm test             # Vitest suite
+npm run test:strict  # release/CI: full suite, zero stderr or captured console stdout
 ```
 
 Test counts rise as coverage is added. The commands and zero-failure result are the
@@ -247,8 +263,8 @@ A new `SourceType` enum value (`constants.py`) and (for receivers) the right
 ## 6. Pre-commit checklist (every change)
 
 - [ ] `pytest -q` green (backend, offline).
-- [ ] `webui` (if changed): `npm run build` clean, `npx vitest run` green,
-      `npm run lint` 0 errors.
+- [ ] `webui` (if changed): `npm run build` clean, `npm run test:strict` green,
+      `npm run lint -- --max-warnings=0` clean.
 - [ ] New connector: manifest + OCSF mapping + registration + lazy deps + offline
       tests (if you added one).
 - [ ] No secret in git / state store / logs; UI shows booleans only.
@@ -271,13 +287,13 @@ diagnosable quality checks plus one fail-closed aggregate:
 | Backend tests (offline) | The complete fake-ES/mock-LLM/SQLite suite passes, including deny-by-default route authorization coverage. |
 | Backend package integrity | The sdist and wheel build, install, report the canonical version, and contain required runbooks, playbooks, model, and ATT&CK data. |
 | Backend startup smoke | Production dependencies import, feature routers discover, the ASGI lifespan starts on isolated SQLite state, and liveness reports the expected version. |
-| Web UI tests (Vitest) | The complete component, interaction, accessibility, and page regression suite passes. |
+| Web UI tests (Vitest) | The complete component, interaction, accessibility, and page regression suite passes with zero stderr or captured console stdout. |
 | TypeScript & OpenAPI drift | Backend OpenAPI regeneration is byte-stable and the Console type-checks without a soft skip. |
 | Web UI lint | ESLint, hooks, and `jsx-a11y` finish with zero errors or warnings. |
 | Design-system gates | Token existence, measured contrast, colour-vision separation, and raw-style regression guards pass. |
 | Help Center & docs | Public structure/links, bundle/theme contracts, and the version-matched strict documentation build pass. |
 | Web UI production build | The release-stamped Console and installed Help Center compile into an inspectable production artifact. |
-| Deploy & shell contracts | Every tracked shell script parses and the self-contained Compose topology resolves exactly. |
+| Deploy & shell contracts | Every workflow passes actionlint; every tracked shell script parses; the reference five-service Compose topology resolves; and updater wire, plan, lifecycle-wrapper, backup, and rollback contracts pass. |
 | CI passed | Runs even after failures and fails unless every one of the eleven checks completed successfully. |
 
 The jobs intentionally run separately and in parallel. This costs a few repeated

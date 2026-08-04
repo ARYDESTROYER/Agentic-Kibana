@@ -6,7 +6,7 @@ description: Curated Agentic SOC API endpoint groups, authentication, pagination
 # API reference
 
 The **Agentic SOC API** is the FastAPI service behind the Agentic SOC Console. This page covers
-the public HTTP surface in application version **0.1.2** and documentation line
+the public HTTP surface in application version **0.1.3** and documentation line
 **0.1**. The API is mounted at `/api`; the service root is `/`.
 
 ## Interactive and machine-readable specifications
@@ -19,7 +19,7 @@ Each running API publishes:
 
 Build information reports the application version, independent release channel,
 commit SHA, build time, state backend, and OCSF version. A Testing candidate and its
-Stable promotion both remain `0.1.2`; `TLSOC_RELEASE_CHANNEL` distinguishes
+Stable promotion both remain `0.1.3`; `TLSOC_RELEASE_CHANNEL` distinguishes
 `testing` from the accepted `stable` build.
 
 The committed 0.1 OpenAPI snapshot contains 210 paths and 251 operations. It is the
@@ -104,6 +104,7 @@ the exact request model and every operation under a prefix.
 | Notifications | `/api/notifications/providers`, `/channels/*`, `/preview`, `/test`, `/prefs`, `/inbox*` | Channel catalog/secrets, safe previews, tests, per-user preferences, and in-app inbox |
 | Preferences and presentation | `/api/settings*`, `/api/prefs/*`, `/api/branding`, `/api/terminology`, `/api/views*`, `/api/budget*`, `/api/llm/*`, `/api/models` | Organization/user preferences, saved views, model routing/pricing, branding, and budget controls |
 | Release-source discovery | `GET /api/releases/upstream`, `POST /api/releases/upstream/check` | Read cached or force a cooldown-bounded refresh of public Stable/Testing source metadata; never deploys or activates code |
+| Supervised application updates | `GET /api/system-updates/status`, `POST /preflight`, `POST /jobs`, `GET /jobs/{job_id}`, `POST /cancel`, `POST /rollback`, `GET /receipt` | Capability and blocker discovery plus a fresh-auth, built-in-super-admin control plane for one supported signed Compose/PostgreSQL application update; host operations stay behind the private supervisor socket |
 | Improvement worker health | `GET /api/schedulers/health` | Process-local tuner, campaign, and batch enabled/gated/running plus last attempt/success/error |
 | Telemetry-gap evidence | `GET /api/tuning/source-recommendations` | Query-backed supported missing-evidence recommendations; connector absence alone is never proof |
 | Own-state storage lifecycle | `GET/PUT /api/storage/lifecycle`, `POST /api/storage/lifecycle/preview`, `POST /api/storage/lifecycle/apply` | Inspect/save desired Hot/Warm/archive policy, preview capabilities, and explicitly apply the supported Elasticsearch ILM subset |
@@ -112,6 +113,33 @@ the exact request model and every operation under a prefix.
 | Cancel export segment | `POST /api/admin/export/segment/cancel` | Release the PIT carried by an unfinished cursor (fresh auth + `data_export:export`) |
 | Audit and realtime | `GET /api/audit`, `GET /api/events` | Append-only action history and server-sent event updates |
 | Demo and reset | `/api/demo/*`, `POST /api/admin/reset` | Isolated synthetic demonstration lifecycle and privileged tiered reset |
+
+## Supervised application updates
+
+`GET /api/system-updates/status` returns the current application identity, newer
+installable Stable release when one exists, private-supervisor protocol/capability,
+explicit blockers and warnings, the fixed supported scope, and any active or most
+recent durable job. Status is observational and requires `system_updates:read`.
+
+Mutations require `system_updates:apply` or `system_updates:rollback`, authentication
+enabled, the built-in `super_admin` role, a current registered session and token
+version, a completed temporary-password change, and recent reauthentication. Custom
+roles and RBAC-off mode cannot elevate into deployment authority. Session/audit-store
+failure denies the operation.
+
+The browser begins with `POST /api/system-updates/preflight`, sending only an exact
+`vX.Y.Z` release ID and an opaque idempotency key. The response contains an expiring
+opaque preflight token, fixed component scope, checks, blockers, warnings, backup, and
+rollback contract. `POST /api/system-updates/jobs` returns HTTP 202 for the durable job
+when the exact release, token, and a new idempotency key are accepted. Poll
+`GET /api/system-updates/jobs/{job_id}` through the expected backend/Web reconnect and
+read the terminal receipt at `/receipt`. Cancel is valid only before component
+switching; rollback is valid only when the supervisor retained a rollbackable snapshot.
+
+Clients never send a repository, artifact URL, image, digest, host path, Compose
+fragment, command, backup path, or migration instruction to these routes. The backend
+derives canonical assets and delegates over one configured Unix socket; the supervisor
+independently enforces its host-pinned repository and signed release contract.
 
 ## Runbook management
 
@@ -267,7 +295,7 @@ selected-only inputs are never presented as consulted/applied.
 
 ## Scheduler and telemetry evidence
 
-`GET /api/schedulers/health` (`settings:read`) returns
+`GET /api/schedulers/health` (`automation:read`) returns
 `scheduler_runtime_running` plus `workers` for `threshold_tuner`,
 `campaign_correlation`, and `batch_jobs`. Each worker reports `enabled`, `gated`,
 `running`, `cadence`, `last_attempt_at`, `last_success_at`, `last_error`, and
@@ -279,8 +307,10 @@ polling is disabled.
 `GET /api/tuning/source-recommendations` (`cases:read`) scans at most 20,000 cases and
 returns `status`, `recommendations`, `scanned_cases`, `truncated`,
 `evidence_schema="agentic-soc.telemetry-gap/v1"`, and an explicit
-`not_available_reason`. It accepts only stored structured history from controlled
-producers after a bounded query/tool attempt with result `field_missing`,
+`not_available_reason`. It also returns `capture_status` and
+`capture_not_available_reason`; v0.1.3 reports capture unavailable rather than
+claiming that uncontrolled legacy text is evidence. It accepts only stored structured
+history from a controlled producer after a bounded query/tool attempt with result `field_missing`,
 `query_unsupported`, or `source_unqueryable`. The v1 allowlist maps outbound DNS,
 endpoint process, and identity-authentication evidence; unknown fields/sources and
 connector absence are ignored. Each recommendation exposes affected count, up to 50
@@ -467,14 +497,18 @@ check/cache metadata, and independent `stable` and `testing` channel objects:
 
 - `state`: `available`, `unavailable`, or `disabled`;
 - the configured `branch`;
-- validated `version`, immutable `commit_sha`, and safe GitHub review links when
+- validated `version`, branch-head `commit_sha`, and safe GitHub review links when
   available;
+- for Stable, the immutable `release_commit_sha` dereferenced from the exact annotated
+  `vVERSION` tag plus its safe review link;
 - `checked_at`, `stale`, and curated `error_code`/`error_message` fields.
 
 One channel's failure never hides its sibling. A later transient failure can retain a
 last-known-good available channel with `stale: true`; provider response bodies are not
 returned. Both endpoints are discovery-only. They cannot clone, download, execute,
 write Git state, deploy, migrate, restart, promote, activate, or roll back code.
+The branch-head commit is review metadata only; supervised update candidates use the
+Stable annotated-tag commit.
 
 ## Own-state storage lifecycle
 

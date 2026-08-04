@@ -3,7 +3,7 @@
  *
  * Lifted verbatim from the former `Settings.tsx` `AdvancedSection`. Power-user
  * controls: per-case caps, the kill switch, the auto-forward allowlist, suppression-
- * rule retrieval, the rule catalog deep-link, and the console settings lock.
+ * rule retrieval, the response-playbook deep-link, and the console settings lock.
  *
  * Operator-entered rule values render as PLAIN TEXT (#9).
  */
@@ -54,7 +54,7 @@ export function AdvancedSection({
   return (
     <SectionShell
       title="Advanced"
-      sub="Power-user controls: per-case caps, the kill switch, the auto-forward allowlist, suppression-rule retrieval, the rule catalog, and the settings lock."
+      sub="Power-user controls: per-case caps, the kill switch, the auto-forward allowlist, suppression-rule retrieval, response playbooks, and the settings lock."
       toc={ADVANCED_TOC}
     >
       <SettingsGrid>
@@ -177,9 +177,9 @@ export function AdvancedSection({
 
         <SettingsCard
           anchor="advanced-suppression"
-          title="Suppression & rule catalog"
+          title="Suppression & response playbooks"
           icon={FileText}
-          description="Inject approved suppression rules as TRUSTED retrieval context, and review/manage the detection rule catalog on the Playbooks & agents page."
+          description="Inject approved suppression rules as TRUSTED retrieval context, and open the response procedures available to investigations."
           wide
         >
           <div className="space-y-4">
@@ -191,19 +191,19 @@ export function AdvancedSection({
             />
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/70 pt-3">
               <div className="min-w-0">
-                <p className="text-sm font-medium text-foreground">Detection rule catalog &amp; playbooks</p>
+                <p className="text-sm font-medium text-foreground">Response playbooks</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  Review the trusted rules and procedures available to investigations.
+                  Review the operator procedures selected deterministically for matching clusters.
                 </p>
               </div>
               {onNavigate ? (
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => onNavigate('intelligence', { tab: 'catalog' })}
+                  onClick={() => onNavigate('intelligence', { tab: 'playbooks' })}
                 >
                   <FileText className="h-4 w-4" aria-hidden />
-                  Open catalog
+                  Open playbooks
                 </Button>
               ) : null}
             </div>

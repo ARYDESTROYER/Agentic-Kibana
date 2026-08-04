@@ -13,6 +13,7 @@ import { render, screen, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { NoiseFunnel, deriveFunnel, ribbonPath } from '../NoiseFunnel';
+import { NoiseLineageView } from '../NoiseLineage';
 import type { NoiseLineage, NoiseReduction } from '@/lib/types';
 
 /**
@@ -229,6 +230,33 @@ describe('NoiseFunnel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(await screen.findByText('cluster-4cb33a5bf9d8')).toBeInTheDocument();
     expect(loader).toHaveBeenCalledTimes(2);
+  });
+
+  it('uses the shared feedback grammar for lineage loading, error, and empty states', () => {
+    const onRetry = vi.fn();
+    const { rerender } = render(
+      <NoiseLineageView data={null} loading error={null} onRetry={onRetry} />,
+    );
+
+    expect(screen.getByRole('status', { name: 'Loading case lineages' })).toBeInTheDocument();
+    expect(screen.getByTestId('console-loading-glyph')).toBeInTheDocument();
+
+    rerender(
+      <NoiseLineageView
+        data={{ ...lineageFixture(), rows: [] }}
+        loading={false}
+        error={null}
+        onRetry={onRetry}
+      />,
+    );
+    expect(screen.getByText('No case-forming lineages in this window')).toBeInTheDocument();
+
+    rerender(
+      <NoiseLineageView data={null} loading={false} error="Lineage unavailable" onRetry={onRetry} />,
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent('Lineage unavailable');
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
   it('restores the fixed ribbon canvas and extends only the flat plot toward the left', () => {

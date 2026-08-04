@@ -102,11 +102,11 @@ reverse proxy that forwards `/api` to the FastAPI backend.
 
 ```bash
 cd webui
-npx vitest run        # unit/component tests — see Journal.md for the current count
-npm run lint          # eslint, 0 errors required (a few benign warnings are OK)
+npm run test:strict   # unit/component tests; rejects stderr and captured console output
+npm run lint -- --max-warnings=0
 ```
 
-`npm run build` + `npx vitest run` + `npm run lint` must all be clean before a
+`npm run build` + `npm run test:strict` + zero-warning lint must all be clean before a
 commit touching `webui/` (see `AGENTS.md` §7/§8).
 
 ## Production (Docker)
@@ -124,24 +124,37 @@ so it never needs to know the backend's address (no CORS, no Kibana proxy):
   `/release.json` and `/index.html` use no-store semantics.
 
 The build emits `/release.json` with the immutable Console version, channel, commit,
-and build time. The top bar offers **Update available** only for a different static
-release whose fully stamped manifest exactly matches healthy backend build-info. The operator must
-confirm; known unsaved drafts block activation, and the Console rechecks the
-manifest, backend identity/readiness, and `/index.html` before reloading the current
-hash route. Any failure leaves the current document running. This is browser
-activation of an already-deployed pair—not image pull, restart, migration, promotion,
-deployment-credential handling, or rollback.
+and build time. On a supported, bootstrapped PostgreSQL Compose deployment, the top
+bar may offer a newer Stable candidate. Mutable branch observation is discovery only:
+confirmation stays blocked until the private update supervisor verifies the signed
+release plan, digest-pinned images, compatibility, backup capacity, and local runtime
+preconditions. Known unsaved drafts also block confirmation. The browser submits only
+opaque release, preflight, and idempotency identifiers; it never receives Docker
+authority, registry credentials, host paths, commands, Compose fragments, or image
+references.
 
-Production rollouts must retain the previous release's hashed assets for the
-observation window or use blue-green serving. Open tabs can still request an old
-lazy-loaded chunk before they accept the new release.
+The supervisor owns pull, verified backup, backend/Web replacement, readiness and
+identity checks, durable progress, and automatic in-flight rollback. After success,
+the Console rechecks the manifest, backend identity/readiness, and `/index.html`
+before reloading the current hash route. A compatibility fallback still activates a
+healthy coherent pair that an external deployment system already installed. See
+[`docs/operations/upgrades.md`](../docs/operations/upgrades.md) for the one-time
+v0.1.1→v0.1.3 bootstrap, supported topology, lifecycle wrapper, and post-success
+image-only rollback boundary.
+
+The supported single-container supervisor cannot retain the previous Web container's
+hashed assets: it force-recreates the service, so open tabs can briefly miss an old
+lazy-loaded chunk before they accept the new release. Save drafts before updating and
+reload on a chunk miss. Production sites that require uninterrupted old-asset serving
+must use an operator-owned retained-artifact or blue-green deployment outside the
+one-click profile.
 
 The agnostic stack builds and runs this image as the `tlsoc-webui` service and
 publishes it on **:8080**:
 
 ```bash
 # from the repo root
-docker compose -f deploy/docker-compose.agnostic.yml up -d --build
+./scripts/agentic-soc-compose.sh up -d --build
 # then open http://localhost:8080
 ```
 
@@ -167,7 +180,7 @@ The console shares one look end-to-end — reuse it rather than re-rolling style
   `PageHeader`, `KpiTile`/`StatCard`, `DataTable`, `EmptyState`, `RiskGauge`,
   `Can` (the RBAC guard), `ChatPanel`, and more.
 
-The catalog is a future MCP/tooling input only; version 0.1.2 does not claim or ship
+The catalog is a future MCP/tooling input only; version 0.1.3 does not claim or ship
 a design-system MCP server. See `docs/development/design-system.md` and `AGENTS.md`
 §8 for the full contract.
 

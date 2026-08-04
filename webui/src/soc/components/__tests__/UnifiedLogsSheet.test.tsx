@@ -72,6 +72,15 @@ describe('UnifiedLogsView', () => {
     fetchUnifiedLogsMock.mockResolvedValue(RESPONSE);
   });
 
+  it('uses the shared blocking state while the initial merged read is pending', async () => {
+    fetchUnifiedLogsMock.mockReturnValue(new Promise(() => {}));
+    const { container } = render(<UnifiedLogsView />);
+
+    expect(await screen.findByRole('status', { name: 'Loading logs' })).toBeInTheDocument();
+    expect(screen.getAllByTestId('console-loading-glyph')).toHaveLength(1);
+    expect(container.querySelector('.animate-pulse')).toBeNull();
+  });
+
   it('renders merged rows with a mandatory per-row Source provenance column', async () => {
     render(<UnifiedLogsView />);
 

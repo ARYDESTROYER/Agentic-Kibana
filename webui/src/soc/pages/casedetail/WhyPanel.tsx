@@ -31,7 +31,7 @@ import { cn } from '@/lib/cn';
 
 import { Badge } from '@/ui/badge';
 import { Alert, AlertTitle, AlertDescription } from '@/ui/alert';
-import { Skeleton } from '@/ui/skeleton';
+import { LoadingState } from '@/design-system';
 
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
@@ -74,10 +74,13 @@ export const WhyPanel: React.FC<{
 }> = ({ c, rationale, loading, error, onRetry, hideDecision = false, hideMitre = false }) => {
   if (loading) {
     return (
-      <div className="space-y-4 p-6">
-        <Skeleton className="h-24 w-full" />
-        <Skeleton className="h-32 w-full" />
-        <Skeleton className="h-32 w-full" />
+      <div className="p-6">
+        <LoadingState
+          label="Loading decision rationale"
+          description="Preparing reasoning, retrieved knowledge, and deterministic decision evidence."
+          layout="panel"
+          shape="panel"
+        />
       </div>
     );
   }

@@ -23,7 +23,6 @@ import {
   Layers,
   Link2,
   MemoryStick,
-  RefreshCw,
   ShieldOff,
   SlidersHorizontal,
   X,
@@ -61,6 +60,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/ui/tooltip';
 
 import { PageContainer } from '@/soc/components/PageContainer';
 import { PageHeader } from '@/soc/components/PageHeader';
+import { ControlBar } from '@/soc/components/ControlBar';
+import { RefreshButton } from '@/soc/components/RefreshButton';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
 import { SegmentedControl } from '@/soc/components/SegmentedControl';
@@ -741,10 +742,7 @@ export default function Approvals({ onNavigate }: ApprovalsProps) {
           { value: 'all', label: 'All' },
         ]}
       />
-      <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
-        <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} aria-hidden />
-        Refresh
-      </Button>
+      <RefreshButton onClick={() => void load()} refreshing={loading} />
     </>
   );
 
@@ -818,7 +816,13 @@ export default function Approvals({ onNavigate }: ApprovalsProps) {
         breadcrumb={[{ label: 'Automation' }, { label: 'Approvals' }]}
         title="Approvals"
         description="Human review for suppression rules, durable memories, evidence-grounded tuning changes, and automation acknowledgements."
-        actions={headerActions}
+      />
+
+      <ControlBar
+        title="Review queue"
+        meta="Filter and refresh proposals before making a governed decision."
+        controls={headerActions}
+        label="Approval queue controls"
       />
 
       <Alert>
@@ -859,30 +863,32 @@ export default function Approvals({ onNavigate }: ApprovalsProps) {
       {/* sticky bulk-action bar — pin flush BELOW the app header (matches the
           PageHeader/FilterBar convention) so it isn't drawn behind the z-30 top bar. */}
       {selected.size > 0 ? (
-        <div className="sticky top-[var(--header-h)] z-20">
-          <Card className="flex flex-wrap items-center gap-2 border-primary/30 bg-surface p-3">
-            <span className="text-sm font-medium text-foreground">
-              <span className="tabular-nums">{fmtNumber(selected.size)}</span> selected
-            </span>
-            <div className="flex-1" />
-            <Button variant="ghost" size="sm" onClick={clearSelection} disabled={bulkBusy}>
-              Clear
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-critical hover:bg-critical/10 hover:text-critical"
-              onClick={() => void decideSelected('reject')}
-              disabled={bulkBusy}
-            >
-              <X className="h-4 w-4" aria-hidden />
-              Reject selected
-            </Button>
-            <Button size="sm" onClick={() => void decideSelected('approve')} disabled={bulkBusy}>
-              <CheckCircle2 className="h-4 w-4" aria-hidden />
-              {bulkBusy ? 'Working…' : 'Approve / acknowledge selected'}
-            </Button>
-          </Card>
+        <div
+          role="region"
+          aria-label="Bulk approval actions"
+          className="sticky top-[var(--header-h)] z-20 flex flex-wrap items-center gap-2 border-y border-primary/30 bg-background/95 px-3 py-2 shadow-sm backdrop-blur"
+        >
+          <span className="text-sm font-medium text-foreground">
+            <span className="tabular-nums">{fmtNumber(selected.size)}</span> selected
+          </span>
+          <div className="flex-1" />
+          <Button variant="ghost" size="sm" onClick={clearSelection} disabled={bulkBusy}>
+            Clear
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-critical hover:bg-critical/10 hover:text-critical"
+            onClick={() => void decideSelected('reject')}
+            disabled={bulkBusy}
+          >
+            <X className="h-4 w-4" aria-hidden />
+            Reject selected
+          </Button>
+          <Button size="sm" onClick={() => void decideSelected('approve')} disabled={bulkBusy}>
+            <CheckCircle2 className="h-4 w-4" aria-hidden />
+            {bulkBusy ? 'Working…' : 'Approve / acknowledge selected'}
+          </Button>
         </div>
       ) : null}
 

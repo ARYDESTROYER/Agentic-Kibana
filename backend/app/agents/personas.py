@@ -62,6 +62,27 @@ GENERALIST = AgentPersona(
 # and SOC-meaningful; they are matched against the cluster's primary rule + rules.
 _SPECIALISTS: tuple[AgentPersona, ...] = (
     AgentPersona(
+        id="cloud_identity",
+        label="Cloud Identity Analyst",
+        specialization="Cloud IAM, federated sessions, tokens, roles, and service principals",
+        system_addendum=(
+            "You specialise in cloud identity and access abuse (MITRE T1078 Valid "
+            "Accounts, T1098 Account Manipulation, and token misuse). Establish the "
+            "principal, credential or token type, session issuer, authentication "
+            "controls, source, target resources, successful actions, and any privilege "
+            "or credential changes. Distinguish federation and expected workload "
+            "automation from unauthorized role or service-principal use."
+        ),
+        focus_tools=("es_query", "rag_retrieve", "enrich"),
+        keywords=(
+            "cloudtrail", "assumerole", "assume role", "iam role", "access key",
+            "oauth token", "token replay", "service principal", "conditional access",
+            "risky sign-in", "impossible travel", "consent grant",
+        ),
+        entity_types=(EntityType.USER,),
+        priority=5,
+    ),
+    AgentPersona(
         id="identity_access",
         label="Identity & Access Analyst",
         specialization="Authentication abuse, brute force, account compromise",
@@ -118,6 +139,27 @@ _SPECIALISTS: tuple[AgentPersona, ...] = (
             "nikto", "et scan", "sweep", "discovery", "masscan", "zmap",
         ),
         priority=30,
+    ),
+    AgentPersona(
+        id="data_protection",
+        label="Data Protection Analyst",
+        specialization="Sensitive-data access, staging, exfiltration, and disruptive impact",
+        system_addendum=(
+            "You specialise in data loss and disruptive impact (MITRE T1048 "
+            "Exfiltration Over Alternative Protocol and T1486 Data Encrypted for "
+            "Impact). Establish data ownership and classification, actor, host, "
+            "objects and bytes, destination, protocol, authorization, and transfer or "
+            "encryption outcome. Compare against approved bulk jobs and scope related "
+            "sessions, systems, identities, and repositories before recommending action."
+        ),
+        focus_tools=("es_query", "rag_retrieve", "enrich"),
+        keywords=(
+            "exfiltration", "data exfil", "data staging", "bulk download",
+            "bulk data", "dns tunnel", "personal address", "pii", "mass file",
+            "file encryption", "ransomware", "encrypted for impact",
+        ),
+        entity_types=(EntityType.USER, EntityType.HOST),
+        priority=35,
     ),
     AgentPersona(
         id="malware",

@@ -146,9 +146,11 @@ backend/app/
                      opt-in; compatible
                      live OpenAI case/alert Flex preference default ON with truthful
                      standard fallback) +
-                     release_updates read-only public GitHub source discovery
-                     (default repo + main/Testing refs; configurable, cached, never
-                     deploys or activates) +
+                     release_updates public GitHub source discovery
+                     (default repo + main/Testing refs; configurable and cached;
+                     mutable refs remain observation-only) + a separate private-
+                     socket supervised-update control plane for signed immutable
+                     Stable plans on the supported PostgreSQL Compose profile +
                      storage_lifecycle desired policy (Hot 180d + Warm 90d + desired
                      Glacier from day 270; deletion always off; capability-aware) +
                      caps.max_concurrent + BrandingConfig.login_*
@@ -444,7 +446,9 @@ docs/                USAGE.md · TROUBLESHOOTING.md · ENVIRONMENT.md · VIGIL_S
 See `docs/ENVIRONMENT.md` for the full detail. Summary:
 
 ### 6a. This build/dev sandbox (Codex on the web)
-- Ephemeral container; repo cloned fresh; **commit + push or it's lost.**
+- Preserve work deliberately. Commit and publish only when the user or maintainer
+  has explicitly authorized that repository mutation; a local verification pass does
+  not by itself authorize a push.
 - Tooling: `/opt/node22` (Node 22) default on PATH — **fine for the `webui` build**,
   WRONG for the Kibana **plugin** build (use the nvm per-version pin at
   `/opt/nvm/nvm.sh`); Python 3.11 + `backend/.venv`; Docker daemon can be started
@@ -492,17 +496,17 @@ See `docs/ENVIRONMENT.md` for the full detail. Summary:
 ## 7. Build / run / test cheatsheet
 
 ```bash
-# Backend tests (offline; MUST stay green) — latest recorded full run: 2,254 tests (see Journal for the exact current count)
+# Backend tests (offline; MUST stay green) — latest recorded full run: 2,306 tests (see Journal for the exact current count)
 cd backend && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements-dev.txt
-python -m pytest -q                         # -> latest recorded full run: 2,254 passed (see Journal)
+python -m pytest -q                         # -> latest recorded full run: 2,306 passed (see Journal)
 
 # Backend run locally (in-memory store, mock LLM if no keys)
 uvicorn app.main:app --port 8088
 
 # Web UI + installed Help Center build, tests, and lint (Node 22)
 cd webui && npm install && npm run build   # MkDocs bundle + tsc --noEmit + Vite -> webui/dist/
-npm run docs:check                         # validate app 0.1.2 ↔ bundled docs 0.1
-npx vitest run                             # -> latest recorded full run: 1,853 passed / 280 files (see Journal)
+npm run docs:check                         # validate app 0.1.3 ↔ bundled docs 0.1
+npm run test:strict                        # -> latest recorded full run: 1,935 passed / 286 files; zero stderr/console output
 npm run lint                               # 0 errors, 0 warnings; jsx-a11y at error
 
 # One-command demo (backend :8088 AUTH ENABLED + webui dev :5173; login Admin / Admin@123)
@@ -510,7 +514,7 @@ npm run lint                               # 0 errors, 0 warnings; jsx-a11y at e
 
 # Full agnostic stack (DEPLOY target — NOT runnable in this sandbox: images blocked)
 cp .env.example .env   # set TLSOC_PG_PASSWORD + at least one LLM key
-docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on :8080
+./scripts/agentic-soc-compose.sh up -d --build   # webui on :8080
 
 # NOTE: the Kibana plugin is ARCHIVED (archive/kibana-plugin/) and no longer built.
 # The standalone webui above is the sole supported surface. To revive the plugin,
@@ -543,7 +547,7 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
     feedback grammar, original theme-adaptive `SourceMark` asset catalog, and the
     JSON-serializable `DESIGN_SYSTEM_CATALOG`. Import from `@/design-system`; do not
     invent a page-local blocking loader or source mark. The catalog is an input for
-    future agent/MCP tooling—version 0.1.2 does **not** ship an MCP server.
+    future agent/MCP tooling—version 0.1.3 does **not** ship an MCP server.
   - **SOC-domain components** live in `webui/src/soc/components/*`
     (`PageHeader`, `KpiTile`/`StatCard`, `DataTable`, `EmptyState`, `RiskGauge`,
     `CaseHoverCard`, `ChatPanel`, `ChatHistoryRail`, `badges.tsx`, `charts.tsx`,
@@ -559,8 +563,8 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
   `/api` proxy forwards arbitrary JSON). Keep `webui/src/lib/types.ts` in sync with
   `models.py`.
 - **Secrets:** env only; UI shows booleans (`configured ✓`) never values.
-- **Tests:** add/keep offline tests; `pytest -q` green (latest recorded full run: 2,254) +
-  `npm run build` clean + `vitest run` (latest recorded full run: 1,853 / 280 files) +
+- **Tests:** add/keep offline tests; `pytest -q` green (latest recorded full run: 2,306) +
+  `npm run build` clean + `npm run test:strict` (latest recorded full run: 1,935 / 286 files) +
   `npm run lint` (0 errors, jsx-a11y at error) before
   every commit. (Counts rise each round — see `Journal.md` for the exact current totals.)
 - **Git:** active branch `Testing`. Commit focused changes; push when asked. The
@@ -568,26 +572,50 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
   Stable promotion. Keep the documented pull-request gates and the required
   `CI passed` aggregate enforced through repository settings; branch names alone
   do not prove acceptance.
-- **Release identity UI:** the shell always shows `vX.Y.Z · Testing|Stable`; its
+- **Release identity and update UI:** the shell always shows `vX.Y.Z · Testing|Stable`; its
   popover reconciles the immutable Console stamp with public backend build-info.
   Any known version/channel/SHA mismatch downgrades to Testing. `run-demo.sh`
   derives Stable only for literal `main`; Docker release builds explicitly stamp
-  `TLSOC_RELEASE_CHANNEL`, SHA, and date. A separate **Update available** action may
-  activate only a different, already-deployed static release whose no-store
-  `/release.json` identity exactly matches healthy backend build-info/readiness with a
-  non-`unknown` SHA and build time. It
-  requires confirmation, is blocked by known unsaved drafts, and repeats manifest,
-  backend, health, and `/index.html` preflight before preserving the hash route across
-  reload. Failure leaves the old document running. The browser never pulls images,
-  restarts services, migrates state, promotes channels, stores deployment credentials,
-  or performs rollback. Graceful rollout requires old hashed assets to remain served
-  through the observation window or an equivalent blue-green static origin.
+  `TLSOC_RELEASE_CHANNEL`, SHA, and date. On the separately bootstrapped reference
+  PostgreSQL Compose deployment, a built-in super-admin may authorize a newer
+  compatible Stable release only after the backend and isolated updater return a
+  signed, digest-pinned, rollback-capable preflight. Progress is durable through the
+  planned backend/Web reconnect; backup, identity/readiness verification, and
+  automatic in-flight rollback are updater responsibilities. Known unsaved drafts
+  block the action. The browser and ordinary backend never receive the Docker socket,
+  host commands, registry credentials, arbitrary artifacts, or migration logic.
+  Older deployments need one manual bootstrap, which may reuse a compatible idle
+  supervisor or replace only an inspectable idle incompatible one. Active/unreadable
+  supervisor state fails closed. The updater never transports the base Compose file.
+  The 0.1.x protocol freezes its version-invariant bytes through
+  `deploy/update-base-v1.sha256`; release versions and digests belong only in the
+  signed generated override. Any base edit requires a new protocol/bootstrap path.
+  Target release pins remain in a private pending override through self-handoff,
+  backend-writer quiescence, and verified backup. They are promoted to updater-private
+  and host-visible active overrides only after cancellation closes at the switch
+  boundary. `scripts/agentic-soc-compose.sh` shares the updater lifecycle lock: it
+  permits inspection but refuses mutating or unknown Compose commands while a durable
+  job is active. Startup clears a leftover marker only when it names an exact durable
+  terminal job; unknown or malformed state remains fail-closed.
+  Bootstrap restores preserved pins only before `/v1/jobs`; ownership passes to the
+  supervisor before submission, and one private unpredictable per-release start key is
+  reused until the exact job is observed terminal. Preflight/job records embed their
+  idempotency keys and startup repairs missing lookup indexes from durable truth.
+  Its restartable, idempotent self-replacement helper resumes or restores the exact
+  prior supervisor after ordinary helper-process, Docker-daemon, and host restarts;
+  loss of the trusted host or Docker metadata/storage remains manual. Unsupported
+  stacks, non-durable secrets, or unsupported state transitions fail closed as
+  manual-upgrade-required.
+  PostgreSQL and Redis infrastructure versions remain operator-managed. A separate
+  same-origin `/release.json` compatibility fallback only activates a coherent pair
+  that an external deployment system has already installed; it is not an alternate
+  pull, restart, backup, or rollback path.
   A separate amber source notice may come from cached `GET /api/releases/upstream`
   metadata for the operator-configured public GitHub repository and Stable/Testing
-  refs. It is a review link only, suppresses downgrades, and can never create the
-  activation action. `POST /api/releases/upstream/check` only refreshes that bounded
-  metadata; neither endpoint has Git, deployment, process, migration, or rollback
-  authority.
+  refs. Stable branch HEAD is observation-only; the exact annotated `vVERSION` tag
+  commit is the candidate identity. Discovery is a review link only, suppresses
+  downgrades, and can never authorize an install or change the updater's host-pinned
+  publisher identity.
 - **Release discipline:** every supported release is cut from a fully verified
   `main` commit and receives exactly one immutable annotated `vX.Y.Z` tag matching
   the root `VERSION`. A Testing candidate is never tagged Stable. Before promotion,
@@ -613,7 +641,8 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
 - Each sub-agent MUST end its report with a **Journal entry** (see format) for the
   orchestrator to append, since sub-agents don't commit.
 - The orchestrator owns cross-cutting contracts and integration, reviews diffs,
-  runs the final build + tests, commits, pushes, and updates the Journal.
+  runs the final build + tests, and updates the Journal. It commits or publishes
+  only when that repository mutation is explicitly authorized.
 - Agents may use the ignored root `memory.md` only as temporary task scratch; the
   orchestrator deletes it before handoff. Local-runtime questions are answered to the
   user directly and are not converted into Journal milestones.
@@ -626,9 +655,9 @@ deep-audit hardening pass (2026-07-14/15)** fixed **47 verified findings** (0 cr
 high / 24 med / 13 low) from a 24-auditor + adversarial-verify Workflow — one atomic
 commit per finding on `Testing` (`c5516e5`→`abd0385`), local only, not tagged or pushed.
 See the "Deep-audit hardening" bullet in the round summary and the 2026-07-15 `Journal.md`
-entry. The product is now Version **`0.1.2`**: changes integrate and pass acceptance on
+entry. The product is now Version **`0.1.3`**: changes integrate and pass acceptance on
 `Testing`, then the exact accepted commit promotes to the Stable `main` branch and receives
-the immutable `v0.1.2` tag. Use `git log -1`, `VERSION`, and the latest `Journal.md` entry for the
+the immutable `v0.1.3` tag. Use `git log -1`, `VERSION`, and the latest `Journal.md` entry for the
 exact current snapshot rather than an embedded HEAD hash. Round 9c (`559ce88`, PR
 #27) is historical;
 `feature/round7-ui-overhaul` (Rounds 7–8) merged via PR #23/#24, Round 9 via PR #25,
@@ -637,13 +666,14 @@ flips the suite from "opt-in automation" to **comprehensive ingestion + smart-
 autopilot defaults ON out of the box** — see the Round-10 bullet below.
 
 **Release topology:** the remote now exposes canonical `Testing` and `main`, uses
-`main` as its default, and has the prior `v0.1.1` Stable tag; `v0.1.2` is created only
-from the fully verified promoted 0.1.2 commit. Repository-level branch
+`main` as its default, and has the prior `v0.1.1` Stable tag; `v0.1.3` is created only
+from the fully verified promoted 0.1.3 commit. Repository-level branch
 protection, required-check, and `github-pages` environment policy remain administrator
 controls and must be verified independently of source changes.
 
-**Current baseline (2026-08-03):** backend **2,254 pytest** passed (0 failures);
-webui **1,853 Vitest** specs / 280 files, full docs+app build clean (3,186 modules;
+**Current baseline (2026-08-04):** backend **2,306 pytest** passed (0 failures);
+webui **1,935 Vitest** specs / 286 files with zero stderr or captured console output,
+full docs+app build clean (3,189 modules;
 motion remains lazy and off the entry path); eslint **0 errors, 0 warnings**; **zero new webui runtime
 deps except the deliberate lazy `motion`** (12.42.2). Version 0.1 adds only the
 explicitly pinned connector/SQL packaging dependencies required by its advertised
@@ -803,7 +833,8 @@ CrowdStrike / SentinelOne / Defender pull connectors (reserved in the `SourceTyp
 enum, not yet built).
 
 Every item ends with: `pytest -q` green (keep the count current), `webui` build
-clean, docs updated, **Journal updated**, commit + push.
+clean, docs updated, and **Journal updated**. Commit or publish only when the user
+or maintainer has intentionally authorized publication.
 
 ---
 

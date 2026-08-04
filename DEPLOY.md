@@ -5,15 +5,15 @@ The product is a read-only triage layer that consumes alerts from
 **any** SIEM / EDR / XDR and turns raw alert volume into audited, cost-metered,
 human-reviewable cases.
 
-The current beta patch candidate is `0.1.2` (documentation line `0.1`). Source builds
+The current source version is `0.1.3` (documentation line `0.1`). Source builds
 default to `TLSOC_RELEASE_CHANNEL=testing`; set `stable` only while building the
-exact accepted `main` / `v0.1.2` commit after promotion. Version and channel are independent so a
-Testing candidate cannot report itself as Stable merely because it already carries
-the final SemVer.
+exact accepted `main` commit from its immutable `v0.1.3` tag. Version and channel
+are independent, so a Testing candidate cannot report itself as Stable merely
+because it already carries the final SemVer.
 
 > **Release topology:** the remote uses `Testing` for integration and default
-> `main` for accepted Stable source. `v0.1.1` remains the prior Stable tag until the
-> verified 0.1.2 promotion receives the immutable `v0.1.2` tag. Branch
+> `main` for accepted Stable source. Version 0.1.3 is Stable only when its exact
+> verified `main` commit has the immutable `v0.1.3` tag and matching artifacts. Branch
 > protections, required checks, and release-environment policies are repository
 > administration controls; verify them independently rather than inferring
 > acceptance from a branch or tag name.
@@ -38,7 +38,7 @@ the final SemVer.
 
 | | **Mode A — Agnostic stack (RECOMMENDED)** | **Mode B — Existing ELK attachment (optional)** |
 |---|---|---|
-| What runs | A self-contained stack: Postgres (+pgvector), Redis, the backend, and the standalone React + Tailwind + shadcn web UI (nginx). | The backend (+Redis) attached to an existing ELK stack; run the supported standalone web UI separately. |
+| What runs | A self-contained stack: Postgres (+pgvector), Redis, the backend, the standalone React + Tailwind + shadcn web UI (nginx), and the isolated update supervisor. | The backend (+Redis) attached to an existing ELK stack; run the supported standalone web UI separately. |
 | Own state | PostgreSQL — **no Elasticsearch required** for the app's own bookkeeping. | The suite's own `tlsoc-agent-*` Elasticsearch indices. |
 | UI | Standalone SPA at `http://localhost:8080`. | The same standalone SPA; the old Kibana plugin is archived and unsupported. |
 | Log source | Connected from the wizard (pull or push). | Connected from the wizard (pull or push). |
@@ -65,13 +65,13 @@ backend choice is independent of where logs come from.
   (webhook/HEC/syslog/Kafka/…) need no log-source credential at all.
 - Outbound network access for: pulling base images (`pgvector/pgvector:pg16`,
   `redis:7-alpine`, `python:3.11-slim`, `node:22-alpine`, `nginx:1.27-alpine`),
-  building the two local images, and reaching your LLM provider's API.
+  building the three local application images, and reaching your LLM provider's API.
 
 ---
 
 ## 3. Mode A — Agnostic stack (primary)
 
-`deploy/docker-compose.agnostic.yml` brings up four services:
+`deploy/docker-compose.agnostic.yml` brings up five services:
 
 | Service | Image | Role |
 |---|---|---|
@@ -79,6 +79,7 @@ backend choice is independent of where logs come from.
 | `tlsoc-redis` | `redis:7-alpine` | Enrichment + dedup cache (recommended; backend falls back to in-memory without it). |
 | `tlsoc-backend` | built from `backend/Dockerfile` | FastAPI + LangGraph agent. Started with `STATE_BACKEND=postgres`. Listens on `:8088`. |
 | `tlsoc-webui` | built from `webui/Dockerfile` with the repository-root context | The standalone React Console plus version-matched MkDocs Help Center, served by nginx on `:80` and published as `:8080`. Serves `/docs/<major.minor>/` locally and proxies `/api/*` to the backend. |
+| `agentic-soc-updater` | built from `updater/Dockerfile` | Private Unix-socket supervisor for signed, digest-pinned application updates. It alone mounts the Docker socket. |
 
 ### 3.1 Configure `.env`
 
@@ -162,10 +163,10 @@ So in Mode A you only ever edit `TLSOC_*` in `.env`; the compose file translates
 From the **repo root**:
 
 ```bash
-docker compose -f deploy/docker-compose.agnostic.yml up -d --build
+./scripts/agentic-soc-compose.sh up -d --build
 ```
 
-This builds the backend and web-UI images and starts all four services. Then open:
+This builds the backend, Web, and updater images and starts all five services. Then open:
 
 ```
 http://localhost:8080
@@ -279,7 +280,7 @@ listener port** by editing the `ports:` of `tlsoc-backend` in
       - "1514:1514/tcp"   # syslog TCP
 ```
 
-Then `docker compose -f deploy/docker-compose.agnostic.yml up -d` to apply.
+Then `./scripts/agentic-soc-compose.sh up -d` to apply.
 
 For encrypted Syslog, set the source protocol to `tls`, mount the server certificate
 and private key into the backend container, and configure their **container paths** as
@@ -318,7 +319,7 @@ organization deliberately publishes the `core` target under a site-specific imag
 name, add only the required clients in a derived image, for example:
 
 ```dockerfile
-FROM registry.example/tlsoc-backend-core:0.1.2
+FROM registry.example/tlsoc-backend-core:0.1.3
 RUN pip install --no-cache-dir confluent-kafka boto3   # only what you need
 ```
 
@@ -345,8 +346,8 @@ curl -s http://localhost:8088/api/health
 
 ```bash
 # Service status + logs:
-docker compose -f deploy/docker-compose.agnostic.yml ps
-docker compose -f deploy/docker-compose.agnostic.yml logs -f tlsoc-backend
+./scripts/agentic-soc-compose.sh ps
+./scripts/agentic-soc-compose.sh logs -f tlsoc-backend
 
 # The wizard's "Test connection" (or directly):
 curl -s -X POST http://localhost:8088/api/connectors/test -H 'Content-Type: application/json' -d '{}'
@@ -406,11 +407,11 @@ compose file and the service names):
 
 ```bash
 cd <repo-root>
-docker compose -f deploy/docker-compose.agnostic.yml up -d            # start
-docker compose -f deploy/docker-compose.agnostic.yml ps              # status
-docker compose -f deploy/docker-compose.agnostic.yml logs -f tlsoc-backend
-docker compose -f deploy/docker-compose.agnostic.yml restart tlsoc-backend
-docker compose -f deploy/docker-compose.agnostic.yml down            # stop (keeps volumes)
+./scripts/agentic-soc-compose.sh up -d            # start
+./scripts/agentic-soc-compose.sh ps               # status
+./scripts/agentic-soc-compose.sh logs -f tlsoc-backend
+./scripts/agentic-soc-compose.sh restart tlsoc-backend
+./scripts/agentic-soc-compose.sh down             # stop (keeps volumes)
 curl -s http://localhost:8088/api/health
 ```
 
@@ -444,30 +445,103 @@ independently. Back up first and follow
 ```bash
 cd <repo-root>
 git fetch --tags origin
-git checkout v0.1.2   # replace with the exact accepted release tag
-docker compose -f deploy/docker-compose.agnostic.yml up -d --build
+git checkout v0.1.3   # replace with the exact accepted release tag
+./scripts/agentic-soc-compose.sh up -d --build
 ```
 
-The Console's top-bar **Update available** control does not perform this deployment.
-It detects and activates a different release only after the web artifact is already
-live, same-origin `/release.json` exactly matches the backend's non-`unknown` SHA and
-build time at `/api/health/build-info`, and `/api/health`
-is ready. The browser then requires confirmation and repeats those checks plus a
-no-store `/index.html` check before preserving the current hash route across the
-reload. A mismatch or network/readiness failure leaves the current Console running;
-the browser never pulls images, restarts services, runs migrations, stores deploy
-credentials, or performs rollback.
+Version 0.1.3 is the one-time bootstrap boundary for supervised updates. The
+supported v0.1.1→v0.1.3 transition must run from the clean, exact annotated v0.1.3
+tag whose commit remains contained in `origin/main`, while the reference v0.1.1
+PostgreSQL stack is still running:
+
+```bash
+./scripts/bootstrap-updater.sh
+```
+
+That host-authorized step installs the private Unix-socket supervisor transport, then
+has it verify, preflight, and apply the signed, digest-pinned v0.1.3 release. The
+bootstrap transition therefore uses the same pull-first, quiesce, PostgreSQL backup,
+identity/readiness, receipt, and automatic rollback state machine as later Console
+updates. After bootstrap, a freshly authenticated built-in super administrator can
+install a later compatible Stable release from the top-bar **Update vX.Y.Z** action.
+Bootstrap restores a preserved override only before durable job submission. Before
+the `/v1/jobs` request it transfers ownership to the supervisor, so an interrupted
+client never races the accepted job by rewriting active pins. Its mode-0600,
+per-release start key is reused across interruptions and retired only after the exact
+job is observed terminal.
+
+The supported one-click profile is intentionally narrow: the reference standalone,
+single-replica Docker Compose deployment with the signed canonical base-file hash,
+canonical project/network/service and PostgreSQL-volume identity, coherent installed
+schema labels, PostgreSQL-owned state, durable `.env` configuration, no database
+migration, and a compatible updater protocol. SQLite,
+Elasticsearch-owned state, external PostgreSQL, the legacy ELK attachment,
+Kubernetes, horizontal replicas, custom Compose topologies, infrastructure-image
+changes, and migration-bearing releases remain manual and appear as explicit
+blockers. PostgreSQL and Redis are never silently upgraded by the application updater.
+
+The browser submits only an opaque server-advertised release ID, preflight token, and
+idempotency key. It never receives Docker access, registry credentials, host paths,
+commands, Compose fragments, image references, or backup contents. After the
+supervisor verifies the new pair, the existing same-origin manifest/readiness checks
+reload the open tab while preserving its hash route; known unsaved drafts block that
+reload.
+
+The Stable-branch check is mutable discovery only. It can show an update candidate,
+but selecting the candidate must still pass immutable signed-release preflight before
+confirmation. The branch HEAD is observation-only; Stable candidates are bound to the
+immutable commit dereferenced from the exact annotated `vVERSION` tag. The official
+supervisor holds no registry credentials, so the
+release's `backend`, `webui`, and `updater` GHCR packages must be publicly and
+anonymously pullable by exact digest.
+
+Only the update supervisor receives `/var/run/docker.sock`; that access is
+effectively root-equivalent on the host. Keep the reviewed supervisor image, private
+control socket, `.env`, updater state, and backup volumes inside the trusted host
+boundary. The ordinary backend receives only the bounded Unix control socket, and
+the Web container/browser receive no host authority.
+
+After bootstrap, always use `./scripts/agentic-soc-compose.sh` for manual lifecycle
+commands. It layers `.agentic-soc-runtime/active-release.compose.yml`; a raw Compose
+invocation can bypass the selected digest pins and is unsupported.
+
+The wrapper also shares an advisory lifecycle lock with the supervisor. Read-only
+inspection remains available during an update, but mutating and unknown Compose
+commands are refused until the durable update is terminal. Target digest pins remain
+private through updater handoff, backend-writer quiescence, and verified backup; the
+host-visible active override is published only at the deployment switch boundary.
+After a restart, only a marker naming an exact durable terminal job is reconciled
+automatically. Unknown or malformed lifecycle state remains fail-closed.
+
+The updater never transports or replaces the base Compose file. The 0.1.x update
+protocol pins its version-invariant bytes in `deploy/update-base-v1.sha256`; release
+images and versions live only in the signed generated override. Compatible patch
+releases must preserve that exact base, which permits sequential N→N+1→N+2 updates.
+Any topology/base edit requires an explicitly versioned updater protocol and manual
+bootstrap rather than silently stranding an installed host.
+
+Automatic in-flight failure, cancellation, and deliberate post-success rollback all
+restore application images only; none rewrites PostgreSQL. The verified quiesced dump
+is retained solely for explicit break-glass recovery so rollback cannot erase a
+post-snapshot write. V1 therefore accepts only `migration.strategy=none` plans.
+
+Durable job state survives browser/backend reconnects and ordinary supervisor-process
+restarts. Updater self-replacement uses a restartable helper with an idempotent
+name-swap transaction: after an ordinary helper-process, Docker-daemon, or host restart,
+it resumes replacement or restores the exact prior supervisor from immutable image
+identity. A failure that prevents Docker and all of its containers from running, or
+destroys Docker metadata/storage, remains an operator-owned host recovery event.
 
 The safe development/Compose defaults use `unknown` provenance. Those deployments
 remain usable but intentionally never expose browser activation; release automation
 must stamp the Web and backend images with the same immutable SHA and build time.
 
 Serve `/release.json` and `/index.html` with `no-store, no-cache, must-revalidate`;
-hashed assets may remain immutable. For a genuinely graceful rollout, retain the
-previous release's hashed assets for the observation window or use blue-green static
-serving. Open tabs can still request an old lazy-loaded chunk before they accept the
-new release, so immediately deleting the old asset set can break a session even when
-the update preflight is healthy.
+hashed assets may remain immutable. The supervised flow replaces the single
+reference Web container only after backend verification, so an open tab can briefly
+lose an old lazy-loaded chunk while the service restarts. Save or discard drafts
+before updating; custom zero-downtime or blue-green asset retention remains an
+operator-owned deployment concern outside the supported single-replica profile.
 
 **Resource notes.** The backend image is small (pure-Python on
 `python:3.11-slim`). Postgres+pgvector and Redis are modest. The heaviest cost is
@@ -563,7 +637,7 @@ Mode A PostgreSQL reports the desired policy as advisory until timestamp partiti
 and an operator-managed scheduler/tablespace/archive workflow exist. SQLite reports
 export-only. Connected source indices and buckets are always external/read-only.
 
-The 0.1.2 Apply operation does not configure Glacier and never adds an ILM delete
+The 0.1.3 Apply operation does not configure Glacier and never adds an ILM delete
 phase. To archive safely, write a separate immutable export, manifest and checksums,
 verify restore, then apply S3 lifecycle to that **independent archive prefix**. Never
 transition the Elasticsearch snapshot-repository prefix itself.
@@ -650,7 +724,7 @@ TLSOC_AUTH_JWT_SECRET=$(openssl rand -hex 32)   # STABLE — else sessions die o
 TLSOC_AUTH_COOKIE_SECURE=true                    # REQUIRED behind TLS
 ```
 
-Then `docker compose -f deploy/docker-compose.agnostic.yml up -d` to apply.
+Then `./scripts/agentic-soc-compose.sh up -d` to apply.
 
 - **First-run seed.** When auth is enabled **and the user store is empty**, the
   backend auto-seeds a demo **super_admin**: **`Admin` / `Admin@123`**. **Change it

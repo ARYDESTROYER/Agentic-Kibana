@@ -89,6 +89,35 @@ describe('detectionMatchToWire — form → RuleDefinition', () => {
     expect(again.enabled).toBe(wire.enabled);
     expect(again.priority).toBe(wire.priority);
   });
+
+  it('round-trips hidden compatibility metadata without advertising it as executable', () => {
+    const original = {
+      ...detectionMatchToWire(base())!,
+      mitre: ['T1110', 'T1078'],
+      schedule: { interval_seconds: 300, lookback_seconds: 45 },
+      suppression: {
+        by: ['source.ip', 'user.name'],
+        scope: 'per_window' as const,
+        window_seconds: 600,
+        missing_field: 'keep' as const,
+      },
+    };
+
+    const form = wireToDetectionMatch(original);
+    expect(form.about.mitre).toEqual(original.mitre);
+    expect(form.schedule).toEqual({ intervalSeconds: 300, lookbackSeconds: 45 });
+    expect(form.suppression).toEqual({
+      by: ['source.ip', 'user.name'],
+      scope: 'per_window',
+      windowSeconds: 600,
+      missingField: 'keep',
+    });
+
+    const again = detectionMatchToWire(form)!;
+    expect(again.mitre).toEqual(original.mitre);
+    expect(again.schedule).toEqual(original.schedule);
+    expect(again.suppression).toEqual(original.suppression);
+  });
 });
 
 describe('caseAutomationToWire — form → AutomationRule', () => {

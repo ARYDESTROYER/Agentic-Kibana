@@ -11,15 +11,16 @@
  * ⛔ CONFIG WRITER ONLY (#3): this component edits a `RuleForm` in memory and hands
  * it back via `onChange`; it NEVER calls `decide()` and NEVER sets a case status. The
  * host maps the form ⇄ wire via `./adapter` and saves through the deep-merge
- * `PUT /api/settings`. Threshold/Suppression/Exceptions/MITRE are kept as DISTINCT,
- * clearly-labelled concepts (conflating them is a known analyst pitfall).
+ * `PUT /api/settings`. The normal editor exposes only controls the runtime persists
+ * and executes. Compatibility-only metadata is round-tripped by `./adapter`, but is
+ * deliberately hidden until it has an operator-visible runtime contract.
  *
  * #9: `name`/`description`/predicate `field`/`value`/tags are operator-authored →
  * rendered as plain-text inputs. #10: no secret is shown; model overrides carry a
  * selection, never a key.
  */
 import * as React from 'react';
-import { AlertTriangle, Info, Lock, Wrench } from 'lucide-react';
+import { Info, Lock, Wrench } from 'lucide-react';
 
 import { humanizeToken } from '@/lib/format';
 
@@ -42,7 +43,6 @@ import { Field } from '@/soc/components/Field';
 import { NumberField } from '@/soc/components/NumberField';
 import { LabeledSlider } from '@/soc/components/LabeledSlider';
 import { TagInput } from '@/soc/components/TagInput';
-import { SegmentedControl } from '@/soc/components/SegmentedControl';
 import { HelpTip } from '@/soc/components/HelpTip';
 
 import { ConditionBuilder } from './ConditionBuilder';
@@ -79,7 +79,6 @@ export interface RuleEditorProps {
 function AboutTab({ value, onChange, readOnly, allowTierChange }: RuleEditorProps) {
   const about = value.about;
   const setAbout = (patch: Partial<typeof about>) => onChange({ ...value, about: { ...about, ...patch } } as RuleForm);
-  const isDetection = RULE_TIER_BY_ID[value.tier].detection;
   // A case-automation rule is keyed on the wire ONLY by `id` (there is no `name`/
   // `description` field on `CaseAutomationRule`). So instead of a required Name input
   // whose value is silently discarded and replaced by an opaque machine id (#25), a NEW
@@ -146,16 +145,6 @@ function AboutTab({ value, onChange, readOnly, allowTierChange }: RuleEditorProp
         onChange={(v) => setAbout({ priority: v })}
       />
 
-      {isDetection ? (
-        <TagInput
-          label="MITRE technique ids (advisory)"
-          description="Advisory metadata — not yet saved to the engine or the coverage heatmap. Never changes the verdict (#3)."
-          value={about.mitre ?? []}
-          disabled={readOnly}
-          placeholder="e.g. T1110"
-          onChange={(next) => setAbout({ mitre: next })}
-        />
-      ) : null}
     </div>
   );
 }
@@ -167,34 +156,23 @@ function DefineMatch({ value, onChange, readOnly }: RuleEditorProps & { value: E
   const th = form.threshold;
   const setThreshold = (patch: Partial<typeof th>) => onChange({ ...form, threshold: { ...th, ...patch } });
   const isThreshold = th.n > 1;
-  const multiPredicate = form.predicates.length > 1;
 
   return (
     <div className="space-y-5">
       {/* conditions */}
       <section className="space-y-2">
         <div className="flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Conditions
-          <HelpTip text="Match a raw event. All rows are ANDed. The wire currently evaluates the FIRST condition; nested AND/OR is a later, opt-in feature." />
+          Condition
+          <HelpTip text="Match one raw-event field. Detection rules currently persist and evaluate exactly one predicate." />
         </div>
         <ConditionBuilder
           value={form.predicates}
           disabled={readOnly}
           onChange={(next) => onChange({ ...form, predicates: next })}
         />
-        {multiPredicate ? (
-          <Alert variant="warning">
-            <AlertTriangle className="h-4 w-4" aria-hidden />
-            <AlertTitle>Only the first condition is saved</AlertTitle>
-            <AlertDescription>
-              A detection rule currently evaluates ONE condition. The extra rows are kept in the
-              editor for the upcoming nested AND/OR feature but are not saved to the engine yet.
-            </AlertDescription>
-          </Alert>
-        ) : null}
       </section>
 
-      {/* threshold — DISTINCT from suppression (labelled) */}
+      {/* active correlation threshold */}
       <section className="space-y-3 rounded-md border border-border bg-surface p-3">
         <div className="flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
           Threshold
@@ -253,116 +231,7 @@ function DefineMatch({ value, onChange, readOnly }: RuleEditorProps & { value: E
             : `Fires on every matching event (no count gate).`}
         </p>
       </section>
-
-      {/* suppression — DISTINCT concept, optional */}
-      <SuppressionCard value={form} onChange={onChange} readOnly={readOnly} />
     </div>
-  );
-}
-
-function SuppressionCard({
-  value,
-  onChange,
-  readOnly,
-}: {
-  value: Extract<RuleForm, { tier: 'detection_match' }>;
-  onChange: (next: RuleForm) => void;
-  readOnly?: boolean;
-}) {
-  const on = Boolean(value.suppression);
-  const sup = value.suppression;
-  const setSup = (patch: Partial<NonNullable<typeof sup>>) =>
-    onChange({
-      ...value,
-      suppression: { by: [], scope: 'per_run', missingField: 'suppress', ...(sup ?? {}), ...patch },
-    });
-
-  return (
-    <section className="space-y-3 rounded-md border border-border bg-surface p-3">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Suppression
-          <HelpTip text="Collapse alert storms by grouping matching events. Distinct from Threshold. Never DROPS a candidate — it only collapses duplicates (#4)." />
-        </div>
-        <Switch
-          checked={on}
-          disabled={readOnly}
-          aria-label="Enable suppression"
-          onCheckedChange={(v) =>
-            onChange({
-              ...value,
-              suppression: v ? { by: [], scope: 'per_run', missingField: 'suppress' } : undefined,
-            })
-          }
-        />
-      </div>
-      {on && sup ? (
-        <div className="space-y-4">
-          {/* Honest disclosure (parity with the multi-predicate note): the wire
-              `RuleDefinition` has no suppression field yet, so these settings are kept
-              in the editor for the upcoming wave but are not yet applied by the engine.
-              Never claim persistence a save cannot deliver (#3-safe framing). */}
-          <Alert variant="warning">
-            <AlertTriangle className="h-4 w-4" aria-hidden />
-            <AlertTitle>Suppression is not applied yet</AlertTitle>
-            <AlertDescription>
-              These suppression settings are kept in the editor for an upcoming wave — the detection
-              engine does not yet apply them, and they are not persisted on save. Use the Threshold
-              group-by to collapse storms today.
-            </AlertDescription>
-          </Alert>
-          <TagInput
-            label="Suppress by (up to 3 fields)"
-            description="Collapse events that share these fields."
-            value={sup.by}
-            max={3}
-            disabled={readOnly}
-            placeholder="e.g. source_ip"
-            onChange={(next) => setSup({ by: next })}
-          />
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Scope">
-              <SegmentedControl
-                aria-label="Suppression scope"
-                value={sup.scope}
-                options={[
-                  { value: 'per_run', label: 'Per run' },
-                  { value: 'per_window', label: 'Per time window' },
-                ]}
-                disabled={readOnly}
-                onValueChange={(v) => setSup({ scope: v as typeof sup.scope })}
-              />
-            </Field>
-            {sup.scope === 'per_window' ? (
-              <NumberField
-                label="Suppression window"
-                value={sup.windowSeconds ?? 300}
-                min={1}
-                max={86400}
-                step={1}
-                unit="sec"
-                disabled={readOnly}
-                onChange={(v) => setSup({ windowSeconds: v })}
-              />
-            ) : null}
-          </div>
-          <Field label="When a field is missing">
-            <SegmentedControl
-              aria-label="Missing-field behaviour"
-              value={sup.missingField}
-              options={[
-                { value: 'suppress', label: 'Suppress' },
-                { value: 'keep', label: 'Do not suppress' },
-              ]}
-              disabled={readOnly}
-              onValueChange={(v) => setSup({ missingField: v as typeof sup.missingField })}
-            />
-          </Field>
-        </div>
-      ) : (
-        <p className="text-xs text-muted-foreground">Off — every matching cluster is surfaced.</p>
-      )}
-    </section>
   );
 }
 
@@ -618,7 +487,7 @@ function DefineTab(props: RuleEditorProps) {
 
 /* ---------------------------------------------------------- Schedule tab -- */
 
-function ScheduleTab({ value, onChange, readOnly }: RuleEditorProps) {
+function ScheduleTab({ value }: RuleEditorProps) {
   // Case-automation reacts post-decision (no schedule of its own).
   if (value.tier === 'case_automation') {
     return (
@@ -632,44 +501,15 @@ function ScheduleTab({ value, onChange, readOnly }: RuleEditorProps) {
       </Alert>
     );
   }
-  const sched = value.schedule ?? {};
-  const setSched = (patch: Partial<typeof sched>) =>
-    onChange({ ...value, schedule: { ...sched, ...patch } } as RuleForm);
-
   return (
-    <div className="space-y-4">
-      <Alert variant="info">
-        <Info className="h-4 w-4" aria-hidden />
-        <AlertTitle>Cadence comes from the source feed</AlertTitle>
-        <AlertDescription>
-          Detection rules run on the poller&apos;s durable per-feed cursor. Per-rule schedule
-          overrides are not applied yet — they are not persisted on save; today every rule inherits
-          its feed&apos;s cadence.
-        </AlertDescription>
-      </Alert>
-      <NumberField
-        label="Run every"
-        description="Optional override — how often this rule evaluates."
-        value={sched.intervalSeconds ?? 0}
-        min={0}
-        max={86400}
-        step={1}
-        unit="sec"
-        disabled={readOnly}
-        onChange={(v) => setSched({ intervalSeconds: v === 0 ? undefined : v })}
-      />
-      <NumberField
-        label="Additional look-back"
-        description="Extra window each run to catch late-arriving events."
-        value={sched.lookbackSeconds ?? 0}
-        min={0}
-        max={86400}
-        step={1}
-        unit="sec"
-        disabled={readOnly}
-        onChange={(v) => setSched({ lookbackSeconds: v === 0 ? undefined : v })}
-      />
-    </div>
+    <Alert variant="info">
+      <Info className="h-4 w-4" aria-hidden />
+      <AlertTitle>Cadence comes from the source feed</AlertTitle>
+      <AlertDescription>
+        Detection rules run whenever their source feed polls, using that feed&apos;s durable cursor.
+        Change polling cadence on the source feed; this rule has no independent schedule override.
+      </AlertDescription>
+    </Alert>
   );
 }
 

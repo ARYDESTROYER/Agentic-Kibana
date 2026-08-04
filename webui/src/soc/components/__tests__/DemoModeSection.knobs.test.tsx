@@ -10,7 +10,8 @@
  * knobs) renders standalone.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 // Mock the api + toast so the Enable round-trip can be asserted without a backend.
 const demoEnableMock = vi.fn().mockResolvedValue({ mode: 'seeded', active: true });
@@ -67,6 +68,7 @@ describe('DemoModeSection knobs (Round-6 #31/#32)', () => {
   });
 
   it('round-trips the alert-interval + event-rate knobs through onEnable', async () => {
+    const user = userEvent.setup();
     renderDemo();
     const alert = screen.getByLabelText('Alert interval') as HTMLInputElement;
     fireEvent.focus(alert);
@@ -77,13 +79,17 @@ describe('DemoModeSection knobs (Round-6 #31/#32)', () => {
     fireEvent.change(rate, { target: { value: '25' } });
     fireEvent.blur(rate);
 
-    fireEvent.click(screen.getByRole('button', { name: /enable demo mode/i }));
+    const enable = screen.getByRole('button', { name: /enable demo mode/i });
+    await user.click(enable);
 
     // The enable body carries the two new rate fields.
-    await vi.waitFor(() => expect(demoEnableMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(demoEnableMock).toHaveBeenCalledTimes(1));
     const body = demoEnableMock.mock.calls[0][0];
     expect(body.mode).toBe('live');
     expect(body.alert_interval_seconds).toBe(90);
     expect(body.event_rate_per_second).toBe(25);
+    // onEnable completes with a status refresh and a final busy-state update. Assert
+    // the restored control state so those promise-driven rerenders stay in this test.
+    await waitFor(() => expect(enable).toBeEnabled());
   });
 });

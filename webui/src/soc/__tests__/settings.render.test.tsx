@@ -17,7 +17,7 @@
  * at the end so the loading→ready transition is exercised there too.
  */
 import type * as React from 'react';
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
@@ -68,6 +68,14 @@ vi.mock('@/lib/api', () => {
       // The two calls the Settings load() fires in parallel.
       getSettings: ok({ prefs, configured: {}, read_only: false }),
       getModels: ok({ providers: { anthropic: ['claude-sonnet'] } }),
+      putSettings: vi.fn(async (patch: Record<string, unknown>) => ({
+        prefs: { ...prefs, ...patch },
+        configured: {},
+        read_only: false,
+      })),
+      updateSecrets: vi.fn(async (body: Record<string, string>) => ({
+        configured: Object.fromEntries(Object.keys(body).map((key) => [key, true])),
+      })),
       // Round-5 Sett-C — the schema-driven "All settings" section fetches this.
       getSettingsSchema: ok({ sections: [] }),
       // Used by sub-sections that may lazily mount; harmless to provide.
@@ -90,6 +98,7 @@ vi.mock('@/lib/api', () => {
 
 import { AuthProvider } from '../auth';
 import { RouterProvider, useNavigate } from '../router';
+import { api } from '@/lib/api';
 import { TooltipProvider } from '@/ui/tooltip';
 import Settings from '../pages/Settings';
 import Overview, { PAGE_TITLE } from '../pages/Overview';
@@ -108,6 +117,12 @@ function LeaveSettingsProbe() {
   const navigate = useNavigate();
   return <button onClick={() => navigate('overview')}>Go to Overview</button>;
 }
+
+beforeEach(() => {
+  vi.mocked(api.putSettings).mockClear();
+  vi.mocked(api.updateSecrets).mockClear();
+  window.location.hash = '';
+});
 
 describe('Settings page — #310 render regression', () => {
   it('mounts and survives the loading→ready transition, rendering the section rail', async () => {
@@ -269,6 +284,116 @@ describe('Settings IA consolidation (Round-5 Sett-B: 5 groups, Security promoted
       expect(unload.defaultPrevented).toBe(true);
     });
     window.location.hash = '';
+  });
+
+  it('uses the sole sticky action bar to save a write-only secret draft', async () => {
+    window.location.hash = '#/settings?s=keys';
+    renderWithProviders(<Settings />);
+    const openAiKey = await screen.findByLabelText('OpenAI API key');
+
+    await userEvent.type(openAiKey, 'replacement-key');
+
+    expect(screen.getByText('1 pending change')).toBeInTheDocument();
+    expect(screen.getByTestId('settings-active-context')).toHaveTextContent('Modified in this section');
+    expect(screen.queryByRole('button', { name: 'Update keys' })).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Unsaved changes' })).toHaveTextContent(
+      '1 unsaved secret value',
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() =>
+      expect(api.updateSecrets).toHaveBeenCalledWith({ openai_api_key: 'replacement-key' }),
+    );
+    await waitFor(() => expect(openAiKey).toHaveValue(''));
+    expect(api.putSettings).not.toHaveBeenCalled();
+    expect(screen.queryByRole('region', { name: 'Unsaved changes' })).not.toBeInTheDocument();
+  });
+
+  it('guards cross-page navigation while a write-only secret draft is pending', async () => {
+    window.location.hash = '#/settings?s=keys';
+    renderWithProviders(
+      <>
+        <Settings />
+        <LeaveSettingsProbe />
+      </>,
+    );
+    const openAiKey = await screen.findByLabelText('OpenAI API key');
+    await userEvent.type(openAiKey, 'unfinished-key');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Go to Overview' }));
+    expect(window.location.hash).toBe('#/settings?s=keys');
+    expect(
+      screen.getByRole('alertdialog', { name: 'Leave Settings with unsaved changes?' }),
+    ).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
+    expect(openAiKey).toHaveValue('unfinished-key');
+  });
+
+  it('saves preference and secret drafts through one ordered Settings action', async () => {
+    window.location.hash = '#/settings?s=general';
+    renderWithProviders(<Settings />);
+    const indexPattern = await screen.findByLabelText('Log index pattern');
+    await userEvent.clear(indexPattern);
+    await userEvent.type(indexPattern, 'security-events-*');
+
+    await userEvent.click(screen.getByTestId('settings-section-keys'));
+    const openAiKey = await screen.findByLabelText('OpenAI API key');
+    await userEvent.type(openAiKey, 'replacement-key');
+
+    expect(screen.getByRole('region', { name: 'Unsaved changes' })).toHaveTextContent(
+      '2 unsaved changes: 1 preference and 1 secret value',
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => expect(api.putSettings).toHaveBeenCalledTimes(1));
+    expect(api.putSettings).toHaveBeenCalledWith({ data_view_pattern: 'security-events-*' });
+    await waitFor(() =>
+      expect(api.updateSecrets).toHaveBeenCalledWith({ openai_api_key: 'replacement-key' }),
+    );
+    await waitFor(() => expect(openAiKey).toHaveValue(''));
+    expect(screen.queryByRole('region', { name: 'Unsaved changes' })).not.toBeInTheDocument();
+  });
+
+  it('keeps a failed secret draft recoverable after preferences save successfully', async () => {
+    vi.mocked(api.updateSecrets).mockRejectedValueOnce(new Error('Key vault unavailable'));
+    window.location.hash = '#/settings?s=general';
+    renderWithProviders(<Settings />);
+    const indexPattern = await screen.findByLabelText('Log index pattern');
+    await userEvent.clear(indexPattern);
+    await userEvent.type(indexPattern, 'security-events-*');
+
+    await userEvent.click(screen.getByTestId('settings-section-keys'));
+    const openAiKey = await screen.findByLabelText('OpenAI API key');
+    await userEvent.type(openAiKey, 'keep-me');
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => expect(api.putSettings).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(api.updateSecrets).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(openAiKey).toHaveValue('keep-me'));
+    expect(screen.getByRole('region', { name: 'Unsaved changes' })).toHaveTextContent(
+      '1 unsaved secret value',
+    );
+    expect(screen.getByText('1 pending change')).toBeInTheDocument();
+  });
+
+  it('discards preference and write-only secret drafts together', async () => {
+    window.location.hash = '#/settings?s=general';
+    renderWithProviders(<Settings />);
+    const indexPattern = await screen.findByLabelText('Log index pattern');
+    await userEvent.clear(indexPattern);
+    await userEvent.type(indexPattern, 'security-events-*');
+
+    await userEvent.click(screen.getByTestId('settings-section-keys'));
+    const openAiKey = await screen.findByLabelText('OpenAI API key');
+    await userEvent.type(openAiKey, 'discard-me');
+    await userEvent.click(screen.getByRole('button', { name: 'Discard' }));
+
+    expect(openAiKey).toHaveValue('');
+    expect(screen.queryByRole('region', { name: 'Unsaved changes' })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByTestId('settings-section-general'));
+    expect(await screen.findByLabelText('Log index pattern')).toHaveValue('all-logs-*');
   });
 
   it('keeps a dirty Settings draft mounted until in-app navigation is confirmed', async () => {

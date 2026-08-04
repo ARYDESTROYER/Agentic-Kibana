@@ -218,7 +218,10 @@ describe("Chat page — Demo Mode height", () => {
 
   it("fills the routed workspace when demo is off", async () => {
     const { container } = renderChat();
-    expect(frameClass(container)).toContain("h-[calc(100dvh-5.5rem)]");
+    const cls = frameClass(container);
+    expect(cls).toContain("h-[calc(100dvh-5.5rem)]");
+    expect(cls).toContain("min-h-0");
+    expect(cls).not.toContain("sm:min-h-[34rem]");
     expect(screen.getByTestId("workspace-chat-frame")).toBeInTheDocument();
     await screen.findByTestId("chat-panel");
   });

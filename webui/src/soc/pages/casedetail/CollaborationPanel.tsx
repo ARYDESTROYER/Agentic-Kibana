@@ -11,7 +11,7 @@
  * changes the case decision (the backend enforces this).
  */
 import * as React from 'react';
-import { AlertTriangle, History, MessageSquare, RefreshCw, Save, Users } from 'lucide-react';
+import { History, MessageSquare, RefreshCw, Save, Users } from 'lucide-react';
 
 import { toast } from 'sonner';
 
@@ -23,7 +23,6 @@ import { Input } from '@/ui/input';
 import { Label } from '@/ui/label';
 import { Badge } from '@/ui/badge';
 import { Button } from '@/ui/button';
-import { Alert, AlertTitle, AlertDescription } from '@/ui/alert';
 import {
   Select,
   SelectTrigger,
@@ -32,10 +31,12 @@ import {
   SelectItem,
 } from '@/ui/select';
 import { Skeleton } from '@/ui/skeleton';
+import { LoadingBar, LoadingState } from '@/design-system';
 
 import { CaseThread, visibleMessageCount } from '@/soc/components/CaseThread';
 import { CaseTasks } from '@/soc/components/CaseTasks';
 import { CaseActivityFeed } from '@/soc/components/CaseActivityFeed';
+import { LoadError } from '@/soc/components/LoadError';
 import type {
   CaseMessage as ThreadMessage,
   CaseTask as CaseTaskItem,
@@ -156,14 +157,19 @@ export const CollaborationThreadTab: React.FC<{
   threadError: unknown;
   threadBusyId: string | null;
   tasks: CaseTaskItem[] | null;
+  tasksLoading: boolean;
+  tasksError: unknown;
   tasksBusyId: string | null;
   activity: CaseActivityItem[] | null;
   activityLoading: boolean;
+  activityError: unknown;
   users: PickableUser[];
   currentUser: string | null;
   canComment: boolean;
   canWrite: boolean;
   onRetryThread: () => void;
+  onRetryTasks: () => void;
+  onRetryActivity: () => void;
   onPost: (text: string) => void;
   onReply: (parentId: string, text: string) => void;
   onEdit: (msgId: string, text: string) => void;
@@ -189,14 +195,19 @@ export const CollaborationThreadTab: React.FC<{
   threadError,
   threadBusyId,
   tasks,
+  tasksLoading,
+  tasksError,
   tasksBusyId,
   activity,
   activityLoading,
+  activityError,
   users,
   currentUser,
   canComment,
   canWrite,
   onRetryThread,
+  onRetryTasks,
+  onRetryActivity,
   onPost,
   onReply,
   onEdit,
@@ -251,46 +262,59 @@ export const CollaborationThreadTab: React.FC<{
           >
             Discussion
           </SectionHeading>
+          <LoadingBar
+            active={threadLoading && thread !== null}
+            size="sm"
+            label="Refreshing discussion"
+            className="mb-3"
+          />
           {threadLoading && thread === null ? (
             <div className="space-y-3">
               <Skeleton className="h-16 w-full" />
               <Skeleton className="h-16 w-full" />
             </div>
-          ) : threadError ? (
-            <div>
-              <Alert variant="destructive">
-                <AlertTriangle className="h-4 w-4" />
-                <AlertTitle>Could not load the thread</AlertTitle>
-                <AlertDescription>
-                  {threadError instanceof Error ? threadError.message : 'Something went wrong.'}
-                </AlertDescription>
-              </Alert>
-              <Button className="mt-3" size="sm" variant="outline" onClick={onRetryThread}>
-                <RefreshCw className="h-4 w-4" /> Retry
-              </Button>
-            </div>
-          ) : (
-            <CaseThread
-              messages={thread || []}
-              users={users}
-              currentUser={currentUser}
-              canComment={canComment}
-              busyId={threadBusyId}
-              onPost={onPost}
-              onReply={onReply}
-              onEdit={onEdit}
-              onDelete={onDelete}
-              onReact={onReact}
-              liveCaseId={liveCaseId}
-              onLiveActivity={onLiveThread}
-              className={cn(
-                isCaseManager &&
-                  'flex min-h-[26rem] flex-1 flex-col [&>div:first-child]:flex-1',
-                isCaseManager &&
-                  canComment &&
-                  '[&>div:last-child]:mt-auto [&>div:last-child]:rounded-none [&>div:last-child]:border-x-0 [&>div:last-child]:border-b-0 [&>div:last-child]:border-t [&>div:last-child]:border-border/60 [&>div:last-child]:bg-transparent [&>div:last-child]:px-0 [&>div:last-child]:pb-0 [&>div:last-child]:pt-4',
-              )}
+          ) : threadError && thread === null ? (
+            <LoadError
+              error={threadError}
+              title="Could not load discussion"
+              fallback="The shared case discussion is temporarily unavailable."
+              retryLabel="Retry discussion"
+              onRetry={onRetryThread}
             />
+          ) : (
+            <>
+              {threadError ? (
+                <LoadError
+                  error={threadError}
+                  title="Could not refresh discussion"
+                  fallback="The last loaded discussion remains visible."
+                  retryLabel="Retry discussion"
+                  onRetry={onRetryThread}
+                  className="mb-3"
+                />
+              ) : null}
+              <CaseThread
+                messages={thread || []}
+                users={users}
+                currentUser={currentUser}
+                canComment={canComment}
+                busyId={threadBusyId}
+                onPost={onPost}
+                onReply={onReply}
+                onEdit={onEdit}
+                onDelete={onDelete}
+                onReact={onReact}
+                liveCaseId={liveCaseId}
+                onLiveActivity={onLiveThread}
+                className={cn(
+                  isCaseManager &&
+                    'flex min-h-[26rem] flex-1 flex-col [&>div:first-child]:flex-1',
+                  isCaseManager &&
+                    canComment &&
+                    '[&>div:last-child]:mt-auto [&>div:last-child]:rounded-none [&>div:last-child]:border-x-0 [&>div:last-child]:border-b-0 [&>div:last-child]:border-t [&>div:last-child]:border-border/60 [&>div:last-child]:bg-transparent [&>div:last-child]:px-0 [&>div:last-child]:pb-0 [&>div:last-child]:pt-4',
+                )}
+              />
+            </>
           )}
         </PanelCard>
       </div>
@@ -329,14 +353,45 @@ export const CollaborationThreadTab: React.FC<{
               'rounded-none border-x-0 border-b-0 border-t border-border/60 bg-transparent px-0 py-4 shadow-none',
           )}
         >
-          <CaseTasks
-            tasks={tasks || []}
-            canWrite={canWrite}
-            busyId={tasksBusyId}
-            onAdd={onAddTask}
-            onStatus={onTaskStatus}
-            onLog={onTaskLog}
+          <LoadingBar
+            active={tasksLoading && tasks !== null}
+            size="sm"
+            label="Refreshing case tasks"
+            className="mb-3"
           />
+          {tasksLoading && tasks === null ? (
+            <LoadingState
+              label="Loading case tasks"
+              description="Retrieving the shared response checklist."
+              layout="panel"
+              shape="rows"
+              shapeRows={3}
+              className="min-h-48"
+            />
+          ) : (
+            <>
+              {tasksError ? (
+                <LoadError
+                  error={tasksError}
+                  title={tasks === null ? 'Could not load tasks' : 'Could not refresh tasks'}
+                  fallback="The shared response checklist is temporarily unavailable."
+                  retryLabel="Retry tasks"
+                  onRetry={onRetryTasks}
+                  className={tasks !== null ? 'mb-3' : undefined}
+                />
+              ) : null}
+              {tasks !== null ? (
+                <CaseTasks
+                  tasks={tasks}
+                  canWrite={canWrite}
+                  busyId={tasksBusyId}
+                  onAdd={onAddTask}
+                  onStatus={onTaskStatus}
+                  onLog={onTaskLog}
+                />
+              ) : null}
+            </>
+          )}
         </PanelCard>
 
         <PanelCard
@@ -350,12 +405,30 @@ export const CollaborationThreadTab: React.FC<{
           <SectionHeading icon={History}>
             Activity
           </SectionHeading>
-          <CaseActivityFeed
-            items={activity || []}
-            loading={activityLoading && activity === null}
-            liveCaseId={liveCaseId}
-            onLiveActivity={onLiveActivity}
+          <LoadingBar
+            active={activityLoading && activity !== null}
+            size="sm"
+            label="Refreshing case activity"
+            className="mb-3"
           />
+          {activityError ? (
+            <LoadError
+              error={activityError}
+              title={activity === null ? 'Could not load activity' : 'Could not refresh activity'}
+              fallback="The authoritative case timeline is temporarily unavailable."
+              retryLabel="Retry activity"
+              onRetry={onRetryActivity}
+              className={activity !== null ? 'mb-3' : undefined}
+            />
+          ) : null}
+          {activityError && activity === null ? null : (
+            <CaseActivityFeed
+              items={activity || []}
+              loading={activityLoading && activity === null}
+              liveCaseId={liveCaseId}
+              onLiveActivity={onLiveActivity}
+            />
+          )}
         </PanelCard>
       </aside>
     </div>

@@ -56,6 +56,52 @@ Do not repeat a page title inside the first content panel. Do not add an eyebrow
 as “Decision brief” when the actual outcome heading is already explicit. A nested
 workflow can have its own section label only when it adds information.
 
+Tabbed or embedded leaves yield width, heading, and page-action authority to their
+host. They may contribute a labelled `ControlBar`, but must not nest another
+`PageContainer` or detach an unlabelled refresh row. Queue filters and refresh actions
+belong in that control band; `PageHeader` stays focused on route identity and the
+single primary action.
+
+`ControlBar` adapts to its own available width, including inside a split pane. Put the
+task-defining controls in its primary slot so they remain first in visual and tab order;
+lower-priority fields, selects, and segmented controls belong in the secondary slot and
+wrap after them. Only simple button-like commands may use the overflow-action contract:
+they stay inline on a roomy desktop band and move behind one visibly labelled **More
+actions** menu below the shared component breakpoint. Menu items keep visible text,
+disabled and consequential styling, Radix arrow-key/Enter/Escape behavior, and return
+focus to the trigger when the menu closes. Never move form fields, value selectors, a
+sole primary action, or an in-progress command into overflow. Keep `role="group"` for
+ordinary independently tabbable controls; do not advertise `role="toolbar"` unless the
+implementation also supplies the toolbar roving-focus keyboard model.
+
+## Empty-state semantics
+
+Use the shared `EmptyState` with an explicit `state` whenever a Console surface has
+loaded but cannot render its ordinary content. The state is an operator truth, not a
+decorative tone:
+
+- **`first-use`** — the capability is available, but its prerequisite configuration
+  or first record has not been created. Name the missing prerequisite and offer the
+  safest create/configure action when the operator is allowed to take it.
+- **`no-data`** — the requested scope loaded successfully and contains no records.
+  State that scope without implying success, failure, or a disabled capability.
+- **`no-results`** — records may exist, but the current search or filters exclude all
+  of them. Preserve the operator's filters and provide one clear/reset action.
+- **`success`** — absence is the confirmed desirable outcome, such as a completed or
+  clear attention queue. Say what was checked and what the operator should do next;
+  do not infer success from missing, degraded, or unavailable evidence.
+- **`unavailable`** — a known disabled, unsupported, or unmet prerequisite prevents
+  the content from being produced. Explain the prerequisite and the safe recovery;
+  a request failure remains an error, and authorization denial keeps its own gate.
+- **`error`** — a load or operation failed. Keep the failure actionable, preserve any
+  usable stale content, and offer Retry when safe. Legacy `variant="error"` remains a
+  compatibility alias for this semantic state.
+
+The title names the outcome; the description says why content is absent and gives the
+next safe action. `EmptyState` supplies the state-appropriate marker and accessible
+group/status/alert semantics. Do not use a calm no-data state for a failed request, or
+celebrate a clear queue unless the loaded evidence proves it.
+
 ## Queue and detail workspaces
 
 A desktop list/detail split uses one hairline, focusable separator rather than two
@@ -76,6 +122,13 @@ rows in the loaded client window and never implies every server match. Mixed bul
 operations expose progress and per-record partial failures; successful records leave
 the selection while failures remain retryable. Permission hiding in the Console is
 guidance—the API must recheck every action.
+
+Campaigns is analyst-first. The default **Campaign review** workspace owns the current
+group list, detail, and read-only refresh; manual correlation and saved cadence belong
+only in the permission-gated **Policy & schedule** workspace. Do not append the policy
+editor below the analyst queue or expose mutation controls to read-only roles. Each
+workspace keeps its own stable loading, error, and empty geometry, while campaign
+grouping remains advisory and never becomes deterministic case-decision authority.
 
 ## Case investigation-input provenance
 
@@ -109,6 +162,13 @@ rows show title, preview, age, and message count; the selected row exposes
 partial-error, and no-match states occupy the rail rather than replacing the usable
 active transcript. Desktop exposes one page-level **New chat** action; the mobile Sheet
 may repeat it locally because the page action is no longer in view.
+
+The Chat workspace owns one fluid `PageContainer`; a route wrapper must not place the
+split conversation workspace inside a second fixed-width container.
+
+Its height follows the available viewport below the shared shell header. Do not impose
+a fixed `rem` minimum on the transcript/workbench: short desktop windows must keep the
+single docked composer fully visible while the transcript becomes the scroll owner.
 
 History truth is fail-closed. A storage/read failure is an explicit retryable error and
 must never render the calm **No previous conversations** state. Revalidate the newest-
@@ -182,12 +242,33 @@ do not hand-build a second nav list.
 - Primary navigation contains distinct operator jobs, not alternate reports over the
   same objects. Legacy destinations may stay hidden and routable for bookmarks during a
   transition.
+- The **Intelligence** group uses five direct, non-overlapping operator destinations:
+  **Knowledge corpus** is indexed RAG material; **Reference runbooks** are retrievable
+  investigation guidance; **Operator memory** is approved durable context;
+  **Response playbooks** are deterministically selected procedures; and **Agent
+  personas** are read-only specialist profiles. Each destination is a first-level
+  child and stable deep link. Do not hide Personas behind a Playbooks tab or use the
+  generic labels “Knowledge”, “Memory”, “Catalog”, or “Playbooks & agents” when the
+  specific contract is known. The legacy `#/catalog` route remains a compatibility
+  alias that opens **Response playbooks**.
+- Intelligence catalogs are divider-led reference lists, not card galleries. Each
+  persona or playbook row exposes identity, purpose, and the smallest useful evidence
+  summary first; criteria, tools, coverage, and replay evidence disclose in place.
+  Reserve a Sheet for a full source document or create/edit workflow so scanning the
+  catalog never replaces the operator's route context.
 - The collapsed rail remains a stable 64px dock until the operator explicitly expands
   it. Hovering or focusing a grouped icon reveals one compact, viewport-clamped
   destination flyout; it never widens the entire rail. Pointer travel across the gap is
   delay-safe, focus opens immediately, Escape restores the trigger, and childless
   destinations retain simple labels/tooltips. Explicit expansion uses the shared
   reduced-motion-aware transition.
+- The global command palette uses progressive disclosure. Its blank state contains
+  recent work, a few safe quick actions, and top-level destinations only. Deep child
+  routes, individual Settings sections, cases, and sources appear after the operator
+  types a query. Do not render the entire route and Settings registry before input: a
+  launcher should offer one calm first decision, then reveal precision on demand.
+  Because the palette has wide, compact, and keyboard openers outside its Dialog,
+  remember the exact opener and restore focus to it on Escape, selection, or close.
 - Product documentation is a bottom utility destination, separate from operational
   feature groups.
 - The in-app **Documentation** destination opens the version-matched Help Center
@@ -211,10 +292,35 @@ animations. Keep usable content mounted during refresh and use the existing
 `LoadingBar`; do not add another animation dependency. Button-level progress remains
 local to the button it disables.
 
+Manual page and queue reloads use the shared `RefreshButton`. Keep its visible action
+label and fixed icon slot mounted while the request runs; indicate progress with the
+same reduced-motion-safe rotating refresh glyph, `aria-busy`, and a disabled control.
+Do not swap the glyph for a differently sized spinner, rename the action to
+“Refreshing…”, or allow a second click while the request is in flight: those variants
+create toolbar movement and inconsistent feedback. Initial blocking loads and
+background data refreshes still follow the `LoadingState` / `LoadingBar` contract above.
+
 Motion explains state change: route entry, disclosure, row insertion/removal, or a
 terminal live marker. It does not decorate static content. Honor
 `prefers-reduced-motion`; no required information depends on animation. Only the newest
 terminal timeline marker pulses.
+
+## Detection-rule authoring honesty
+
+The normal Detection & Rules editor exposes only capabilities that survive Save and
+affect the current runtime. A detection-match rule authors exactly one predicate plus
+its active correlation threshold: group-by, event count, and time window. Do not add an
+**Add condition** affordance, nested AND/OR builder, MITRE metadata input, per-rule
+suppression editor, or per-rule cadence input until that capability is persisted,
+validated, executed, previewed, and explained end to end.
+
+The Schedule tab remains useful as a read-only explanation: detection cadence is owned
+by the source feed and its durable cursor; case-automation rules run after a case
+decision. Direct or legacy API clients may already have additive `mitre`, `schedule`,
+or `suppression` metadata. Keep those values in the form adapter solely for invisible,
+lossless compatibility round-trip so editing a name or threshold cannot erase them;
+never badge them as active or let hidden metadata influence deterministic case
+authority. Rule preview sends the same single authoritative predicate that Save emits.
 
 ## Operational metric and tuning surfaces
 
@@ -233,25 +339,30 @@ Definitions remain available from the metric's keyboard-accessible **How** contr
 
 Auto-tuning uses three task-focused Radix tabs: **Operations** (default), **Outcomes**
 (`metrics:view`), and **Policy & history**. Do not place all three workflows in one
-continuous page. Operations owns authority, health, recommendations, pending human
-proposals, monitored rules, and selected-rule detail. Outcomes owns the reporting
+continuous page. Operations owns authority, rule state, recommendations, approval
+routing, and selected-rule detail in one review surface. Outcomes owns the reporting
 window, comparisons, daily evidence, and quality controls. Policy & history owns the
 append-only ledger and editable tuner policy.
 
-Operations begins with one compact authority/status band and one continuous four-cell
-health strip. Rule state vocabulary is fixed: **Collecting** below `min_samples`,
+Operations begins with one compact authority/status band and one continuous three-cell
+state strip. The cells form one mutually exclusive distribution rather than four
+unrelated KPIs; the monitored total belongs in nearby supporting copy. Rule state
+vocabulary is fixed: **Collecting** below `min_samples`,
 **Within target** when sufficiently sampled and at or below policy, and **Needs
 attention** when sufficiently sampled and above policy. Never label under-sampled
 evidence healthy.
 
-Recommendations are grouped by rule and expose exactly one mutation affordance per
-rule. The visual and reading order is **Why it needs attention → Recommended action →
+Recommendations and monitored evidence share exactly one attention-ordered
+**Rule review** workspace. Do not introduce a second review queue, recommendation
+card stack, or duplicate rule action. Recommendation-only rows remain visible in the
+same workspace. Recommendations are grouped by rule and expose exactly one mutation
+affordance per rule. The visual and reading order is **Why it needs attention → Recommended action →
 Expected operational effect → Safety replay**. Processing one rule may apply multiple
 eligible bounded changes and queue restricted changes; same-rule actions lock together
 while unrelated rules remain usable. Never label a recommendation merely **Safe**:
-use **Eligible after replay**, because the evidence and safeguards are recomputed before
-the write and may still route the change to Approvals. A restricted-only rule links to
-Approvals when the operator has access.
+use **Can apply after safety check**, because the evidence and safeguards are recomputed
+before the write and may still route the change to Approvals. A restricted-only rule
+links to Approvals when the operator has access.
 
 All monitored rules use a responsive diagnosis-first list rather than a wide
 statistics-first table. Each row states the rule's evidence state and the bounded next
@@ -358,26 +469,43 @@ Persist display-font choices as their stable allow-listed key; expand the key to
 self-hosted stack only when writing CSS. Normalise legacy hex primary/ring/secondary
 accent tokens to the HSL triplets expected by `hsl(var(--token))` consumers.
 
-## Release identity and activation
+## Release identity and supervised updates
 
-The version badge remains the always-visible release identity. When a different,
-already-deployed static release is proven coherent with public backend build-info and
-readiness, place one compact **Update available** action immediately beside that badge.
-Do not replace the badge, add a persistent banner, or infer availability from SemVer
-alone.
+The version badge remains the always-visible release identity. For a built-in
+super-administrator with the dedicated update permission, place one compact update
+control immediately beside it only when the backend reports a newer Stable candidate
+and a supported supervisor capability. Do not replace the badge, add a persistent
+banner, infer installability from SemVer alone, or expose a Testing observation as an
+installable release.
 
-The action opens the shared confirmation dialog, explains that the current document
-will reload, and returns focus to its trigger when cancelled. A known unsaved draft
-must withhold the confirm action and direct the operator back to save or discard the
-work; the page-exit guard remains a fallback. Announce newly available status once
-through the polite live region, never by repeated toast. There is no automatic reload.
+Below the desktop breakpoint, the top bar still shows that release badge and any
+candidate, active, or failed update action directly. Group secondary utilities
+(notifications, appearance, health detail, account links, source-only observations,
+and non-actionable update setup or receipts) in one labelled, non-menu Sheet. The
+Sheet must use normal buttons and sections rather than ARIA menu roles, provide 44px
+touch targets, close on Escape, and return focus to its trigger. Do not let shell
+chrome create document-wide horizontal scrolling at 320px, 390px, or 600px.
 
-Activation repeats the no-store release-manifest, backend identity/readiness, and
-entry-document checks before preserving the hash route across a full-page navigation.
-Background discovery failures stay quiet. An explicit activation failure may use one
-actionable error toast, but it must leave the current Console interactive. Never expose
-browser controls for image pulls, service restarts, migrations, deploy credentials,
-channel promotion, or rollback.
+The control must begin with server-bound preflight, then open the shared confirmation
+dialog with the exact target, components, backup, rollback guarantee, warnings, and
+blocking checks. A known unsaved draft withholds Start and directs the operator to
+save or discard it. Cancellation returns focus to its trigger. Announce availability
+once through a polite live region, never by repeated toast.
+
+After confirmation, show one durable global progress surface with named stages,
+bounded progress, the expected reconnect, automatic rollback state, actionable error,
+and receipt. Reloading or navigating back must resume the host-side active job; the
+browser must never pretend a disconnected request failed if the supervisor may still
+be working. Cancel is offered only before switching starts. Manual rollback is offered
+only when the supervisor reports a retained rollbackable snapshot.
+
+Following a successful job, activation repeats the no-store release manifest,
+backend identity/readiness, and entry-document checks before preserving the hash route
+across a full-page navigation. If automatic activation cannot finish, keep an explicit
+**Open updated Console** fallback visible. Background discovery failures stay quiet;
+explicit failures use one actionable error surface and leave the current document
+interactive. Never expose browser-editable image names, release URLs, commands, host
+paths, registry/deployment credentials, migration instructions, or Compose fragments.
 
 ## Identity surfaces
 

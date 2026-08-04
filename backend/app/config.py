@@ -155,6 +155,20 @@ class Secrets(BaseSettings):
     backend_port: int = 8088
     log_level: str = "INFO"
 
+    # --- Supervised application updates (standalone Compose profile only) ---
+    # The ordinary API process never receives Docker or host credentials.  It may
+    # only ask the separately installed updater supervisor to perform one of the
+    # supervisor's fixed, signed-plan operations over this private Unix socket.
+    # Absence of the socket is a truthful capability blocker (older/manual installs
+    # need the documented one-time bootstrap); it never falls back to TCP or shell.
+    update_supervisor_socket: str = "/run/agentic-soc-updater/control.sock"
+    update_supervisor_timeout_seconds: float = Field(default=8.0, ge=1.0, le=30.0)
+    # Preflight performs bounded signature and registry checks and may legitimately
+    # take longer than the local status/job-control calls above.
+    update_supervisor_preflight_timeout_seconds: float = Field(
+        default=180.0, ge=30.0, le=300.0
+    )
+
     # --- Auth (Wave 2; OPTIONAL — default OFF so the no-auth "old version" is the
     # out-of-the-box behaviour and fully available). Flip ``auth_enabled`` to require
     # a JWT login on every /api route except the small public allowlist. Credentials

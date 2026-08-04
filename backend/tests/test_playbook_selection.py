@@ -6,9 +6,17 @@ constructs ``Playbook`` objects directly from manifests (no files needed).
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from app.constants import EntityType
 from app.engine.correlation import cluster_from_events
-from app.playbooks import Playbook, PlaybookManifest, PlaybookMatch, select_playbook
+from app.playbooks import (
+    Playbook,
+    PlaybookManifest,
+    PlaybookMatch,
+    load_playbooks,
+    select_playbook,
+)
 from tests.conftest import make_raw_event
 
 
@@ -109,3 +117,22 @@ def test_mitre_matches_opportunistically_against_rule_names() -> None:
     # And does not match a cluster whose rule is unrelated.
     other = _cluster(rule="mail_auth", n=3)
     assert select_playbook(other, [pb])[0] is None
+
+
+def test_bundled_cloud_data_and_ransomware_procedures_select_exactly() -> None:
+    playbooks = load_playbooks(Path(__file__).resolve().parents[1] / "playbooks")
+
+    expected = {
+        "cloud_iam_anomaly": "cloud_identity_compromise",
+        "data_exfiltration": "data_exfiltration_response",
+        "ransomware_behavior": "ransomware_response",
+    }
+    for rule_id, playbook_id in expected.items():
+        selected, reason = select_playbook(_cluster(rule=rule_id), playbooks)
+        assert selected is not None
+        assert selected.id == playbook_id
+        assert rule_id in reason
+
+    selected, reason = select_playbook(_cluster(rule="unrelated_custom_rule"), playbooks)
+    assert selected is None
+    assert reason == "no_playbook_matched"

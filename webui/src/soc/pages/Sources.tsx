@@ -32,7 +32,6 @@ import {
   X,
   Filter,
   MoreHorizontal,
-  RefreshCw,
   KeyRound,
   Check,
   Activity,
@@ -55,6 +54,7 @@ import { toast } from 'sonner';
 import { PageHeader } from '@/soc/components/PageHeader';
 import { PageContainer } from '@/soc/components/PageContainer';
 import { FilterBar } from '@/soc/components/FilterBar';
+import { RefreshButton } from '@/soc/components/RefreshButton';
 import { ConfirmDialog } from '@/soc/components/ConfirmDialog';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
@@ -982,10 +982,7 @@ export default function Sources(_props: SourcesProps) {
             )}
             end={
               <>
-                <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
-                  <RefreshCw className={cn('mr-1.5 size-4', loading && 'animate-spin')} aria-hidden />
-                  Refresh
-                </Button>
+                <RefreshButton onClick={() => void load()} refreshing={loading} />
                 <ColumnsMenu
                   columns={columnMenuItems}
                   state={effectiveColumnState}

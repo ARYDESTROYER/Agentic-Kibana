@@ -6,7 +6,12 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 
-from ..engine.telemetry_recommendations import TELEMETRY_GAP_SCHEMA, recommend_sources
+from ..engine.telemetry_recommendations import (
+    TELEMETRY_GAP_CAPTURE_REASON,
+    TELEMETRY_GAP_CAPTURE_STATUS,
+    TELEMETRY_GAP_SCHEMA,
+    recommend_sources,
+)
 from ..state import AppState
 from .deps import get_state, require_permission
 
@@ -38,10 +43,11 @@ async def source_recommendations(
         "scanned_cases": len(cases),
         "truncated": len(cases) >= max_cases,
         "evidence_schema": TELEMETRY_GAP_SCHEMA,
+        "capture_status": TELEMETRY_GAP_CAPTURE_STATUS,
+        "capture_not_available_reason": TELEMETRY_GAP_CAPTURE_REASON,
         "not_available_reason": (
             "No query-backed telemetry gap has been recorded. Missing connector configuration alone is not evidence."
             if not rows
             else ""
         ),
     }
-

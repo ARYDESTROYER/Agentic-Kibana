@@ -8,7 +8,7 @@
  * + plain-text part. The api surface is mocked so no network is touched.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 vi.mock('@/lib/api', () => ({
@@ -44,7 +44,7 @@ import type { Preferences } from '@/lib/types';
 
 const previewMock = vi.mocked(api.notifications.preview);
 
-function setup(prefsOver: Partial<Preferences> = {}) {
+async function setup(prefsOver: Partial<Preferences> = {}) {
   const update = vi.fn();
   const prefs = { ...prefsOver } as Preferences;
   // The shared SecretField's reveal IconButton renders a Tooltip; the app supplies ONE
@@ -54,21 +54,28 @@ function setup(prefsOver: Partial<Preferences> = {}) {
       <NotificationsEditor prefs={prefs} update={update} />
     </TooltipProvider>,
   );
+  // Provider discovery resolves immediately in this harness but still updates React
+  // asynchronously. Settle it before assertions/interactions so Radix registration
+  // effects never escape the test's act boundary.
+  await act(async () => {
+    await Promise.resolve();
+  });
   return { update, ...utils };
 }
 
 describe('NotificationsEditor — Resend / SES channels', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('offers Resend and Amazon SES in the add-channel picker', () => {
-    setup({ notifications: { enabled: true, channels: [] } });
-    fireEvent.click(screen.getByRole('button', { name: /Add channel/i }));
+  it('offers Resend and Amazon SES in the add-channel picker', async () => {
+    const user = userEvent.setup();
+    await setup({ notifications: { enabled: true, channels: [] } });
+    await user.click(screen.getByRole('button', { name: /Add channel/i }));
     expect(screen.getByText('Resend')).toBeInTheDocument();
     expect(screen.getByText('Amazon SES')).toBeInTheDocument();
   });
 
-  it('renders a Resend channel with its domain-verification note + From + secret label', () => {
-    setup({
+  it('renders a Resend channel with its domain-verification note + From + secret label', async () => {
+    await setup({
       notifications: {
         enabled: true,
         channels: [
@@ -88,8 +95,8 @@ describe('NotificationsEditor — Resend / SES channels', () => {
     expect(screen.getByText(/Resend API key/i)).toBeInTheDocument();
   });
 
-  it('renders an SES channel with its sandbox note + region + IAM key id', () => {
-    setup({
+  it('renders an SES channel with its sandbox note + region + IAM key id', async () => {
+    await setup({
       notifications: {
         enabled: true,
         channels: [
@@ -116,8 +123,8 @@ describe('NotificationsEditor — Resend / SES channels', () => {
 describe('NotificationsEditor — template editor + preview', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('renders the template editor with a trigger picker and variable reference', () => {
-    setup({ notifications: { enabled: true, channels: [] } });
+  it('renders the template editor with a trigger picker and variable reference', async () => {
+    await setup({ notifications: { enabled: true, channels: [] } });
     expect(screen.getByText('Email templates')).toBeInTheDocument();
     expect(screen.getByLabelText('Template trigger')).toBeInTheDocument();
     // default variable reference list is shown before any preview
@@ -126,8 +133,9 @@ describe('NotificationsEditor — template editor + preview', () => {
   });
 
   it('calls the server-side preview and shows the rendered subject + text part', async () => {
-    setup({ notifications: { enabled: true, channels: [] } });
-    fireEvent.click(screen.getByRole('button', { name: /Render preview/i }));
+    const user = userEvent.setup();
+    await setup({ notifications: { enabled: true, channels: [] } });
+    await user.click(screen.getByRole('button', { name: /Render preview/i }));
     await waitFor(() => expect(previewMock).toHaveBeenCalled());
     // server is authoritative for escaping; the trigger is passed through
     expect(previewMock.mock.calls[0][0]).toBe('case.new');
@@ -139,7 +147,7 @@ describe('NotificationsEditor — template editor + preview', () => {
     expect(frame).toHaveAttribute('sandbox', '');
     expect(frame.getAttribute('srcdoc') || '').toContain('phishing wave');
     // switch to the plain-text tab and assert the server text part is rendered
-    await userEvent.click(screen.getByRole('tab', { name: /Plain text/i }));
+    await user.click(screen.getByRole('tab', { name: /Plain text/i }));
     await waitFor(() =>
       expect(
         screen.getByText(
@@ -150,10 +158,12 @@ describe('NotificationsEditor — template editor + preview', () => {
   });
 
   it('passes the unsaved draft override to the preview endpoint', async () => {
-    setup({ notifications: { enabled: true, channels: [] } });
+    const user = userEvent.setup();
+    await setup({ notifications: { enabled: true, channels: [] } });
     const subj = screen.getByLabelText('Template subject');
+    // Literal Mustache braces are content, not user-event key descriptors.
     fireEvent.change(subj, { target: { value: '[{{org_name}}] custom {{title}}' } });
-    fireEvent.click(screen.getByRole('button', { name: /Render preview/i }));
+    await user.click(screen.getByRole('button', { name: /Render preview/i }));
     await waitFor(() => expect(previewMock).toHaveBeenCalled());
     expect(previewMock.mock.calls[0][1]).toMatchObject({
       subject: '[{{org_name}}] custom {{title}}',

@@ -17,14 +17,13 @@
  * job is advisory plumbing and never touches `decide()`.
  */
 import * as React from 'react';
-import { Layers, RefreshCw, Loader2, Percent, Info } from 'lucide-react';
+import { Layers, Percent, Info } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { LoadingState } from '@/design-system';
 import { errorMessage } from '@/lib/errorMessage';
 import type { BatchConfig } from '@/lib/types';
 import { fmtNumber, humanizeAge, humanizeToken, DASH } from '@/lib/format';
-import { Button } from '@/ui/button';
 import { Badge } from '@/ui/badge';
 import { Switch } from '@/ui/switch';
 import { Label } from '@/ui/label';
@@ -32,7 +31,8 @@ import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
 import { Separator } from '@/ui/separator';
 import { PageHeader } from '@/soc/components/PageHeader';
 import { PageContainer } from '@/soc/components/PageContainer';
-import { StatCard } from '@/soc/components/StatCard';
+import { RefreshButton } from '@/soc/components/RefreshButton';
+import { KpiTile } from '@/soc/components/KpiTile';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
 import { InlineCode } from '@/soc/components/CodeBlock';
@@ -257,22 +257,13 @@ export function BatchJobsInner() {
         title="Batch jobs"
         description="Async LLM batch-inference jobs routed through a provider's discounted batch API. Read-only — submit, poll, and retrieve run out-of-band."
         actions={
-          <Button
-            variant="outline"
-            size="sm"
+          <RefreshButton
             // Refresh only re-loads the read-only jobs table; it must NOT reload the
             // config (that would silently clobber unsaved policy edits — the editor
             // has its own load-on-mount + LoadError retry).
             onClick={() => void load()}
-            disabled={loading}
-          >
-            {loading ? (
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-            ) : (
-              <RefreshCw className="h-4 w-4" aria-hidden />
-            )}
-            Refresh
-          </Button>
+            refreshing={loading}
+          />
         }
       />
 
@@ -286,18 +277,38 @@ export function BatchJobsInner() {
         />
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <StatCard label="Total jobs" value={fmtNumber(totals.total)} accent="primary" icon={Layers} />
-            <StatCard label="In flight" value={fmtNumber(totals.active)} accent="info" />
+          <div className="grid border-y border-border/70 sm:grid-cols-2 lg:grid-cols-4">
+            <KpiTile
+              label="Total jobs"
+              value={fmtNumber(totals.total)}
+              accent="primary"
+              icon={Layers}
+              variant="strip"
+              className="border-b border-border/70 sm:border-r lg:border-b-0"
+            />
+            <KpiTile
+              label="In flight"
+              value={fmtNumber(totals.active)}
+              accent="info"
+              variant="strip"
+              className="border-b border-border/70 lg:border-b-0 lg:border-r"
+            />
             {/* `done` counts JOBS whose state is `retrieved`; `retrieved` sums individual
                 REQUESTS retrieved. Label each by its granularity so "retrieved" is not
                 overloaded across the two adjacent tiles. */}
-            <StatCard label="Jobs done" value={fmtNumber(totals.done)} accent="success" />
-            <StatCard
+            <KpiTile
+              label="Jobs done"
+              value={fmtNumber(totals.done)}
+              accent="success"
+              variant="strip"
+              className="border-b border-border/70 sm:border-b-0 sm:border-r"
+            />
+            <KpiTile
               label="Requests retrieved"
               value={fmtNumber(totals.retrieved)}
               sub={`of ${fmtNumber(totals.requests)} total`}
               accent="primary"
+              variant="strip"
             />
           </div>
 

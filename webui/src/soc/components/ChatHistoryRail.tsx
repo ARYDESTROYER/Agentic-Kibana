@@ -153,9 +153,9 @@ export function ChatHistoryRail({
     <div className="flex h-full min-h-0 flex-col bg-surface/25">
       <div className="shrink-0 border-b border-border px-3 py-3.5">
         <div className="flex items-center justify-between gap-2">
-          <div>
+          <div className="flex min-w-0 items-baseline gap-2">
             <div className="text-sm font-semibold text-foreground">History</div>
-            <div className="mt-0.5 text-xs text-muted-foreground">
+            <div className="truncate text-2xs text-muted-foreground">
               {conversations.length} {conversations.length === 1 ? "conversation" : "conversations"}
             </div>
           </div>
@@ -194,16 +194,24 @@ export function ChatHistoryRail({
       <nav
         className="min-h-0 flex-1 overflow-y-auto px-2 py-2"
         aria-label="Conversation history"
+        aria-busy={loading}
       >
         {loading && conversations.length === 0 ? (
-          <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-muted-foreground">
+          <div
+            className="flex min-h-32 items-center justify-center gap-2 text-sm text-muted-foreground"
+            role="status"
+            aria-live="polite"
+          >
             <LoadingGlyph size="sm" />
             Loading conversations…
           </div>
         ) : null}
 
         {error ? (
-          <div className="mx-1 mb-2 border-l-2 border-critical px-2 py-2 text-xs text-muted-foreground">
+          <div
+            className="mx-1 mb-2 border-l-2 border-critical px-2 py-2 text-xs text-muted-foreground"
+            role="alert"
+          >
             <div>{error}</div>
             <Button
               type="button"
@@ -218,7 +226,7 @@ export function ChatHistoryRail({
         ) : null}
 
         {!loading && !error && filtered.length === 0 ? (
-          <div className="px-4 py-6 text-left">
+          <div className="px-4 py-6 text-left" role="status" aria-live="polite">
             <span className="flex h-8 w-8 items-center justify-center rounded-sm border border-border bg-background text-muted-foreground">
               <MessageSquare className="h-4 w-4" aria-hidden />
             </span>
@@ -233,7 +241,7 @@ export function ChatHistoryRail({
           </div>
         ) : null}
 
-        <div className="space-y-4">
+        <div className="space-y-3">
           {groups.map((group) => {
             const groupId = `${headingPrefix}-${group.label.toLowerCase().replace(/\s+/g, "-")}`;
             return (
@@ -252,7 +260,7 @@ export function ChatHistoryRail({
                     <div
                       key={conversation.id}
                       className={cn(
-                        "group relative min-h-[4.5rem] border-l-2 border-transparent",
+                        "group relative min-h-[4.25rem] border-l-2 border-transparent",
                         active && "border-l-primary bg-accent/55",
                       )}
                     >
@@ -293,7 +301,7 @@ export function ChatHistoryRail({
                         <>
                           <button
                             type="button"
-                            className="block min-h-[4.5rem] w-full min-w-0 px-2.5 py-2.5 pr-9 text-left outline-none transition-colors hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
+                            className="block min-h-[4.25rem] w-full min-w-0 px-2.5 py-2 pr-9 text-left outline-none transition-colors hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
                             aria-current={active ? "page" : undefined}
                             aria-label={`${conversation.title || "Untitled conversation"} — ${humanizeAge(conversation.updated_at)} · ${conversation.message_count} ${conversation.message_count === 1 ? "message" : "messages"}`}
                             title={conversation.title}

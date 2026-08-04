@@ -1058,6 +1058,184 @@ export interface UpstreamReleasesResponse {
 }
 
 // --------------------------------------------------------------------------- //
+// Supervised system updates (standalone Docker Compose deployment only).
+// --------------------------------------------------------------------------- //
+/** Durable lifecycle returned by the separately supervised updater. */
+export type SystemUpdateJobStatus =
+  | 'queued'
+  | 'running'
+  | 'succeeded'
+  | 'failed'
+  | 'rolling_back'
+  | 'rolled_back'
+  | 'cancelled';
+
+/** Ordered, allow-listed phases. The browser never submits a phase or command. */
+export type SystemUpdateStage =
+  | 'validating'
+  | 'verifying_artifacts'
+  | 'pulling_images'
+  | 'quiescing'
+  | 'backing_up'
+  | 'updating_backend'
+  | 'verifying_backend'
+  | 'updating_webui'
+  | 'verifying_webui'
+  | 'observing'
+  | 'rolling_back'
+  | 'restoring_release'
+  | 'completed';
+
+/** Plain-data release identity selected and verified by the backend/supervisor. */
+export interface SystemUpdateRelease {
+  release_id: string;
+  version: string;
+  channel: 'stable';
+  tag: string;
+  commit_sha: string;
+  /** Display-only provenance. It is never echoed in a mutation request. */
+  repository_url: string;
+}
+
+export interface SystemUpdateCheck {
+  code: string;
+  label: string;
+  status: 'pass' | 'fail' | 'warning';
+  detail: string;
+}
+
+export interface SystemUpdateNotice {
+  code: string;
+  message: string;
+  remediation?: string | null;
+}
+
+export interface SystemUpdateComponent {
+  id: 'backend' | 'webui' | 'help_center' | string;
+  label: string;
+  current_version?: string | null;
+  target_version?: string | null;
+  scope: 'updated' | 'bundled' | 'unchanged';
+  will_update: boolean;
+}
+
+export interface SystemUpdateBackupPlan {
+  required: boolean;
+  kind: 'postgres_custom_format' | 'none';
+  state: 'planned' | 'ready' | 'not_required' | 'unavailable';
+  verified: boolean;
+  description: string;
+}
+
+export interface SystemUpdateRollbackPlan {
+  automatic: boolean;
+  supported: boolean;
+  state: 'planned' | 'ready' | 'unavailable' | 'not_required';
+  description: string;
+}
+
+export type SystemUpdateReleaseDiscoveryState =
+  | 'not_checked'
+  | 'current'
+  | 'candidate_observed'
+  | 'unavailable'
+  | 'stale'
+  | 'error';
+
+/**
+ * Read-only branch observation. It is deliberately not an installable release:
+ * signed release identity and component coordinates arrive only after supervisor
+ * preflight verifies the immutable Stable assets.
+ */
+export interface SystemUpdateObservedRelease {
+  release_id: string;
+  version: string;
+  channel: 'stable';
+  provenance: 'mutable_stable_branch_metadata';
+  verification: 'signed_supervisor_preflight_required';
+}
+
+export interface SystemUpdateReleaseDiscovery {
+  state: SystemUpdateReleaseDiscoveryState;
+  checked_at?: string | null;
+  branch: string;
+  observed_release?: SystemUpdateObservedRelease | null;
+  issue?: SystemUpdateNotice | null;
+}
+
+/** Durable, redacted job projection. It contains no host path, command, URL, or image. */
+export interface SystemUpdateJob {
+  job_id: string;
+  release_id: string;
+  status: SystemUpdateJobStatus;
+  stage: SystemUpdateStage;
+  progress: number;
+  message: string;
+  started_at?: string | null;
+  updated_at?: string | null;
+  error?: SystemUpdateNotice | null;
+  rollback?: SystemUpdateRollbackPlan | null;
+  receipt?: SystemUpdateReceipt | null;
+  /** Separate evidence for a later operator rollback; the success receipt remains immutable. */
+  rollback_receipt?: SystemUpdateReceipt | null;
+}
+
+export interface SystemUpdateStatusResponse {
+  capability: {
+    supported: boolean;
+    blockers: SystemUpdateNotice[];
+    warnings: SystemUpdateNotice[];
+    scope: {
+      deployment_profile: 'standalone_compose_postgres_v1';
+      state_backend: string;
+      components_updated: string[];
+      infrastructure_not_updated: string[];
+    };
+    supervisor: {
+      available: boolean;
+      protocol_version?: string | null;
+      updater_version?: string | null;
+      min_protocol_version?: string | null;
+    };
+    bootstrap_required: boolean;
+  };
+  current: {
+    version: string;
+    channel: 'stable' | 'testing';
+    commit_sha: string;
+  };
+  release_discovery: SystemUpdateReleaseDiscovery;
+  active_job: SystemUpdateJob | null;
+  last_job: SystemUpdateJob | null;
+  checked_at: string;
+}
+
+export interface SystemUpdatePreflightResponse {
+  preflight_token: string;
+  expires_at: string;
+  release: SystemUpdateRelease;
+  checks: SystemUpdateCheck[];
+  blockers: SystemUpdateNotice[];
+  warnings: SystemUpdateNotice[];
+  components: SystemUpdateComponent[];
+  backup: SystemUpdateBackupPlan;
+  rollback: SystemUpdateRollbackPlan;
+}
+
+export interface SystemUpdateReceipt {
+  job_id: string;
+  release_id: string;
+  status: SystemUpdateJobStatus;
+  before: { version: string; commit_sha: string };
+  after: { version: string; commit_sha: string };
+  components: string[];
+  backup_id?: string | null;
+  rollback_performed: boolean;
+  started_at: string;
+  completed_at: string;
+}
+
+// --------------------------------------------------------------------------- //
 // Models (per-role pickers).
 // --------------------------------------------------------------------------- //
 export interface ModelsResponse {

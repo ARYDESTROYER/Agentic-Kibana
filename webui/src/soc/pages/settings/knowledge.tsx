@@ -3,7 +3,7 @@
  *
  * Lifted verbatim from the former `Settings.tsx` `KnowledgeSection` + `RagControls`.
  * RAG retrieval config, the per-case threat-context panel, and deep-links to the
- * corpus/playbook management pages.
+ * corpus and response-playbook management pages.
  */
 import { FileText, Library, ShieldAlert } from 'lucide-react';
 
@@ -149,16 +149,16 @@ export function KnowledgeSection({
             </div>
             <div className="flex flex-wrap items-center justify-between gap-3 py-3 sm:pl-4">
               <div className="min-w-0">
-                <p className="text-sm font-medium text-foreground">Playbooks &amp; agents</p>
+                <p className="text-sm font-medium text-foreground">Response playbooks</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  Cluster procedures and agent routing context.
+                  Deterministically selected procedures that guide an investigation.
                 </p>
               </div>
               {onNavigate ? (
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => onNavigate('intelligence', { tab: 'catalog' })}
+                  onClick={() => onNavigate('intelligence', { tab: 'playbooks' })}
                 >
                   <FileText className="h-4 w-4" aria-hidden />
                   Open

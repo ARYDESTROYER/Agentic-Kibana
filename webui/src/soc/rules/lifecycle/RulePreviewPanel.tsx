@@ -255,22 +255,6 @@ export function RulePreviewPanel({ rule, sourceId, onResult, onError }: RulePrev
               </p>
             ) : null}
 
-            {/* M3: the save adapter keeps only the FIRST condition, so the preview
-                evaluates only the first row too (they match). Flag the ignored rows so
-                the count is honestly a preview of what actually deploys. */}
-            {result.predicates > (result.predicates_evaluated ?? result.predicates) ? (
-              (() => {
-                const extra = result.predicates - (result.predicates_evaluated ?? 1);
-                return (
-                  <p className="text-xs text-warning-text">
-                    Only the first condition is saved and previewed — the other {extra}{' '}
-                    {extra === 1 ? 'condition is' : 'conditions are'} not yet applied (nested
-                    AND/OR is coming). This count reflects the rule as it will deploy.
-                  </p>
-                );
-              })()
-            ) : null}
-
             {histogram.length > 0 ? (
               <div>
                 <div className="mb-1 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">

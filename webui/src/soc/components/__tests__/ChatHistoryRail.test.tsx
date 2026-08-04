@@ -226,7 +226,11 @@ describe("ChatHistoryRail", () => {
       conversations: [],
       loading: true,
     });
-    expect(screen.getByText("Loading conversations…")).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Conversation history" })).toHaveAttribute(
+      "aria-busy",
+      "true",
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("Loading conversations…");
 
     rerender(
       <ChatHistoryRail
@@ -239,7 +243,9 @@ describe("ChatHistoryRail", () => {
         onDelete={onDelete}
       />,
     );
-    expect(screen.getByText("Conversation history is unavailable")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Conversation history is unavailable",
+    );
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(onRetry).toHaveBeenCalledTimes(1);
   });

@@ -97,14 +97,19 @@ const PANEL_PROPS = {
   threadError: null,
   threadBusyId: null,
   tasks: TASKS,
+  tasksLoading: false,
+  tasksError: null,
   tasksBusyId: null,
   activity: ACTIVITY,
   activityLoading: false,
+  activityError: null,
   users: USERS,
   currentUser: 'alice',
   canComment: false,
   canWrite: false,
   onRetryThread: vi.fn(),
+  onRetryTasks: vi.fn(),
+  onRetryActivity: vi.fn(),
   onPost: vi.fn(),
   onReply: vi.fn(),
   onEdit: vi.fn(),
@@ -210,6 +215,91 @@ describe('CollaborationThreadTab — Case Manager presentation', () => {
     expect(
       container.querySelector('[data-collaboration-surface="discussion-canvas"]'),
     ).toContainElement(threadSurface as HTMLElement);
+  });
+
+  it('renders truthful independent task/activity failures and preserves last good data', () => {
+    const onRetryTasks = vi.fn();
+    const onRetryActivity = vi.fn();
+    render(
+      <CollaborationThreadTab
+        {...PANEL_PROPS}
+        tasksError={new Error('tasks endpoint unavailable')}
+        activityError={new Error('activity endpoint unavailable')}
+        onRetryTasks={onRetryTasks}
+        onRetryActivity={onRetryActivity}
+        presentation="case-manager"
+      />,
+    );
+
+    expect(screen.getByText('Could not refresh tasks')).toBeInTheDocument();
+    expect(screen.getByText('tasks endpoint unavailable')).toBeInTheDocument();
+    expect(
+      screen.getByText('Revoke the IAM sessions and block the source IP'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Could not refresh activity')).toBeInTheDocument();
+    expect(screen.getByText('activity endpoint unavailable')).toBeInTheDocument();
+    expect(
+      screen.getByText('Escalated for analyst review; containment initiated.'),
+    ).toBeInTheDocument();
+
+    screen.getByRole('button', { name: 'Retry tasks' }).click();
+    screen.getByRole('button', { name: 'Retry activity' }).click();
+    expect(onRetryTasks).toHaveBeenCalledTimes(1);
+    expect(onRetryActivity).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the last good discussion visible beside a retryable refresh failure', () => {
+    const onRetryThread = vi.fn();
+    render(
+      <CollaborationThreadTab
+        {...PANEL_PROPS}
+        threadError={new Error('discussion endpoint unavailable')}
+        onRetryThread={onRetryThread}
+        presentation="case-manager"
+      />,
+    );
+
+    expect(screen.getByText('Could not refresh discussion')).toBeInTheDocument();
+    expect(screen.getByText('discussion endpoint unavailable')).toBeInTheDocument();
+    expect(screen.getByText('I am validating the affected IAM role now.')).toBeInTheDocument();
+    expect(
+      screen.getByText('I correlated the source IP with a known Tor exit node.'),
+    ).toBeInTheDocument();
+
+    screen.getByRole('button', { name: 'Retry discussion' }).click();
+    expect(onRetryThread).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps an initial discussion failure blocking until retry succeeds', () => {
+    render(
+      <CollaborationThreadTab
+        {...PANEL_PROPS}
+        thread={null}
+        threadError={new Error('discussion endpoint unavailable')}
+      />,
+    );
+
+    expect(screen.getByText('Could not load discussion')).toBeInTheDocument();
+    expect(screen.getByText('discussion endpoint unavailable')).toBeInTheDocument();
+    expect(screen.queryByText('I am validating the affected IAM role now.')).not.toBeInTheDocument();
+    expect(screen.queryByText('No discussion yet')).not.toBeInTheDocument();
+  });
+
+  it('uses canonical named loading states without inventing successful empty states', () => {
+    render(
+      <CollaborationThreadTab
+        {...PANEL_PROPS}
+        tasks={null}
+        tasksLoading
+        activity={null}
+        activityLoading
+      />,
+    );
+
+    expect(screen.getByRole('status', { name: 'Loading case tasks' })).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'Loading case activity' })).toBeInTheDocument();
+    expect(screen.queryByText('No tasks yet')).not.toBeInTheDocument();
+    expect(screen.queryByText('No activity yet')).not.toBeInTheDocument();
   });
 
   it('has no axe violations with live collaboration content', async () => {

@@ -6,11 +6,11 @@
  * `require_admin` (== `users:manage`), so it 403s. The fix gates the UI on the SAME
  * admin grant and disables-with-tooltip for everyone else (never a silent 403).
  *
- * These specs flip `hasPermission` and assert the button's enabled/disabled state +
- * that the config editor mutation surface follows the same gate.
+ * These specs flip `hasPermission` and assert that the entire policy workspace,
+ * including its manual run action, follows the same server-authoritative gate.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 const { listMock, recorrelateMock, getMock, putMock } = vi.hoisted(() => ({
   listMock: vi.fn(),
@@ -29,9 +29,13 @@ vi.mock('@/soc/pages/Campaigns.api', async (importOriginal) => {
 
 // Campaigns loads/saves its config through the shared `api.campaign` client
 // (getConfig/putConfig → GET/PUT campaigns/config).
-vi.mock('@/lib/api', () => ({
-  api: { campaign: { getConfig: getMock, putConfig: putMock }, post: vi.fn() },
-}));
+vi.mock('@/lib/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api')>();
+  return {
+    ...actual,
+    api: { campaign: { getConfig: getMock, putConfig: putMock }, post: vi.fn() },
+  };
+});
 
 // A configurable permission gate. `admin` toggles the users:manage grant that gates
 // Recorrelate; `cases:read` is always granted so the page (ProtectedRoute) renders.
@@ -74,17 +78,23 @@ describe('Campaigns Recorrelate gate (bug #9)', () => {
     getMock.mockResolvedValue({ config: { enabled: false, cadence: 'daily' } });
   });
 
-  it('DISABLES Recorrelate for a read-only user (no admin grant)', async () => {
+  it('HIDES the policy workspace from a read-only user (no admin grant)', async () => {
     renderCampaigns(false);
     await waitFor(() => expect(listMock).toHaveBeenCalled());
-    const btn = await screen.findByRole('button', { name: /recorrelate/i });
-    expect(btn).toBeDisabled();
+    expect(screen.queryByRole('tab', { name: /policy & schedule/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /run correlation now/i })).toBeNull();
+    expect(screen.queryByRole('switch', { name: /enable scheduled correlation/i })).toBeNull();
   });
 
-  it('ENABLES Recorrelate for an admin (users:manage grant)', async () => {
+  it('EXPOSES the policy workspace and manual run action to an admin', async () => {
     renderCampaigns(true);
     await waitFor(() => expect(listMock).toHaveBeenCalled());
-    const btn = await screen.findByRole('button', { name: /recorrelate/i });
-    expect(btn).not.toBeDisabled();
+    fireEvent.keyDown(screen.getByRole('tab', { name: /policy & schedule/i }), {
+      key: 'Enter',
+    });
+    expect(await screen.findByRole('button', { name: /run correlation now/i })).toBeEnabled();
+    expect(
+      screen.getByRole('switch', { name: /enable scheduled correlation/i }),
+    ).toBeInTheDocument();
   });
 });

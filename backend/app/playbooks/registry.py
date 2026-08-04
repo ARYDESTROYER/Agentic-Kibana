@@ -41,6 +41,9 @@ DEFAULT_BUNDLED_PLAYBOOK_FILES = frozenset(
         "moodle_application_abuse.md",
         "privileged_web_access.md",
         "web_scanner_activity.md",
+        "cloud_identity_compromise.md",
+        "data_exfiltration_response.md",
+        "ransomware_response.md",
     }
 )
 

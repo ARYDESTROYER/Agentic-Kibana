@@ -4,13 +4,12 @@
  * Lifted verbatim from the former `Settings.tsx` `KeysSection`. Keys are WRITE-ONLY:
  * the console only ever knows whether a key is configured (a boolean), never the
  * value. Entered values are buffered in the page's `secretDraft` and pushed via the
- * dedicated secrets route — independent of the main settings save (#10).
+ * dedicated secrets route through the Settings-wide Save/Discard bar (#10).
  */
-import { Save, ShieldCheck } from 'lucide-react';
+import { ShieldCheck } from 'lucide-react';
 
 import type { ConfiguredStatus } from '@/lib/types';
 
-import { Button } from '@/ui/button';
 import { Alert, AlertDescription } from '@/ui/alert';
 
 import { SectionTitle, SecretInput } from './primitives';
@@ -33,19 +32,16 @@ export function KeysSection({
   configured,
   draft,
   setDraft,
-  onSave,
   saving,
   readOnly,
 }: {
   configured: ConfiguredStatus;
   draft: Record<string, string>;
   setDraft: (d: Record<string, string>) => void;
-  onSave: () => void;
   saving: boolean;
   readOnly: boolean;
 }) {
   const set = (k: string, v: string) => setDraft({ ...draft, [k]: v });
-  const pending = Object.values(draft).some((v) => v && v.trim().length > 0);
   return (
     <div className="space-y-6">
       <SectionTitle
@@ -73,18 +69,17 @@ export function KeysSection({
                   value={draft[key.key] || ''}
                   help={key.help}
                   onChange={(value) => set(key.key, value)}
+                  disabled={saving || readOnly}
                 />
               ))}
             </div>
           </fieldset>
         ))}
       </div>
-      <div className="flex justify-end border-t border-border/70 pt-4">
-        <Button onClick={onSave} disabled={saving || readOnly || !pending}>
-          <Save className="h-4 w-4" aria-hidden />
-          {saving ? 'Updating…' : 'Update keys'}
-        </Button>
-      </div>
+      <p className="border-t border-border/70 pt-4 text-xs leading-relaxed text-muted-foreground">
+        Secret drafts use the Settings Save changes and Discard actions below. Blank fields keep
+        their existing write-only values.
+      </p>
     </div>
   );
 }

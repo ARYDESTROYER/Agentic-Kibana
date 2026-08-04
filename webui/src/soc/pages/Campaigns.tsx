@@ -8,8 +8,9 @@
  * (admin) that re-runs the deterministic pass on demand.
  *
  * RBAC: the whole page is gated behind <ProtectedRoute resource="cases" action="read">.
- * "Recorrelate" is wrapped in <Can resource="cases" action="read"> AND requires admin
- * server-side; the server is authoritative (a 403 surfaces as a toast).
+ * The manual pass and policy writer additionally require `users:manage` in the UI and
+ * the matching administrator dependency server-side, so the analyst review remains
+ * the default read-only surface without controls that will predictably return 403.
  *
  * ⛔ ADVISORY ONLY (#3/#4): a campaign is a reporting grouping. It NEVER force-merges
  * cases, recomputes a `cluster_signature`, or feeds the deterministic `decide()`. A
@@ -27,8 +28,8 @@ import {
   RefreshCw,
   Loader2,
   ArrowRight,
-  Info,
   Layers,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -44,7 +45,6 @@ import { Label } from '@/ui/label';
 import { Switch } from '@/ui/switch';
 import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
 import { Separator } from '@/ui/separator';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/ui/tooltip';
 import {
   Select,
   SelectContent,
@@ -70,11 +70,9 @@ import { InlineCode } from '@/soc/components/CodeBlock';
 import { SeverityBadge } from '@/soc/components/badges';
 import { ProtectedRoute, useCan } from '@/soc/components/Can';
 import { Field } from '@/soc/components/Field';
-import {
-  SettingsGrid,
-  SettingsCard,
-  StickySaveBar,
-} from '@/soc/components/SettingsGrid';
+import { StickySaveBar } from '@/soc/components/SettingsGrid';
+import { ControlBar } from '@/soc/components/ControlBar';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/ui/tabs';
 import { useConfigEditor } from '@/soc/components/rules';
 import {
   campaignsApi,
@@ -120,9 +118,9 @@ export function CampaignsInner({ onNavigate }: CampaignsProps) {
   const contextNavigate = useNavigateOptional();
   const navigate = onNavigate ?? contextNavigate;
   // BUG #9: "Recorrelate" is admin-gated server-side (require_admin == users:manage).
-  // A `cases:read` user must not see an enabled button that 403s — gate it on the
-  // SAME grant and disable-with-tooltip for everyone else. The campaign config editor
-  // is likewise an admin action.
+  // A `cases:read` user must not see policy or execution controls that will 403 — gate
+  // the complete administrator workspace on the SAME grant. The server remains
+  // authoritative for every mutation.
   const canManage = useCan('users', 'manage');
   const [campaigns, setCampaigns] = React.useState<Campaign[]>([]);
   const [enabled, setEnabled] = React.useState(false);
@@ -131,6 +129,7 @@ export function CampaignsInner({ onNavigate }: CampaignsProps) {
   const [error, setError] = React.useState<unknown>(null);
   const [recorrelating, setRecorrelating] = React.useState(false);
   const [detail, setDetail] = React.useState<Campaign | null>(null);
+  const [workspace, setWorkspace] = React.useState<'review' | 'policy'>('review');
 
   // The shared `api.campaign` client now targets the PLURAL `campaigns/config` route
   // (`routes_campaigns.py`); use it directly so there is ONE config client (Round-6 §27).
@@ -260,58 +259,29 @@ export function CampaignsInner({ onNavigate }: CampaignsProps) {
     [],
   );
 
-  return (
-    <PageContainer variant="wide" className="space-y-6">
-      <PageHeader
-        icon={Network}
-        eyebrow="Triage"
-        title="Campaigns"
-        description="Related cases grouped by shared entities and overlapping MITRE techniques."
-        actions={
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              // Refresh only re-loads the read-only campaign list; it must NOT reload
-              // the config (that would clobber unsaved policy edits — the editor has
-              // its own load-on-mount + LoadError retry).
-              onClick={() => void load()}
-              disabled={loading}
-            >
-              <RefreshCw
-                className={loading ? 'mr-1.5 h-4 w-4 animate-spin' : 'mr-1.5 h-4 w-4'}
-                aria-hidden
-              />
-              Refresh
-            </Button>
-            {/* BUG #9: gate Recorrelate on the admin grant; disable-with-tooltip for
-                read-only users so the button never 403s silently. */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                {/* span wrapper so the tooltip still fires on a disabled button */}
-                <span tabIndex={canManage ? undefined : 0}>
-                  <Button
-                    size="sm"
-                    onClick={() => void recorrelate()}
-                    disabled={recorrelating || !canManage}
-                    aria-disabled={!canManage || undefined}
-                  >
-                    {recorrelating ? (
-                      <Loader2 className="mr-1.5 h-4 w-4 animate-spin" aria-hidden />
-                    ) : (
-                      <Layers className="mr-1.5 h-4 w-4" aria-hidden />
-                    )}
-                    Recorrelate
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              {!canManage ? (
-                <TooltipContent>
-                  Recorrelate is an administrator action. Ask a SOC administrator to run it.
-                </TooltipContent>
-              ) : null}
-            </Tooltip>
-          </div>
+  const reviewWorkspace = (
+    <div className="space-y-4">
+      <ControlBar
+        title="Campaign review"
+        meta={
+          initialLoading
+            ? 'Loading current groups'
+            : `${fmtNumber(campaigns.length)} related-case group${campaigns.length === 1 ? '' : 's'}`
+        }
+        label="Campaign review controls"
+        controls={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void load()}
+            disabled={loading}
+          >
+            <RefreshCw
+              className={loading ? 'mr-1.5 h-4 w-4 animate-spin' : 'mr-1.5 h-4 w-4'}
+              aria-hidden
+            />
+            Refresh
+          </Button>
         }
       />
 
@@ -323,57 +293,74 @@ export function CampaignsInner({ onNavigate }: CampaignsProps) {
           shape="rows"
           shapeRows={6}
         />
-      ) : !enabled ? (
-        <Alert>
-          <Network className="h-4 w-4" aria-hidden />
-          <AlertTitle>Campaign clustering is off.</AlertTitle>
-          <AlertDescription>
-            Enable it in the policy below to run the pass on a cadence, or use
-            Recorrelate to build campaigns on demand. Campaigns are advisory — they
-            group related cases for context and never change how a case is decided.
-          </AlertDescription>
-        </Alert>
-      ) : null}
-
-      {!initialLoading && error ? (
-        <LoadError
-          error={error}
-          title="Could not load campaigns"
-          fallback="Could not load campaigns."
-          onRetry={() => void load()}
-        />
-      ) : null}
-
-      {!initialLoading && !(error && campaigns.length === 0) ? (
-        <DataTable
-          columns={columns}
-          rows={campaigns}
-          getRowId={(c) => c.id}
-          loading={loading && campaigns.length > 0}
-          onRowClick={(c) => setDetail(c)}
-          getRowActionLabel={(c) => `Open campaign ${c.id}`}
-          ariaLabel="Campaigns"
-          empty={
-            <EmptyState
-              icon={Network}
-              title="No campaigns yet"
-              description="When related cases share an entity or MITRE technique, they are grouped into a campaign here. Use Recorrelate to build them from the current cases."
-            />
-          }
-        />
-      ) : null}
-
-      {!initialLoading ? (
+      ) : (
         <>
-      <CampaignDetailSheet
-        campaign={detail}
-        onClose={() => setDetail(null)}
-        onNavigate={navigate}
+          {!enabled ? (
+            <Alert>
+              <Network className="h-4 w-4" aria-hidden />
+              <AlertTitle>Automatic campaign correlation is off</AlertTitle>
+              <AlertDescription>
+                Existing groups remain available. An administrator can run the
+                deterministic pass or change its schedule in Policy &amp; schedule.
+                Campaigns add context only and never decide a case.
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
+          {error ? (
+            <LoadError
+              error={error}
+              title="Could not load campaigns"
+              fallback="Could not load campaigns."
+              onRetry={() => void load()}
+            />
+          ) : null}
+
+          {!(error && campaigns.length === 0) ? (
+            <DataTable
+              columns={columns}
+              rows={campaigns}
+              getRowId={(c) => c.id}
+              loading={loading && campaigns.length > 0}
+              onRowClick={(c) => setDetail(c)}
+              getRowActionLabel={(c) => `Open campaign ${c.id}`}
+              ariaLabel="Campaigns"
+              empty={
+                <EmptyState
+                  icon={Network}
+                  title="No campaigns yet"
+                  description="Related cases appear here after the deterministic campaign pass finds a shared entity or MITRE technique."
+                />
+              }
+            />
+          ) : null}
+        </>
+      )}
+    </div>
+  );
+
+  const policyWorkspace = (
+    <div className="space-y-4">
+      <ControlBar
+        title="Policy & schedule"
+        meta="Administrator workspace"
+        label="Campaign policy controls"
+        controls={
+          <Button
+            size="sm"
+            onClick={() => void recorrelate()}
+            disabled={recorrelating}
+          >
+            {recorrelating ? (
+              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" aria-hidden />
+            ) : (
+              <Layers className="mr-1.5 h-4 w-4" aria-hidden />
+            )}
+            Run correlation now
+          </Button>
+        }
       />
 
-      <Separator />
-
-      {/* ── Config editor (R6) ───────────────────────────────────────────── */}
       {cfg.error ? (
         <LoadError
           error={cfg.error}
@@ -381,86 +368,129 @@ export function CampaignsInner({ onNavigate }: CampaignsProps) {
           fallback="Could not load the campaign policy."
           onRetry={() => void cfg.reload()}
         />
+      ) : cfg.loading ? (
+        <LoadingState
+          label="Loading campaign policy"
+          description="Preparing the saved cross-case correlation configuration."
+          layout="panel"
+          shape="panel"
+        />
       ) : (
-        <SettingsGrid>
-          <SettingsCard
-            anchor="campaign-policy"
-            icon={Network}
-            title="Campaign policy"
-            description="Run the deterministic cross-case clustering pass on a cadence. Default off — clustering only builds a reporting grouping and never merges or decides cases."
-            wide
-          >
-            {cfg.loading ? (
-              // Don't flash the default-valued form while the persisted policy loads.
-              <LoadingState
-                label="Loading campaign policy"
-                description="Preparing the saved cross-case clustering configuration."
-                layout="panel"
-                shape="panel"
-              />
-            ) : (
-            <fieldset disabled={!canManage} className="space-y-6">
-              <Alert>
-                <Info className="h-4 w-4" aria-hidden />
-                <AlertTitle>Campaigns are advisory</AlertTitle>
-                <AlertDescription>
-                  Clustering groups related cases for context; it never force-merges a
-                  case, recomputes a cluster signature, or feeds the deterministic
-                  decision.
-                </AlertDescription>
-              </Alert>
-
-              <div className="flex items-center justify-between gap-4">
-                <div className="space-y-0.5">
-                  <Label htmlFor="campaign-enabled" className="text-sm font-medium">
-                    Enable campaign clustering
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    When on, the deterministic pass runs on the cadence below.
-                  </p>
-                </div>
-                <Switch
-                  id="campaign-enabled"
-                  checked={cfgDraft.enabled}
-                  onCheckedChange={(v) => cfg.update({ enabled: v })}
-                />
-              </div>
-
-              <div className="max-w-xs">
-                <Field label="Cadence" description="How often the clustering pass runs.">
-                  {({ id, describedBy }) => (
-                    <Select
-                      value={cfgDraft.cadence ?? 'daily'}
-                      disabled={!canManage}
-                      onValueChange={(v) =>
-                        cfg.update({ cadence: v as CampaignConfig['cadence'] })
-                      }
-                    >
-                      <SelectTrigger id={id} aria-describedby={describedBy}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {CAMPAIGN_CADENCES.map((c) => (
-                          <SelectItem key={c} value={c as string}>
-                            {humanizeToken(c as string)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                </Field>
-              </div>
-
-              {!canManage ? (
-                <p className="text-xs text-muted-foreground">
-                  Campaign policy is an administrator setting. Ask a SOC administrator to
-                  change it.
+        <section
+          aria-labelledby="campaign-policy-heading"
+          className="border-y border-border"
+        >
+          <div className="px-1 py-4 sm:px-4">
+            <div className="flex items-start gap-3">
+              <Network className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
+              <div className="min-w-0 space-y-1">
+                <h2 id="campaign-policy-heading" className="text-sm font-semibold text-foreground">
+                  Automatic campaign correlation
+                </h2>
+                <p className="max-w-3xl text-sm text-muted-foreground">
+                  The deterministic pass groups cases for investigation context. It never
+                  merges cases, changes a cluster signature, or participates in the final
+                  close or escalation decision.
                 </p>
-              ) : null}
-            </fieldset>
-            )}
-          </SettingsCard>
-        </SettingsGrid>
+              </div>
+            </div>
+          </div>
+
+          <fieldset className="divide-y divide-border border-t border-border">
+            <legend className="sr-only">Campaign correlation policy</legend>
+
+            <div className="flex flex-col gap-3 px-1 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-4">
+              <div className="space-y-0.5">
+                <Label htmlFor="campaign-enabled" className="text-sm font-medium">
+                  Enable scheduled correlation
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Run the campaign pass automatically at the selected cadence.
+                </p>
+              </div>
+              <Switch
+                id="campaign-enabled"
+                checked={cfgDraft.enabled}
+                onCheckedChange={(v) => cfg.update({ enabled: v })}
+              />
+            </div>
+
+            <div className="grid gap-3 px-1 py-4 sm:grid-cols-[minmax(0,1fr)_18rem] sm:items-start sm:px-4">
+              <div className="space-y-0.5">
+                <p className="text-sm font-medium text-foreground">Correlation cadence</p>
+                <p className="text-xs text-muted-foreground">
+                  Manual runs remain available regardless of the saved schedule.
+                </p>
+              </div>
+              <Field label="Correlation cadence" hideLabel>
+                {({ id, labelledBy, describedBy }) => (
+                  <Select
+                    value={cfgDraft.cadence ?? 'daily'}
+                    onValueChange={(v) =>
+                      cfg.update({ cadence: v as CampaignConfig['cadence'] })
+                    }
+                  >
+                    <SelectTrigger
+                      id={id}
+                      aria-labelledby={labelledBy}
+                      aria-describedby={describedBy}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CAMPAIGN_CADENCES.map((cadence) => (
+                        <SelectItem key={cadence} value={cadence}>
+                          {humanizeToken(cadence)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </Field>
+            </div>
+          </fieldset>
+        </section>
+      )}
+
+    </div>
+  );
+
+  return (
+    <PageContainer variant="wide" className="space-y-6">
+      <PageHeader
+        icon={Network}
+        eyebrow="Triage"
+        title="Campaigns"
+        description="Related cases grouped by shared entities and overlapping MITRE techniques."
+      />
+
+      {canManage ? (
+        <Tabs
+          value={workspace}
+          onValueChange={(value) => setWorkspace(value as 'review' | 'policy')}
+        >
+          <TabsList
+            aria-label="Campaign workspaces"
+            className="grid w-full grid-cols-2 sm:inline-flex sm:w-auto"
+          >
+            <TabsTrigger value="review" className="gap-1.5">
+              <Network className="h-3.5 w-3.5" aria-hidden />
+              Campaign review
+            </TabsTrigger>
+            <TabsTrigger value="policy" className="gap-1.5">
+              <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden />
+              Policy &amp; schedule
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value="review" className="space-y-4">
+            {reviewWorkspace}
+          </TabsContent>
+          <TabsContent value="policy" className="space-y-4">
+            {policyWorkspace}
+          </TabsContent>
+        </Tabs>
+      ) : (
+        reviewWorkspace
       )}
 
       {canManage ? (
@@ -472,8 +502,12 @@ export function CampaignsInner({ onNavigate }: CampaignsProps) {
           onDiscard={cfg.discard}
         />
       ) : null}
-        </>
-      ) : null}
+
+      <CampaignDetailSheet
+        campaign={detail}
+        onClose={() => setDetail(null)}
+        onNavigate={navigate}
+      />
     </PageContainer>
   );
 }

@@ -7,8 +7,8 @@ There are **two distinct environments**. Confusing them causes most build/deploy
 pain, so they are documented separately.
 
 > **Branch topology:** the remote uses `Testing` for integration and default
-> `main` for accepted Stable source. `v0.1.1` is the prior Stable tag; `v0.1.2`
-> follows only after verified promotion. Branch
+> `main` for accepted Stable source. Version 0.1.3 is Stable only when the exact
+> verified `main` commit has the immutable `v0.1.3` tag and matching artifacts. Branch
 > protection, required checks, Pages source selection, and environment policy are
 > repository settings; administrators must verify them independently of this
 > checkout.
@@ -149,6 +149,9 @@ Self-contained; **no Elasticsearch required for the app's own state.** Brings up
 - `tlsoc-backend` — FastAPI+LangGraph agent on `8088`.
 - `tlsoc-webui` — the standalone React/Tailwind SPA (nginx) on `8080`; talks to the
   backend via an `/api` proxy. This is the first-run wizard + console.
+- `agentic-soc-updater` — private Unix-socket supervisor for signed, digest-pinned
+  application updates. It alone mounts `/var/run/docker.sock`; the backend receives
+  only the bounded control socket.
 
 Your SIEM/EDR/XDR is **not** part of this stack — connect to it from the UI's
 first-run wizard ("add a source"). Pull sources today: Elasticsearch / OpenSearch
@@ -158,9 +161,16 @@ you configure in the wizard (e.g. `1514/udp` for syslog).
 
 ```bash
 cp .env.example .env   # fill TLSOC_PG_PASSWORD + at least one LLM key
-docker compose -f deploy/docker-compose.agnostic.yml up -d --build
+./scripts/agentic-soc-compose.sh up -d --build
 # open http://localhost:8080 and complete the setup wizard
 ```
+
+The wrapper is required for every lifecycle command after the one-time supervisor
+bootstrap because it layers the host-visible digest override in
+`.agentic-soc-runtime/active-release.compose.yml`. Raw Compose commands bypass that
+override. Docker-socket access is effectively root-equivalent on the host: treat the
+updater image, private socket, `.env`, state volume, and backup volume as a privileged
+host boundary and never expose the socket over TCP.
 
 ### 2.2 Shape B — the legacy ELK merge (`deploy/docker-compose.tlsoc.yml`)
 Attach to an existing ELK stack (e.g. `sankettaware16/TLSOCDockerDeploy`,
@@ -188,11 +198,12 @@ prefixed Docker build/runtime metadata rather than `Secrets` fields:
 
 | Build/runtime value | Default | Purpose |
 |---|---|---|
-| `TLSOC_VERSION` | `0.1.2` in Compose | Machine SemVer for images and API identity |
+| `TLSOC_VERSION` | `0.1.3` in Compose | Machine SemVer for images and API identity |
 | `TLSOC_RELEASE_CHANNEL` | `testing` | Independent promotion stamp; use `stable` only for the accepted main/tag build |
 | `TLSOC_BUILD_SHA` | `unknown` | Exact source revision |
 | `TLSOC_BUILD_DATE` | `unknown` | Reproducible-build timestamp supplied by the builder |
 | `TLSOC_SOURCE_URL` | repository URL in each Dockerfile | Canonical source URL embedded in OCI image metadata; the reference Compose files do not map an `.env` override |
+| `AGENTIC_SOC_UPDATE_REPOSITORY` | `ARYDESTROYER/Agentic-Kibana` | Repository whose tag-bound release workflow the host supervisor trusts; configure before bootstrap, not per browser request |
 
 The Console compiles the same version/channel/SHA/date stamp and always displays
 `vX.Y.Z · Testing|Stable` in the shell. Its popover reconciles that immutable
@@ -200,6 +211,14 @@ Console identity with `/api/health/build-info`; a version, channel, or known-SHA
 mismatch fails safe to Testing. `scripts/run-demo.sh` derives Stable only for a
 literal `main` checkout and defaults every other branch/detached state to Testing
 unless an explicit release-build override is supplied.
+
+`AGENTIC_SOC_UPDATE_REPOSITORY` is host trust configuration, not the repository URL
+saved under **Settings → Updates & releases**. The latter controls mutable public
+branch observation only. Configure the trusted repository before the one-time
+supervisor bootstrap; changing the UI value cannot retarget signed installation
+authority. The official updater keeps no registry credential, so its release's three
+GHCR packages must be public and anonymously pullable by exact digest. See
+[`operations/upgrades.md`](operations/upgrades.md).
 
 | `.env` (compose) | Backend env (`Secrets`) | Purpose |
 |---|---|---|

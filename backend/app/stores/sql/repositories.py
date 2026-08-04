@@ -197,8 +197,9 @@ class SqlAuditRepository(AuditRepository):
         Privileged events may supply a deterministic ``event_id``. Map it to a
         negative surrogate key (ordinary autoincrement rows are positive) so the
         database primary key provides cross-process exactly-once insertion without
-        a schema migration. A duplicate is accepted only when the stored payload is
-        byte-equivalent; a hash collision fails closed.
+        a schema migration. A duplicate is accepted only when the stored semantic
+        payload is equivalent (the first append retains its timestamp); a hash
+        collision fails closed.
         """
         payload = doc.model_dump(mode="json")
         row_id: int | None = None
@@ -222,7 +223,14 @@ class SqlAuditRepository(AuditRepository):
                 if row_id is None:
                     raise
                 existing = await session.get(AuditRow, row_id)
-                if existing is None or dict(existing.doc or {}) != payload:
+                existing_payload = dict(existing.doc or {}) if existing else {}
+                existing_semantic = {
+                    key: value for key, value in existing_payload.items() if key != "ts"
+                }
+                payload_semantic = {
+                    key: value for key, value in payload.items() if key != "ts"
+                }
+                if existing is None or existing_semantic != payload_semantic:
                     raise RuntimeError(
                         f"audit event id collision: {doc.event_id}"
                     )

@@ -117,5 +117,9 @@ describe('SOC console — app smoke', () => {
     expect(main).not.toBeNull();
     expect(main?.tagName).toBe('MAIN');
     expect(main).toHaveAttribute('tabindex', '-1');
+    // Wide, intentionally scrollable child surfaces (for example the rules table)
+    // must never leak their intrinsic width into the whole Console viewport.
+    expect(main).toHaveClass('overflow-x-hidden');
+    expect(main?.parentElement?.parentElement).toHaveClass('overflow-x-hidden');
   });
 });

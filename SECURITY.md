@@ -73,6 +73,43 @@ superuser/admin credential at runtime.
 | 2 | Web UI ↔ backend | The browser calls **relative** `/api/*` paths; nginx reverse-proxies them to `tlsoc-backend:8088` server-side (`webui/nginx.conf`). The browser bundle contains **no** backend URL or secret (no CORS, no embedded host). |
 | 3 | Backend ↔ sources / state / LLM / enrichment | Per-source **read-only** credentials for every log source; a single least-privilege credential for the chosen state backend; outbound HTTPS to LLM/enrichment. **All inbound event data is treated as UNTRUSTED** (§4). |
 
+### 1.1 Privileged update-supervisor boundary
+
+The reference PostgreSQL Compose profile adds one deliberate host-level boundary:
+`agentic-soc-updater`. It alone mounts `/var/run/docker.sock`; Docker-socket access
+is effectively root-equivalent on the host. The ordinary backend receives only the
+private Unix control socket and can request a fixed set of typed operations. The Web
+container and browser receive neither socket, registry credentials, host paths,
+Compose fragments, image references, nor shell authority
+(`deploy/docker-compose.agnostic.yml`, `updater/agentic_soc_updater/service.py`).
+
+The supervisor is part of the trusted computing base. Deploy only the reviewed image,
+keep its control socket private to the backend container, restrict host access, and
+protect `.env`, updater state, backup, and host-runtime override volumes. Never expose
+the control socket or Docker API over TCP. After bootstrap, run Compose only through
+`scripts/agentic-soc-compose.sh`; the wrapper preserves the supervisor-written,
+digest-pinned active-release override.
+
+Release discovery and installation authority are separate. The configurable Stable
+branch is mutable, read-only observation and may only identify a candidate. The
+supervisor authorizes installation only after verifying the canonical immutable
+GitHub Release plan and Sigstore bundle, tag-bound workflow identity, repository,
+commit, signed digest-pinned component images, compatibility, local topology,
+durable secrets, backup capacity, and current deployment identity. The plan is
+schema-limited data and cannot contain commands, host paths, arbitrary URLs, Compose
+fragments, registry credentials, or browser-selected images
+(`scripts/build_upgrade_plan.py`, `updater/agentic_soc_updater/contract.py`).
+
+The official supervisor intentionally stores no registry credential. Official
+`backend`, `webui`, and `updater` GHCR packages must therefore be public and
+anonymously pullable by exact digest; release publication fails closed if that proof
+fails, and an update job pulls and inspects every image before changing the running
+application. Automatic failure after application switching restores the exact prior
+application images but never rewrites PostgreSQL. The verified quiesced dump is
+retained solely for explicit break-glass recovery, because automatic restore could
+discard a post-snapshot write. V1 plans consequently require
+`migration.strategy=none`.
+
 ## 2. Read-only, scoped source credentials (generalised principle #1)
 
 The #1 non-negotiable — *a read-only, scoped credential for the agent's log

@@ -134,6 +134,52 @@ def test_recommendations_report_noise_and_proposed_change(state_and_client) -> N
     assert recos["noisy_rule"]["auto_apply"] is True
     # The ledger is empty (a dry-run wrote nothing).
     assert body["applied"] == []
+    assert body["history_status"] == "available"
+    assert body["history_count"] == 0
+
+
+def test_recommendations_and_manual_apply_share_current_window_guard(
+    state_and_client,
+) -> None:
+    """A manual first apply must disappear from both preview and repeat apply.
+
+    The scheduler already held this once-per-window rail; the API must not advertise
+    or process a second bump over the same unchanged analyst evidence.
+    """
+    state, client = state_and_client
+    _run(client, _seed_noisy(state))
+
+    first = client.post("/api/tuning/noisy_rule/apply")
+    assert first.status_code == 200, first.text
+    assert len(first.json()["applied"]) == 1
+
+    preview = client.get("/api/tuning/recommendations")
+    assert preview.status_code == 200, preview.text
+    assert not any(
+        row["rule_id"] == "noisy_rule"
+        for row in preview.json()["recommendations"]
+    )
+    repeated = client.post("/api/tuning/noisy_rule/apply")
+    assert repeated.status_code == 404
+
+
+def test_tuning_history_outage_is_503_not_false_empty(
+    state_and_client, monkeypatch,
+) -> None:
+    state, client = state_and_client
+    _run(client, _seed_noisy(state))
+
+    async def unavailable(*_args, **_kwargs):
+        raise RuntimeError("ledger unavailable")
+
+    monkeypatch.setattr(state.tuning_store, "list_strict", unavailable)
+    preview = client.get("/api/tuning/recommendations")
+    assert preview.status_code == 503
+    assert "Tuning history is temporarily unavailable" in preview.json()["detail"]
+
+    applied = client.post("/api/tuning/noisy_rule/apply")
+    assert applied.status_code == 503
+    assert "manual apply were not computed" in applied.json()["detail"]
 
 
 # --------------------------------------------------------------------------- #

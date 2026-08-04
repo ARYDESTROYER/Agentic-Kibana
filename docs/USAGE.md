@@ -33,7 +33,7 @@ ops/automation.
 
 ```bash
 cp .env.example .env   # set TLSOC_PG_PASSWORD + at least one LLM key
-docker compose -f deploy/docker-compose.agnostic.yml up -d --build
+./scripts/agentic-soc-compose.sh up -d --build
 # then open http://localhost:8080
 ```
 
@@ -50,7 +50,7 @@ surface into **six top-level nav groups**:
 |---|---|
 | **Overview** | Dashboard (the Security Command Center), Dashboards (custom, §21), Standup (§7) — each a full page |
 | **Triage** | Cases (§3), **Case Manager** (§3), Campaigns (§16), Logs (a unified cross-source log browser, §2a), Workspace → **Chat** (§5) and **Entity investigation** (§4) as left-nav children, Approvals |
-| **Intelligence** | Knowledge (§9), Memory (§10), Playbooks |
+| **Intelligence** | Knowledge corpus (§9), Reference runbooks, Operator memory (§10), Response playbooks, Agent personas |
 | **Analytics** | Metrics, **Agent effectiveness** (§7a), Cost (§8), Models (§22), Baseline (§17), Batch jobs (§22) |
 | **Notifications** | Inbox (the in-app notification inbox, §23) |
 | **Platform** | Sources (§2, standalone — not inside Settings), Audit log (§32), Auto-tuning (§15), Settings (§25, with Users and Roles as children) |
@@ -732,12 +732,15 @@ support a like-for-like denominator. The Agent Effectiveness response also keeps
 `source_guidance` unavailable because that aggregate contract has no governed
 case-specific proof. Separately, **Auto-tuning → Telemetry recommendations** reads
 `GET /api/tuning/source-recommendations` and reports only versioned, stored query/tool
-failures proving that a supported field was unavailable. The v1 mapping is deliberately
-narrow: outbound DNS (`dns.question.name`), endpoint process
+failures proving that a supported field was unavailable. The accepted v1 mapping is
+deliberately narrow: outbound DNS (`dns.question.name`), endpoint process
 (`process.command_line`), and identity-authentication method
-(`user.authentication_method`). Missing connector configuration and free-form model
-prose are never evidence; an empty evidence set returns `not_available`, not a guessed
-recommendation. The outcome map explains which supported observation concerns decision
+(`user.authentication_method`). The current release reports
+`capture_status=not_available` until a connector-neutral query/tool boundary can emit
+those controlled field-level result codes; it does not reinterpret legacy free text as
+proof. Missing connector configuration and free-form model prose are never evidence;
+an empty evidence set returns `not_available`, not a guessed recommendation. The
+outcome map explains which supported observation concerns decision
 quality, closure speed, processing cost, or downstream volume without claiming that the
 AI caused the change.
 
@@ -962,7 +965,7 @@ List the catalog first with `GET /api/playbooks`. In the UI, open a case's
 **Investigation** tab and use **Run playbook** (pick from the catalog); the
 resulting re-investigation renders in place.
 
-Manage procedures under **Intelligence → Playbooks**. Any user with
+Manage procedures under **Intelligence → Response playbooks**. Any user with
 `playbooks:read` can browse and open the plain Markdown source. Bundled procedures
 are visibly protected; `playbooks:manage` adds **New playbook** and **Edit** for
 operator-owned records. Bundled procedures are immutable package data; operator
@@ -1086,12 +1089,24 @@ audited; `request_approval` routes through the HITL `Proposal` path; a
 condition — a disposition value (`suspicious`/`benign`) stored where only a real
 `Verdict` is legal — is rejected on write.
 
+**What the detection editor can author today.** A detection-match rule has exactly
+one persisted predicate (`field` + operator + value) and one executable correlation
+threshold (`group_by`, count, and window). Polling cadence belongs to the source feed.
+The API may contain additive `mitre`, `schedule`, or `suppression` metadata written by
+older or external clients; the Console preserves that metadata during unrelated edits
+but does not present it as an active rule control. Per-rule schedule and suppression
+metadata are not executed by the current runtime. Multi-predicate, per-rule schedule,
+and per-rule suppression authoring remain unavailable until their persistence and
+execution contracts exist end to end.
+
 **Test/Preview — never bills the LLM, never decides.** `POST
-/api/triage/preview-decision` runs a rule's predicate against recent events
+/api/rules/preview` runs a rule's single predicate against recent events
 (through the scoped read-only key, hard-capped, the exact `GET /api/logs`
 scatter-gather path) and returns match counts / a histogram — **zero** gateway
 calls, **zero** `UsageDoc` writes, and it never calls `decide()` or creates a
-case (non-negotiables #3 and #6 both hold here).
+case (non-negotiables #3 and #6 both hold here). The separate
+`POST /api/triage/preview-decision` endpoint is the deterministic case-policy
+what-if preview; it also remains pure and no-cost.
 
 **Version ledger + rollback.** Every create / update / enable / disable / delete /
 rollback writes an append-only audit row *and* an immutable version snapshot
@@ -1128,7 +1143,7 @@ minimum-sample gate, Wilson lower bound, EWMA, and shadow replay to propose a bo
 | Recompute and process every current proposal for one rule | `POST /api/tuning/{rule_id}/apply` (`automation:manage`) |
 | Roll back the latest applied change | `POST /api/tuning/{rule_id}/rollback` (`automation:manage`) |
 | Query-backed telemetry gaps | `GET /api/tuning/source-recommendations` (`cases:read`) |
-| Worker attempt/success/error health | `GET /api/schedulers/health` (`settings:read`) |
+| Worker attempt/success/error health | `GET /api/schedulers/health` (`automation:read`) |
 
 The page separates work into **Operations**, **Outcomes**, and **Policy & history**.
 Operations is the default rule/recommendation workflow. Outcomes reads the
@@ -1145,16 +1160,18 @@ both measurements: the **observed FP ratio** is `fp / analyst-confirmed outcomes
 the **conservative FP estimate** is the Wilson lower bound that gates policy. A gap
 from target is shown in **percentage points**, not as percentage change.
 
-The Review queue is grouped by rule because Apply is rule-scoped, not
-recommendation-kind-scoped. One request recomputes every current proposal for that
-rule. With the safe default `auto_apply_confirmed=false`, eligible bounded changes
+Operations presents one attention-ordered **Rule review** workspace rather than
+separate recommendation and monitored-rule queues. Recommendation-only rows remain
+visible in that same list. Apply is rule-scoped, not recommendation-kind-scoped, so
+one request recomputes every current proposal for that rule. With the safe default
+`auto_apply_confirmed=false`, eligible bounded changes
 enter the HITL **Approvals** queue; suppression always enters it. Explicit auto-apply
 requires an authorized configuration opt-in plus sufficient analyst evidence and a
 clean shadow replay. Each queued row and the selected-rule inspector answer, in order:
 **why it needs attention**, **recommended action**, **expected operational effect**,
-and **safety replay**. **Eligible after replay** means the evidence and safeguards will
-be recomputed before any write; it is not a guarantee that the change will apply. The
-All monitored rules list supports search and state filtering; selecting a rule opens an
+and **safety replay**. **Can apply after safety check** means the evidence and safeguards
+will be recomputed before any write; it is not a guarantee that the change will apply.
+The rule list supports search and state filtering; selecting a rule opens an
 in-context inspector at 1536px+ or a focus-managed Sheet below that width. Policy &
 history presents the editable tuner policy first and the append-only ledger after it;
 rollback is offered only for the newest active reversible change for a rule. Historical
@@ -1190,9 +1207,10 @@ applied tuning events inside the comparison horizon. Those rows are observationa
 carry `causal_claim=false`: a tune can change correlation or downstream promotion, not
 raw source emission. A lower clustered/opened workload after a change is therefore
 useful review context, not a causal result. True-positive/raw-alert yield remains
-unavailable. Telemetry-source advice is a separate evidence-only surface (§7): it
-supports three controlled v1 mappings and returns nothing until a stored query/tool
-attempt proves a gap. It never infers advice from connector absence.
+unavailable. Telemetry-source advice is a separate evidence-only surface (§7): its
+schema accepts three controlled v1 mappings and returns nothing until a future
+controlled query/tool producer records a qualifying gap. The current release says
+capture is unavailable; it never infers advice from connector absence.
 
 The tuner **never imports `case_manager`/`decide()`, risk weights, or
 signatures**—it only moves detection-*volume* knobs the pipeline already reads live.
@@ -1708,7 +1726,7 @@ router, and the Cmd-K "jump to a setting" search all derive from):
 | **General** | Data scope · Models · Detection · Detection & rules (§14) · Cases (case-ID format, below) · SLA, priority & suppression · Automation (master switch, §14) · Standup |
 | **Integrations** | Alerting & notifications (§23) · Enrichment (§19) · Knowledge & threat context (§9, §12) |
 | **Security & access** | Users · Roles & permissions (§24's custom roles) · Single sign-on & policy (§24) · Active sessions (§27) · Secret keys |
-| **Organization** | Branding · Updates & releases (public repository plus Stable/Testing source observations; never deployment) · Advanced (caps, kill switch, background-scan/auto-forward allowlist, the autopilot dial + risk floor + budget backstop, §33, read-only lock) · All settings (a schema-generated long tail) · Experimental & Demo (§28) · Storage & retention · Data export · Danger zone (§28's tiered reset) |
+| **Organization** | Branding · Updates & releases (read-only Stable/Testing observations plus supervised one-click Stable updates for a bootstrapped, supported Compose/PostgreSQL deployment) · Advanced (caps, kill switch, background-scan/auto-forward allowlist, the autopilot dial + risk floor + budget backstop, §33, read-only lock) · All settings (a schema-generated long tail) · Experimental & Demo (§28) · Storage & retention · Data export · Danger zone (§28's tiered reset) |
 
 The page uses one searchable section rail, one active-section heading, and flat
 divider-led setting groups. It deliberately avoids a card around the whole page and
@@ -2256,7 +2274,7 @@ the same paths work under the SPA origin (e.g. `http://localhost:8080/api/...`).
 ```bash
 # Health
 curl -s localhost:8088/api/health
-# -> {"status":"ok","version":"0.1.2","es_connected":true,"store_type":"...","setup_complete":true}
+# -> {"status":"ok","version":"0.1.3","es_connected":true,"store_type":"...","setup_complete":true}
 # NOTE: "store_type" is the log-surface ES CLIENT CLASS ("RealESClient" /
 # "InMemoryESClient") — it never reports your STATE_BACKEND (elasticsearch /
 # postgres / sqlite). "InMemoryESClient" with no pull source wired is expected,

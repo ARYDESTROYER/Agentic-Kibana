@@ -944,7 +944,14 @@ function ProvidersGrid({
   }
   const rows = providers?.providers ?? [];
   if (!rows.length) {
-    return <EmptyState icon={Server} title="No providers" description="No LLM provider is registered yet." />;
+    return (
+      <EmptyState
+        state="first-use"
+        icon={Server}
+        title="No model providers are registered"
+        description="Provider configuration has not been added yet. Open Settings → Secret keys to configure a hosted provider, or add a compatible self-hosted model from the Catalog tab."
+      />
+    );
   }
   return (
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

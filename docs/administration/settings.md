@@ -44,9 +44,14 @@ On a narrow screen, the full section inventory moves into a searchable Sheet ope
 from one compact section trigger; it is not stacked above the active form. Settings
 URLs retain `#/settings?s=<id>&a=<anchor>`, so an authorized operator can bookmark a
 section or a specific setting group. Modified sections show a dirty indicator, and
-one sticky **Save changes / Discard** bar owns buffered preference writes across the
-workspace. Immediate self-contained operations still report their own result, but a
-section renderer must not create a second preference-save path.
+one sticky **Save changes / Discard** bar owns both buffered preference writes and
+write-only secret drafts across the workspace. Saving keeps the narrow API contracts:
+ordinary preferences are sent as a minimal top-level patch, then only non-blank
+replacement secrets are sent to the dedicated secret endpoint. If the preference
+write succeeds but a secret write fails, the saved preferences stay applied and the
+secret draft remains visible and retryable. Immediate self-contained operations still
+report their own result, but a section renderer must not create a second preference or
+credential save path.
 
 ## Safe administration sequence
 
@@ -82,16 +87,31 @@ SOC repository, Stable `main`, Testing `Testing`, and a six-hour cache. Forks ca
 a renamed repository or different branch refs; only canonical public GitHub URLs and
 bounded branch names are accepted.
 
-The observation cards show each channel's root `VERSION`, immutable commit, check
-time, and any typed unavailable/stale condition. **Check now** is available only for
+The observation cards show each channel's root `VERSION`, branch-head commit, check
+time, and any typed unavailable/stale condition. Stable discovery also requires the
+exact annotated `vVERSION` tag and records its immutable commit for an update candidate;
+branch HEAD remains observation-only. **Check now** is available only for
 the server-saved configuration, so an unsaved repository edit can never be checked as
 though it were durable. If GitHub is unavailable, the rest of Settings remains usable
 and a previous verified result may be shown as **Last verified**.
 
-This feature does not deploy software. An amber source notice is only a review link.
-The separate top-bar update action appears only after release automation has already
-deployed a different coherent Web/backend pair and the same-origin manifest, build
-identity, readiness, and entry document all pass the activation contract.
+The channel cards themselves remain read-only observations. An amber source notice is
+only a review link and changing the saved repository never grants deployment authority.
+
+For the reference standalone Compose/PostgreSQL profile, a separately bootstrapped
+private supervisor adds a guarded **Update to vX.Y.Z** action beside the version badge.
+Only the built-in super-administrator can preflight or start it after recent
+reauthentication. The confirmation names the exact Stable release, application
+components, planned PostgreSQL backup, unchanged infrastructure, and rollback
+coverage. The job later checksum- and catalog-verifies that backup before switching
+either application service. Progress is host-durable across a backend/Web reconnect.
+The updater never replaces the base Compose file. Its restartable, idempotent
+self-replacement helper resumes or restores the exact prior supervisor after ordinary
+helper-process, Docker-daemon, and host restarts. Loss of the trusted host or Docker
+metadata/storage remains manual recovery. Unsupported
+state backends, runtime-only secrets, unknown build identity, custom deployment
+topologies, missing supervisor, and migration-bearing releases remain manual with a
+specific blocker. See [Upgrades](../operations/upgrades.md).
 
 ## Storage and retention
 
@@ -162,6 +182,11 @@ Use environment variables for restart-safe credentials. A value entered into a
 source, notification, enrichment, or SSO secret form is held in memory and represented
 later only as a configured/not-configured state. Plan to re-enter those values after
 a backend restart unless the deployment supplies them at boot.
+
+In **Settings → Security & access → Secret keys**, replacement values participate in
+the page-wide **Save changes / Discard** flow. Blank fields preserve existing values;
+Discard clears only the local replacement drafts. A failed secret update never echoes
+or erases the attempted value, so the operator can correct the problem and retry.
 
 Continue with [Configuration reference](../operations/configuration.md),
 [Authentication](authentication.md), and [Health, backup, and restore](../operations/health-backup.md).

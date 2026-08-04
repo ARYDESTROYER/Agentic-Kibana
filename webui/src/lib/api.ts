@@ -106,6 +106,10 @@ import type {
   SourcesResponse,
   SourceUpsert,
   StandupResponse,
+  SystemUpdateJob,
+  SystemUpdatePreflightResponse,
+  SystemUpdateReceipt,
+  SystemUpdateStatusResponse,
   Terminology,
   ThreatContextPanel,
   ThresholdTuningConfig,
@@ -1035,6 +1039,49 @@ export const api = {
     request<UpstreamReleasesResponse>('GET', 'releases/upstream', options),
   checkUpstreamReleases: () =>
     request<UpstreamReleasesResponse>('POST', 'releases/upstream/check'),
+  // ---- Supervised system updates --------------------------------------- //
+  // The browser can select only the opaque, server-advertised release id. It never
+  // supplies a URL, path, command, Compose fragment, or image reference; the strict
+  // backend + external supervisor remain the sole deployment authorities.
+  systemUpdates: {
+    status: (options?: { signal?: AbortSignal; cache?: RequestCache }) =>
+      request<SystemUpdateStatusResponse>('GET', 'system-updates/status', options),
+    preflight: (releaseId: string, idempotencyKey: string) =>
+      request<SystemUpdatePreflightResponse>('POST', 'system-updates/preflight', {
+        body: { release_id: releaseId, idempotency_key: idempotencyKey },
+      }),
+    start: (releaseId: string, preflightToken: string, idempotencyKey: string) =>
+      request<SystemUpdateJob>('POST', 'system-updates/jobs', {
+        body: {
+          release_id: releaseId,
+          preflight_token: preflightToken,
+          idempotency_key: idempotencyKey,
+        },
+      }),
+    job: (jobId: string, options?: { signal?: AbortSignal; cache?: RequestCache }) =>
+      request<SystemUpdateJob>(
+        'GET',
+        `system-updates/jobs/${encodeURIComponent(jobId)}`,
+        options,
+      ),
+    cancel: (jobId: string, idempotencyKey: string) =>
+      request<SystemUpdateJob>(
+        'POST',
+        `system-updates/jobs/${encodeURIComponent(jobId)}/cancel`,
+        { body: { idempotency_key: idempotencyKey } },
+      ),
+    rollback: (jobId: string, idempotencyKey: string) =>
+      request<SystemUpdateJob>(
+        'POST',
+        `system-updates/jobs/${encodeURIComponent(jobId)}/rollback`,
+        { body: { idempotency_key: idempotencyKey } },
+      ),
+    receipt: (jobId: string) =>
+      request<SystemUpdateReceipt>(
+        'GET',
+        `system-updates/jobs/${encodeURIComponent(jobId)}/receipt`,
+      ),
+  },
   setupStatus: () => request<SetupStatus>('GET', 'setup/status'),
   updateSecrets: (secrets: SecretsUpdate) =>
     request<{ ok: boolean; configured: Record<string, boolean> }>('POST', 'setup/secrets', {

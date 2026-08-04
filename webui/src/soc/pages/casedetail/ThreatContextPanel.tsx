@@ -31,7 +31,7 @@ import { humanizeAge, humanizeToken } from '@/lib/format';
 import { cn } from '@/lib/cn';
 
 import { Badge } from '@/ui/badge';
-import { Skeleton } from '@/ui/skeleton';
+import { LoadingState } from '@/design-system';
 
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
@@ -101,10 +101,13 @@ export const ThreatContextPanel: React.FC<{
 }> = ({ c, panel, loading, error, onRetry, presentation = 'default' }) => {
   if (loading) {
     return (
-      <div className="space-y-4 p-6">
-        <Skeleton className="h-20 w-full" />
-        <Skeleton className="h-32 w-full" />
-        <Skeleton className="h-32 w-full" />
+      <div className="p-6">
+        <LoadingState
+          label="Loading threat context"
+          description="Preparing IOC reputation, ATT&CK techniques, and asset context."
+          layout="panel"
+          shape="panel"
+        />
       </div>
     );
   }

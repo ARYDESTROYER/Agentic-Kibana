@@ -74,7 +74,7 @@ import type { PageId } from '../nav';
 
 const WIDE_TRIGGER = 'Search cases, sources, and actions';
 const MOBILE_OPENER = 'Open search';
-const PALETTE_INPUT = /jump to a page, search cases\/sources/i;
+const PALETTE_INPUT = /search cases, sources, settings/i;
 
 function setMobileViewport(matches: boolean) {
   Object.defineProperty(window, 'matchMedia', {
@@ -152,6 +152,26 @@ describe('AppShell top-nav search (W0.10)', () => {
     expect(await screen.findByPlaceholderText(PALETTE_INPUT)).toBeInTheDocument();
   });
 
+  it('restores focus to the exact external palette opener after Escape', async () => {
+    renderShell();
+    const wide = await screen.findByRole('button', { name: WIDE_TRIGGER });
+    const mobile = await screen.findByRole('button', { name: MOBILE_OPENER });
+
+    wide.focus();
+    fireEvent.click(wide);
+    expect(await screen.findByPlaceholderText(PALETTE_INPUT)).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByPlaceholderText(PALETTE_INPUT)).toBeNull());
+    await waitFor(() => expect(wide).toHaveFocus());
+
+    mobile.focus();
+    fireEvent.click(mobile);
+    expect(await screen.findByPlaceholderText(PALETTE_INPUT)).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByPlaceholderText(PALETTE_INPUT)).toBeNull());
+    await waitFor(() => expect(mobile).toHaveFocus());
+  });
+
   it('the old "Open command palette" outline button no longer exists', async () => {
     renderShell();
     await screen.findByRole('button', { name: WIDE_TRIGGER });
@@ -212,6 +232,25 @@ describe('AppShell top-nav search (W0.10)', () => {
     fireEvent.click(within(dialog).getByTestId('nav-cases'));
     expect(onNavigate).toHaveBeenCalledWith('cases');
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Primary navigation' })).toBeNull());
+  });
+
+  it('keeps release identity direct and groups secondary mobile utilities in one labelled sheet', async () => {
+    setMobileViewport(true);
+    renderShell();
+
+    expect(await screen.findByTestId('release-badge')).toBeVisible();
+    expect(screen.queryByRole('button', { name: /notifications/i })).toBeNull();
+
+    const opener = screen.getByRole('button', { name: 'Open console controls' });
+    fireEvent.click(opener);
+    const sheet = await screen.findByRole('dialog', { name: 'Console controls' });
+    expect(within(sheet).getByRole('button', { name: /notifications, none unread/i })).toBeVisible();
+    expect(within(sheet).getByRole('button', { name: /switch to light mode/i })).toBeVisible();
+    expect(within(sheet).getByRole('status', { name: /platform health/i })).toBeVisible();
+
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Console controls' })).toBeNull());
+    await waitFor(() => expect(opener).toHaveFocus());
   });
 
   it('keeps the bottom Docs destination reachable from mobile navigation', async () => {
