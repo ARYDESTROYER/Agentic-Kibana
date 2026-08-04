@@ -52,9 +52,68 @@ class UpdateService:
         # a reservation whose owner disappeared during a process/host crash.
         self._instance_id = str(uuid.uuid4())
         self._workers: dict[str, threading.Thread] = {}
+        self._worker_modes: dict[str, bool] = {}
+        self._workers_lock = threading.Lock()
+        self._worker_state = threading.local()
+
+    @staticmethod
+    def _wait_for_worker_completion(worker: threading.Thread | None) -> None:
+        """Wait until this process has finished all tail work for a terminal job.
+
+        Terminal state is durably written before the host lifecycle marker is
+        removed so a process crash remains recoverable. Public readers are
+        serialized with that write/removal boundary below, then join the tiny
+        remaining worker tail. This prevents callers (and shutdown/cleanup code)
+        from treating a job as settled while its thread is still unwinding.
+        """
+
+        if worker is not None and worker is not threading.current_thread():
+            worker.join()
+
+    def _published_jobs(self) -> list[dict[str, Any]]:
+        # Terminal persistence and lifecycle-marker removal share this same
+        # store lock in _save_stage. A reader therefore sees either the prior
+        # active state or a terminal state whose host marker is already gone.
+        while True:
+            with self.store.locked():
+                jobs = self.store.list_jobs()
+                with self._workers_lock:
+                    terminal_workers = [
+                        self._workers.get(str(job.get("job_id")))
+                        for job in jobs
+                        if job.get("status") in TERMINAL_STATUSES
+                    ]
+            current = threading.current_thread()
+            pending = [
+                worker
+                for worker in terminal_workers
+                if worker is not None and worker is not current
+            ]
+            if not pending:
+                return jobs
+            # Join the exact worker generations paired with this durable
+            # snapshot, then re-read. A same-job rollback can replace the
+            # registry entry during the joins and must be assessed against its
+            # own current status rather than the old terminal snapshot.
+            for worker in pending:
+                self._wait_for_worker_completion(worker)
+
+    def _published_job(self, job_id: str) -> dict[str, Any] | None:
+        while True:
+            with self.store.locked():
+                job = self.store.load_job(job_id)
+                with self._workers_lock:
+                    worker = (
+                        self._workers.get(job_id)
+                        if job and job.get("status") in TERMINAL_STATUSES
+                        else None
+                    )
+            if worker is None or worker is threading.current_thread():
+                return job
+            self._wait_for_worker_completion(worker)
 
     def status(self) -> dict[str, Any]:
-        jobs = self.store.list_jobs()
+        jobs = self._published_jobs()
         active = next((job for job in jobs if job.get("status") in ACTIVE_STATUSES), None)
         last = jobs[0] if jobs else None
         return {
@@ -522,7 +581,7 @@ class UpdateService:
         return self.public_job(job) or {}
 
     def get_job(self, job_id: str) -> dict[str, Any]:
-        job = self.store.load_job(job_id)
+        job = self._published_job(job_id)
         if not job:
             raise ServiceError("update job not found", 404)
         return self.public_job(job) or {}
@@ -738,7 +797,7 @@ class UpdateService:
         raise RuntimeError(f"{context}: " + ", ".join(codes))
 
     def receipt(self, job_id: str) -> dict[str, Any]:
-        job = self.store.load_job(job_id)
+        job = self._published_job(job_id)
         if not job:
             raise ServiceError("update job not found", 404)
         # A post-success rollback is a distinct deployment transaction. Keep
@@ -757,6 +816,19 @@ class UpdateService:
             "message": message,
             "updated_at": now_iso(),
         })
+        if status in TERMINAL_STATUSES:
+            # Keep the durable crash-recovery ordering (terminal JSON first,
+            # marker removal second), but hold the store lock across both. All
+            # operator-visible reads use that lock, so terminal status cannot
+            # escape while the lifecycle marker still fences host mutation.
+            with self.store.locked():
+                current = self.store.load_job(job["job_id"])
+                if current and current.get("cancel_requested"):
+                    job["cancel_requested"] = True
+                self.store.save_job(job)
+                self.runtime.release_lifecycle(job["job_id"], terminal=True)
+                self._worker_state.terminal_published = True
+            return
         self._save_worker_job(job)
 
     def _save_worker_job(self, job: dict[str, Any]) -> None:
@@ -812,13 +884,66 @@ class UpdateService:
             return True
 
     def _launch(self, job_id: str, *, rollback_only: bool = False) -> None:
-        worker = self._workers.get(job_id)
-        if worker and worker.is_alive():
-            return
+        while True:
+            wait_for: threading.Thread | None = None
+            with self._workers_lock:
+                worker = self._workers.get(job_id)
+                # A registered worker is authoritative even during the tiny
+                # interval before Thread.start() returns. Completed workers
+                # remove themselves in _run_worker(), so no stale generation
+                # needs to be inferred from is_alive().
+                if worker is not None:
+                    existing_rollback = self._worker_modes.get(job_id, False)
+                    if existing_rollback == rollback_only or not rollback_only:
+                        return
+                    # A post-success rollback can be accepted while the update
+                    # thread is only unwinding after terminal publication. Wait
+                    # for that old-mode tail, then launch exactly one rollback
+                    # worker. Never let two modes share one job lifecycle.
+                    wait_for = worker
+                else:
+                    worker = threading.Thread(
+                        target=self._run_worker,
+                        args=(job_id, rollback_only),
+                        daemon=True,
+                        name=f"updater-{job_id}",
+                    )
+                    self._workers[job_id] = worker
+                    self._worker_modes[job_id] = rollback_only
+                    try:
+                        # Registration and start are one publication boundary.
+                        # A duplicate caller cannot replace this generation in
+                        # the pre-start window and launch a second host mutator.
+                        worker.start()
+                    except BaseException:
+                        if self._workers.get(job_id) is worker:
+                            self._workers.pop(job_id, None)
+                            self._worker_modes.pop(job_id, None)
+                        raise
+                    return
+            wait_for.join()
+
+    def _run_worker(self, job_id: str, rollback_only: bool) -> None:
+        self._worker_state.terminal_published = False
         target = self._rollback_worker if rollback_only else self._worker
-        worker = threading.Thread(target=target, args=(job_id,), daemon=True, name=f"updater-{job_id}")
-        self._workers[job_id] = worker
-        worker.start()
+        try:
+            target(job_id)
+        finally:
+            current = threading.current_thread()
+            with self._workers_lock:
+                if self._workers.get(job_id) is current:
+                    self._workers.pop(job_id, None)
+                    self._worker_modes.pop(job_id, None)
+
+    def terminal_jobs(self, limit: int) -> list[dict[str, Any]]:
+        """Return settled terminal jobs through the public redaction contract."""
+
+        return [
+            public
+            for job in self._published_jobs()
+            if job.get("status") in TERMINAL_STATUSES
+            if (public := self.public_job(job)) is not None
+        ][:limit]
 
     def resume(self) -> None:
         jobs = self.store.list_jobs()
@@ -1007,9 +1132,15 @@ class UpdateService:
             else:
                 self._save_stage(job, job.get("stage", "validating"), "Update failed before deployment switching", status="failed")
         finally:
-            current = self.store.load_job(job_id)
-            terminal = bool(current and current.get("status") in TERMINAL_STATUSES)
-            self.runtime.release_lifecycle(job_id, terminal=terminal)
+            # Terminal publication already removed the marker atomically in
+            # _save_stage. Calling release again here could clear a new rollback
+            # lifecycle started for the same job while this thread unwinds.
+            if not getattr(self._worker_state, "terminal_published", False):
+                current = self.store.load_job(job_id)
+                terminal = bool(
+                    current and current.get("status") in TERMINAL_STATUSES
+                )
+                self.runtime.release_lifecycle(job_id, terminal=terminal)
 
     def _rollback_worker(self, job_id: str) -> None:
         job = self.store.load_job(job_id)
@@ -1113,6 +1244,9 @@ class UpdateService:
                 status="failed",
             )
         finally:
-            current = self.store.load_job(job_id)
-            terminal = bool(current and current.get("status") in TERMINAL_STATUSES)
-            self.runtime.release_lifecycle(job_id, terminal=terminal)
+            if not getattr(self._worker_state, "terminal_published", False):
+                current = self.store.load_job(job_id)
+                terminal = bool(
+                    current and current.get("status") in TERMINAL_STATUSES
+                )
+                self.runtime.release_lifecycle(job_id, terminal=terminal)

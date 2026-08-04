@@ -38,7 +38,7 @@ Compose topology, and public anonymous pull access to the release's `backend`,
 
 ## Standalone stack
 
-1. Check out the accepted `v0.1.3` tag for Stable after release, or the `Testing` branch only for
+1. Check out the accepted `v0.1.4` tag for Stable after release, or the `Testing` branch only for
    acceptance testing.
 2. Copy `.env.example` to `.env` and set a strong PostgreSQL password.
 3. Configure authentication and provider credentials.
@@ -61,8 +61,8 @@ Compose project, protect `.env` and updater volumes, and never expose the contro
 socket over TCP.
 
 The remote uses `Testing` for integration and default `main` for accepted Stable
-source. Version 0.1.3 is Stable only when the exact verified `main` commit has the
-immutable `v0.1.3` tag and matching artifacts. A pull of `main` receives the current accepted Stable tree while
+source. Version 0.1.4 is Stable only when the exact verified `main` commit has the
+immutable `v0.1.4` tag and matching artifacts. A pull of `main` receives the current accepted Stable tree while
 integration work continues on `Testing`. Branch
 protections, required checks, and release-environment policy remain repository
 settings that administrators must verify independently.
@@ -94,7 +94,7 @@ warm tier capability before an administrator performs the explicit, freshly
 authenticated Apply. Cases and operational metadata stay Hot because they are
 mutable. PostgreSQL reports the policy as advisory; SQLite reports export-only.
 
-Archive is a desired target, not an active pipeline in 0.1.3. Build a separate
+Archive is a desired target, not an active pipeline in 0.1.4. Build a separate
 immutable export with a manifest and checksums, verify restore, and only then place
 those independent archive objects under an S3 lifecycle rule. **Never transition an
 Elasticsearch snapshot-repository prefix to Glacier**; Elasticsearch expects its
@@ -102,14 +102,14 @@ repository objects to remain directly readable.
 
 ## Image identity
 
-Backend and web images use the machine version `0.1.3` and accept OCI version,
+Backend and web images use the machine version `0.1.4` and accept OCI version,
 revision, build-date, and source metadata. Record the image digest and
 `/api/health/build-info` result with each deployment. Do not treat a mutable branch or
 image tag as an immutable release identity.
 
 Release channel is stamped independently from SemVer. Source builds default to
-`TLSOC_RELEASE_CHANNEL=testing`; the accepted `main`/`v0.1.3` build must explicitly
-set it to `stable`. This preserves the same `0.1.3` candidate identity through
+`TLSOC_RELEASE_CHANNEL=testing`; the accepted `main`/`v0.1.4` build must explicitly
+set it to `stable`. This preserves the same `0.1.4` candidate identity through
 acceptance without allowing a Testing build to report itself as Stable.
 
 Set `TLSOC_VERSION`, `TLSOC_RELEASE_CHANNEL`, `TLSOC_BUILD_SHA`, and
@@ -154,7 +154,7 @@ preserves every write accepted after the snapshot was taken. The catalog-verifie
 quiesced dump remains available for an explicit operator-controlled break-glass
 recovery, and v1 therefore permits only plans with `migration.strategy=none`.
 
-This support is deliberately narrow in 0.1.3: the reference single-replica standalone
+This support is deliberately narrow in 0.1.4: the reference single-replica standalone
 Docker Compose deployment whose mounted base file matches the signed canonical
 SHA-256, canonical project/network/service identities and PostgreSQL volume,
 PostgreSQL-owned state, coherent schema labels, authentication enabled with durable
@@ -172,14 +172,20 @@ The updater never transports or replaces `deploy/docker-compose.agnostic.yml`. T
 `deploy/update-base-v1.sha256`; the signed generated override carries versioned image
 digests. Changing that base requires a new updater protocol and manual bootstrap.
 
-The v0.1.1→v0.1.3 bootstrap must run from the clean, exact annotated `v0.1.3` tag
+The v0.1.1→v0.1.4 bootstrap must run from the clean, exact annotated `v0.1.4` tag
 whose commit remains contained in `origin/main`. It installs the initial supervisor
-transport and then delegates the complete v0.1.3 transition to the signed release plan
+transport and then delegates the complete v0.1.4 transition to the signed release plan
 and durable update state machine. After bootstrap, use
 `./scripts/agentic-soc-compose.sh` for
 every manual lifecycle command. Raw `docker compose -f
 deploy/docker-compose.agnostic.yml ...` bypasses the active digest override and is
 unsupported.
+
+A Testing/source-built 0.1.3 deployment is not the canonical legacy Stable source
+and cannot bootstrap by relabelling itself. Reconcile it manually to signed 0.1.4.
+Because bootstrap requires a strictly newer target, an already-running 0.1.4 cannot
+bootstrap from the 0.1.4 plan; use the next newer compatible Stable release's
+documented bootstrap path if no supervisor was established during reconciliation.
 
 The wrapper and supervisor also share a lifecycle lock: inspection commands remain
 available, while mutating or unknown Compose commands are refused for the full durable

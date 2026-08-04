@@ -115,6 +115,33 @@ def _assert_ci(path: Path, workflow: dict[str, Any]) -> None:
         raise ValueError(f"{path}: CI must run for pull_request and push")
 
     jobs = workflow["jobs"]
+    container_images = jobs.get("container-images")
+    if not isinstance(container_images, dict):
+        raise ValueError(f"{path}: shipping-image acceptance job is missing")
+    webui_smoke = next(
+        (
+            step
+            for step in container_images.get("steps", [])
+            if isinstance(step, dict)
+            and step.get("name") == "Smoke the shipping Web Console health contract"
+        ),
+        None,
+    )
+    if not isinstance(webui_smoke, dict) or "matrix.component == 'webui'" not in str(
+        webui_smoke.get("if", "")
+    ):
+        raise ValueError(f"{path}: shipping Web Console health smoke is missing or unscoped")
+    webui_smoke_run = str(webui_smoke.get("run", ""))
+    for marker in (
+        "docker run --detach",
+        "--health-interval",
+        ".State.Health.Status",
+        "curl --fail",
+    ):
+        if marker not in webui_smoke_run:
+            raise ValueError(
+                f"{path}: shipping Web Console health smoke lacks {marker!r}"
+            )
     for job_id, job in jobs.items():
         services = job.get("services", {}) if isinstance(job, dict) else {}
         if not isinstance(services, dict):
@@ -168,6 +195,107 @@ def _assert_release(path: Path, workflow: dict[str, Any]) -> None:
     for marker in ("workflows/ci.yml/runs", 'CI passed', 'conclusion == "success"'):
         if marker not in run_text:
             raise ValueError(f"{path}: Stable release does not prove exact tag CI: {marker}")
+
+    steps = publish.get("steps") if isinstance(publish, dict) else None
+    if not isinstance(steps, list):
+        raise ValueError(f"{path}: Stable release steps are missing")
+
+    def named_step(name: str) -> tuple[int, dict[str, Any]]:
+        matches = [
+            (index, step)
+            for index, step in enumerate(steps)
+            if isinstance(step, dict) and step.get("name") == name
+        ]
+        if len(matches) != 1:
+            raise ValueError(
+                f"{path}: Stable release requires exactly one {name!r} step"
+            )
+        return matches[0]
+
+    candidate_marker = "candidate-${{ github.run_id }}-${{ github.run_attempt }}"
+    build_steps = {
+        "backend": "Build and publish backend by immutable digest",
+        "webui": "Build and publish Web Console by immutable digest",
+        "updater": "Build and publish update supervisor by immutable digest",
+    }
+    for component, name in build_steps.items():
+        _index, step = named_step(name)
+        with_config = step.get("with")
+        tags = str(with_config.get("tags", "")) if isinstance(with_config, dict) else ""
+        if (
+            f"/{component}:{candidate_marker}" not in tags
+            or "steps.release.outputs.tag" in tags
+        ):
+            raise ValueError(
+                f"{path}: {component} must publish only a non-Stable candidate tag "
+                "until every signed release artifact passes"
+            )
+
+    sign_index, _sign_step = named_step(
+        "Sign new images and verify all immutable image signatures"
+    )
+    anonymous_index, anonymous_step = named_step(
+        "Prove anonymous pullability and exact OCI release labels"
+    )
+    anonymous_run = str(anonymous_step.get("run", ""))
+    anonymous_markers = (
+        'anonymous_docker_config="$(mktemp -d)"',
+        "unset DOCKER_AUTH_CONFIG REGISTRY_AUTH_FILE",
+        'export DOCKER_CONFIG="${anonymous_docker_config}"',
+        '[[ ! -e "${DOCKER_CONFIG}/config.json" ]]',
+        "for platform in linux/amd64 linux/arm64",
+        'docker pull --platform "${platform}" "${reference}"',
+    )
+    for marker in anonymous_markers:
+        if marker not in anonymous_run:
+            raise ValueError(
+                f"{path}: anonymous image gate lacks isolated multi-platform pull "
+                f"contract {marker!r}"
+            )
+    anonymous_env = anonymous_step.get("env", {})
+    expected_anonymous_env = {
+        "BACKEND",
+        "WEBUI",
+        "UPDATER",
+        "EXPECTED_VERSION",
+        "EXPECTED_CREATED",
+    }
+    if (
+        not isinstance(anonymous_env, dict)
+        or set(anonymous_env) != expected_anonymous_env
+        or any(
+            marker in anonymous_run
+            for marker in ("docker login", "secrets.", "github.token")
+        )
+    ):
+        raise ValueError(f"{path}: anonymous image gate may not receive publisher credentials")
+
+    plan_index, _plan_step = named_step(
+        "Verify the canonical upgrade plan before draft staging"
+    )
+    publish_index, _publish_step = named_step(
+        "Stage, verify, and atomically publish the GitHub Release"
+    )
+    stable_index, stable_step = named_step(
+        "Publish Stable convenience tags after release publication"
+    )
+    if stable_index <= max(sign_index, anonymous_index, plan_index, publish_index):
+        raise ValueError(
+            f"{path}: Stable convenience tags publish before images, anonymous pulls, "
+            "the signed plan, and the GitHub Release are verified and published"
+        )
+    stable_run = str(stable_step.get("run", ""))
+    for marker in (
+        "for component in backend webui updater",
+        'digest="${reference##*@}"',
+        'docker buildx imagetools create --tag "${tagged}" "${reference}"',
+        '[[ "${tagged_digest}" == "${digest}" ]]',
+    ):
+        if marker not in stable_run:
+            raise ValueError(
+                f"{path}: Stable convenience tags are not derived from exact plan "
+                f"digests: missing {marker!r}"
+            )
 
 
 def _assert_docs(path: Path, workflow: dict[str, Any]) -> None:

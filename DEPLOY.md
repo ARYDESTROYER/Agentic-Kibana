@@ -5,15 +5,15 @@ The product is a read-only triage layer that consumes alerts from
 **any** SIEM / EDR / XDR and turns raw alert volume into audited, cost-metered,
 human-reviewable cases.
 
-The current source version is `0.1.3` (documentation line `0.1`). Source builds
+The current source version is `0.1.4` (documentation line `0.1`). Source builds
 default to `TLSOC_RELEASE_CHANNEL=testing`; set `stable` only while building the
-exact accepted `main` commit from its immutable `v0.1.3` tag. Version and channel
+exact accepted `main` commit from its immutable `v0.1.4` tag. Version and channel
 are independent, so a Testing candidate cannot report itself as Stable merely
 because it already carries the final SemVer.
 
 > **Release topology:** the remote uses `Testing` for integration and default
-> `main` for accepted Stable source. Version 0.1.3 is Stable only when its exact
-> verified `main` commit has the immutable `v0.1.3` tag and matching artifacts. Branch
+> `main` for accepted Stable source. Version 0.1.4 is Stable only when its exact
+> verified `main` commit has the immutable `v0.1.4` tag and matching artifacts. Branch
 > protections, required checks, and release-environment policies are repository
 > administration controls; verify them independently rather than inferring
 > acceptance from a branch or tag name.
@@ -319,7 +319,7 @@ organization deliberately publishes the `core` target under a site-specific imag
 name, add only the required clients in a derived image, for example:
 
 ```dockerfile
-FROM registry.example/tlsoc-backend-core:0.1.3
+FROM registry.example/tlsoc-backend-core:0.1.4
 RUN pip install --no-cache-dir confluent-kafka boto3   # only what you need
 ```
 
@@ -445,21 +445,21 @@ independently. Back up first and follow
 ```bash
 cd <repo-root>
 git fetch --tags origin
-git checkout v0.1.3   # replace with the exact accepted release tag
+git checkout v0.1.4   # replace with the exact accepted release tag
 ./scripts/agentic-soc-compose.sh up -d --build
 ```
 
-Version 0.1.3 is the one-time bootstrap boundary for supervised updates. The
-supported v0.1.1→v0.1.3 transition must run from the clean, exact annotated v0.1.3
-tag whose commit remains contained in `origin/main`, while the reference v0.1.1
-PostgreSQL stack is still running:
+Once its immutable publication gate completes, version 0.1.4 is the first bootstrap
+boundary for supervised updates. The supported v0.1.1→v0.1.4 transition must run
+from the clean, exact annotated v0.1.4 tag whose commit remains contained in
+`origin/main`, while the reference v0.1.1 PostgreSQL stack is still running:
 
 ```bash
 ./scripts/bootstrap-updater.sh
 ```
 
 That host-authorized step installs the private Unix-socket supervisor transport, then
-has it verify, preflight, and apply the signed, digest-pinned v0.1.3 release. The
+has it verify, preflight, and apply the signed, digest-pinned v0.1.4 release. The
 bootstrap transition therefore uses the same pull-first, quiesce, PostgreSQL backup,
 identity/readiness, receipt, and automatic rollback state machine as later Console
 updates. After bootstrap, a freshly authenticated built-in super administrator can
@@ -469,6 +469,13 @@ the `/v1/jobs` request it transfers ownership to the supervisor, so an interrupt
 client never races the accepted job by rewriting active pins. Its mode-0600,
 per-release start key is reused across interruptions and retired only after the exact
 job is observed terminal.
+
+A Testing/source-built 0.1.3 deployment is not an immutable Stable source and is
+rejected by this bootstrap. Reconcile it manually to the signed 0.1.4 deployment;
+do not relabel it. Bootstrap also requires a strictly newer target, so an already
+running 0.1.4 deployment cannot bootstrap itself from the same plan. If its supervisor
+was not established during reconciliation, use the next newer compatible Stable
+release's documented bootstrap path.
 
 The supported one-click profile is intentionally narrow: the reference standalone,
 single-replica Docker Compose deployment with the signed canonical base-file hash,
@@ -637,7 +644,7 @@ Mode A PostgreSQL reports the desired policy as advisory until timestamp partiti
 and an operator-managed scheduler/tablespace/archive workflow exist. SQLite reports
 export-only. Connected source indices and buckets are always external/read-only.
 
-The 0.1.3 Apply operation does not configure Glacier and never adds an ILM delete
+The 0.1.4 Apply operation does not configure Glacier and never adds an ILM delete
 phase. To archive safely, write a separate immutable export, manifest and checksums,
 verify restore, then apply S3 lifecycle to that **independent archive prefix**. Never
 transition the Elasticsearch snapshot-repository prefix itself.

@@ -65,23 +65,25 @@ healthy backend build before the new document activates.
 ## Version 0.1 nomenclature
 
 The first standardized release line is documentation version **0.1**. The current
-source version is product version **0.1.3**, built on the unpublished 0.1.2 Testing
-snapshot. It is a Testing candidate before exact verified promotion and the Stable
-release record only after the accepted `main` commit is immutably tagged `v0.1.3`.
+source version is product version **0.1.4**, built on the accepted but unpublished
+0.1.2 and 0.1.3 Testing snapshots. It is a Testing candidate before exact verified
+promotion and becomes a Stable release record only after the accepted `main` commit
+is immutably tagged `v0.1.4` and its signed artifacts are published. Until then,
+`v0.1.1` remains the last published Stable.
 
 | Surface | Canonical value |
 | --- | --- |
 | Product | Agentic SOC |
 | Operator interface | Agentic SOC Console |
 | Backend service/API | Agentic SOC API |
-| SemVer package and image version | `0.1.3` |
-| Git release tag | `v0.1.3` only from the exact verified `main` commit; absent before publication and immutable afterward |
+| SemVer package and image version | `0.1.4` |
+| Git release tag | `v0.1.4` only from the exact verified `main` commit; absent before publication and immutable afterward |
 | Documentation selector and URL line | `0.1` and `/0.1/` |
 | Integration branch/channel | `Testing` |
 | Stable branch/channel | `main` / Stable |
 
 Patch releases remain within the same documentation line. For example, app
-versions `0.1.1`, `0.1.2`, and `0.1.3` use the `0.1` documentation rather than
+versions `0.1.1`, `0.1.2`, `0.1.3`, and `0.1.4` use the `0.1` documentation rather than
 creating new selector entries. A new minor release creates a new documentation
 line such as `0.2`.
 
@@ -126,8 +128,9 @@ git push origin "vX.Y.Z"
 
 Replace `X.Y.Z` with the real `VERSION` value and replace the summary placeholder
 with the release's concrete operator-visible scope. Publish the GitHub Release from
-that existing tag with the versioned release page and changelog as canonical notes;
-`.github/release.yml` adds the categorized reviewed-PR inventory. Published tags are
+that existing tag with the versioned release page and changelog as canonical notes.
+`.github/release.yml` defines repository PR-note categories but does not replace the
+canonical versioned release body. Published tags are
 immutable; never force-update one. The workflow first creates a non-public draft bound
 to the exact tag and commit SHA, uploads both canonical upgrade-plan assets, downloads
 and byte-compares them, verifies the Sigstore bundle, and only then changes the draft to
@@ -203,8 +206,8 @@ is not a Console acceptance receipt.
 
 ## Build and badge provenance
 
-SemVer and channel are independent. The 0.1.3 Testing candidate and its accepted
-Stable build can both report version `0.1.3`; the channel says where that build sits in
+SemVer and channel are independent. The 0.1.4 Testing candidate and its accepted
+Stable build can both report version `0.1.4`; the channel says where that build sits in
 the acceptance lifecycle. Stamp the mutable provenance fields explicitly; keep or
 override the Dockerfile's canonical source URL as appropriate:
 

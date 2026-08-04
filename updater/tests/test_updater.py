@@ -124,6 +124,7 @@ class FakeRuntime:
         backup_gate: threading.Event | None = None,
         pull_gate: threading.Event | None = None,
         preflight_gate: threading.Event | None = None,
+        release_gate: threading.Event | None = None,
         fail_rollback: bool = False,
     ) -> None:
         self.fail_backend = fail_backend
@@ -134,10 +135,12 @@ class FakeRuntime:
         self.backup_gate = backup_gate
         self.pull_gate = pull_gate
         self.preflight_gate = preflight_gate
+        self.release_gate = release_gate
         self.fail_rollback = fail_rollback
         self.backup_started = threading.Event()
         self.pull_started = threading.Event()
         self.preflight_started = threading.Event()
+        self.release_started = threading.Event()
         self.rollback_calls = 0
         self.calls: list[str] = []
         self.fingerprint_generation = 0
@@ -219,6 +222,9 @@ class FakeRuntime:
         if self.lifecycle_owner_job != job_id:
             raise RuntimeError("lifecycle guard owner changed")
         if terminal:
+            self.release_started.set()
+            if self.release_gate is not None:
+                self.release_gate.wait(timeout=4)
             self.lifecycle_marker_job = None
         self.lifecycle_owner_job = None
         self.calls.append(f"lifecycle_release:{terminal}")
@@ -324,7 +330,11 @@ def wait_job(service: UpdateService, job_id: str, statuses: set[str] = TERMINAL_
     while time.monotonic() < deadline:
         job = service.store.load_job(job_id)
         if job and job.get("status") in statuses:
-            return job
+            # Exercise the operator-visible boundary before returning private
+            # durable fields used by state-machine assertions. This also joins
+            # the worker tail so TemporaryDirectory cleanup cannot race it.
+            service.get_job(job_id)
+            return service.store.load_job(job_id) or job
         time.sleep(0.01)
     raise AssertionError(f"job {job_id} did not reach {statuses}")
 
@@ -1355,6 +1365,216 @@ class StateMachineTests(unittest.TestCase):
         self.assertEqual(terminal["status"], "succeeded")
         self.assertIn("lifecycle_begin", runtime.calls)
         self.assertIsNone(runtime.lifecycle_marker_job)
+
+    def test_terminal_status_is_not_published_before_lifecycle_cleanup(self) -> None:
+        release_gate = threading.Event()
+        runtime = FakeRuntime(release_gate=release_gate)
+        service = self.service(runtime)
+        _preflight, started = self.preflight_and_start(
+            service, "terminal-publication-boundary-0001"
+        )
+        self.assertTrue(runtime.release_started.wait(timeout=4))
+
+        # Durable terminal truth intentionally precedes marker removal for
+        # crash recovery, but it must not yet be observable through the API.
+        durable = service.store.load_job(started["job_id"])
+        self.assertEqual(durable["status"], "succeeded")  # type: ignore[index]
+        self.assertEqual(runtime.lifecycle_marker_job, started["job_id"])
+
+        published: list[dict] = []
+        reader_done = threading.Event()
+
+        def read_public_job() -> None:
+            published.append(service.get_job(started["job_id"]))
+            reader_done.set()
+
+        reader = threading.Thread(target=read_public_job)
+        reader.start()
+        self.assertFalse(reader_done.wait(timeout=0.1))
+
+        release_gate.set()
+        self.assertTrue(reader_done.wait(timeout=4))
+        reader.join(timeout=4)
+        self.assertFalse(reader.is_alive())
+        self.assertEqual(published[0]["status"], "succeeded")
+        self.assertIsNone(runtime.lifecycle_marker_job)
+
+    def test_immediate_rollback_waits_for_success_worker_tail(self) -> None:
+        runtime = FakeRuntime()
+        service = self.service(runtime)
+        terminal_saved = threading.Event()
+        terminal_tail_gate = threading.Event()
+        original_save_stage = service._save_stage
+
+        def gated_save_stage(
+            job: dict, stage: str, message: str, *, status: str = "running"
+        ) -> None:
+            original_save_stage(job, stage, message, status=status)
+            if status == "succeeded" and not terminal_saved.is_set():
+                terminal_saved.set()
+                terminal_tail_gate.wait(timeout=4)
+
+        service._save_stage = gated_save_stage  # type: ignore[method-assign]
+        _preflight, started = self.preflight_and_start(
+            service, "rollback-after-terminal-tail-0001"
+        )
+        self.assertTrue(terminal_saved.wait(timeout=4))
+        self.assertIsNone(runtime.lifecycle_marker_job)
+
+        rollback_result: list[dict] = []
+        rollback_requested = threading.Event()
+
+        def request_rollback() -> None:
+            rollback_requested.set()
+            rollback_result.append(
+                service.request_rollback(
+                    started["job_id"],
+                    {"idempotency_key": "rollback-after-terminal-tail-0001"},
+                )
+            )
+
+        requester = threading.Thread(target=request_rollback)
+        requester.start()
+        self.assertTrue(rollback_requested.wait(timeout=1))
+        time.sleep(0.05)
+        self.assertTrue(requester.is_alive())
+
+        terminal_tail_gate.set()
+        requester.join(timeout=4)
+        self.assertFalse(requester.is_alive())
+        self.assertEqual(rollback_result[0]["status"], "rolling_back")
+        terminal = wait_job(service, started["job_id"], {"rolled_back", "failed"})
+        self.assertEqual(terminal["status"], "rolled_back")
+        self.assertIsNone(runtime.lifecycle_marker_job)
+
+    def test_completed_workers_are_removed_from_the_registry(self) -> None:
+        runtime = FakeRuntime()
+        service = self.service(runtime)
+        _preflight, started = self.preflight_and_start(
+            service, "worker-registry-cleanup-0001"
+        )
+
+        self.assertEqual(wait_job(service, started["job_id"])["status"], "succeeded")
+        self.assertNotIn(started["job_id"], service._workers)
+        self.assertNotIn(started["job_id"], service._worker_modes)
+
+    def test_worker_registration_and_thread_start_are_atomic(self) -> None:
+        runtime = FakeRuntime()
+        service = self.service(runtime)
+        start_entered = threading.Event()
+        allow_start = threading.Event()
+        worker_entered = threading.Event()
+        allow_worker_exit = threading.Event()
+        start_calls: list[threading.Thread] = []
+        start_calls_lock = threading.Lock()
+        real_thread = threading.Thread
+
+        class GatedStartThread(real_thread):
+            def start(self) -> None:
+                with start_calls_lock:
+                    start_calls.append(self)
+                start_entered.set()
+                if not allow_start.wait(timeout=4):
+                    raise AssertionError("test did not release Thread.start")
+                super().start()
+
+        def gated_worker(_job_id: str) -> None:
+            worker_entered.set()
+            if not allow_worker_exit.wait(timeout=4):
+                raise AssertionError("test did not release updater worker")
+
+        errors: list[BaseException] = []
+
+        def launch() -> None:
+            try:
+                service._launch("atomic-worker-start-0001")
+            except BaseException as exc:  # pragma: no cover - assertion aid
+                errors.append(exc)
+
+        with (
+            mock.patch.object(service, "_worker", gated_worker),
+            mock.patch("agentic_soc_updater.service.threading.Thread", GatedStartThread),
+        ):
+            first = real_thread(target=launch)
+            second = real_thread(target=launch)
+            first.start()
+            self.assertTrue(start_entered.wait(timeout=1))
+            second.start()
+            time.sleep(0.05)
+            self.assertEqual(len(start_calls), 1)
+
+            allow_start.set()
+            self.assertTrue(worker_entered.wait(timeout=1))
+            first.join(timeout=4)
+            second.join(timeout=4)
+            self.assertFalse(first.is_alive())
+            self.assertFalse(second.is_alive())
+            self.assertEqual(errors, [])
+            self.assertEqual(len(start_calls), 1)
+
+            allow_worker_exit.set()
+            deadline = time.monotonic() + 4
+            while service._workers and time.monotonic() < deadline:
+                time.sleep(0.01)
+
+        self.assertNotIn("atomic-worker-start-0001", service._workers)
+        self.assertNotIn("atomic-worker-start-0001", service._worker_modes)
+
+    def test_failed_thread_start_removes_worker_registration(self) -> None:
+        service = self.service(FakeRuntime())
+        real_thread = threading.Thread
+
+        class FailingStartThread(real_thread):
+            def start(self) -> None:
+                raise RuntimeError("synthetic thread start failure")
+
+        with mock.patch(
+            "agentic_soc_updater.service.threading.Thread", FailingStartThread
+        ):
+            with self.assertRaisesRegex(RuntimeError, "synthetic thread start failure"):
+                service._launch("failed-worker-start-0001")
+
+        self.assertNotIn("failed-worker-start-0001", service._workers)
+        self.assertNotIn("failed-worker-start-0001", service._worker_modes)
+
+    def test_concurrent_public_readers_wait_for_terminal_cleanup(self) -> None:
+        release_gate = threading.Event()
+        runtime = FakeRuntime(release_gate=release_gate)
+        service = self.service(runtime)
+        _preflight, started = self.preflight_and_start(
+            service, "concurrent-terminal-readers-0001"
+        )
+        self.assertTrue(runtime.release_started.wait(timeout=4))
+
+        readers = [
+            lambda: service.get_job(started["job_id"]),
+            service.status,
+            lambda: terminal_page(service, MAX_TERMINAL_JOBS),
+            lambda: service.receipt(started["job_id"]),
+        ] * 4
+        results: list[dict] = []
+        errors: list[BaseException] = []
+
+        def read(reader) -> None:
+            try:
+                results.append(reader())
+            except BaseException as exc:  # pragma: no cover - assertion evidence
+                errors.append(exc)
+
+        threads = [threading.Thread(target=read, args=(reader,)) for reader in readers]
+        for thread in threads:
+            thread.start()
+        time.sleep(0.1)
+        self.assertTrue(all(thread.is_alive() for thread in threads))
+
+        release_gate.set()
+        for thread in threads:
+            thread.join(timeout=4)
+        self.assertTrue(all(not thread.is_alive() for thread in threads))
+        self.assertEqual(errors, [])
+        self.assertEqual(len(results), len(readers))
+        self.assertIsNone(runtime.lifecycle_marker_job)
+        self.assertNotIn(started["job_id"], service._workers)
 
     def test_start_persists_recoverable_job_before_lifecycle_marker(self) -> None:
         runtime = FakeRuntime()

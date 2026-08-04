@@ -11,7 +11,7 @@ import socketserver
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
-from .service import ServiceError, TERMINAL_STATUSES, UpdateService
+from .service import ServiceError, UpdateService
 
 
 JOB_PATH = re.compile(r"^/v1/jobs/([A-Za-z0-9-]{1,80})(?:/(cancel|rollback|receipt))?$")
@@ -29,12 +29,7 @@ def terminal_page(service: UpdateService, limit: int) -> dict[str, Any]:
         raise ServiceError(
             f"limit must be between 1 and {MAX_TERMINAL_JOBS}", 422
         )
-    jobs = (
-        service.public_job(job)
-        for job in service.store.list_jobs()
-        if job.get("status") in TERMINAL_STATUSES
-    )
-    return {"jobs": [job for job in jobs if job is not None][:limit]}
+    return {"jobs": service.terminal_jobs(limit)}
 
 
 def _terminal_limit(path: str) -> int:
