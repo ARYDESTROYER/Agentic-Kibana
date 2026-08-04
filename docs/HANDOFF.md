@@ -21,6 +21,14 @@
   fully verified promoted commit; see
   `docs/releases/channels.md`. Repository administrators remain responsible for enforcing
   the documented branch and environment protections.
+- **Current CI contract:** every candidate exposes seventeen independent quality lanes
+  plus the fail-closed **CI passed** aggregate. In addition to the complete backend,
+  Console, contract, design, package, and documentation checks, CI boots the supported
+  PostgreSQL+pgvector/Redis state path, runs fail-closed workflow/ShellCheck and fatal
+  Python static checks separately from deploy/updater contracts, and builds the
+  shipping backend, Console/Help Center, and updater images without publishing them.
+  Require **CI passed** on `Testing` and
+  `main`; do not merge, tag, publish, skip, or soften a red/pending/cancelled lane.
 - **Release identity and supervised updates:** the top-right badge always reads
   `v0.1.3 · Testing|Stable`; its popover reconciles build-time Console and public backend
   build-info. Any known version/channel/SHA mismatch downgrades to Testing. Local demo auto-

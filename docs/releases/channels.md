@@ -171,6 +171,12 @@ describe its real operating boundary. At minimum:
 - canonical version metadata, OpenAPI, TypeScript contracts, image defaults, and
   release notes agree;
 - backend tests, web console lint/tests/build, and strict documentation build pass;
+- the supported PostgreSQL+pgvector/Redis state lane performs a real readiness
+  write/read, and every shipping backend, Console, and updater image builds with the
+  exact candidate identity before any tag can publish it;
+- workflow/ShellCheck and deploy/updater contracts run as separate required lanes so
+  one early failure cannot hide another; the fail-closed `CI passed` aggregate must
+  succeed on `Testing`, the resulting `main` commit, and the immutable tag;
 - the documented Console release-candidate browser matrix passes on the exact built
   candidate in Light, Dark, and System at desktop and narrow widths, with build SHA,
   release badge, keyboard/focus, loading/error/empty behavior, same-origin Help Center,
@@ -185,6 +191,11 @@ describe its real operating boundary. At minimum:
 Passing unit tests does not by itself make a commit Stable. The accepted source,
 release metadata, documentation, and published artifacts must describe the same
 thing.
+
+Never remove, soften, skip, or mark a required lane `continue-on-error` merely to
+make a release green. Repair the underlying contract and re-run the exact candidate.
+The application release and Stable Help Center publication both verify the exact
+tag CI run and its successful **CI passed** aggregate before publishing anything.
 
 Use the [release-candidate browser acceptance matrix](../development/testing.md#release-candidate-browser-acceptance)
 for the required route and interaction coverage. A screenshot of one successful page

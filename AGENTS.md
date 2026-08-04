@@ -572,6 +572,21 @@ cp .env.example .env   # set TLSOC_PG_PASSWORD + at least one LLM key
   Stable promotion. Keep the documented pull-request gates and the required
   `CI passed` aggregate enforced through repository settings; branch names alone
   do not prove acceptance.
+- **CI/CD acceptance (non-negotiable):** `.github/workflows/ci.yml` exposes seventeen
+  independently diagnosable quality lanes plus the fail-closed `CI passed`
+  aggregate. The aggregate must be required on both `Testing` and `main`, and the
+  exact candidate must pass it on `Testing`, on the resulting `main` commit, and on
+  the immutable release tag. Stable application artifacts and versioned documentation
+  both wait for that exact tag's successful `CI passed` result. Never merge, tag, or publish with a required lane
+  failed, pending, skipped, or cancelled. Never remove, soften, mark
+  `continue-on-error`, or bypass a gate merely to make a release green; fix the
+  underlying contract. Workflow-policy/ShellCheck validation, fatal Python static
+  correctness, deploy/updater contracts, real PostgreSQL+pgvector/Redis acceptance,
+  and all three shipping image builds remain independent so an early failure cannot
+  hide a later release blocker. External actions use reviewed immutable commit SHAs;
+  service and Dockerfile base images use reviewed multi-platform digests; every job has an explicit timeout and least-
+  privilege permissions. When a supported runtime, artifact, or release contract is
+  added, extend the gate, fail-closed aggregate, and documentation in the same candidate.
 - **Release identity and update UI:** the shell always shows `vX.Y.Z · Testing|Stable`; its
   popover reconciles the immutable Console stamp with public backend build-info.
   Any known version/channel/SHA mismatch downgrades to Testing. `run-demo.sh`

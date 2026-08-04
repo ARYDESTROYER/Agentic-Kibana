@@ -9084,3 +9084,53 @@
 - Tests: Full backend passed **2,306/2,306**; strict Console passed **1,935/1,935 across 286 files** with zero stderr and zero captured console output; OpenAPI remained current at **217 paths**; production build completed **3,189 modules**; updater/release-state passed **77/77**, backend system-update coverage **47/47**, distribution **5/5**, and the isolated 0.1.3 package installed with 27 feature routers. TypeScript, zero-warning lint, all five design gates, Help Center consistency, version/channel contracts, dependency integrity, SQLite readiness, shell/Python/workflow syntax, five-service Compose topology, repository whitespace, absent temporary memory, and the protected case-manager boundary passed. The final documentation-only wording pass was followed by a fresh Help Center check and full production rebuild. No Codex Security review was run.
 - Status: complete and ready for intentional staging, commit, and push to `Testing`; nothing is staged, committed, pushed, tagged, released, deployed, or published by this session. Stable remains separately gated by the owner-selected license, verified repository protections and remote CI, an unchanged `main` promotion, immutable signed artifacts, and real isolated PostgreSQL Compose update/rollback acceptance.
 - Next: Audit the staged 227-path manifest, commit the exact Testing candidate, require all remote checks, promote the unchanged tree through a pull request to `main`, rerun the gate there, and create `v0.1.3` only from that accepted SHA after the remaining Stable gates pass.
+
+### 2026-08-04 17:18Z — `/root` — v0.1.3 CI failure diagnosis and release-gate hardening started
+- Context: Diagnose the failing `Deploy & shell contracts` check on the pushed 0.1.3 Testing candidate and strengthen CI/CD so a release cannot pass through an incomplete or weakly diagnosed gate.
+- Did: Confirmed the working tree is clean and aligned with `origin/Testing`; began live GitHub Actions log inspection, workflow-contract review, and a bounded expansion of independent release checks. The GitHub CLI is not installed in this environment, so the public Actions API and repository-native reproduction will be used rather than guessing from the status badge.
+- Tests: Not run at start. No Codex Security review is in scope.
+- Status: in progress; no file is staged, committed, pushed, tagged, released, deployed, or published by this session.
+- Next: Extract the exact failing step and log, reproduce it locally, correct the root contract, add only independent fail-closed checks with stable names, update `AGENTS.md` and release documentation, then run the complete workflow and application gates.
+
+### 2026-08-04 17:28Z — `/root/ci_failure_exact` — CI failure root cause confirmed
+- Reproduced the failed Deploy & shell contracts gate under Go 1.23.6/Linux amd64.
+- GitHub runner actionlint auto-invoked ShellCheck and rejected the combined `export TLSOC_BUILD_DATE="$(date ...)"` assignment with SC2155.
+- Verified in a temporary workflow copy that separating assignment from export makes the complete actionlint and ShellCheck scan pass.
+- No repository files changed; no Codex Security tooling run.
+
+### 2026-08-04 17:32Z — `/root/ci_release_checks` — release-gate feasibility audit completed
+- Context: Read-only audit of Dockerfiles, Compose topology, updater/runtime contracts, and the supported SQL/Redis path; no Codex Security and no repository edits.
+- Did: Verified all three shipping Dockerfiles with BuildKit check mode and revalidated standalone Compose topology. Proved a real PostgreSQL+pgvector and Redis backend startup: readiness performed its durable KV sentinel write/read, pgvector was present, and Redis answered PING.
+- Status: complete. Recommended a three-cell image-build matrix plus one digest-pinned production-state acceptance gate; full Compose startup is intentionally excluded because it would grant updater Docker authority and duplicate image work.
+
+### 2026-08-04 17:35Z — `/root` — fail-closed CI/CD hardening implemented
+- Context: Repair the exact remote CI failure and add independent release evidence that cannot be hidden behind an earlier lint error.
+- Did: Fixed SC2155 in the release-complete Web build; split workflow/ShellCheck validation from deploy/updater contracts; added a real digest-pinned PostgreSQL+pgvector/Redis acceptance lane; added independent backend, Console/Help Center, and updater shipping-image builds with candidate-label/runtime assertions; upgraded first-party checkout/setup actions to Node 24-compatible majors; and wired every lane into the fail-closed aggregate.
+- Docs: Codified the sixteen-lane plus aggregate release policy in `AGENTS.md`, `CONTRIBUTING.md`, Handoff, Testing, release channels, 0.1.3 notes, and the changelog. The policy forbids merging, tagging, publishing, skipping, softening, or bypassing a required failure.
+- Tests: Initial actionlint and repository whitespace validation passed after the workflow edit. Broader workflow, service, image, documentation, and application validation remains in progress. No Codex Security review was run.
+- Status: implementation milestone complete; nothing staged, committed, pushed, tagged, released, deployed, or published.
+
+### 2026-08-04 17:58Z — `/root/ci_gate_design` — backend and Python correctness validation completed
+- Context: Independently validate the expanded CI baseline before release promotion.
+- Did: Ran the complete backend offline suite and the exact fatal Ruff correctness gate against the final application tree.
+- Tests: Backend passed **2,306/2,306** in 84.20 seconds; Ruff 0.12.5 passed `E9,F63,F7,F82`. The only warning was the expected Elasticsearch test fixture using `verify_certs=False`.
+- Status: green; no repository files changed by this validation agent and no Codex Security review was run.
+
+### 2026-08-04 17:58Z — `/root/ci_failure_exact` — independent workflow-policy validation completed
+- Context: Adversarially check whether the new fail-closed policy itself had bypasses after the SC2155 correction.
+- Did: Verified action SHAs and service-image digests, then identified and closed `.yaml` discovery, unknown-workflow, exact-tag documentation-publication, and mutable Docker-base gaps. Confirmed the final policy documents **seventeen** quality lanes plus the `CI passed` aggregate; this final count supersedes the intermediate sixteen-lane wording above.
+- Tests: Exact Go 1.23.6/actionlint 1.7.7 with checksum-verified ShellCheck 0.10.0 passed; all reviewed action pins resolved to their intended commits; service-image digests exposed amd64 manifests.
+- Status: green; no Codex Security review was run.
+
+### 2026-08-04 17:58Z — `/root/ci_release_checks` — final release and deployment gate validation completed
+- Context: Revalidate the final candidate after workflow, publisher, service-image, and Dockerfile-base digest hardening.
+- Did: Exercised workflow policy, Compose/updater contracts, real PostgreSQL+pgvector/Redis readiness, Dockerfile checks, and actual `linux/amd64` builds for the backend, Web UI, and updater with OCI/runtime assertions.
+- Tests: Policy passed 3 workflows and 3 shipping Dockerfiles with **15/15** policy regressions; updater passed **77/77**; tracked shell syntax and fatal Ruff passed; all three BuildKit checks reported zero warnings; all three shipping images built and matched version/channel/SHA/date/health/runtime contracts; the Web production build compiled **3,189 modules**.
+- Status: green; temporary audit images were removed, no repository files were changed by this validation agent, and no Codex Security review was run.
+
+### 2026-08-04 17:58Z — `/root` — v0.1.3 CI repair and fail-closed release hardening completed
+- Context: Finish the failed Testing-run repair and make subsequent application and documentation publication depend on complete, independently diagnosable evidence.
+- Did: Corrected ShellCheck SC2155; expanded CI from eleven to **seventeen** independent quality lanes plus the required `CI passed` aggregate; added real production-state and all-shipping-image acceptance; split workflow, deploy, and Python correctness concerns; pinned external actions, CI services, and all shipping base images; added Docker Dependabot; added a fail-closed workflow/Docker policy with regression tests; and made both release-image and Stable-documentation publishers wait for the exact immutable tag's successful aggregate. Updated `AGENTS.md`, contributor guidance, testing/release documentation, 0.1.3 notes, changelog, handoff, and pull-request checklist.
+- Tests: Full backend **2,306/2,306**; strict Console **1,935/1,935 across 286 files**; updater **77/77**; policy **15/15**; exact actionlint/ShellCheck, fatal Ruff, version, 68-page Help Center, docs bundle/theme tests, tracked shell syntax, repository whitespace, real PostgreSQL/Redis acceptance, Compose topology, three Docker build checks, three actual shipping-image builds, and production Web build all passed. Temporary `memory.md` is absent and deterministic `case_manager.py` is unchanged. No Codex Security review was run.
+- Status: complete and green locally; changes remain unstaged on `Testing`. Nothing was committed, pushed, merged, tagged, released, deployed, or published.
+- Next: Review and commit this exact patch to `Testing`, push it, require the remote `CI passed` result, then promote the unchanged accepted SHA through `main` and the annotated `v0.1.3` tag gates.

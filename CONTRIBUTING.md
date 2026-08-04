@@ -278,7 +278,7 @@ A new `SourceType` enum value (`constants.py`) and (for receivers) the right
 ## Continuous integration (merge gate)
 
 `.github/workflows/ci.yml` runs on every pull request (and pushes to `main` /
-`Testing`) and must be green before merge. It exposes eleven independently
+`Testing`) and must be green before merge. It exposes seventeen independently
 diagnosable quality checks plus one fail-closed aggregate:
 
 | Status check | Contract |
@@ -287,18 +287,35 @@ diagnosable quality checks plus one fail-closed aggregate:
 | Backend tests (offline) | The complete fake-ES/mock-LLM/SQLite suite passes, including deny-by-default route authorization coverage. |
 | Backend package integrity | The sdist and wheel build, install, report the canonical version, and contain required runbooks, playbooks, model, and ATT&CK data. |
 | Backend startup smoke | Production dependencies import, feature routers discover, the ASGI lifespan starts on isolated SQLite state, and liveness reports the expected version. |
+| PostgreSQL & Redis acceptance | The supported PostgreSQL+pgvector state path boots against pinned service images, readiness proves a real KV write/read, the vector extension exists, and Redis responds. |
 | Web UI tests (Vitest) | The complete component, interaction, accessibility, and page regression suite passes with zero stderr or captured console stdout. |
 | TypeScript & OpenAPI drift | Backend OpenAPI regeneration is byte-stable and the Console type-checks without a soft skip. |
 | Web UI lint | ESLint, hooks, and `jsx-a11y` finish with zero errors or warnings. |
 | Design-system gates | Token existence, measured contrast, colour-vision separation, and raw-style regression guards pass. |
 | Help Center & docs | Public structure/links, bundle/theme contracts, and the version-matched strict documentation build pass. |
 | Web UI production build | The release-stamped Console and installed Help Center compile into an inspectable production artifact. |
-| Deploy & shell contracts | Every workflow passes actionlint; every tracked shell script parses; the reference five-service Compose topology resolves; and updater wire, plan, lifecycle-wrapper, backup, and rollback contracts pass. |
-| CI passed | Runs even after failures and fails unless every one of the eleven checks completed successfully. |
+| Workflow & shell contracts | Every workflow passes pinned actionlint with a checksum-verified ShellCheck binary, CI policy regression tests pass, and every tracked shell script parses. |
+| Deploy & updater contracts | The reference five-service Compose topology resolves, invalid startup modes fail closed, and updater wire, plan, lifecycle-wrapper, backup, and rollback contracts pass. |
+| Python static correctness | Ruff's fatal correctness rules reject syntax faults, invalid control flow, and undefined names without turning legacy style debt into a release bypass. |
+| Release image build (backend) | The complete backend image builds from the shipping Dockerfile and its OCI identity, healthcheck, port, and non-root runtime contract match the candidate. |
+| Release image build (webui) | The Console plus version-matched Help Center image builds and its OCI identity, healthcheck, and port match the candidate. |
+| Release image build (updater) | The isolated updater image builds and its OCI identity, healthcheck, protocol label, and entry point match the candidate. |
+| CI passed | Runs even after failures and fails unless every one of the seventeen checks completed successfully. |
 
 The jobs intentionally run separately and in parallel. This costs a few repeated
-dependency-cache restores, but a pull request cannot hide an API drift, packaging,
-documentation, or deployment-shape failure inside one opaque build log.
+dependency-cache restores and image layers, but a pull request cannot hide API drift,
+packaging, production-state, image, documentation, or deployment failures inside one
+opaque log. A failing gate is repaired at its source; it is never weakened or bypassed
+to make a candidate mergeable.
+
+The workflow contract checker rejects missing or unreviewed workflow files (including
+either YAML extension), duplicate YAML keys, mutable external action references,
+missing job timeouts, over-broad permissions, `continue-on-error`, unsafe triggers,
+and aggregate dependency drift. Dependabot proposes reviewed weekly updates to
+immutable GitHub Actions pins; it does not make those updates automatically.
+Shipping Dockerfile bases are also pinned to reviewed multi-platform manifest digests;
+the workflow policy enforces that contract, while weekly Docker Dependabot proposals
+keep those reproducible pins reviewable.
 
 To enforce the aggregate:
 

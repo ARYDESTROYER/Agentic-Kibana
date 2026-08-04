@@ -22,7 +22,7 @@ jobs:
     timeout-minutes: 120
     environment: stable-release
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
 
@@ -185,7 +185,7 @@ jobs:
             echo "bundle_exists=${bundle_exists}"
           } >> "${GITHUB_OUTPUT}"
 
-      - uses: sigstore/cosign-installer@v4.1.2
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
         with:
           cosign-release: v3.0.6
 
@@ -231,10 +231,10 @@ jobs:
           fi
 
       - if: steps.assets.outputs.plan_exists != 'true'
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
       - if: steps.assets.outputs.plan_exists != 'true'
-        uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -243,7 +243,7 @@ jobs:
       - name: Build and publish backend by immutable digest
         if: steps.assets.outputs.plan_exists != 'true'
         id: backend
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: backend
           file: backend/Dockerfile
@@ -263,7 +263,7 @@ jobs:
       - name: Build and publish Web Console by immutable digest
         if: steps.assets.outputs.plan_exists != 'true'
         id: webui
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: webui/Dockerfile
@@ -282,7 +282,7 @@ jobs:
       - name: Build and publish update supervisor by immutable digest
         if: steps.assets.outputs.plan_exists != 'true'
         id: updater
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: updater
           file: updater/Dockerfile
@@ -532,21 +532,21 @@ jobs:
 
       - name: Attest published image provenance
         if: steps.assets.outputs.plan_exists != 'true'
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
         with:
           subject-name: ${{ steps.release.outputs.image_prefix }}/backend
           subject-digest: ${{ steps.images.outputs.backend_digest }}
           push-to-registry: true
       - name: Attest Web Console image provenance
         if: steps.assets.outputs.plan_exists != 'true'
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
         with:
           subject-name: ${{ steps.release.outputs.image_prefix }}/webui
           subject-digest: ${{ steps.images.outputs.webui_digest }}
           push-to-registry: true
       - name: Attest update supervisor image provenance
         if: steps.assets.outputs.plan_exists != 'true'
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
         with:
           subject-name: ${{ steps.release.outputs.image_prefix }}/updater
           subject-digest: ${{ steps.images.outputs.updater_digest }}

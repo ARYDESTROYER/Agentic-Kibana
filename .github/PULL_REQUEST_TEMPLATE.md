@@ -35,6 +35,9 @@
 - [ ] Production Console and Help Center built: `cd webui && npm run build`
 - [ ] Documentation bundle matched the product version: `cd webui && npm run docs:check`
 - [ ] Deployment and shell contracts were checked when applicable.
+- [ ] Fatal Python correctness checks passed: `uvx --from ruff==0.12.5 ruff check backend/app backend/tests updater/agentic_soc_updater scripts --select E9,F63,F7,F82`
+- [ ] Workflow policy passed when CI changed: `uv run --with PyYAML==6.0.2 python scripts/check_ci_contract.py`
+- [ ] PostgreSQL+pgvector/Redis and shipping-image gates passed when deployment, state, packaging, or release behavior changed.
 
 Evidence:
 
@@ -61,3 +64,4 @@ Add concise command results here.
 - [ ] I preserved the 12 non-negotiables in `AGENTS.md`.
 - [ ] I did not modify the archived Kibana plugin.
 - [ ] This pull request is targeted at `Testing`, or it is a verified promotion from `Testing` to `main`.
+- [ ] The fail-closed **CI passed** aggregate is green for the exact candidate; no required lane was skipped, softened, or bypassed.

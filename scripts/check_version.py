@@ -192,7 +192,7 @@ def main() -> int:
                 f"{marker!r} twice, found {count}"
             )
     for marker in (
-        "FROM python:3.11-alpine AS docs",
+        "FROM python:3.11-alpine@sha256:",
         "scripts/build_docs_bundle.py --output /artifact/docs",
         "COPY --from=docs /artifact/docs ./public/docs",
         "RUN npm run build:app",

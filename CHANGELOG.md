@@ -47,6 +47,21 @@ stricter release acceptance.**
   metadata continues to round-trip without being presented as active authoring.
 - Console release acceptance now uses a strict streamed Vitest gate that fails on
   test errors, any stderr byte, or Vitest-captured console output.
+- Release acceptance now exposes seventeen independent quality lanes plus a fail-closed
+  aggregate, including real PostgreSQL+pgvector/Redis readiness and all three shipping
+  container-image builds. Workflow/ShellCheck validation is isolated from
+  deploy/updater contracts so an early error cannot mask later blockers.
+- CI now rejects fatal Python correctness defects and fail-open workflow edits,
+  including missing or unreviewed workflow files across both YAML extensions, mutable
+  external actions, duplicate YAML keys, missing timeouts, `continue-on-error`, unsafe
+  triggers, and aggregate dependency drift. ShellCheck is
+  version-pinned and checksum-verified instead of inherited from the mutable runner.
+- First-party checkout and runtime-setup actions use reviewed immutable Node
+  24-compatible commit SHAs, with weekly Dependabot update proposals.
+- Shipping Dockerfile bases are pinned to reviewed multi-platform manifest digests,
+  with weekly Docker Dependabot update proposals.
+- Stable artifacts and versioned Help Center publication both wait for the exact
+  immutable tag's successful fail-closed CI aggregate.
 - Shared empty states now distinguish first use, no data, no results, success,
   unavailable evidence, and request failure with accessible semantics.
 - Detection & Rules uses a narrow-screen column contract, readable wrapping, and
@@ -58,6 +73,9 @@ stricter release acceptance.**
 
 ### Fixed
 
+- The Web UI production-build step now declares and exports its generated build date
+  separately, satisfying ShellCheck SC2155 on GitHub's runner instead of failing the
+  workflow-validation lane before deployment and updater checks execute.
 - Case Collaboration keeps last-good task, activity, and discussion evidence visible
   across refresh failures and offers endpoint-specific retries instead of displaying
   false empty states.

@@ -2,7 +2,7 @@
 # then serve both from nginx. The build context is the repository root because
 # the canonical MkDocs source lives beside (not inside) webui/.
 
-FROM python:3.11-alpine AS docs
+FROM python:3.11-alpine@sha256:25976e9d34a0fab1f278cae931f34c8303d97bf0c0d7f85b6b4dcf641d7702a4 AS docs
 WORKDIR /repo
 COPY docs/requirements.txt docs/requirements.txt
 RUN python3 -m pip install --no-cache-dir --requirement docs/requirements.txt
@@ -19,7 +19,7 @@ RUN TLSOC_VERSION="${TLSOC_VERSION}" \
     TLSOC_RELEASE_CHANNEL="${TLSOC_RELEASE_CHANNEL}" \
     python3 scripts/build_docs_bundle.py --output /artifact/docs
 
-FROM node:22-alpine AS build
+FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS build
 WORKDIR /repo/webui
 COPY webui/package.json webui/package-lock.json ./
 RUN npm ci
@@ -36,7 +36,7 @@ ARG TLSOC_BUILD_DATE=unknown
 # build` command still creates it for non-Docker development builds.
 RUN npm run build:app
 
-FROM nginx:1.27-alpine
+FROM nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
 
 ARG TLSOC_VERSION=unknown
 ARG TLSOC_RELEASE_CHANNEL=testing

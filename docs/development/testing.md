@@ -24,13 +24,15 @@ verify them independently before treating a merge or deployment as accepted.
 
 ## GitHub merge gate
 
-Every pull request receives twelve visible statuses from
-`.github/workflows/ci.yml`: repository/version contracts, backend tests, backend
-package integrity, backend startup, Console tests, TypeScript/OpenAPI drift,
-Console lint, design-system gates, Help Center/docs, the production Console build,
-deployment/shell contracts, and the aggregate **CI passed** result. The first eleven
-run independently so the failed contract is obvious; the aggregate runs even when a
-dependency fails or is cancelled and succeeds only when all eleven report success.
+Every pull request receives eighteen visible statuses from
+`.github/workflows/ci.yml`: seventeen independently diagnosable quality lanes plus the
+aggregate **CI passed** result. In addition to repository, backend, Console, API,
+design, documentation, and package checks, the gate boots the supported
+PostgreSQL+pgvector/Redis state path, validates workflows and shell separately from
+deploy/updater contracts, rejects fatal Python correctness faults, and builds all
+three shipping images. The aggregate runs even when a dependency fails or is
+cancelled and succeeds only when all seventeen
+report success.
 
 Branch protection needs only the stable aggregate name **CI passed**. Requiring that
 single fail-closed result keeps protection intact if an internal job is renamed while
@@ -294,6 +296,14 @@ python3 -m py_compile updater/agentic_soc_updater/*.py scripts/build_upgrade_pla
 go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
 ```
 
+GitHub additionally runs the production-state acceptance against digest-pinned
+PostgreSQL+pgvector and Redis service images. Readiness must prove the bounded KV
+write/read, the `vector` extension must exist, and Redis must answer `PING`. A
+three-cell BuildKit matrix then builds the backend `full`, Console/Help Center, and
+updater images without publishing them and verifies their immutable candidate labels,
+healthchecks, ports, runtime user or updater protocol as applicable. These are
+required lanes, not advisory previews.
+
 The raw Compose invocation above is a read-only CI render, not a deployed-lifecycle
 command. After updater bootstrap, manual start/stop/build/restart operations must use
 `scripts/agentic-soc-compose.sh` so the active release override remains layered.
@@ -310,7 +320,8 @@ Before promoting `Testing` to Stable:
 
 1. Rebase/merge the intended feature changes into `Testing` and identify the candidate commit.
 2. Run backend, Console, generated-contract, version, strict-docs, and packaging/deployment checks.
-3. Resolve every failure on `Testing`; do not patch only the Stable branch.
+3. Resolve every failure on `Testing`; do not patch only the Stable branch, weaken a
+   gate, or use `continue-on-error` to manufacture a green candidate.
 4. Promote the accepted source tree to `main` without content changes, then run the
    release gate again on the resulting `main` commit.
 5. Build and stamp the verified commit with the correct channel, exact SHA, build
