@@ -14,6 +14,56 @@ History is reconstructed from `git log`.
 
 No changes yet.
 
+## [0.1.12] - 2026-08-05
+
+**Governed constrained-verifier cleanup correction.** The immutable `v0.1.11`
+candidate passed protected `Testing`, promoted-`main`, and exact-tag CI. Its
+signed-release workflow built and pushed all three dual-platform images, signed and
+verified every immutable digest, proved credential-free registry access and release
+labels, generated and signed the canonical release plan, and successfully verified
+that plan both on the host and inside the production-constrained updater. The
+workflow then failed while its exit trap tried to unlink the mode-`0444`
+verification files from their runner-owned parent directory, which still had mode
+`0555`:
+
+```text
+Verified OK
+rm: cannot remove '.../upgrade-plan.sigstore.json': Permission denied
+rm: cannot remove '.../upgrade-plan.json': Permission denied
+```
+
+Publication therefore stopped before attestations, the GitHub Release, canonical
+plan assets, Stable convenience tags, or Stable Help Center. No deployment switch
+began. The tag is immutable evidence, but it is non-installable and must never be
+moved, reused, or repaired.
+
+### Fixed
+
+- Release-fixture cleanup now preserves the verifier's original result, disables
+  recursive EXIT handling, requests removal of the exact verifier container, and
+  proves that exact anchored container name is absent before removing volumes or
+  relaxing the bind source. Docker ambiguity fails closed and retains the fixture.
+  After absence is proven, cleanup guards the runner-owned directory, restores only
+  its original private mode `0700`, and removes it. The plan and Sigstore bundle
+  remain mode `0444` beneath a mode-`0555` directory for the full duration of
+  production-constrained verification; a cleanup failure promotes only an otherwise
+  successful step and never masks an earlier release failure.
+- The cleanup is deliberately post-verification workflow hygiene. It does not
+  weaken the shipping updater, broaden file permissions during verification, or
+  change the verifier's content, signature, identity, issuer, or compatibility
+  checks.
+
+### Release boundary
+
+- There is no application behavior change, state-schema migration,
+  updater-protocol change, signed-plan schema change, Sigstore certificate identity
+  or issuer change, process-privilege change, or frozen-base change.
+  `deploy/docker-compose.agnostic.yml` retains updater-protocol-1 SHA-256
+  `e3f7ecbb0f749cc9d88f4392c58c9a63ddbd064e80ecde9f21fe9de199086fd4`.
+- Version 0.1.12 repeats every `Testing`, promotion, `main`, exact-tag,
+  signed-publication, canonical bootstrap, and browser-acceptance gate under a new
+  immutable identity. It is not installable until all those gates complete.
+
 ## [0.1.11] - 2026-08-05
 
 **Governed native-builder portability correction.** The immutable `v0.1.10`
@@ -51,6 +101,20 @@ attestations, GitHub Release, Stable convenience tags, or Stable Help Center.
   repaired. Version 0.1.11 repeats every Testing, promotion, `main`, exact-tag,
   signed-publication, canonical bootstrap, and browser-acceptance gate under a new
   immutable identity.
+
+### Publication outcome
+
+- The immutable `v0.1.11` tag passed protected source and exact-tag CI. Its release
+  workflow built, pushed, anonymously read, signed, and verified all three image
+  digests, then generated, signed, and verified the canonical plan on the host and
+  inside the constrained updater.
+- The post-verification cleanup trap could not unlink the read-only plan files while
+  their runner-owned parent directory remained non-writable. The
+  workflow failed closed before attestations, GitHub Release publication, canonical
+  asset publication, Stable tags, or Stable documentation. No application update
+  began. Preserve `v0.1.11` as immutable evidence, but never install, bootstrap,
+  move, reuse, or repair it; version 0.1.12 is the separately governed cleanup
+  correction.
 
 ## [0.1.10] - 2026-08-05
 
@@ -220,8 +284,10 @@ fixture. Version 0.1.10 later timed out during the emulated Web Console build;
   move or reuse that tag. The later `v0.1.8` publication corrected this socket
   boundary but remained bootstrap-blocked at cosign's read-only default TUF cache.
   Version 0.1.9 corrected that path but failed later in its constrained verification
-  fixture. Version 0.1.10 later timed out during the emulated Web Console build;
-  use `v0.1.11` only after its own complete acceptance sequence passes.
+  fixture. Version 0.1.10 later timed out during the emulated Web Console build.
+  Version 0.1.11 reached constrained verification but failed closed during
+  post-verification cleanup and is immutable and non-installable; only a later,
+  fully accepted Stable release may authorize installation.
 
 ## [0.1.7] - 2026-08-05
 
