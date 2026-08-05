@@ -176,6 +176,40 @@ def _assert_ci(path: Path, workflow: dict[str, Any]) -> None:
         raise ValueError(
             f"{path}: shipping backend image must retain the reviewed Wheel version"
         )
+    if '.Config.User == "0:10001"' not in identity_run:
+        raise ValueError(
+            f"{path}: shipping updater image must inherit the backend control-socket GID"
+        )
+    updater_smoke = next(
+        (
+            step
+            for step in container_images.get("steps", [])
+            if isinstance(step, dict)
+            and step.get("name")
+            == "Smoke updater control socket without Linux capabilities"
+        ),
+        None,
+    )
+    if not isinstance(updater_smoke, dict) or "matrix.component == 'updater'" not in str(
+        updater_smoke.get("if", "")
+    ):
+        raise ValueError(f"{path}: updater control-socket runtime smoke is missing or unscoped")
+    updater_smoke_run = str(updater_smoke.get("run", ""))
+    for marker in (
+        "--read-only",
+        "--cap-drop ALL",
+        "--security-opt no-new-privileges:true",
+        "--user 10001:10001",
+        "stat.S_ISSOCK(details.st_mode)",
+        "details.st_uid == 0",
+        "details.st_gid == 10001",
+        "stat.S_IMODE(details.st_mode) == 0o660",
+        "GET /v1/status HTTP/1.1",
+    ):
+        if marker not in updater_smoke_run:
+            raise ValueError(
+                f"{path}: updater control-socket runtime smoke lacks {marker!r}"
+            )
     for job_id, job in jobs.items():
         services = job.get("services", {}) if isinstance(job, dict) else {}
         if not isinstance(services, dict):

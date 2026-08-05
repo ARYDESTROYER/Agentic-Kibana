@@ -711,10 +711,85 @@ jobs:
             updater)
               jq -e '
                 .[0].Config.Labels["io.agentic-soc.update-protocol"] == "1" and
+                .[0].Config.User == "0:10001" and
                 .[0].Config.Entrypoint == ["python3", "-m", "agentic_soc_updater"]
               ' "${RUNNER_TEMP}/${COMPONENT}-image.json"
               ;;
           esac
+      - name: Smoke updater control socket without Linux capabilities
+        if: ${{ matrix.component == 'updater' }}
+        env:
+          IMAGE: ${{ matrix.image }}:${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          suffix="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          container="agentic-soc-ci-updater-${suffix}"
+          control_volume="agentic-soc-ci-updater-control-${suffix}"
+          state_volume="agentic-soc-ci-updater-state-${suffix}"
+          backup_volume="agentic-soc-ci-updater-backup-${suffix}"
+          runtime_volume="agentic-soc-ci-updater-runtime-${suffix}"
+          cleanup() {
+            docker rm --force "${container}" >/dev/null 2>&1 || true
+            for volume in "${control_volume}" "${state_volume}" "${backup_volume}" "${runtime_volume}"; do
+              docker volume rm --force "${volume}" >/dev/null 2>&1 || true
+            done
+          }
+          trap cleanup EXIT
+          for volume in "${control_volume}" "${state_volume}" "${backup_volume}" "${runtime_volume}"; do
+            docker volume create "${volume}" >/dev/null
+          done
+          docker run --detach \
+            --name "${container}" \
+            --read-only \
+            --cap-drop ALL \
+            --security-opt no-new-privileges:true \
+            --health-interval 1s \
+            --health-start-period 1s \
+            --health-timeout 2s \
+            --health-retries 10 \
+            --tmpfs /tmp:rw,noexec,nosuid,nodev,size=67108864 \
+            --mount "type=volume,source=${control_volume},target=/run/agentic-soc-updater" \
+            --mount "type=volume,source=${state_volume},target=/var/lib/agentic-soc-updater" \
+            --mount "type=volume,source=${backup_volume},target=/var/backups/agentic-soc" \
+            --mount "type=volume,source=${runtime_volume},target=/deployment/host-runtime" \
+            --env UPDATE_TRUSTED_REPOSITORY=ARYDESTROYER/Agentic-Kibana \
+            --env UPDATE_COMPOSE_FILE=/deployment/docker-compose.yml \
+            --env UPDATE_ENV_FILE=/deployment/.env \
+            --env UPDATE_STATE_DIR=/var/lib/agentic-soc-updater \
+            --env UPDATE_BACKUP_DIR=/var/backups/agentic-soc \
+            --env UPDATE_HOST_OVERRIDE_FILE=/deployment/host-runtime/active-release.compose.yml \
+            --env UPDATE_CONTROL_SOCKET=/run/agentic-soc-updater/control.sock \
+            --env UPDATE_CONTROL_GID=10001 \
+            "${IMAGE}" >/dev/null
+          deadline=$((SECONDS + 60))
+          health="starting"
+          while (( SECONDS < deadline )); do
+            health="$(docker inspect --format '{{.State.Health.Status}}' "${container}")"
+            [[ "${health}" == healthy || "${health}" == unhealthy ]] && break
+            sleep 1
+          done
+          if [[ "${health}" != healthy ]]; then
+            docker logs "${container}"
+            exit 1
+          fi
+          docker run --rm \
+            --user 10001:10001 \
+            --mount "type=volume,source=${control_volume},target=/run/agentic-soc-updater" \
+            --entrypoint python3 \
+            "${IMAGE}" -c '
+          import os, socket, stat
+          path = "/run/agentic-soc-updater/control.sock"
+          details = os.lstat(path)
+          assert stat.S_ISSOCK(details.st_mode)
+          assert details.st_uid == 0
+          assert details.st_gid == 10001
+          assert stat.S_IMODE(details.st_mode) == 0o660
+          client = socket.socket(socket.AF_UNIX)
+          client.settimeout(2)
+          client.connect(path)
+          client.sendall(b"GET /v1/status HTTP/1.1\r\nHost: updater\r\nConnection: close\r\n\r\n")
+          assert b"200 OK" in client.recv(256)
+          '
       - name: Smoke the shipping Web Console health contract
         if: ${{ matrix.component == 'webui' }}
         env:
