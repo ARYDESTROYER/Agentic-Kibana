@@ -8,14 +8,17 @@ risk-scores them deterministically, uses role-separated AI investigation, and ap
 operator policy through a deterministic case manager. The model can recommend a
 verdict; it cannot decide to close or escalate a case.
 
-> **Version 0.1.6 · `Testing` integration → `main` Stable**
+> **Version 0.1.7 · `Testing` integration → `main` Stable**
 > Start with the [Quickstart](docs/getting-started/quickstart.md), or open the
 > version-matched Help Center from inside the Console.
 
-Treat `v0.1.6` as installable only when its GitHub Release contains the canonical
+Treat `v0.1.7` as installable only when its GitHub Release contains the canonical
 signed plan and all three referenced GHCR image digests are anonymously pullable.
 The immutable `v0.1.4` and `v0.1.5` tags record failed, non-installable publication
-attempts and must not be used as update sources.
+attempts. The immutable `v0.1.6` tag records a fully published and signed artifact
+set whose canonical macOS Bash 3.2 bootstrap acceptance failed before supervisor
+installation. All three are historical and must not be used as deployment,
+bootstrap, or update sources; never move or reuse their tags.
 
 ## What Agentic SOC delivers
 

@@ -953,6 +953,15 @@ class RuntimeTests(unittest.TestCase):
             source.index("docker inspect --format '{{.Image}}' agentic-soc-updater"),
             source.index('"${compose_wrapper}" up --detach --build'),
         )
+        self.assertNotIn("updater_compose_args=()", source)
+        self.assertNotIn('"${updater_compose_args[@]}"', source)
+        self.assertIn(
+            '"${compose_wrapper}" up --detach --build "$@" agentic-soc-updater',
+            source,
+        )
+        self.assertIn("start_updater --force-recreate", source)
+        self.assertRegex(source, r"(?m)^\s+start_updater$")
+        self.assertIn("Bash 3.2", source)
 
     def test_release_retry_stages_and_recovers_only_an_exact_draft(self) -> None:
         source = (ROOT / ".github" / "workflows" / "release.yml").read_text(
