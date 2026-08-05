@@ -9432,3 +9432,9 @@
 - Tests: A repository-wide stale-count search is empty; documentation structure still passes for **77 public pages**; the version-matched Help Center bundle is consistent; CI workflow policy passes; and `git diff --check` is clean.
 - Status: The independent audit blocker is closed. The exact candidate remains ready for protected promotion; no Codex Security review was run.
 - Next: Commit this exact tree and require green Testing, main, and tag gates before signed publication.
+
+### 2026-08-05 20:08 IST — `/root` — v0.1.12 protected Testing promotion opened
+- Context: Begin the remote release discipline for the fully accepted v0.1.12 candidate without creating or moving a Stable tag.
+- Did: Published the Testing-native candidate branch and opened pull request **#69** into protected `Testing`, carrying the same release content as the independently accepted main-based candidate.
+- Status: Pull-request and subsequent protected-branch aggregate CI remain mandatory before any main promotion or immutable tag. No Codex Security review was run.
+- Next: Commit this journal milestone onto the candidate, update pull request #69, and require its final head plus the resulting `Testing` push to pass the fail-closed `CI passed` aggregate.
