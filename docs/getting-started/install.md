@@ -24,10 +24,11 @@ when infrastructure and external model calls are not part of your evaluation.
 
 ## 1. Check out version 0.1
 
-Use the immutable Stable tag:
+After its complete signed publication and canonical runtime acceptance succeed, use
+the immutable `v0.1.11` Stable tag:
 
 ```bash
-git clone --branch v0.1.10 --depth 1 \
+git clone --branch v0.1.11 --depth 1 \
   https://github.com/ARYDESTROYER/Agentic-Kibana.git
 cd Agentic-Kibana
 ```
@@ -44,16 +45,19 @@ Release existed. The immutable `v0.1.6`, `v0.1.7`, and `v0.1.8` publications hav
 artifacts but failed canonical bootstrap acceptance at different portability
 boundaries. The immutable `v0.1.9` publication built, signed, and anonymously proved
 all three images, but its constrained supervisor could not traverse the runner-owned
-verification directory and no GitHub Release or installable plan was published. Use `v0.1.10` only
-when its canonical GitHub Release, plan signature, and public image digests verify
-and canonical PostgreSQL Compose runtime acceptance completes. Otherwise use a
+verification directory and no GitHub Release or installable plan was published. The
+immutable `v0.1.10` workflow later timed out while its Web Console builder ran under
+target emulation; it also has no installable GitHub Release or canonical signed plan
+and must never be used. Use `v0.1.11` only when its canonical GitHub Release, plan
+signature, public image digests, and canonical PostgreSQL Compose runtime acceptance
+all verify. Otherwise use a
 previously verified Stable release or Testing only for an explicitly
 unreleased evaluation.
 
-Version 0.1.10 retains the writable updater trust cache introduced by the previous
-correction and materializes verification assets with explicit read-only file and
-directory traversal permissions. It changes no schema, protocol, identity, privilege,
-or frozen-base bytes.
+Version 0.1.11 retains the writable updater trust cache and least-privilege verification
+assets, and moves only architecture-neutral Console builder work to BuildKit's native
+platform. The final nginx runtime remains target-platform-specific. It changes no
+schema, protocol, identity, privilege, trust predicate, or frozen-base bytes.
 
 ## 2. Prepare configuration
 

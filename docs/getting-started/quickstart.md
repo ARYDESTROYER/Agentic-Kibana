@@ -12,8 +12,8 @@ real source with persistent application state.
 !!! info "Choose the matching channel"
 
     `Testing` contains integrated candidates. Under the release contract, `main`
-    holds only accepted Stable source and immutable `v0.1.10` identifies this patch.
-    The remote has both canonical branches; use `v0.1.10` only when its signed GitHub
+    holds only accepted Stable source and immutable `v0.1.11` identifies this candidate.
+    The remote has both canonical branches; use `v0.1.11` only when its signed GitHub
     Release and public digest-pinned images verify and canonical PostgreSQL Compose
     runtime acceptance completes, and use `Testing` only for an unreleased preview;
     repository administrators must verify branch protections and required checks
@@ -27,6 +27,9 @@ real source with persistent application state.
     unwritable beneath the read-only root filesystem. Version 0.1.9 corrected that
     cache location, then failed when the constrained supervisor could not traverse
     the runner-owned verification directory; it has no installable GitHub Release.
+    Version 0.1.10 fixed that traversal boundary but its signed-release job timed out
+    while the architecture-neutral Web Console builder ran under target emulation.
+    It is also immutable, non-installable history and must never be recommended.
 
 ## Get the source
 
@@ -38,19 +41,21 @@ real source with persistent application state.
     cd Agentic-Kibana
     ```
 
-=== "Stable 0.1.10"
+=== "Stable 0.1.11 (after acceptance)"
 
     ```bash
-    git clone --branch v0.1.10 --depth 1 \
+    git clone --branch v0.1.11 --depth 1 \
       https://github.com/ARYDESTROYER/Agentic-Kibana.git
     cd Agentic-Kibana
     ```
 
-    The `v0.1.10` tag is immutable after publication; do not create, move, or replace it locally. Users
+    The `v0.1.11` tag is absent before publication and immutable afterward; do not
+    create, move, or replace it locally. Users
     pulling `main` receive the current accepted Stable source, while candidate work
     remains isolated on `Testing`. A branch name alone is not acceptance evidence,
     so repository administrators must verify protections and required checks. If the
-    signed Release or public image evidence is missing, use a previously verified Stable release.
+    signed Release, public image evidence, or canonical runtime acceptance is missing,
+    use a previously verified Stable release.
 
 ## Option A: deterministic demo
 

@@ -19,7 +19,8 @@ operator procedures, API integrations, and support requests.
 | **Testing** | Integration branch and pre-stable validation channel |
 | **Stable** | Supported release channel built from the `main` branch |
 | **0.1** | Documentation and human-facing release line |
-| **0.1.10** | Current SemVer artifact version; immutable tag `v0.1.10` only after verified Stable promotion |
+| **0.1.11** | Current SemVer artifact version; immutable tag `v0.1.11` only after verified Stable promotion and complete signed/public artifact publication |
+| **0.1.10** | Immutable failed-publication record; superseded and non-installable because its signed-release job stopped before a complete public release existed |
 
 Do not use “Bleeding Edge,” `next`, or “alpha” for the active 0.1 release model.
 
