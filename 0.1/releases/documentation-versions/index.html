@@ -2538,6 +2538,8 @@
       
         
       
+        
+      
     
     
     
@@ -2599,12 +2601,35 @@
   
   
     <li class="md-nav__item">
+      <a href="../0.1.8/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.8
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../0.1.7/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Agentic SOC 0.1.7
+    Agentic SOC 0.1.7 bootstrap-blocked publication
     
   </span>
   
@@ -3249,7 +3274,7 @@ for newer material; it is not the primary product-help destination.</p>
 <h2 id="installed-documentation-contract">Installed documentation contract<a class="headerlink" href="#installed-documentation-contract" title="Permanent link">&para;</a></h2>
 <p>Every application build carries two related identifiers:</p>
 <ul>
-<li>the full product SemVer, such as <strong>0.1.7</strong>; and</li>
+<li>the full product SemVer, such as <strong>0.1.8</strong>; and</li>
 <li>the compatible documentation line, such as <strong>0.1</strong>.</li>
 </ul>
 <p>The documentation build and the application build originate from the same source
@@ -3278,7 +3303,7 @@ newer Stable or Development material.</p>
 <tbody>
 <tr>
 <td>0.1 installed Testing guide</td>
-<td>0.1.7</td>
+<td>0.1.8</td>
 <td>candidate commit on <code>Testing</code></td>
 <td>Testing</td>
 </tr>
@@ -3319,9 +3344,15 @@ newer Stable or Development material.</p>
 <td>Historical, superseded; not a supported bootstrap source</td>
 </tr>
 <tr>
-<td>0.1 installed 0.1.7 Stable guide</td>
+<td>0.1 published-but-bootstrap-blocked guide</td>
 <td>0.1.7</td>
-<td>exact verified <code>main</code> commit after it is tagged <code>v0.1.7</code> and all signed/public artifacts pass</td>
+<td>immutable <code>v0.1.7</code> tag plus public signed images, plan, bundle, and GitHub Release; canonical updater control-socket startup failed under the shipped capability boundary</td>
+<td>Historical, superseded; not a supported bootstrap source</td>
+</tr>
+<tr>
+<td>0.1 installed 0.1.8 Stable guide</td>
+<td>0.1.8</td>
+<td>exact verified <code>main</code> commit after it is tagged <code>v0.1.8</code> and all signed/public artifacts plus updater runtime acceptance pass</td>
 <td>Stable</td>
 </tr>
 <tr>
@@ -3338,7 +3369,7 @@ from that accepted patch and its release notes describe the change. A future
 incompatible or feature release receives a new documentation line rather than
 rewriting 0.1 silently.</p>
 <p>The channel is independent of SemVer. A Testing candidate and a Stable artifact may
-both report application version <code>0.1.7</code>; only accepted <code>main</code>/tag provenance may
+both report application version <code>0.1.8</code>; only accepted <code>main</code>/tag provenance may
 claim a Stable application build. Public documentation can receive corrections on
 <code>Testing</code>, but a published Stable correction receives a new patch version and tag.
 The installed Help Center therefore remains authoritative for the exact binaries

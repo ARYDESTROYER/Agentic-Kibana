@@ -2538,6 +2538,8 @@
       
         
       
+        
+      
     
     
     
@@ -2599,12 +2601,35 @@
   
   
     <li class="md-nav__item">
+      <a href="../0.1.8/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.8
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../0.1.7/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Agentic SOC 0.1.7
+    Agentic SOC 0.1.7 bootstrap-blocked publication
     
   </span>
   
@@ -3143,8 +3168,9 @@ bootstrap, install, or relabel a deployment from this tag. <code>v0.1.1</code> r
 last verified installable Stable release until a corrected newer publication
 completes. The subsequent immutable <code>v0.1.5</code> attempt also failed before its
 canonical plan and GitHub Release. Version 0.1.6 published signed artifacts but
-failed canonical macOS Bash 3.2 bootstrap acceptance; the current corrected
-candidate is 0.1.7.</p>
+failed canonical macOS Bash 3.2 bootstrap acceptance. Version 0.1.7 published
+and fixed that host-script defect but exposed a later updater control-socket
+startup failure; the current corrected candidate is 0.1.8.</p>
 </div>
 <h2 id="what-succeeded">What succeeded<a class="headerlink" href="#what-succeeded" title="Permanent link">&para;</a></h2>
 <ul>
@@ -3176,23 +3202,25 @@ generation, or GitHub Release creation. There is no partial release state to res
 reused. Because the repair changes release code referenced by the tag, the old
 workflow cannot be repaired by rerunning <code>v0.1.4</code>; release discipline requires a new
 patch version.</p>
-<p>The current corrected candidate is <a href="../0.1.7/">Agentic SOC 0.1.7</a>. It carries the exact
+<p>The current corrected candidate is <a href="../0.1.8/">Agentic SOC 0.1.8</a>. It carries the exact
 accepted 0.1.4 application scope, fixes boolean extraction without weakening the
-classifier, and repeats the complete Testing, promotion, main, tag, signing,
-anonymous-pull, canonical-bootstrap, and browser gates.</p>
+classifier, preserves the later immutable publication records, and repeats the
+complete Testing, promotion, main, tag, signing, anonymous-pull,
+canonical-bootstrap, and browser gates.</p>
 <h2 id="operator-action">Operator action<a class="headerlink" href="#operator-action" title="Permanent link">&para;</a></h2>
 <ul>
 <li>Do not use <code>git switch --detach v0.1.4</code> as an update bootstrap.</li>
 <li>Do not expect <code>/releases/download/v0.1.4/upgrade-plan.json</code> or a 0.1.4 GHCR image
   to exist.</li>
-<li>Keep an existing canonical <code>v0.1.1</code> deployment unchanged until <code>v0.1.7</code> is fully
+<li>Keep an existing canonical <code>v0.1.1</code> deployment unchanged until <code>v0.1.8</code> is fully
   published and independently verified.</li>
 <li>Reconcile Testing/source-built 0.1.3 or 0.1.4 deployments manually; neither is an
   immutable signed Stable installation source.</li>
 </ul>
 <p>See <a href="../channels/">Release channels and versioning</a>,
 <a href="../../operations/upgrades/">Upgrades and promotion</a>, and the
-<a href="../0.1.7/">0.1.7 release record</a> for the active procedure, the
+<a href="../0.1.8/">0.1.8 release record</a> for the active procedure, the
+<a href="../0.1.7/">0.1.7 bootstrap-blocked publication record</a>, the
 <a href="../0.1.6/">0.1.6 superseded publication record</a>, and the
 <a href="../0.1.5/">0.1.5 failed-publication record</a> for the intervening immutable history.</p>
 

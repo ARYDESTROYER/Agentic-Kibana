@@ -6,17 +6,17 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Supported runtimes, state backends, telemetry sources, providers, deployment shapes, and contract expectations for Agentic SOC 0.1.">
+        <meta name="description" content="Docker Desktop control-socket portability release notes, signed-update artifacts, compatibility boundary, and operator verification for Agentic SOC 0.1.8.">
       
       
       
-        <link rel="canonical" href="https://arydestroyer.github.io/Agentic-Kibana/0.1/reference/compatibility/">
+        <link rel="canonical" href="https://arydestroyer.github.io/Agentic-Kibana/0.1/releases/0.1.8/">
       
       
-        <link rel="prev" href="../permissions/">
+        <link rel="prev" href="../0.1/">
       
       
-        <link rel="next" href="../security/">
+        <link rel="next" href="../0.1.7/">
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
@@ -24,7 +24,7 @@
     
     
       
-        <title>Compatibility - Agentic SOC Help Center</title>
+        <title>Agentic SOC 0.1.8 - Agentic SOC Help Center</title>
       
     
     
@@ -113,7 +113,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#compatibility" class="md-skip">
+        <a href="#agentic-soc-018" class="md-skip">
           Skip to content
         </a>
       
@@ -1876,10 +1876,8 @@
       
   
   
-    
   
   
-  
     
     
       
@@ -1893,11 +1891,11 @@
     
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
         
           
           <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
@@ -1913,7 +1911,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             Reference
@@ -2122,10 +2120,8 @@
                 
   
   
-    
   
   
-  
     
     
       
@@ -2143,11 +2139,11 @@
     
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" >
         
           
           <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="0">
@@ -2163,7 +2159,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_4_2">
             <span class="md-nav__icon md-icon"></span>
             Contracts
@@ -2177,7 +2173,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/" class="md-nav__link">
+      <a href="../../reference/api/" class="md-nav__link">
         
   
   
@@ -2200,7 +2196,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../configuration/" class="md-nav__link">
+      <a href="../../reference/configuration/" class="md-nav__link">
         
   
   
@@ -2223,7 +2219,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../permissions/" class="md-nav__link">
+      <a href="../../reference/permissions/" class="md-nav__link">
         
   
   
@@ -2243,32 +2239,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    Compatibility
-    
-  </span>
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../reference/compatibility/" class="md-nav__link">
         
   
   
@@ -2279,101 +2253,6 @@
   
 
       </a>
-      
-        
-<nav class="md-nav md-nav--secondary tlsoc-toc" aria-label="On this page">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M15 18H3"></path>
-        <path d="M17 6H3"></path>
-        <path d="M21 12H3"></path>
-      </svg>
-      On this page
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#runtime-and-build-matrix" class="md-nav__link">
-    <span class="md-ellipsis">
-      Runtime and build matrix
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#state-backends" class="md-nav__link">
-    <span class="md-ellipsis">
-      State backends
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#telemetry-sources" class="md-nav__link">
-    <span class="md-ellipsis">
-      Telemetry sources
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#models-and-enrichment" class="md-nav__link">
-    <span class="md-ellipsis">
-      Models and enrichment
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#deployment-shapes" class="md-nav__link">
-    <span class="md-ellipsis">
-      Deployment shapes
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#api-and-stored-data-compatibility" class="md-nav__link">
-    <span class="md-ellipsis">
-      API and stored-data compatibility
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#browser-proxy-and-network-expectations" class="md-nav__link">
-    <span class="md-ellipsis">
-      Browser, proxy, and network expectations
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#explicitly-unsupported-or-unverified-claims" class="md-nav__link">
-    <span class="md-ellipsis">
-      Explicitly unsupported or unverified claims
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -2386,7 +2265,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../security/" class="md-nav__link">
+      <a href="../../reference/security/" class="md-nav__link">
         
   
   
@@ -2632,8 +2511,10 @@
       
   
   
+    
   
   
+  
     
     
       
@@ -2663,11 +2544,11 @@
     
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
         
           
           <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
@@ -2683,7 +2564,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             Releases and versions
@@ -2697,7 +2578,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../releases/0.1/" class="md-nav__link">
+      <a href="../0.1/" class="md-nav__link">
         
   
   
@@ -2717,10 +2598,32 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../releases/0.1.8/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.8
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -2731,6 +2634,119 @@
   
 
       </a>
+      
+        
+<nav class="md-nav md-nav--secondary tlsoc-toc" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M15 18H3"></path>
+        <path d="M17 6H3"></path>
+        <path d="M21 12H3"></path>
+      </svg>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-changed-after-017" class="md-nav__link">
+    <span class="md-ellipsis">
+      What changed after 0.1.7
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#carried-stable-scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      Carried Stable scope
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#immutable-release-artifacts" class="md-nav__link">
+    <span class="md-ellipsis">
+      Immutable release artifacts
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#signed-plan-contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      Signed plan contract
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#compatibility-and-migration" class="md-nav__link">
+    <span class="md-ellipsis">
+      Compatibility and migration
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bootstrap-and-upgrade-boundary" class="md-nav__link">
+    <span class="md-ellipsis">
+      Bootstrap and upgrade boundary
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#independent-artifact-verification" class="md-nav__link">
+    <span class="md-ellipsis">
+      Independent artifact verification
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#release-acceptance" class="md-nav__link">
+    <span class="md-ellipsis">
+      Release acceptance
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#exact-stable-build-identity" class="md-nav__link">
+    <span class="md-ellipsis">
+      Exact Stable build identity
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#immutable-annotated-tag-checklist" class="md-nav__link">
+    <span class="md-ellipsis">
+      Immutable annotated-tag checklist
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -2743,7 +2759,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../releases/0.1.7/" class="md-nav__link">
+      <a href="../0.1.7/" class="md-nav__link">
         
   
   
@@ -2766,7 +2782,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../releases/0.1.6/" class="md-nav__link">
+      <a href="../0.1.6/" class="md-nav__link">
         
   
   
@@ -2789,7 +2805,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../releases/0.1.5/" class="md-nav__link">
+      <a href="../0.1.5/" class="md-nav__link">
         
   
   
@@ -2812,7 +2828,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../releases/0.1.4/" class="md-nav__link">
+      <a href="../0.1.4/" class="md-nav__link">
         
   
   
@@ -2835,7 +2851,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../releases/0.1.3/" class="md-nav__link">
+      <a href="../0.1.3/" class="md-nav__link">
         
   
   
@@ -2858,7 +2874,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../releases/0.1.2/" class="md-nav__link">
+      <a href="../0.1.2/" class="md-nav__link">
         
   
   
@@ -2881,7 +2897,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../releases/documentation-versions/" class="md-nav__link">
+      <a href="../documentation-versions/" class="md-nav__link">
         
   
   
@@ -2904,7 +2920,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../releases/channels/" class="md-nav__link">
+      <a href="../channels/" class="md-nav__link">
         
   
   
@@ -2927,7 +2943,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../releases/known-limitations/" class="md-nav__link">
+      <a href="../known-limitations/" class="md-nav__link">
         
   
   
@@ -3068,72 +3084,90 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#runtime-and-build-matrix" class="md-nav__link">
+  <a href="#what-changed-after-017" class="md-nav__link">
     <span class="md-ellipsis">
-      Runtime and build matrix
+      What changed after 0.1.7
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#state-backends" class="md-nav__link">
+  <a href="#carried-stable-scope" class="md-nav__link">
     <span class="md-ellipsis">
-      State backends
+      Carried Stable scope
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#telemetry-sources" class="md-nav__link">
+  <a href="#immutable-release-artifacts" class="md-nav__link">
     <span class="md-ellipsis">
-      Telemetry sources
+      Immutable release artifacts
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#models-and-enrichment" class="md-nav__link">
+  <a href="#signed-plan-contract" class="md-nav__link">
     <span class="md-ellipsis">
-      Models and enrichment
+      Signed plan contract
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#deployment-shapes" class="md-nav__link">
+  <a href="#compatibility-and-migration" class="md-nav__link">
     <span class="md-ellipsis">
-      Deployment shapes
+      Compatibility and migration
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#api-and-stored-data-compatibility" class="md-nav__link">
+  <a href="#bootstrap-and-upgrade-boundary" class="md-nav__link">
     <span class="md-ellipsis">
-      API and stored-data compatibility
+      Bootstrap and upgrade boundary
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#browser-proxy-and-network-expectations" class="md-nav__link">
+  <a href="#independent-artifact-verification" class="md-nav__link">
     <span class="md-ellipsis">
-      Browser, proxy, and network expectations
+      Independent artifact verification
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#explicitly-unsupported-or-unverified-claims" class="md-nav__link">
+  <a href="#release-acceptance" class="md-nav__link">
     <span class="md-ellipsis">
-      Explicitly unsupported or unverified claims
+      Release acceptance
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#exact-stable-build-identity" class="md-nav__link">
+    <span class="md-ellipsis">
+      Exact Stable build identity
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#immutable-annotated-tag-checklist" class="md-nav__link">
+    <span class="md-ellipsis">
+      Immutable annotated-tag checklist
     </span>
   </a>
   
@@ -3165,7 +3199,7 @@
       <circle cx="12" cy="12" r="11"></circle>
     </svg>
     <span class="tlsoc-mobile-tocbar__label">
-      Runtime and build matrix
+      What changed after 0.1.7
     </span>
     <svg class="tlsoc-mobile-tocbar__chevron" viewBox="0 0 24 24">
       <path d="m6 9 6 6 6-6"></path>
@@ -3181,72 +3215,90 @@
         
         
           <li class="md-nav__item">
-  <a href="#runtime-and-build-matrix" class="md-nav__link">
+  <a href="#what-changed-after-017" class="md-nav__link">
     <span class="md-ellipsis">
-      Runtime and build matrix
+      What changed after 0.1.7
     </span>
   </a>
   
 </li>
         
           <li class="md-nav__item">
-  <a href="#state-backends" class="md-nav__link">
+  <a href="#carried-stable-scope" class="md-nav__link">
     <span class="md-ellipsis">
-      State backends
+      Carried Stable scope
     </span>
   </a>
   
 </li>
         
           <li class="md-nav__item">
-  <a href="#telemetry-sources" class="md-nav__link">
+  <a href="#immutable-release-artifacts" class="md-nav__link">
     <span class="md-ellipsis">
-      Telemetry sources
+      Immutable release artifacts
     </span>
   </a>
   
 </li>
         
           <li class="md-nav__item">
-  <a href="#models-and-enrichment" class="md-nav__link">
+  <a href="#signed-plan-contract" class="md-nav__link">
     <span class="md-ellipsis">
-      Models and enrichment
+      Signed plan contract
     </span>
   </a>
   
 </li>
         
           <li class="md-nav__item">
-  <a href="#deployment-shapes" class="md-nav__link">
+  <a href="#compatibility-and-migration" class="md-nav__link">
     <span class="md-ellipsis">
-      Deployment shapes
+      Compatibility and migration
     </span>
   </a>
   
 </li>
         
           <li class="md-nav__item">
-  <a href="#api-and-stored-data-compatibility" class="md-nav__link">
+  <a href="#bootstrap-and-upgrade-boundary" class="md-nav__link">
     <span class="md-ellipsis">
-      API and stored-data compatibility
+      Bootstrap and upgrade boundary
     </span>
   </a>
   
 </li>
         
           <li class="md-nav__item">
-  <a href="#browser-proxy-and-network-expectations" class="md-nav__link">
+  <a href="#independent-artifact-verification" class="md-nav__link">
     <span class="md-ellipsis">
-      Browser, proxy, and network expectations
+      Independent artifact verification
     </span>
   </a>
   
 </li>
         
           <li class="md-nav__item">
-  <a href="#explicitly-unsupported-or-unverified-claims" class="md-nav__link">
+  <a href="#release-acceptance" class="md-nav__link">
     <span class="md-ellipsis">
-      Explicitly unsupported or unverified claims
+      Release acceptance
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#exact-stable-build-identity" class="md-nav__link">
+    <span class="md-ellipsis">
+      Exact Stable build identity
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#immutable-annotated-tag-checklist" class="md-nav__link">
+    <span class="md-ellipsis">
+      Immutable annotated-tag checklist
     </span>
   </a>
   
@@ -3265,185 +3317,321 @@
   
 
 
-<h1 id="compatibility">Compatibility<a class="headerlink" href="#compatibility" title="Permanent link">&para;</a></h1>
-<p>This matrix describes application <strong>0.1.8</strong> and documentation line <strong>0.1</strong>. It
-distinguishes implemented support from enum placeholders and archived components.</p>
-<h2 id="runtime-and-build-matrix">Runtime and build matrix<a class="headerlink" href="#runtime-and-build-matrix" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>Component</th>
-<th>Version 0.1 baseline</th>
-<th>Notes</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Agentic SOC API</td>
-<td>Python 3.11 or newer</td>
-<td>Dependency pins are in <code>backend/requirements.txt</code>; project metadata requires Python <code>&gt;=3.11</code></td>
-</tr>
-<tr>
-<td>Agentic SOC Console</td>
-<td>Node 22 for install/build</td>
-<td>React 18, Vite 5, TypeScript 5.6, Tailwind, and Radix/shadcn-style primitives</td>
-</tr>
-<tr>
-<td>Container frontend</td>
-<td>nginx</td>
-<td>Serves the compiled SPA, version-matched <code>/docs/&lt;major.minor&gt;/</code> Help Center, and relative <code>/api/*</code> proxy</td>
-</tr>
-<tr>
-<td>Event schema</td>
-<td>OCSF 1.4.0</td>
-<td>Every connector normalizes before the engine processes an event</td>
-</tr>
-<tr>
-<td>Documentation</td>
-<td>MkDocs Material; Mike history plus native GitHub Pages deployment</td>
-<td>Every app serves its installed 0.1 guide at <code>/docs/0.1/</code>; the public selector uses <code>0.1</code>; packages/images use <code>0.1.8</code></td>
-</tr>
-</tbody>
-</table>
-<p>The Agentic SOC Console is the only supported primary UI. It does not require Kibana. The
-former Kibana plugin is archived, frozen, and excluded from current build/test/release
-workflows.</p>
-<p>The same-origin installed Help Center is authoritative for the running build and is
-generated before every canonical Console build. Public Stable documentation is a
-secondary upgrade/comparison surface; Testing documentation is a preview. An
-internet connection is not required to open the installed guide.</p>
-<h2 id="state-backends">State backends<a class="headerlink" href="#state-backends" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>Backend</th>
-<th>Supported baseline</th>
-<th>Vector behavior</th>
-<th>Deployment notes</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>PostgreSQL</td>
-<td>15/16 with pgvector</td>
-<td>pgvector-backed retrieval</td>
-<td>The reference standalone stack uses the <code>pg16</code> image</td>
-</tr>
-<tr>
-<td>Elasticsearch</td>
-<td>8.x; client pinned to 8.12.1 and legacy stack target 8.19.12</td>
-<td>Agentic SOC vector-store implementation for the ES profile</td>
-<td>Requires a management key scoped only to <code>tlsoc-agent-*</code>; explicit owned-ledger lifecycle additionally needs cluster <code>manage_ilm</code> + <code>manage_index_templates</code> + <code>monitor</code> and Hot/Warm roles</td>
-</tr>
-<tr>
-<td>SQLite</td>
-<td>SQLite through <code>aiosqlite</code></td>
-<td>SQL/in-process-compatible development path</td>
-<td>Single-node file profile; exercised by the offline test suite</td>
-</tr>
-</tbody>
-</table>
-<p>The state backend is independent of telemetry connectors. A PostgreSQL deployment can
-read Elasticsearch/OpenSearch/Wazuh or accept only pushed events; an Elasticsearch
-state deployment can also connect to a different source cluster.</p>
-<h2 id="telemetry-sources">Telemetry sources<a class="headerlink" href="#telemetry-sources" title="Permanent link">&para;</a></h2>
-<p>Version 0.1 implements three pull connectors:</p>
+<h1 id="agentic-soc-018">Agentic SOC 0.1.8<a class="headerlink" href="#agentic-soc-018" title="Permanent link">&para;</a></h1>
+<p>Agentic SOC <strong>0.1.8</strong> is the governed least-privilege portability correction after
+the immutable <code>v0.1.7</code> publication. Version 0.1.7 completed exact-tag CI, public
+multi-platform images, image and plan signing, the canonical plan and bundle,
+GitHub Release, and versioned Help Center. Canonical PostgreSQL Compose acceptance
+then reached the updater container and found that its unconditional ownership change
+for the Unix control socket is denied when every Linux capability is dropped on
+Docker Desktop. The 0.1.7 image had no <code>USER</code> instruction, so the process ran as
+UID/GID 0:0 and attempted to change the new socket to 0:10001 without <code>CAP_CHOWN</code>.
+Version 0.1.8 preserves the complete 0.1.7 artifact record and corrects that runtime
+boundary without changing application state, updater protocol 1, or the frozen base
+Compose file. It remains in the <strong>0.1</strong> documentation line.</p>
+<div class="admonition warning">
+<p class="admonition-title">Verify the immutable release before installation</p>
+<p>A source checkout, branch head, version string, candidate image, or signed image
+alone is not a Stable release. Version 0.1.8 is installable only when the
+annotated tag <code>v0.1.8</code> resolves to the accepted <code>main</code> commit, exact-tag CI and
+release workflows succeed, the GitHub Release contains the canonical signed plan
+and bundle, and every digest in that plan is anonymously readable. If any
+evidence is absent, continue using a previously verified Stable release.</p>
+<p>The immutable <code>v0.1.7</code> tag, public images, signatures, plan, bundle, GitHub
+Release, and Help Center remain factual publication evidence and must never be
+moved or replaced. Its canonical bootstrap is unsupported because the supervisor
+cannot publish the private control socket under the dropped-capability runtime.
+Use <code>v0.1.8</code> only after every acceptance gate on this page succeeds.</p>
+</div>
+<h2 id="what-changed-after-017">What changed after 0.1.7<a class="headerlink" href="#what-changed-after-017" title="Permanent link">&para;</a></h2>
+<p>The updater remains the only component with host-runtime authority, and the ordinary
+backend and browser still never receive the Docker socket. The image now starts the
+supervisor process with UID 0 and application group 10001 while the reference runtime
+continues to drop every Linux capability. That identity creates the private control
+socket with the backend-readable group directly, so startup no longer depends on an
+ownership change that the runtime is intentionally forbidden to perform.</p>
+<p>Socket publication remains fail closed. Before the HTTP service accepts requests,
+the supervisor uses <code>lstat</code> to require a Unix socket with UID 0 and the configured
+GID 10001, then sets the socket mode to <code>0660</code>. An unexpected object, owner, or group
+stops startup rather than widening access or continuing with a control plane the
+backend cannot safely reach. Running UID 0 does not weaken the
+trust boundary created by withholding the Docker socket from the browser and ordinary
+backend. It does not broaden the already documented trust boundary: access to the
+updater and Docker socket remains root-equivalent host authority and part of the
+host trusted computing base.</p>
+<p>Shipping-image acceptance executes the real updater image with its capabilities
+dropped and inspects the control socket from the backend-facing mount. This is a
+runtime contract, not only a source-level unit test. The complete candidate,
+promotion, exact-tag, publication, canonical bootstrap, and browser sequence must be
+repeated for 0.1.8; no 0.1.7 result substitutes for a new release gate.</p>
+<p>No application-state schema migration is introduced. The frozen base Compose SHA is
+unchanged, and all application pins remain in the signed generated override.</p>
+<h2 id="carried-stable-scope">Carried Stable scope<a class="headerlink" href="#carried-stable-scope" title="Permanent link">&para;</a></h2>
+<p>This patch carries the complete accepted product scope documented in the
+<a href="../0.1.7/">0.1.7 publication record</a>, including:</p>
 <ul>
-<li>Elasticsearch;</li>
-<li>OpenSearch;</li>
-<li>Wazuh Indexer.</li>
+<li>the Security Command Center and canonical split-pane Case Manager;</li>
+<li>durable Workspace Chat and governed runbook/playbook catalogs;</li>
+<li>explainable Intelligence inputs, analyst-confirmed tuning, approvals, export,
+  and the version-matched installed Help Center;</li>
+<li>OpenAI live Flex preference with truthful Standard fallback and one cost ledger;</li>
+<li>signed, supervised updates for the supported PostgreSQL Compose topology; and</li>
+<li>the hardened Console, accessibility, packaging, documentation, and fail-closed CI
+  contracts accumulated through the 0.1 beta patches.</li>
 </ul>
-<p>It also registers 16 push, queue, stream, object-store, and file receivers: webhook,
-HEC-compatible HTTP, syslog, Kafka, SQS, Kinesis, Azure Event Hub, GCP Pub/Sub,
-RabbitMQ, NATS, MQTT, Redis Streams, S3, GCS, Azure Blob, and local file/directory.
-Several require optional connector dependencies, loaded lazily only when selected.</p>
-<p>Additional vendor names in <code>SourceType</code> are reserved/planned and are not evidence of
-an implemented pull connector. Check the live connector catalog at
-<code>GET /api/connectors</code> or the <a href="../../sources/support-matrix/">Source support matrix</a>.</p>
-<h2 id="models-and-enrichment">Models and enrichment<a class="headerlink" href="#models-and-enrichment" title="Permanent link">&para;</a></h2>
-<p>The model gateway recognizes:</p>
-<ul>
-<li>Anthropic;</li>
-<li>OpenAI;</li>
-<li>Azure OpenAI;</li>
-<li>AWS Bedrock;</li>
-<li>Google Vertex;</li>
-<li>OpenAI-compatible endpoints such as LiteLLM, vLLM, Ollama, or LM Studio;</li>
-<li>the deterministic mock provider for test/demo paths.</li>
-</ul>
-<p>All providers are called through the same usage/cost-ledger gateway. A provider being
-listed does not imply that every model name, region, or account feature has been
-certified; test the configured model from the Console/API.</p>
-<p>Agentic SOC registers 19 enrichment provider classes. Providers are selected by indicator
-kind, enablement, and key availability. Keyless services and Redis/in-memory cache
-fallbacks reduce setup requirements, but third-party service availability, rate limits,
-licensing, and response contracts remain external dependencies.</p>
-<h2 id="deployment-shapes">Deployment shapes<a class="headerlink" href="#deployment-shapes" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>Shape</th>
-<th>Application state</th>
-<th>Source model</th>
-<th>Supported UI</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Standalone Compose</td>
-<td>PostgreSQL/pgvector plus Redis</td>
-<td>Add pull/push sources from setup</td>
-<td>Agentic SOC Console behind nginx</td>
-</tr>
-<tr>
-<td>Legacy ELK merge</td>
-<td>Elasticsearch <code>tlsoc-agent-*</code> plus Redis</td>
-<td>Read-only connection to the existing log indices</td>
-<td>Agentic SOC Console deployed separately/alongside</td>
-</tr>
-<tr>
-<td>Direct development</td>
-<td>Elasticsearch, SQLite, or configured PostgreSQL</td>
-<td>Explicit connectors or implicit Elastic defaults</td>
-<td>Vite development server</td>
-</tr>
-</tbody>
-</table>
-<p>The legacy merge does not modify Kafka, Logstash, the upstream detection engine,
-Elasticsearch log indices, or Kibana. Agentic SOC is a read-only consumer of that telemetry
-path.</p>
-<h2 id="api-and-stored-data-compatibility">API and stored-data compatibility<a class="headerlink" href="#api-and-stored-data-compatibility" title="Permanent link">&para;</a></h2>
-<p>Version 0.1 currently uses Semantic Version <code>0.1.8</code>. As a pre-1.0 product, it prioritizes
-additive API and model changes but does not promise indefinite wire or storage
-compatibility across future minor versions.</p>
-<p>For integrations:</p>
-<ul>
-<li>pin an exact application patch and documentation line;</li>
-<li>tolerate unknown JSON response fields;</li>
-<li>use OpenAPI request models instead of copying UI-internal TypeScript types;</li>
-<li>test changes on <code>Testing</code>, promote the accepted source tree to <code>main</code>/Stable, and
-  re-run the gate on the resulting <code>main</code> commit;</li>
-<li>back up the state store and secrets before an upgrade;</li>
-<li>do not assume that starting an older image is a safe database rollback.</li>
-</ul>
-<p>Persisted Pydantic models generally use defaults/migrations for additive fields, and
-shared KV stores avoid a new table for many features. Version 0.1 does not yet provide
-a complete database migration/rollback framework. See <a href="../../operations/upgrades/">Upgrades</a>.</p>
-<h2 id="browser-proxy-and-network-expectations">Browser, proxy, and network expectations<a class="headerlink" href="#browser-proxy-and-network-expectations" title="Permanent link">&para;</a></h2>
-<p>No formal per-browser certification matrix is published for 0.1. Use a maintained
-browser capable of modern ES modules, CSS variables, and server-sent events. The
-Console expects same-origin relative <code>/api</code> access; the reference nginx configuration
-provides that proxy. If a custom proxy changes origins, cookies, buffering, or SSE
-behavior, validate login, refresh, uploads, and event reconnection explicitly.</p>
-<p>Outbound access is needed only for the model/enrichment services selected by the
-operator. A fully self-hosted OpenAI-compatible model can remove third-party model
-egress, but source and enrichment network paths still depend on configuration.</p>
-<h2 id="explicitly-unsupported-or-unverified-claims">Explicitly unsupported or unverified claims<a class="headerlink" href="#explicitly-unsupported-or-unverified-claims" title="Permanent link">&para;</a></h2>
-<p>Agentic SOC 0.1 does not claim high availability, coordinated horizontal workers,
-multi-tenant row isolation, universal push-transport durability, autonomous write-side
-response, or production certification for every source/provider combination. Review
-<a href="../../releases/known-limitations/">Known limitations</a> and <a href="../security/">Security</a>
-before production use.</p>
+<p>The model, memory, runbook, and playbook layers remain advisory. Deterministic code
+continues to own the final close/escalate route.</p>
+<h2 id="immutable-release-artifacts">Immutable release artifacts<a class="headerlink" href="#immutable-release-artifacts" title="Permanent link">&para;</a></h2>
+<p>The canonical repository is <code>ARYDESTROYER/Agentic-Kibana</code>. After successful
+publication, the workflow exposes these convenience tags:</p>
+<div class="highlight"><pre><span></span><code>ghcr.io/arydestroyer/agentic-kibana/backend:v0.1.8
+ghcr.io/arydestroyer/agentic-kibana/webui:v0.1.8
+ghcr.io/arydestroyer/agentic-kibana/updater:v0.1.8
+</code></pre></div>
+<p>Convenience tags are not update authority. The signed plan contains only immutable
+digest references:</p>
+<div class="highlight"><pre><span></span><code>ghcr.io/arydestroyer/agentic-kibana/backend@sha256:&lt;digest&gt;
+ghcr.io/arydestroyer/agentic-kibana/webui@sha256:&lt;digest&gt;
+ghcr.io/arydestroyer/agentic-kibana/updater@sha256:&lt;digest&gt;
+</code></pre></div>
+<p>The public GitHub Release must contain exactly:</p>
+<div class="highlight"><pre><span></span><code>upgrade-plan.json
+upgrade-plan.sigstore.json
+</code></pre></div>
+<p>Canonical asset URLs are:</p>
+<div class="highlight"><pre><span></span><code>https://github.com/ARYDESTROYER/Agentic-Kibana/releases/download/v0.1.8/upgrade-plan.json
+https://github.com/ARYDESTROYER/Agentic-Kibana/releases/download/v0.1.8/upgrade-plan.sigstore.json
+</code></pre></div>
+<p>The expected keyless Sigstore certificate identity and OIDC issuer are:</p>
+<div class="highlight"><pre><span></span><code>https://github.com/ARYDESTROYER/Agentic-Kibana/.github/workflows/release.yml@refs/tags/v0.1.8
+https://token.actions.githubusercontent.com
+</code></pre></div>
+<p>The same workflow identity signs each image digest and the canonical release plan.
+The updater verifies that identity, issuer, repository, annotated tag, dereferenced
+tag commit, release version, compatibility envelope, and exact component digests.</p>
+<h2 id="signed-plan-contract">Signed plan contract<a class="headerlink" href="#signed-plan-contract" title="Permanent link">&para;</a></h2>
+<p>The plan is canonical JSON data, never a script or Compose fragment. The workflow
+publishes the following schema-v1 shape with concrete values:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;schema_version&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;product&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;agentic-soc&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;release&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;version&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;0.1.8&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;tag&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;v0.1.8&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;channel&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;stable&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;commit_sha&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;40-character lowercase tag commit SHA&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;published_at&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;timezone-qualified ISO-8601 timestamp&gt;&quot;</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;compatibility&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;from&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;min_inclusive&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;0.1.1&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;max_exclusive&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;0.2.0&quot;</span><span class="p">},</span>
+<span class="w">    </span><span class="nt">&quot;state_backends&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;postgres&quot;</span><span class="p">],</span>
+<span class="w">    </span><span class="nt">&quot;state_schema&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;compose_sha256&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;e3f7ecbb0f749cc9d88f4392c58c9a63ddbd064e80ecde9f21fe9de199086fd4&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;minimum_updater_protocol&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;backup_required&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;migration&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;strategy&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;none&quot;</span><span class="p">}</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;components&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;updater&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;image&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ghcr.io/arydestroyer/agentic-kibana/updater@sha256:&lt;64 lowercase hex characters&gt;&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;digest&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;sha256:&lt;same updater digest&gt;&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;labels&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nt">&quot;org.opencontainers.image.version&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;0.1.8&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;org.opencontainers.image.revision&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;same tag commit SHA&gt;&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;org.opencontainers.image.source&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;https://github.com/ARYDESTROYER/Agentic-Kibana&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;dev.tlsoc.release.channel&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;stable&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;io.agentic-soc.state.schema&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;1&quot;</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="nt">&quot;backend&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;image&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ghcr.io/arydestroyer/agentic-kibana/backend@sha256:&lt;64 lowercase hex characters&gt;&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;digest&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;sha256:&lt;same backend digest&gt;&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;labels&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nt">&quot;org.opencontainers.image.version&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;0.1.8&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;org.opencontainers.image.revision&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;same tag commit SHA&gt;&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;org.opencontainers.image.source&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;https://github.com/ARYDESTROYER/Agentic-Kibana&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;dev.tlsoc.release.channel&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;stable&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;io.agentic-soc.state.schema&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;1&quot;</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="nt">&quot;webui&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;image&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ghcr.io/arydestroyer/agentic-kibana/webui@sha256:&lt;64 lowercase hex characters&gt;&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;digest&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;sha256:&lt;same webui digest&gt;&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;labels&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nt">&quot;org.opencontainers.image.version&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;0.1.8&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;org.opencontainers.image.revision&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;same tag commit SHA&gt;&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;org.opencontainers.image.source&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;https://github.com/ARYDESTROYER/Agentic-Kibana&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;dev.tlsoc.release.channel&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;stable&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;io.agentic-soc.state.schema&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;1&quot;</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;rollout&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;backend_timeout_seconds&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">300</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;webui_timeout_seconds&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">180</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;observation_seconds&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">30</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>After plan and image verification, the updater alone derives the release-specific
+Compose override:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># Generated by the Agentic SOC updater. Do not edit.</span>
+<span class="nt">services</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">agentic-soc-updater</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghcr.io/arydestroyer/agentic-kibana/updater@sha256:&lt;verified updater digest&gt;</span>
+<span class="w">  </span><span class="nt">tlsoc-backend</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghcr.io/arydestroyer/agentic-kibana/backend@sha256:&lt;verified backend digest&gt;</span>
+<span class="w">  </span><span class="nt">tlsoc-webui</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghcr.io/arydestroyer/agentic-kibana/webui@sha256:&lt;verified webui digest&gt;</span>
+</code></pre></div>
+<p>The plan cannot supply service names, host commands, paths, credentials,
+infrastructure images, arbitrary URLs, or Compose text. The generated override
+cannot mutate the frozen base.</p>
+<h2 id="compatibility-and-migration">Compatibility and migration<a class="headerlink" href="#compatibility-and-migration" title="Permanent link">&para;</a></h2>
+<p>The supervised path supports only the canonical, single-replica standalone Compose
+deployment with PostgreSQL-owned application state, canonical service/container/
+network names, the canonical PostgreSQL volume, durable secrets,
+<code>TLSOC_AUTH_ENABLED=true</code>, and updater protocol 1.</p>
+<p>The frozen <code>deploy/docker-compose.agnostic.yml</code> SHA-256 remains:</p>
+<div class="highlight"><pre><span></span><code>e3f7ecbb0f749cc9d88f4392c58c9a63ddbd064e80ecde9f21fe9de199086fd4
+</code></pre></div>
+<p>Release-specific version and digest pins exist only in the signed generated
+override. Changing that base requires a new protocol and manual bootstrap; it must
+never be hidden inside a patch plan.</p>
+<p>SQLite, Elasticsearch-owned state, external PostgreSQL, Kubernetes, the legacy ELK
+merge, horizontal replicas, modified Compose topology, missing durable secrets, or
+unsupported migrations remain <strong>Manual upgrade required</strong>. PostgreSQL and Redis
+infrastructure remain operator-managed.</p>
+<p>There is no application-state schema migration in 0.1.8. A catalog-verified
+PostgreSQL dump is still mandatory before application switching. Automatic rollback
+restores prior application image pins; database restore remains an explicit
+break-glass operation because restoring automatically could discard valid writes.</p>
+<h2 id="bootstrap-and-upgrade-boundary">Bootstrap and upgrade boundary<a class="headerlink" href="#bootstrap-and-upgrade-boundary" title="Permanent link">&para;</a></h2>
+<p>For a canonical deployment currently running supported Stable <code>v0.1.1</code>, use a
+clean checkout of the strictly newer, fully published <code>v0.1.8</code> tag as the
+host-authorized bootstrap transport:</p>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>fetch<span class="w"> </span>--tags<span class="w"> </span>origin
+git<span class="w"> </span>switch<span class="w"> </span>--detach<span class="w"> </span>v0.1.8
+<span class="nb">test</span><span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>git<span class="w"> </span>cat-file<span class="w"> </span>-t<span class="w"> </span>v0.1.8<span class="k">)</span><span class="s2">&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>tag
+<span class="nb">test</span><span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>git<span class="w"> </span>rev-parse<span class="w"> </span><span class="s1">&#39;v0.1.8^{commit}&#39;</span><span class="k">)</span><span class="s2">&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>git<span class="w"> </span>rev-parse<span class="w"> </span>HEAD<span class="k">)</span><span class="s2">&quot;</span>
+<span class="nb">test</span><span class="w"> </span>-z<span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>git<span class="w"> </span>status<span class="w"> </span>--porcelain<span class="w"> </span>--untracked-files<span class="o">=</span>all<span class="k">)</span><span class="s2">&quot;</span>
+
+<span class="c1"># .env must contain durable TLSOC_PG_PASSWORD, TLSOC_AUTH_ENABLED=true,</span>
+<span class="c1"># TLSOC_AUTH_JWT_SECRET with at least 32 characters, and:</span>
+<span class="c1"># AGENTIC_SOC_UPDATE_REPOSITORY=ARYDESTROYER/Agentic-Kibana</span>
+./scripts/bootstrap-updater.sh
+</code></pre></div>
+<p>The bootstrap verifies the exact release before installing or reconciling the
+private supervisor and applying its strictly newer plan. After the successful
+transition, use <code>./scripts/agentic-soc-compose.sh</code> for every manual lifecycle
+operation so the active digest override and lifecycle lock remain in effect.</p>
+<p>Source-built/Testing deployments, the non-installable 0.1.4 or 0.1.5 attempts, and
+the published-but-bootstrap-blocked 0.1.6 and 0.1.7 artifact records cannot be
+relabeled Stable. Reconcile them manually to the canonical signed 0.1.8 deployment.
+A deployment already running 0.1.8 cannot bootstrap from the same plan; the updater
+deliberately requires a strictly newer target.</p>
+<p>Read <a href="../../operations/upgrades/">Upgrades and promotion</a> and
+<a href="../known-limitations/">Known limitations</a> before rehearsing the transition.</p>
+<h2 id="independent-artifact-verification">Independent artifact verification<a class="headerlink" href="#independent-artifact-verification" title="Permanent link">&para;</a></h2>
+<p>Verify that the remote exposes both the annotated tag object and its dereferenced
+commit before inspecting release assets:</p>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>ls-remote<span class="w"> </span>--tags<span class="w"> </span>https://github.com/ARYDESTROYER/Agentic-Kibana.git<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>refs/tags/v0.1.8<span class="w"> </span><span class="s1">&#39;refs/tags/v0.1.8^{}&#39;</span>
+</code></pre></div>
+<p>The command must return two different 40-character object IDs: the annotated tag
+object and the accepted <code>main</code> commit to which it dereferences.</p>
+<p>Install a reviewed cosign version and verify the release plan:</p>
+<div class="highlight"><pre><span></span><code><span class="nv">tag</span><span class="o">=</span>v0.1.8
+<span class="nv">repo</span><span class="o">=</span>ARYDESTROYER/Agentic-Kibana
+<span class="nv">identity</span><span class="o">=</span><span class="s2">&quot;https://github.com/</span><span class="si">${</span><span class="nv">repo</span><span class="si">}</span><span class="s2">/.github/workflows/release.yml@refs/tags/</span><span class="si">${</span><span class="nv">tag</span><span class="si">}</span><span class="s2">&quot;</span>
+<span class="nv">base</span><span class="o">=</span><span class="s2">&quot;https://github.com/</span><span class="si">${</span><span class="nv">repo</span><span class="si">}</span><span class="s2">/releases/download/</span><span class="si">${</span><span class="nv">tag</span><span class="si">}</span><span class="s2">&quot;</span>
+
+curl<span class="w"> </span>--fail<span class="w"> </span>--location<span class="w"> </span>--output<span class="w"> </span>upgrade-plan.json<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">base</span><span class="si">}</span><span class="s2">/upgrade-plan.json&quot;</span>
+curl<span class="w"> </span>--fail<span class="w"> </span>--location<span class="w"> </span>--output<span class="w"> </span>upgrade-plan.sigstore.json<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">base</span><span class="si">}</span><span class="s2">/upgrade-plan.sigstore.json&quot;</span>
+
+cosign<span class="w"> </span>verify-blob<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--bundle<span class="w"> </span>upgrade-plan.sigstore.json<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--certificate-identity<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">identity</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--certificate-oidc-issuer<span class="w"> </span>https://token.actions.githubusercontent.com<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>upgrade-plan.json
+</code></pre></div>
+<p>Verify all three immutable digest references with a fresh Docker configuration so
+cached credentials cannot satisfy the public-access test:</p>
+<div class="highlight"><pre><span></span><code><span class="nv">anonymous_docker_config</span><span class="o">=</span><span class="s2">&quot;</span><span class="k">$(</span>mktemp<span class="w"> </span>-d<span class="k">)</span><span class="s2">&quot;</span>
+<span class="k">for</span><span class="w"> </span>component<span class="w"> </span><span class="k">in</span><span class="w"> </span>backend<span class="w"> </span>webui<span class="w"> </span>updater<span class="p">;</span><span class="w"> </span><span class="k">do</span>
+<span class="w">  </span><span class="nv">image</span><span class="o">=</span><span class="s2">&quot;</span><span class="k">$(</span>jq<span class="w"> </span>-er<span class="w"> </span>--arg<span class="w"> </span>component<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">component</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span><span class="s1">&#39;.components[$component].image&#39;</span><span class="w"> </span>upgrade-plan.json<span class="k">)</span><span class="s2">&quot;</span>
+<span class="w">  </span>cosign<span class="w"> </span>verify<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--certificate-identity<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">identity</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--certificate-oidc-issuer<span class="w"> </span>https://token.actions.githubusercontent.com<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">image</span><span class="si">}</span><span class="s2">&quot;</span>
+<span class="w">  </span><span class="nv">DOCKER_CONFIG</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">anonymous_docker_config</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>docker<span class="w"> </span>buildx<span class="w"> </span>imagetools<span class="w"> </span>inspect<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">image</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>&gt;/dev/null
+<span class="k">done</span>
+</code></pre></div>
+<p>The release workflow additionally performs credential-free HTTP reads of each exact
+index, child manifest, and config. Repository administrators must make the three
+GHCR packages <strong>Public</strong> if anonymous reads return 401; package visibility is a
+GitHub setting and cannot be established by image push alone.</p>
+<h2 id="release-acceptance">Release acceptance<a class="headerlink" href="#release-acceptance" title="Permanent link">&para;</a></h2>
+<p>Publication requires the fail-closed <code>CI passed</code> aggregate on the frozen 0.1.8
+candidate on <code>Testing</code>, the resulting content-equivalent <code>main</code> commit, and the exact
+immutable <code>v0.1.8</code> tag. The release workflow then requires:</p>
+<ol>
+<li>the annotated tag and its dereferenced commit equal the accepted <code>main</code> SHA;</li>
+<li>all three dual-platform images build, carry exact Stable labels, and are signed;</li>
+<li>every image digest is anonymously readable and content-verified;</li>
+<li>the canonical plan passes schema, compatibility, digest, and Sigstore checks;</li>
+<li>the private draft contains exactly the canonical notes, plan, and bundle; and</li>
+<li>downloaded release assets byte-match before the draft becomes public.</li>
+</ol>
+<p>The candidate must also pass the Console browser matrix and canonical PostgreSQL
+Compose bootstrap/update rehearsal. The required
+<code>Smoke updater control socket without Linux capabilities</code> gate must start the real
+read-only updater image with <code>cap_drop: ALL</code> and <code>no-new-privileges</code>, prove a separate
+10001:10001 client sees a UID-0/GID-10001 socket at mode <code>0660</code>, and reach protocol-1
+<code>/v1/status</code>. The end-to-end rehearsal must then apply the signed plan, retain a
+durable receipt and verified backup, and activate an exact coherent backend/Console
+pair. Never move, reuse, or repair a published tag. Any later defect receives a
+newer SemVer.</p>
+<h2 id="exact-stable-build-identity">Exact Stable build identity<a class="headerlink" href="#exact-stable-build-identity" title="Permanent link">&para;</a></h2>
+<p>Resolve every Stable stamp from the exact annotated tag on the accepted <code>main</code>
+commit. Never substitute a branch head, local clock, or unknown value:</p>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>switch<span class="w"> </span>main
+git<span class="w"> </span>pull<span class="w"> </span>--ff-only<span class="w"> </span>origin<span class="w"> </span>main
+git<span class="w"> </span>fetch<span class="w"> </span>--tags<span class="w"> </span>origin
+
+<span class="nv">release_version</span><span class="o">=</span><span class="s2">&quot;</span><span class="k">$(</span>tr<span class="w"> </span>-d<span class="w"> </span><span class="s1">&#39;[:space:]&#39;</span><span class="w"> </span>&lt;<span class="w"> </span>VERSION<span class="k">)</span><span class="s2">&quot;</span>
+<span class="nb">test</span><span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">release_version</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;0.1.8&quot;</span>
+<span class="nv">release_sha</span><span class="o">=</span><span class="s2">&quot;</span><span class="k">$(</span>git<span class="w"> </span>rev-parse<span class="w"> </span><span class="s2">&quot;v</span><span class="si">${</span><span class="nv">release_version</span><span class="si">}</span><span class="s2">^{commit}&quot;</span><span class="k">)</span><span class="s2">&quot;</span>
+<span class="nb">test</span><span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">release_sha</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>git<span class="w"> </span>rev-parse<span class="w"> </span>HEAD<span class="k">)</span><span class="s2">&quot;</span>
+<span class="nv">release_date</span><span class="o">=</span><span class="s2">&quot;</span><span class="k">$(</span>git<span class="w"> </span>show<span class="w"> </span>-s<span class="w"> </span>--format<span class="o">=</span>%cI<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">release_sha</span><span class="si">}</span><span class="s2">&quot;</span><span class="k">)</span><span class="s2">&quot;</span>
+
+<span class="nb">export</span><span class="w"> </span><span class="nv">TLSOC_VERSION</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">release_version</span><span class="si">}</span><span class="s2">&quot;</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">TLSOC_RELEASE_CHANNEL</span><span class="o">=</span>stable
+<span class="nb">export</span><span class="w"> </span><span class="nv">TLSOC_BUILD_SHA</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">release_sha</span><span class="si">}</span><span class="s2">&quot;</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">TLSOC_BUILD_DATE</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">release_date</span><span class="si">}</span><span class="s2">&quot;</span>
+</code></pre></div>
+<p>Backend, Console, updater, <code>/release.json</code>, OCI labels, signed plan, tag, and GitHub
+Release must all resolve to the same version and commit. A mismatch fails safe to
+Testing and cannot authorize installation.</p>
+<h2 id="immutable-annotated-tag-checklist">Immutable annotated-tag checklist<a class="headerlink" href="#immutable-annotated-tag-checklist" title="Permanent link">&para;</a></h2>
+<p>Create the tag only after the clean candidate passes on <code>Testing</code>, promotion passes
+on the resulting <code>main</code> commit, and the final tree is frozen:</p>
+<div class="highlight"><pre><span></span><code><span class="nb">test</span><span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>tr<span class="w"> </span>-d<span class="w"> </span><span class="s1">&#39;[:space:]&#39;</span><span class="w"> </span>&lt;<span class="w"> </span>VERSION<span class="k">)</span><span class="s2">&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;0.1.8&quot;</span>
+<span class="nb">test</span><span class="w"> </span>-z<span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>git<span class="w"> </span>status<span class="w"> </span>--porcelain<span class="k">)</span><span class="s2">&quot;</span>
+git<span class="w"> </span>tag<span class="w"> </span>-a<span class="w"> </span>v0.1.8<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-m<span class="w"> </span><span class="s2">&quot;Agentic SOC 0.1.8&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-m<span class="w"> </span><span class="s2">&quot;Stable updater socket portability correction: Docker Desktop control socket, signed supervised updates, and fail-closed runtime acceptance. Detailed notes: docs/releases/0.1.8.md; CHANGELOG.md.&quot;</span>
+<span class="nb">test</span><span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>git<span class="w"> </span>cat-file<span class="w"> </span>-t<span class="w"> </span>v0.1.8<span class="k">)</span><span class="s2">&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>tag
+<span class="nb">test</span><span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>git<span class="w"> </span>rev-parse<span class="w"> </span><span class="s1">&#39;v0.1.8^{commit}&#39;</span><span class="k">)</span><span class="s2">&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>git<span class="w"> </span>rev-parse<span class="w"> </span>HEAD<span class="k">)</span><span class="s2">&quot;</span>
+git<span class="w"> </span>show<span class="w"> </span>--no-patch<span class="w"> </span>--show-signature<span class="w"> </span>v0.1.8
+git<span class="w"> </span>push<span class="w"> </span>origin<span class="w"> </span>v0.1.8
+</code></pre></div>
+<p>Do not create the tag before all candidate/main gates pass, and never force, delete,
+move, or reassign it after push. See <a href="../channels/">Release channels and
+versioning</a> for the canonical promotion sequence.</p>
 
 
 
@@ -3482,31 +3670,31 @@ before production use.</p>
     <nav class="md-footer__inner" aria-label="Footer">
       
         <a
-          href="../permissions/"
+          href="../0.1/"
           class="tlsoc-page-footer__link tlsoc-page-footer__link--previous"
-          aria-label="Previous: Permissions"
+          aria-label="Previous: Agentic SOC 0.1"
         >
           <span class="tlsoc-page-footer__title">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg>
-            Permissions
+            Agentic SOC 0.1
           </span>
           
-            <span class="tlsoc-page-footer__description">Built-in Agentic SOC roles, resource-action grants, authorization modes, and custom-role behavior in version 0.1.</span>
+            <span class="tlsoc-page-footer__description">Scope, capabilities, deployment expectations, and limitations for the Agentic SOC 0.1 release line.</span>
           
         </a>
       
       
         <a
-          href="../security/"
+          href="../0.1.7/"
           class="tlsoc-page-footer__link tlsoc-page-footer__link--next"
-          aria-label="Next: Security invariants"
+          aria-label="Next: Agentic SOC 0.1.7 bootstrap-blocked publication"
         >
           <span class="tlsoc-page-footer__title">
-            Security invariants
+            Agentic SOC 0.1.7 bootstrap-blocked publication
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
           </span>
           
-            <span class="tlsoc-page-footer__description">Trust boundaries, enforced safety properties, deployment responsibilities, and known security limits in Agentic SOC 0.1.</span>
+            <span class="tlsoc-page-footer__description">Immutable signed-publication record and Docker Desktop supervisor-start failure boundary for Agentic SOC 0.1.7.</span>
           
         </a>
       

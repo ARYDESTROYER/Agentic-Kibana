@@ -2538,6 +2538,8 @@
       
         
       
+        
+      
     
     
     
@@ -2599,12 +2601,35 @@
   
   
     <li class="md-nav__item">
+      <a href="../0.1.8/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.8
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../0.1.7/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Agentic SOC 0.1.7
+    Agentic SOC 0.1.7 bootstrap-blocked publication
     
   </span>
   
@@ -3138,9 +3163,9 @@ release-inventory parser, and tightened shipping-image dependency checks. The
 anonymous multi-platform pull gate before publishing the canonical signed plan,
 Sigstore plan bundle, GitHub Release, or Stable convenience tags.</p>
 <p>Those partial registry objects are not installation authority. The current governed
-correction is <a href="../0.1.7/">0.1.7</a>; <code>v0.1.5</code> must never be moved, deleted, recreated,
-or reused. Version 0.1.6 published a signed artifact set but remains a superseded,
-bootstrap-blocked historical record.</p>
+correction is <a href="../0.1.8/">0.1.8</a>; <code>v0.1.5</code> must never be moved, deleted, recreated,
+or reused. Versions 0.1.6 and 0.1.7 published signed artifact sets but remain
+superseded, bootstrap-blocked historical records.</p>
 <div class="admonition danger">
 <p class="admonition-title">Do not install, bootstrap, or update from v0.1.5</p>
 <p>The annotated tag exists, but the complete release evidence does not. There is no
@@ -3201,11 +3226,13 @@ release contract.</p>
 Version 0.1.6 preserved the tag, corrected the anonymous pull verifier, rebuilt and
 signed new component digests, and published a new plan and GitHub Release; its
 canonical macOS Bash 3.2 bootstrap then failed before supervisor installation.
-Version 0.1.7 preserves both records and repeats the complete acceptance sequence
-with a native Bash 3.2 gate.</p>
+Version 0.1.7 preserved both records and fixed the Bash 3.2 host script, but its
+updater could not publish the private control socket under the shipped capability
+boundary. Version 0.1.8 preserves every record and repeats the complete acceptance
+sequence with the corrected runtime identity and fail-closed socket gate.</p>
 <h2 id="operator-action">Operator action<a class="headerlink" href="#operator-action" title="Permanent link">&para;</a></h2>
 <p>Do not run bootstrap, artifact-download, image-pin, or tag-creation commands from this
-historical page. Use the <a href="../0.1.7/">0.1.7 release procedure</a> only after all evidence
+historical page. Use the <a href="../0.1.8/">0.1.8 release procedure</a> only after all evidence
 it requires is present, or continue using a previously verified Stable release.</p>
 <p>For the general immutable promotion and recovery policy, read
 <a href="../channels/">Release channels and versioning</a>. For the supported supervisor boundary,

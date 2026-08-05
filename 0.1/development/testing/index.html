@@ -2696,6 +2696,8 @@
       
         
       
+        
+      
     
     
     
@@ -2757,12 +2759,35 @@
   
   
     <li class="md-nav__item">
+      <a href="../../releases/0.1.8/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.8
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../releases/0.1.7/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Agentic SOC 0.1.7
+    Agentic SOC 0.1.7 bootstrap-blocked publication
     
   </span>
   
@@ -3361,15 +3386,15 @@
 <p>Agentic SOC changes are accepted on <code>Testing</code> only after the relevant offline, contract,
 build, and documentation gates pass. Stable promotion moves that accepted source
 tree through a protected pull request to <code>main</code>; the resulting commit is gated again
-before application version <code>v0.1.7</code> is tagged.</p>
+before application version <code>v0.1.8</code> is tagged.</p>
 <p>The latest fully recorded local baseline is <strong>2,306 backend tests</strong> and <strong>1,936
 Console tests across 286 files</strong> (1,927 passed + 9 intentionally skipped). The
 Console baseline also has zero stderr bytes and zero Vitest-captured console stdout
 blocks under <code>npm run test:strict</code>. Counts rise as coverage is added; the commands
 and zero-failure result are the contract, not a frozen target.</p>
 <p>The remote uses <code>Testing</code> for integration and default <code>main</code> for accepted Stable
-source. Version 0.1.7 is a candidate on <code>Testing</code> and is Stable only when the
-resulting verified <code>main</code> commit has the immutable <code>v0.1.7</code> tag and matching
+source. Version 0.1.8 is a candidate on <code>Testing</code> and is Stable only when the
+resulting verified <code>main</code> commit has the immutable <code>v0.1.8</code> tag and matching
 artifacts. Branch protection, required checks,
 Pages source selection, and <code>github-pages</code> environment policy are repository settings;
 verify them independently before treating a merge or deployment as accepted.</p>
@@ -3501,7 +3526,7 @@ rollback requested after success must also restore images only. Prove the verifi
 dump remains available for an explicit break-glass recovery rehearsal, but is never
 consumed automatically. Any plan with a migration strategy other than <code>none</code> must fail
 preflight.</p>
-<p>Verify the one-time v0.1.1→v0.1.7 bootstrap separately from later Console updates:
+<p>Verify the one-time v0.1.1→v0.1.8 bootstrap separately from later Console updates:
 it must refuse a dirty checkout, a lightweight/mismatched tag, a tag whose commit is
 not contained in <code>origin/main</code>, missing durable secrets, an unsupported running
 topology, an active job, and unreadable/invalid existing supervisor state. Prove it
@@ -3510,7 +3535,7 @@ one while preserving/restoring the active digest override. Repeat the replacemen
 without an active override and prove bootstrap captures the exact immutable prior
 updater image ID, restores it after an injected replacement failure, and removes the
 temporary recovery override only after confirmed success. Its happy path installs only
-the initial supervisor transport before delegating the full v0.1.7 transition to the
+the initial supervisor transport before delegating the full v0.1.8 transition to the
 signed state machine. Afterward, prove
 <code>scripts/agentic-soc-compose.sh</code> layers the active digest override and document raw
 Compose lifecycle commands as unsupported. Verify a known dirty Runbook or Settings
@@ -3569,7 +3594,7 @@ typed in the generated contract.</p>
 <p>Run the repository's standard-library metadata gate from the root:</p>
 <div class="highlight"><pre><span></span><code>python3<span class="w"> </span>scripts/check_version.py
 </code></pre></div>
-<p>For the 0.1 line it checks that the root <code>VERSION</code> (<code>0.1.7</code>) agrees with backend,
+<p>For the 0.1 line it checks that the root <code>VERSION</code> (<code>0.1.8</code>) agrees with backend,
 Console, lockfile, OpenAPI, Compose image/build metadata, release records, and the
 MkDocs/Mike documentation line (<code>0.1</code>).</p>
 <h2 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">&para;</a></h2>
@@ -3653,7 +3678,7 @@ isolated environment.</p>
    release gate again on the resulting <code>main</code> commit.</li>
 <li>Build and stamp the verified commit with the correct channel, exact SHA, build
    date, and source URL.</li>
-<li>Create the immutable <code>v0.1.7</code> tag and publish matching application artifacts by
+<li>Create the immutable <code>v0.1.8</code> tag and publish matching application artifacts by
    digest; let the Documentation workflow publish the accepted public 0.1 line from
    <code>main</code>.</li>
 <li>Verify all three GHCR packages are public and anonymously pullable by the exact

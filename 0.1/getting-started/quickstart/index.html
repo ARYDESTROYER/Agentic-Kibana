@@ -2687,6 +2687,8 @@
       
         
       
+        
+      
     
     
     
@@ -2748,12 +2750,35 @@
   
   
     <li class="md-nav__item">
+      <a href="../../releases/0.1.8/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.8
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../releases/0.1.7/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Agentic SOC 0.1.7
+    Agentic SOC 0.1.7 bootstrap-blocked publication
     
   </span>
   
@@ -3337,8 +3362,8 @@ real source with persistent application state.</p>
 <div class="admonition info">
 <p class="admonition-title">Choose the matching channel</p>
 <p><code>Testing</code> contains integrated candidates. Under the release contract, <code>main</code>
-holds only accepted Stable source and immutable <code>v0.1.7</code> identifies this patch.
-The remote has both canonical branches; use <code>v0.1.7</code> only when its signed GitHub
+holds only accepted Stable source and immutable <code>v0.1.8</code> identifies this patch.
+The remote has both canonical branches; use <code>v0.1.8</code> only when its signed GitHub
 Release and public digest-pinned images verify, and use <code>Testing</code> only for an unreleased preview;
 repository administrators must verify branch protections and required checks
 independently. Never use <code>v0.1.4</code> or <code>v0.1.5</code>: those immutable
@@ -3348,7 +3373,7 @@ set is valid, but canonical macOS Bash 3.2 acceptance failed before supervisor
 installation. It is immutable, superseded history.</p>
 </div>
 <h2 id="get-the-source">Get the source<a class="headerlink" href="#get-the-source" title="Permanent link">&para;</a></h2>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Testing</label><label for="__tabbed_1_2">Stable 0.1.7</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Testing</label><label for="__tabbed_1_2">Stable 0.1.8</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>--branch<span class="w"> </span>Testing<span class="w"> </span>--depth<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
@@ -3357,11 +3382,11 @@ installation. It is immutable, superseded history.</p>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>--branch<span class="w"> </span>v0.1.7<span class="w"> </span>--depth<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>--branch<span class="w"> </span>v0.1.8<span class="w"> </span>--depth<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>https://github.com/ARYDESTROYER/Agentic-Kibana.git
 <span class="nb">cd</span><span class="w"> </span>Agentic-Kibana
 </code></pre></div>
-<p>The <code>v0.1.7</code> tag is immutable; do not create, move, or replace it locally. Users
+<p>The <code>v0.1.8</code> tag is immutable after publication; do not create, move, or replace it locally. Users
 pulling <code>main</code> receive the current accepted Stable source, while candidate work
 remains isolated on <code>Testing</code>. A branch name alone is not acceptance evidence,
 so repository administrators must verify protections and required checks. If the

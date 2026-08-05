@@ -16,7 +16,7 @@
         <link rel="prev" href="../../development/testing/">
       
       
-        <link rel="next" href="../0.1.7/">
+        <link rel="next" href="../0.1.8/">
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
@@ -2538,6 +2538,8 @@
       
         
       
+        
+      
     
     
     
@@ -2689,12 +2691,35 @@
   
   
     <li class="md-nav__item">
+      <a href="../0.1.8/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.8
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../0.1.7/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Agentic SOC 0.1.7
+    Agentic SOC 0.1.7 bootstrap-blocked publication
     
   </span>
   
@@ -3160,11 +3185,12 @@
 <h1 id="agentic-soc-01">Agentic SOC 0.1<a class="headerlink" href="#agentic-soc-01" title="Permanent link">&para;</a></h1>
 <p>Agentic SOC 0.1 is the first standardized application and documentation release line.
 Human-facing documentation uses <strong>0.1</strong>; the current source version is Semantic
-Version <strong>0.1.7</strong>. It carries the accepted 0.1.2 and 0.1.3 Testing snapshots plus
-the exact accepted 0.1.4, 0.1.5, and 0.1.6 application scope.</p>
-<p>Builds on <code>Testing</code> are integration and acceptance builds. Version 0.1.7 is a
+Version <strong>0.1.8</strong>. It carries the accepted 0.1.2 through 0.1.7 application scope
+and corrects the canonical updater bootstrap defect discovered after 0.1.7
+publication.</p>
+<p>Builds on <code>Testing</code> are integration and acceptance builds. Version 0.1.8 is a
 supported Stable patch only when the accepted tree is on <code>main</code>, the resulting
-commit has passed the release gate, and that exact commit is tagged <code>v0.1.7</code> with
+commit has passed the release gate, and that exact commit is tagged <code>v0.1.8</code> with
 verifiable signed release artifacts and public image digests. If that evidence is
 incomplete, use a previously verified Stable release. The immutable
 <code>v0.1.4</code> tag records a failed publication that produced documentation but no
@@ -3174,14 +3200,20 @@ Stable tags. Neither is an update or bootstrap source.
 The immutable <code>v0.1.6</code> artifact set published and signed successfully, but canonical
 macOS Bash 3.2 bootstrap acceptance failed before supervisor installation. It is
 superseded and is not an update or bootstrap source.
+The immutable <code>v0.1.7</code> artifact set also published, signed, and pulled anonymously,
+but its updater process could not create the control socket under the shipped
+capability boundary. It remains an immutable publication record and is superseded by
+0.1.8; do not use it as an installation or update source.
 Branch state alone never establishes the installed release identity.</p>
 <p>The repository uses <code>Testing</code> for integration and default <code>main</code> for accepted
-source. Patch 0.1.7 rebuilds the public and installed 0.1 guide without changing the
+source. Patch 0.1.8 rebuilds the public and installed 0.1 guide without changing the
 documentation selector line; already-built artifacts keep their immutable bundled
 Help Center. Versions 0.1.2 and 0.1.3 remain unpublished historical Testing records.
 Versions 0.1.4 and 0.1.5 remain immutable failed-publication records, not installable
 Stable releases or artifact sources. Version 0.1.6 remains an immutable signed
-publication record, but not a supported bootstrap source.</p>
+publication record, but not a supported bootstrap source.
+Version 0.1.7 remains an immutable signed publication record whose canonical updater
+bootstrap is blocked by its control-socket startup defect.</p>
 <h2 id="what-01-provides">What 0.1 provides<a class="headerlink" href="#what-01-provides" title="Permanent link">&para;</a></h2>
 <ul>
 <li>Vendor-neutral pull and push ingestion normalized to OCSF.</li>
@@ -3250,7 +3282,7 @@ Elasticsearch environments may instead hold Agentic SOC state in dedicated indic
 separate management and read-only log credentials.</p>
 <p>Record the exact tag, image digests, commit SHA, build date, state backend, and
 <code>/api/health/build-info</code> response. A branch name alone is not a release identity.
-The Console badge shows <code>v0.1.7 · Testing|Stable</code> and exposes both Console and
+The Console badge shows <code>v0.1.8 · Testing|Stable</code> and exposes both Console and
 backend stamps; any identity mismatch is visibly downgraded to Testing.</p>
 <h2 id="important-limitations">Important limitations<a class="headerlink" href="#important-limitations" title="Permanent link">&para;</a></h2>
 <p>Version 0.1 does not claim:</p>
@@ -3275,7 +3307,8 @@ explicitly documented.</p>
 <p>Start with <a href="../../operations/deployment/">Deployment</a>,
 <a href="../../operations/security/">Security hardening</a>, and
 <a href="../documentation-versions/">Documentation versions</a>. Read the detailed
-<a href="../0.1.7/">0.1.7 Stable patch record</a> before promoting or upgrading. The
+<a href="../0.1.8/">0.1.8 Stable patch record</a> before promoting or upgrading. The
+<a href="../0.1.7/">0.1.7 bootstrap-blocked publication record</a>,
 <a href="../0.1.6/">0.1.6 superseded publication record</a>,
 <a href="../0.1.5/">0.1.5 failed-publication record</a> and
 <a href="../0.1.4/">0.1.4 failed-publication record</a> are immutable but non-installable; the
@@ -3334,16 +3367,16 @@ Testing snapshots.</p>
       
       
         <a
-          href="../0.1.7/"
+          href="../0.1.8/"
           class="tlsoc-page-footer__link tlsoc-page-footer__link--next"
-          aria-label="Next: Agentic SOC 0.1.7"
+          aria-label="Next: Agentic SOC 0.1.8"
         >
           <span class="tlsoc-page-footer__title">
-            Agentic SOC 0.1.7
+            Agentic SOC 0.1.8
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
           </span>
           
-            <span class="tlsoc-page-footer__description">Stable bootstrap portability release notes, signed-update artifacts, compatibility boundary, and operator verification for Agentic SOC 0.1.7.</span>
+            <span class="tlsoc-page-footer__description">Docker Desktop control-socket portability release notes, signed-update artifacts, compatibility boundary, and operator verification for Agentic SOC 0.1.8.</span>
           
         </a>
       
