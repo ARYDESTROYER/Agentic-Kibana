@@ -9438,3 +9438,17 @@
 - Did: Published the Testing-native candidate branch and opened pull request **#69** into protected `Testing`, carrying the same release content as the independently accepted main-based candidate.
 - Status: Pull-request and subsequent protected-branch aggregate CI remain mandatory before any main promotion or immutable tag. No Codex Security review was run.
 - Next: Commit this journal milestone onto the candidate, update pull request #69, and require its final head plus the resulting `Testing` push to pass the fail-closed `CI passed` aggregate.
+
+### 2026-08-05 20:15 IST — `/root/v0112_image_acceptance` — exact v0.1.12 shipping-image acceptance passed
+- Context: Independently validate committed candidate `e935019558817cdb66f2e896f1cb1ea1c830e37b` with the exact CI image contexts before protected promotion; the later candidate commits changed only this Journal.
+- Did: Built the backend, Web Console, and updater as isolated `linux/amd64` images with version `0.1.12`, channel `testing`, exact revision/date/source metadata; exercised their OCI and runtime contracts; and removed only the temporary acceptance resources.
+- Tests: Backend package health plus SQLite ready/live/build-info and **27** router discovery; constrained capability-free updater health, writable TUF root, mode-`0660` operator socket and `/v1/status` HTTP 200; Web Console health/HTTP 200 and exact `release.json`; frozen Compose SHA-256 `e3f7ecbb0f749cc9d88f4392c58c9a63ddbd064e80ecde9f21fe9de199086fd4` matched its committed pin.
+- Status: Exact candidate shipping-image acceptance passed. The canonical deployment and shared checkout were untouched; promoted and tag images still require their own exact-SHA CI and signed-publication verification.
+- Next: Complete protected Testing/main/tag gates, then verify the public multi-platform digests, signatures, signed plan, bootstrap, supervised update, and Console controls.
+
+### 2026-08-05 20:23 IST — `/root` — v0.1.12 protected Testing source gates passed
+- Context: Prove the release candidate on the integration channel before any Stable/main mutation.
+- Did: Merged pull request **#69** only after exact head `abad2de83617db9efdc85dc7d93dc0cb44c8f4ce` passed all **22** checks, then independently verified the resulting protected `Testing` commit `06cafc97e2cb1fe719e912d1955f8ab7370ff7ae`.
+- Tests: PR aggregate and protected-branch push aggregate both reported `CI passed: success`; all substantive backend, PostgreSQL/Redis, Web UI, image-build, updater/deploy, version, contract, static, documentation, portability, and design-system lanes passed. The two Stable-documentation publication jobs were expected skips on the Testing PR.
+- Status: The v0.1.12 source candidate is accepted on protected Testing. No tag, release asset, Stable alias, deployment update, or Codex Security review was created.
+- Next: Carry this durable evidence through a journal-only Testing delta, then promote the byte-equivalent release tree to `main` and repeat the full aggregate gate before tagging.
