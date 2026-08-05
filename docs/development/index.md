@@ -14,16 +14,16 @@ Use a short-lived feature branch, merge accepted work into `Testing`, and promot
 the accepted source tree through a protected pull request to `main`, the Stable branch:
 
 ```text
-feature branch -> Testing -> main (Stable) -> v0.1.11
+feature branch -> Testing -> main (Stable) -> v0.1.12
 ```
 
 Do not develop directly on `main`. `Testing` is the integration and acceptance
 channel, not a different edition of the product. Package/API/image metadata uses
-Semantic Version **0.1.11**; public documentation uses the **0.1** line.
+Semantic Version **0.1.12**; public documentation uses the **0.1** line.
 
 The remote uses `Testing` for integration and default `main` for accepted Stable
-source. Version 0.1.11 is Stable only when the exact verified `main` commit has the
-immutable `v0.1.11` tag and matching signed/public artifacts. Repository owners
+source. Version 0.1.12 is Stable only when the exact verified `main` commit has the
+immutable `v0.1.12` tag and matching signed/public artifacts. Repository owners
 must independently verify pull-request protection, required checks, and release-
 environment policy; source topology alone does not prove that a change passed
 acceptance.

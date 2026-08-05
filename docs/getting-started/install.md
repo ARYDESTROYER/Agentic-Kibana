@@ -25,10 +25,10 @@ when infrastructure and external model calls are not part of your evaluation.
 ## 1. Check out version 0.1
 
 After its complete signed publication and canonical runtime acceptance succeed, use
-the immutable `v0.1.11` Stable tag:
+the immutable `v0.1.12` Stable tag:
 
 ```bash
-git clone --branch v0.1.11 --depth 1 \
+git clone --branch v0.1.12 --depth 1 \
   https://github.com/ARYDESTROYER/Agentic-Kibana.git
 cd Agentic-Kibana
 ```
@@ -47,16 +47,20 @@ boundaries. The immutable `v0.1.9` publication built, signed, and anonymously pr
 all three images, but its constrained supervisor could not traverse the runner-owned
 verification directory and no GitHub Release or installable plan was published. The
 immutable `v0.1.10` workflow later timed out while its Web Console builder ran under
-target emulation; it also has no installable GitHub Release or canonical signed plan
-and must never be used. Use `v0.1.11` only when its canonical GitHub Release, plan
+target emulation; it also has no installable GitHub Release or canonical signed plan.
+The immutable `v0.1.11` workflow built, signed, anonymously proved, and verified all
+three images and the plan but failed during post-verification cleanup before its
+canonical Release or assets were published. Both must never be used. Use `v0.1.12`
+only when its canonical GitHub Release, plan
 signature, public image digests, and canonical PostgreSQL Compose runtime acceptance
 all verify. Otherwise use a
 previously verified Stable release or Testing only for an explicitly
 unreleased evaluation.
 
-Version 0.1.11 retains the writable updater trust cache and least-privilege verification
+Version 0.1.12 retains the writable updater trust cache and least-privilege verification
 assets, and moves only architecture-neutral Console builder work to BuildKit's native
-platform. The final nginx runtime remains target-platform-specific. It changes no
+platform. The final nginx runtime remains target-platform-specific. It also restores
+the runner-owned verification fixture to private mode only after verifier exit. It changes no
 schema, protocol, identity, privilege, trust predicate, or frozen-base bytes.
 
 ## 2. Prepare configuration
