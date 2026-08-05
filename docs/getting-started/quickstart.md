@@ -12,8 +12,8 @@ real source with persistent application state.
 !!! info "Choose the matching channel"
 
     `Testing` contains integrated candidates. Under the release contract, `main`
-    holds only accepted Stable source and immutable `v0.1.12` identifies this candidate.
-    The remote has both canonical branches; use `v0.1.12` only when its signed GitHub
+    holds only accepted Stable source and immutable `v0.1.13` identifies this candidate.
+    The remote has both canonical branches; use `v0.1.13` only when its signed GitHub
     Release and public digest-pinned images verify and canonical PostgreSQL Compose
     runtime acceptance completes, and use `Testing` only for an unreleased preview;
     repository administrators must verify branch protections and required checks
@@ -31,8 +31,10 @@ real source with persistent application state.
     while the architecture-neutral Web Console builder ran under target emulation.
     Version 0.1.11 then passed all image and plan verification, including inside the
     constrained updater, but its post-verification cleanup failed before canonical
-    Release publication. Both are immutable, non-installable history and must never
-    be recommended.
+    Release publication. Version 0.1.12 completed the entire signed/public release,
+    but canonical v0.1.1 bootstrap failed closed before application mutation because
+    matching absent legacy state-schema labels were normalized asymmetrically.
+    These are immutable, non-installable history and must never be recommended.
 
 ## Get the source
 
@@ -44,15 +46,15 @@ real source with persistent application state.
     cd Agentic-Kibana
     ```
 
-=== "Stable 0.1.12 (after acceptance)"
+=== "Stable 0.1.13 (after acceptance)"
 
     ```bash
-    git clone --branch v0.1.12 --depth 1 \
+    git clone --branch v0.1.13 --depth 1 \
       https://github.com/ARYDESTROYER/Agentic-Kibana.git
     cd Agentic-Kibana
     ```
 
-    The `v0.1.12` tag is absent before publication and immutable afterward; do not
+    The `v0.1.13` tag is absent before publication and immutable afterward; do not
     create, move, or replace it locally. Users
     pulling `main` receive the current accepted Stable source, while candidate work
     remains isolated on `Testing`. A branch name alone is not acceptance evidence,

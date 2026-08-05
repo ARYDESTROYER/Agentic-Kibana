@@ -39,7 +39,7 @@ Compose topology, and public anonymous pull access to the release's `backend`,
 ## Standalone stack
 
 1. After every signed-publication and canonical runtime acceptance gate passes, check
-   out the accepted `v0.1.12` tag for Stable; use the `Testing` branch only for
+   out the accepted `v0.1.13` tag for Stable; use the `Testing` branch only for
    acceptance testing.
 2. Copy `.env.example` to `.env` and set a strong PostgreSQL password.
 3. Configure authentication and provider credentials.
@@ -62,8 +62,8 @@ Compose project, protect `.env` and updater volumes, and never expose the contro
 socket over TCP.
 
 The remote uses `Testing` for integration and default `main` for accepted Stable
-source. Version 0.1.12 is Stable only when the exact verified `main` commit has the
-immutable `v0.1.12` tag, matching signed/public artifacts, and completed canonical
+source. Version 0.1.13 is Stable only when the exact verified `main` commit has the
+immutable `v0.1.13` tag, matching signed/public artifacts, and completed canonical
 runtime acceptance. A pull of `main` receives the current accepted Stable tree while
 integration work continues on `Testing`. Branch
 protections, required checks, and release-environment policy remain repository
@@ -71,11 +71,17 @@ settings that administrators must verify independently.
 
 The immutable `v0.1.4` and `v0.1.5` tags are failed, non-installable publication
 attempts and must not be used as deployment or bootstrap sources. The published
-`v0.1.6`, `v0.1.7`, `v0.1.8`, and `v0.1.9` records are also bootstrap-blocked and superseded.
+`v0.1.6`, `v0.1.7`, and `v0.1.8` records are bootstrap-blocked and superseded;
+`v0.1.9` failed before its canonical Release was published.
 The immutable `v0.1.10` workflow timed out while its architecture-neutral Web Console
 builder ran under target emulation; it has no complete three-image set, canonical
 signed plan, GitHub Release, Stable tags, or Stable Help Center and is non-installable.
-Use `v0.1.12` only when its complete
+The immutable `v0.1.11` workflow completed image and plan verification but failed
+before canonical publication. Version `v0.1.12` completed the full signed/public
+release, then canonical v0.1.1 bootstrap failed closed before application mutation
+because matching absent legacy state-schema labels were normalized asymmetrically.
+Both are superseded and are not supported installation sources.
+Use `v0.1.13` only when its complete
 publication gate, canonical signed Release, anonymous digest-pull evidence, and
 canonical PostgreSQL Compose runtime acceptance
 verify; otherwise use a previously verified Stable release.
@@ -116,7 +122,7 @@ warm tier capability before an administrator performs the explicit, freshly
 authenticated Apply. Cases and operational metadata stay Hot because they are
 mutable. PostgreSQL reports the policy as advisory; SQLite reports export-only.
 
-Archive is a desired target, not an active pipeline in 0.1.12. Build a separate
+Archive is a desired target, not an active pipeline in 0.1.13. Build a separate
 immutable export with a manifest and checksums, verify restore, and only then place
 those independent archive objects under an S3 lifecycle rule. **Never transition an
 Elasticsearch snapshot-repository prefix to Glacier**; Elasticsearch expects its
@@ -124,14 +130,14 @@ repository objects to remain directly readable.
 
 ## Image identity
 
-Backend and web images use the machine version `0.1.12` and accept OCI version,
+Backend and web images use the machine version `0.1.13` and accept OCI version,
 revision, build-date, and source metadata. Record the image digest and
 `/api/health/build-info` result with each deployment. Do not treat a mutable branch or
 image tag as an immutable release identity.
 
 Release channel is stamped independently from SemVer. Source builds default to
-`TLSOC_RELEASE_CHANNEL=testing`; the accepted `main`/`v0.1.12` build must explicitly
-set it to `stable`. This preserves the same `0.1.12` candidate identity through
+`TLSOC_RELEASE_CHANNEL=testing`; the accepted `main`/`v0.1.13` build must explicitly
+set it to `stable`. This preserves the same `0.1.13` candidate identity through
 acceptance without allowing a Testing build to report itself as Stable.
 
 Set `TLSOC_VERSION`, `TLSOC_RELEASE_CHANNEL`, `TLSOC_BUILD_SHA`, and
@@ -176,7 +182,7 @@ preserves every write accepted after the snapshot was taken. The catalog-verifie
 quiesced dump remains available for an explicit operator-controlled break-glass
 recovery, and v1 therefore permits only plans with `migration.strategy=none`.
 
-This support is deliberately narrow in 0.1.12: the reference single-replica standalone
+This support is deliberately narrow in 0.1.13: the reference single-replica standalone
 Docker Compose deployment whose mounted base file matches the signed canonical
 SHA-256, canonical project/network/service identities and PostgreSQL volume,
 PostgreSQL-owned state, coherent schema labels, authentication enabled with durable
@@ -194,16 +200,16 @@ The updater never transports or replaces `deploy/docker-compose.agnostic.yml`. T
 `deploy/update-base-v1.sha256`; the signed generated override carries versioned image
 digests. Changing that base requires a new updater protocol and manual bootstrap.
 
-The v0.1.1→v0.1.12 bootstrap must run from the clean, exact annotated `v0.1.12` tag
+The v0.1.1→v0.1.13 bootstrap must run from the clean, exact annotated `v0.1.13` tag
 whose commit remains contained in `origin/main`. It installs the initial supervisor
-transport and then delegates the complete v0.1.12 transition to the signed release plan
+transport and then delegates the complete v0.1.13 transition to the signed release plan
 and durable update state machine. After bootstrap, use
 `./scripts/agentic-soc-compose.sh` for
 every manual lifecycle command. Raw `docker compose -f
 deploy/docker-compose.agnostic.yml ...` bypasses the active digest override and is
 unsupported.
 
-The 0.1.12 updater bakes
+The 0.1.13 updater bakes
 `TUF_ROOT=/var/lib/agentic-soc-updater/sigstore-root`, keeping cosign trust state on
 the writable updater-state volume while the root filesystem remains read-only. This
 release also materializes the plan and bundle as read-only files beneath an explicitly
@@ -222,11 +228,11 @@ publication attempts, the published-but-bootstrap-blocked `v0.1.6` through `v0.1
 records, and the failed-publication `v0.1.9` through `v0.1.11` records are
 not canonical installable Stable sources and cannot bootstrap by relabelling
 themselves. If an earlier attempt left an inspectable idle older supervisor on an
-unchanged v0.1.1 application, the v0.1.12 bootstrap replaces that exact-version
+unchanged v0.1.1 application, the v0.1.13 bootstrap replaces that exact-version
 mismatch before signed-plan verification. Reconcile other states through the
-documented 0.1.12 path appropriate to their installed release. Because bootstrap
-requires a strictly newer target, an already-running 0.1.12 cannot bootstrap from the
-0.1.12 plan.
+documented 0.1.13 path appropriate to their installed release. Because bootstrap
+requires a strictly newer target, an already-running 0.1.13 cannot bootstrap from the
+0.1.13 plan.
 
 The wrapper and supervisor also share a lifecycle lock: inspection commands remain
 available, while mutating or unknown Compose commands are refused for the full durable

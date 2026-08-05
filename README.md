@@ -8,11 +8,11 @@ risk-scores them deterministically, uses role-separated AI investigation, and ap
 operator policy through a deterministic case manager. The model can recommend a
 verdict; it cannot decide to close or escalate a case.
 
-> **Version 0.1.12 · `Testing` integration → `main` Stable**
+> **Version 0.1.13 · `Testing` integration → `main` Stable**
 > Start with the [Quickstart](docs/getting-started/quickstart.md), or open the
 > version-matched Help Center from inside the Console.
 
-Treat `v0.1.12` as installable only when its GitHub Release contains the canonical
+Treat `v0.1.13` as installable only when its GitHub Release contains the canonical
 signed plan, all three referenced GHCR image digests are anonymously pullable, and
 the canonical PostgreSQL Compose bootstrap/update acceptance completes.
 The immutable `v0.1.4` and `v0.1.5` tags record failed, non-installable publication
@@ -32,14 +32,20 @@ it published no GitHub Release or installable signed plan. The immutable `v0.1.1
 workflow then built, signed, anonymously proved, and verified all three images and
 the canonical plan on the host and inside the constrained updater, but its
 post-verification cleanup trap failed before attestations, GitHub Release, canonical
-asset, Stable-tag, or Stable-documentation publication. All eight are historical and
+asset, Stable-tag, or Stable-documentation publication. The immutable `v0.1.12`
+release then published the complete signed plan, public images, attestations, GitHub
+Release, Stable tags, and Stable documentation; canonical v0.1.1 acceptance exposed
+an asymmetric missing-schema-label comparison in its supervisor and stopped before
+application mutation. All nine are historical and
 must not be used as deployment, bootstrap, or update sources; never move or reuse
-their tags. Version 0.1.12 retains the writable
+their tags. Version 0.1.13 retains the writable
 updater-state trust cache and materializes read-only verification assets with explicit
 traversal permissions, while running the documentation and Node builder stages on
 BuildKit's native platform and keeping the final runtime multi-platform. Its
 release-only cleanup restores the runner-owned fixture directory to mode `0700`
-after constrained verification, then removes it. It makes no
+after constrained verification, then removes it. It also treats matching absent
+legacy state-schema labels as one coherent unknown identity while rejecting a mixed
+pair and every unmanaged later release. It makes no
 schema, protocol, identity, privilege, or frozen-base change.
 
 ## What Agentic SOC delivers

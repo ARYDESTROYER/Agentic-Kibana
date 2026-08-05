@@ -13,7 +13,7 @@ reference, and release material live in the same searchable portal.
 
 !!! info "Matched to this app"
 
-    **Documentation 0.1** describes **Agentic SOC 0.1.12**. The application bundles this
+    **Documentation 0.1** describes **Agentic SOC 0.1.13**. The application bundles this
     Help Center from the same accepted source and serves it on the application
     origin under `/docs/0.1/`. Use it as the authority for the behavior and controls
     available in the running build. The channel badge identifies whether that build
@@ -142,12 +142,12 @@ does not replace the version-matched Help Center bundled with the application.
 
 Agentic SOC uses one promotion path: feature branches merge into **Testing**, and the
 accepted source tree promotes through a protected pull request to **`main` /
-Stable**. The current source version uses SemVer `0.1.12`; compatible documentation
+Stable**. The current source version uses SemVer `0.1.13`; compatible documentation
 uses the major.minor line `0.1`.
 
 The repository uses default `main` for accepted source and retains `Testing` for
-integration. Version 0.1.12 is Stable only when the exact accepted `main` commit has
-the immutable `v0.1.12` tag and matching signed/public artifacts and every canonical
+integration. Version 0.1.13 is Stable only when the exact accepted `main` commit has
+the immutable `v0.1.13` tag and matching signed/public artifacts and every canonical
 runtime acceptance gate passes. Repository
 protections and the native Pages deployment remain
 administrator-controlled and must be verified independently before treating a
@@ -158,14 +158,20 @@ publication. Version `v0.1.10` is immutable and non-installable: its signed-rele
 workflow timed out during the emulated Web Console builder before the complete
 artifact set or GitHub Release existed. Version 0.1.11 completed image and plan
 verification but failed during post-verification cleanup before its GitHub Release
-or canonical assets were published. Version 0.1.12 remains a candidate until its
+or canonical assets were published. Version 0.1.12 completed the entire public,
+signed publication, but canonical v0.1.1 bootstrap failed closed before application
+mutation because matching absent legacy state-schema labels were normalized
+asymmetrically. It is bootstrap-blocked and not an installation source. Version
+0.1.13 remains a candidate until its
 full signed-publication and canonical acceptance evidence exists. Read
-[Agentic SOC 0.1.12](releases/0.1.12.md),
+[Agentic SOC 0.1.13](releases/0.1.13.md),
+[the 0.1.12 bootstrap-blocked publication record](releases/0.1.12.md),
 [the 0.1.11 failed-publication record](releases/0.1.11.md),
 [the 0.1.10 failed-publication record](releases/0.1.10.md),
 [the 0.1.9 failed-publication record](releases/0.1.9.md),
 [the 0.1.8 bootstrap-blocked publication record](releases/0.1.8.md),
 [the 0.1.7 bootstrap-blocked publication record](releases/0.1.7.md),
+[the 0.1.6 bootstrap-blocked publication record](releases/0.1.6.md),
 [the 0.1.5 failed-publication record](releases/0.1.5.md),
 [the 0.1.4 failed-publication record](releases/0.1.4.md),
 [release channels and versioning](releases/channels.md), and

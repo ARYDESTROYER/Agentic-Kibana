@@ -14,6 +14,41 @@ History is reconstructed from `git log`.
 
 No changes yet.
 
+## [0.1.13] - 2026-08-05
+
+**Canonical legacy-bootstrap identity correction.** The immutable `v0.1.12`
+release passed protected source and tag CI, published the complete signed release,
+and exposed all three public digest-pinned images. Canonical v0.1.1 runtime
+acceptance then failed closed before any application mutation because those final
+pre-supervisor backend and Web images both legitimately omit the state-schema OCI
+label. The supervisor normalized the missing backend value to `unknown` but compared
+the raw missing Web value, incorrectly treating two matching legacy identities as a
+mismatch.
+
+### Fixed
+
+- The updater now normalizes an absent state-schema label on both installed
+  application components to the same explicit `unknown` value before coherence
+  comparison. This admits only the existing one-time v0.1.1 host-bootstrap path.
+- A mixed deployment, where only one component carries the state-schema label, still
+  fails identity coherence. Any post-v0.1.1 deployment without the exact Stable
+  channel, immutable revision, and schema-1 labels still fails the managed-identity
+  and state-schema gates.
+- Regression coverage exercises matching absent legacy labels and the mixed-label
+  rejection in addition to the existing preflight tests for the v0.1.1 exception and
+  unmanaged later releases.
+
+### Release boundary
+
+- No application-state migration, updater-protocol change, signed-plan schema
+  change, Sigstore identity/issuer change, privilege expansion, or frozen-base
+  change is introduced. `deploy/docker-compose.agnostic.yml` remains byte-identical
+  with updater-protocol-1 SHA-256
+  `e3f7ecbb0f749cc9d88f4392c58c9a63ddbd064e80ecde9f21fe9de199086fd4`.
+- Version 0.1.13 must repeat the complete protected Testing/main/tag, signed-publication,
+  anonymous-pull, signature, canonical v0.1.1 bootstrap, supervisor-receipt, and
+  browser-acceptance gates under a fresh immutable tag.
+
 ## [0.1.12] - 2026-08-05
 
 **Governed constrained-verifier cleanup correction.** The immutable `v0.1.11`
@@ -63,6 +98,18 @@ moved, reused, or repaired.
 - Version 0.1.12 repeats every `Testing`, promotion, `main`, exact-tag,
   signed-publication, canonical bootstrap, and browser-acceptance gate under a new
   immutable identity. It is not installable until all those gates complete.
+
+### Publication outcome
+
+- Protected Testing, main, and exact-tag CI passed; the complete public GitHub
+  Release, signed plan and bundle, three dual-platform digest-pinned images,
+  anonymous reads, keyless signatures, and Stable documentation all published and
+  independently verified.
+- Canonical v0.1.1 bootstrap then failed closed during preflight because both legacy
+  application images omit the state-schema OCI label and the updater compared one
+  normalized absence with one raw absence. No application switch, database backup,
+  or state mutation began. The immutable release is cryptographically valid but is
+  bootstrap-blocked and superseded by 0.1.13; never move, reuse, or repair its tag.
 
 ## [0.1.11] - 2026-08-05
 
