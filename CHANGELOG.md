@@ -14,6 +14,44 @@ History is reconstructed from `git log`.
 
 No changes yet.
 
+## [0.1.11] - 2026-08-05
+
+**Governed native-builder portability correction.** The immutable `v0.1.10`
+candidate passed protected `Testing`, promoted-`main`, and exact-tag CI, then its
+signed-release job reached the fail-closed 120-minute timeout while building the
+dual-platform Web Console image. The Python documentation and Node application
+builder stages were architecture-independent but had not declared BuildKit's native
+build platform, so the arm64 target ran `npm ci` through target emulation on the
+amd64-hosted runner until timeout. No application update began, and the workflow did
+not publish a complete three-image set, signatures, canonical signed plan,
+attestations, GitHub Release, Stable convenience tags, or Stable Help Center.
+
+### Fixed
+
+- The Web Console's documentation and application builder stages now use
+  `--platform=$BUILDPLATFORM`, while the final nginx runtime keeps no platform
+  override and therefore inherits Docker's requested target platform.
+  Architecture-neutral package installation and asset compilation therefore run
+  natively without changing the real linux/amd64 and linux/arm64 runtime manifest.
+- The fail-closed CI policy parses the shipping Dockerfile and requires both named
+  builders to remain native and the unnamed final runtime to remain target-specific,
+  in addition to the existing digest-pin checks.
+
+### Release boundary
+
+- There is no application behavior change, state-schema migration,
+  updater-protocol change, signed-plan schema change, Sigstore certificate identity
+  or issuer change, process-privilege change, or frozen-base change.
+  `deploy/docker-compose.agnostic.yml` retains updater-protocol-1 SHA-256
+  `e3f7ecbb0f749cc9d88f4392c58c9a63ddbd064e80ecde9f21fe9de199086fd4`.
+- The immutable `v0.1.10` tag and partial backend candidate remain historical
+  evidence. Because its release job timed out before the complete signed image set,
+  canonical signed-plan assets, GitHub Release, Stable convenience tags, and Stable
+  Help Center existed, it is non-installable and must never be moved, reused, or
+  repaired. Version 0.1.11 repeats every Testing, promotion, `main`, exact-tag,
+  signed-publication, canonical bootstrap, and browser-acceptance gate under a new
+  immutable identity.
+
 ## [0.1.10] - 2026-08-05
 
 **Governed Stable-publication fixture portability correction.** The immutable
@@ -63,6 +101,19 @@ evidence and corrects only this release-test fixture boundary.
   moved, reused, or repaired. Version 0.1.10 repeats every Testing, promotion,
   `main`, exact-tag, signed-publication, canonical bootstrap, and browser-acceptance
   gate under a new immutable identity.
+
+### Publication outcome
+
+- The immutable `v0.1.10` tag passed protected `Testing`, promoted-`main`, and
+  exact-tag CI. Signed-release run `30997996274` built the backend candidate and
+  began the dual-platform Web Console build, where arm64 `npm ci` ran under target
+  emulation until the workflow's 120-minute fail-closed timeout.
+- No application switch began. The workflow did not publish a complete Web
+  Console/updater candidate set, the complete image signature set, canonical plan
+  and bundle, attestations, a GitHub Release, Stable convenience tags, or Stable
+  Help Center. Preserve the tag and partial registry object as immutable historical
+  evidence, but never install or bootstrap 0.1.10. Version 0.1.11 is the separately
+  governed native-builder portability correction.
 
 ## [0.1.9] - 2026-08-05
 
@@ -116,9 +167,9 @@ process privilege, or the frozen base Compose file.
 - No application update started. Attestations, the GitHub Release, canonical plan
   and bundle assets, Stable convenience tags, and Stable Help Center publication
   were skipped. Preserve the tag and digest objects as immutable historical
-  evidence, but never use 0.1.9 for deployment or bootstrap. The separately gated
-  0.1.10 release repeats the complete sequence with a least-privilege readable
-  verification fixture.
+  evidence, but never use 0.1.9 for deployment or bootstrap. Version 0.1.10 later
+  timed out during the emulated Web Console build; the separately gated 0.1.11
+  release repeats the complete sequence with both corrections.
 
 ## [0.1.8] - 2026-08-05
 
@@ -141,7 +192,8 @@ where cosign 3 attempted to initialize its default TUF cache at `/root/.sigstore
 That path is not writable under the frozen runtime, so bootstrap stopped before the
 application switch. Preserve every 0.1.8 artifact as immutable evidence. Version
 0.1.9 corrected the trust-root path but failed later in its constrained verification
-fixture; 0.1.10 is the separately gated publication correction.
+fixture. Version 0.1.10 later timed out during the emulated Web Console build;
+0.1.11 is the separately gated publication correction.
 
 ### Fixed
 
@@ -168,7 +220,8 @@ fixture; 0.1.10 is the separately gated publication correction.
   move or reuse that tag. The later `v0.1.8` publication corrected this socket
   boundary but remained bootstrap-blocked at cosign's read-only default TUF cache.
   Version 0.1.9 corrected that path but failed later in its constrained verification
-  fixture; use `v0.1.10` only after its own complete acceptance sequence passes.
+  fixture. Version 0.1.10 later timed out during the emulated Web Console build;
+  use `v0.1.11` only after its own complete acceptance sequence passes.
 
 ## [0.1.7] - 2026-08-05
 
@@ -181,8 +234,8 @@ the updater's unconditional control-socket ownership change. The application
 workload remained on its prior release. The tag and artifacts remain immutable;
 `v0.1.8` corrected this socket boundary but remained bootstrap-blocked during
 Sigstore trust initialization. Version 0.1.9 corrected that path but failed later
-in its constrained verification fixture; `v0.1.10` is the governed publication
-correction.
+in its constrained verification fixture. Version 0.1.10 later timed out during the
+emulated Web Console build; `v0.1.11` is the governed publication correction.
 
 ### Added
 
@@ -209,8 +262,9 @@ correction.
   under its dropped-capability runtime. Do not move or reuse either tag. Version
   0.1.8 corrected that boundary but remained bootstrap-blocked at cosign's default
   read-only TUF cache. Version 0.1.9 corrected that path but failed later in its
-  constrained verification fixture; 0.1.10 repeats the complete release and
-  canonical bootstrap acceptance sequence.
+  constrained verification fixture. Version 0.1.10 later timed out during the
+  emulated Web Console build; 0.1.11 repeats the complete release and canonical
+  bootstrap acceptance sequence.
 
 ## [0.1.6] - 2026-08-05
 
@@ -225,7 +279,8 @@ preserved. Version 0.1.7 repaired this Bash defect but exposed a later updater
 control-socket startup failure. Version 0.1.8 corrected that boundary but remained
 bootstrap-blocked during Sigstore trust initialization. Version 0.1.9 corrected the
 trust-root path but failed later in its constrained verification fixture;
-`v0.1.10` is the governed publication correction.
+version 0.1.10 later timed out during the emulated Web Console build;
+`v0.1.11` is the governed publication correction.
 
 ### Changed
 
@@ -262,7 +317,8 @@ published successfully but exposed the Bash bootstrap defect fixed in 0.1.7.
 Version 0.1.7 then exposed the updater control-socket defect corrected in 0.1.8;
 0.1.8 was subsequently bootstrap-blocked by cosign's read-only default TUF cache.
 Version 0.1.9 corrected that path but failed later in its constrained verification
-fixture; 0.1.10 is the governed publication correction.
+fixture. Version 0.1.10 later timed out during the emulated Web Console build;
+0.1.11 is the governed publication correction.
 
 The attempted scope comprised supervised updates, public signed release artifacts,
 broader Intelligence coverage, truthful operator states, honest rule authoring,
@@ -382,7 +438,8 @@ moved or reused. See `docs/releases/0.1.4.md`; the first correction attempt, 0.1
 also remained non-installable. Versions 0.1.6, 0.1.7, and 0.1.8 published signed
 artifact sets but remained bootstrap-blocked at successive boundaries. Version
 0.1.9 corrected the last runtime defect but failed during its constrained release
-fixture; 0.1.10 is the governed publication correction.
+fixture. Version 0.1.10 later timed out during the emulated Web Console build;
+0.1.11 is the governed publication correction.
 
 ## Development snapshot — 2026-08-04 — 0.1.3 Testing candidate
 
@@ -518,8 +575,9 @@ in-app release activation, and a version-matched Help Center.**
   `v0.1.2` tag. The later 0.1.3 candidate also remained an unpublished Testing
   snapshot; the 0.1.4 and 0.1.5 publication attempts remained non-installable, while
   0.1.6, 0.1.7, and 0.1.8 published signed artifacts but remained bootstrap-blocked.
-  Version 0.1.9 failed later in its constrained release fixture; 0.1.10 is the
-  governed publication correction. A version string alone never implies Stable
+  Version 0.1.9 failed later in its constrained release fixture, and 0.1.10 timed
+  out during the emulated Web Console build; 0.1.11 is the governed publication
+  correction. A version string alone never implies Stable
   provenance or a completed deployment.
 - Fresh workspaces now use the bundled OpenAI model ID `gpt-5.6-luna` for every
   completion role, with `reasoning_effort: none` preserving the existing Chat Completions

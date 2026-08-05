@@ -11,9 +11,9 @@ Vitest clean, **#3 `decide()` byte-identical**, and
 docs + Journal updated. Commit or publish only after the user or maintainer
 intentionally authorizes that repository mutation.
 
-**Current baseline (Version `0.1.10`; `Testing` integration and default `main`
-Stable source):** the canonical branches exist; 0.1.10 is a Stable release only when
-the exact accepted commit has the immutable `v0.1.10` tag and matching signed/public
+**Current baseline (Version `0.1.11`; `Testing` integration and default `main`
+Stable source):** the canonical branches exist; 0.1.11 is a Stable release only when
+the exact accepted commit has the immutable `v0.1.11` tag and matching signed/public
 artifacts. The immutable `v0.1.4` and `v0.1.5` tags are historical and
 non-installable because neither completed a canonical signed GitHub Release. The
 immutable `v0.1.6` tag is a published and signed artifact record whose canonical
@@ -27,10 +27,16 @@ its default TUF cache beneath the updater's read-only `/root`. It too is superse
 and not a supported bootstrap source. The immutable `v0.1.9` publication built,
 signed, and anonymously proved all three images, but its constrained supervisor could
 not traverse the runner-owned verification directory; it published no GitHub Release
-or installable plan. Version 0.1.10 retains the writable updater-state trust cache,
-replaces an idle mismatched supervisor, and materializes verification assets with
-least-privilege traversal permissions, without a schema, protocol, identity,
-privilege, or frozen-base change. Branch
+or installable plan. Version 0.1.10 carried the traversal correction through source
+and exact-tag CI, then its signed-release workflow timed out while the Web Console's
+architecture-neutral builder ran under target emulation. It published no complete
+three-image set, canonical plan, GitHub Release, Stable tags, or Stable documentation
+and is immutable, superseded, and non-installable. Version 0.1.11 retains the updater
+trust and traversal corrections while moving only architecture-neutral Console builder
+work to BuildKit's native platform; the final nginx runtime remains target-specific.
+It changes no schema, protocol, identity, privilege, trust predicate, or frozen-base
+bytes and remains a candidate until every publication and canonical runtime acceptance
+gate passes. Branch
 protections, required checks, Pages source selection, and `github-pages` environment
 policy remain repository-administration controls and must be verified independently;
 source files cannot attest to those settings. The current console adds the polished
@@ -207,8 +213,8 @@ continuous-improvement claim. The audited evidence boundaries are now closed as 
 Remaining scale-out work is intentionally separate: schedulers still need distributed
 leases/ownership and campaigns do not retain an immutable split/merge lifecycle history.
 
-**F. Ranked post-0.1.10 hardening sequence (release-gap audit, 2026-08-04):** keep the
-0.1.10 Stable release focused on the truthful Sigstore/runtime correction and complete
+**F. Ranked post-0.1.11 hardening sequence (release-gap audit, 2026-08-05):** keep the
+0.1.11 Stable candidate focused on the truthful native-builder portability correction and complete
 release acceptance. The next
 engineering sequence is ordered by data safety and measurable outcomes, not screen count:
 
