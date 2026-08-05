@@ -9221,3 +9221,10 @@
 - Tests: GitHub Actions run `30962227638` completed all **17/17** independent jobs successfully, and aggregate check `CI passed` succeeded at 2026-08-05T00:10:16Z. The journal-complete commit `6ca2bff2cab82a757296304ea3e2cefd0af11b64` then passed all 17 lanes plus the aggregate in run `30962506043`. Protection read-back reported strict `CI passed`, administrator enforcement, and linear history on both branches; `main` also reported PR and conversation-resolution requirements; force-push/deletion remained disabled.
 - Status: The exact journal-complete candidate is accepted on protected Testing and is ready for the protected promotion PR.
 - Next: Create the Testing-to-main pull request, require its merge-ref aggregate, then squash-promote the unchanged accepted tree and require the resulting main commit's aggregate.
+
+### 2026-08-05 05:47 IST — `/root` — protected Testing promotion path exercised
+- Context: Persist the final branch-protection read-back after making the required aggregate mandatory on Testing itself.
+- Did: GitHub correctly rejected direct update `803b376` because a never-pushed SHA cannot already carry the required `CI passed` check. No administrator bypass or protection relaxation was used. Moved the journal-only delta to `codex/release-0.1.4-testing-evidence` so it can enter Testing through the same checked pull-request path now required for every subsequent change.
+- Tests: The rejected push left protected `origin/Testing` byte-identical at accepted SHA `6ca2bff2cab82a757296304ea3e2cefd0af11b64`; its run `30962506043` remains fully green.
+- Status: Expected governance behavior, not a product failure. The evidence-only branch will be required to pass the exact merge-ref aggregate before Testing changes.
+- Next: Push the evidence branch, open its Testing-targeted PR, require green CI, merge without bypass, and verify the resulting protected Testing SHA.
