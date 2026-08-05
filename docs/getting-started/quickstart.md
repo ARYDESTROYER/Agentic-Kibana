@@ -12,11 +12,12 @@ real source with persistent application state.
 !!! info "Choose the matching channel"
 
     `Testing` contains integrated candidates. Under the release contract, `main`
-    holds only accepted Stable source and immutable `v0.1.4` identifies this patch
-    after verified promotion. The remote has both canonical branches; use
-    `v0.1.4` only after the tag is published and `Testing` only for an unreleased preview;
+    holds only accepted Stable source and immutable `v0.1.5` identifies this patch.
+    The remote has both canonical branches; use `v0.1.5` only when its signed GitHub
+    Release and public digest-pinned images verify, and use `Testing` only for an unreleased preview;
     repository administrators must verify branch protections and required checks
-    independently.
+    independently. Never use `v0.1.4`: that immutable failed-publication record has
+    no GitHub Release, signed plan, or release image.
 
 ## Get the source
 
@@ -28,18 +29,19 @@ real source with persistent application state.
     cd Agentic-Kibana
     ```
 
-=== "Stable 0.1.4"
+=== "Stable 0.1.5"
 
     ```bash
-    git clone --branch v0.1.4 --depth 1 \
+    git clone --branch v0.1.5 --depth 1 \
       https://github.com/ARYDESTROYER/Agentic-Kibana.git
     cd Agentic-Kibana
     ```
 
-    The `v0.1.4` tag is immutable once published; do not create, move, or replace it locally. Users
+    The `v0.1.5` tag is immutable; do not create, move, or replace it locally. Users
     pulling `main` receive the current accepted Stable source, while candidate work
     remains isolated on `Testing`. A branch name alone is not acceptance evidence,
-    so repository administrators must verify protections and required checks.
+    so repository administrators must verify protections and required checks. If the
+    signed Release or public image evidence is missing, use a previously verified Stable release.
 
 ## Option A: deterministic demo
 

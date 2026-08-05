@@ -142,6 +142,24 @@ def _assert_ci(path: Path, workflow: dict[str, Any]) -> None:
             raise ValueError(
                 f"{path}: shipping Web Console health smoke lacks {marker!r}"
             )
+    identity_step = next(
+        (
+            step
+            for step in container_images.get("steps", [])
+            if isinstance(step, dict)
+            and step.get("name") == "Verify image identity and runtime contract"
+        ),
+        None,
+    )
+    identity_run = str(identity_step.get("run", "")) if isinstance(identity_step, dict) else ""
+    if 'docker run --rm --entrypoint python "${IMAGE}" -m pip check' not in identity_run:
+        raise ValueError(
+            f"{path}: shipping backend image must pass its installed dependency contract"
+        )
+    if 'version("wheel") == "0.45.1"' not in identity_run:
+        raise ValueError(
+            f"{path}: shipping backend image must retain the reviewed Wheel version"
+        )
     for job_id, job in jobs.items():
         services = job.get("services", {}) if isinstance(job, dict) else {}
         if not isinstance(services, dict):
@@ -184,6 +202,11 @@ def _assert_ci(path: Path, workflow: dict[str, Any]) -> None:
 
 def _assert_release(path: Path, workflow: dict[str, Any]) -> None:
     trigger = workflow.get("on", workflow.get(True))
+    if not isinstance(trigger, dict) or set(trigger) != {"push"}:
+        raise ValueError(
+            f"{path}: Stable release must use only the direct immutable-tag push "
+            "trigger; it may not depend on documentation publication"
+        )
     tags = ((trigger or {}).get("push") or {}).get("tags") if isinstance(trigger, dict) else None
     if tags != ["v*"]:
         raise ValueError(f"{path}: release publication must run only for v* tags")
@@ -192,6 +215,10 @@ def _assert_release(path: Path, workflow: dict[str, Any]) -> None:
         raise ValueError(f"{path}: Stable release publication must be non-cancellable")
     publish = (workflow.get("jobs") or {}).get("publish")
     run_text = _job_run_text(publish)
+    if "workflows/docs.yml/runs" in run_text:
+        raise ValueError(
+            f"{path}: Stable release may not wait on documentation publication"
+        )
     for marker in ("workflows/ci.yml/runs", 'CI passed', 'conclusion == "success"'):
         if marker not in run_text:
             raise ValueError(f"{path}: Stable release does not prove exact tag CI: {marker}")
@@ -211,6 +238,56 @@ def _assert_release(path: Path, workflow: dict[str, Any]) -> None:
                 f"{path}: Stable release requires exactly one {name!r} step"
             )
         return matches[0]
+
+    def require_typed_release_booleans(
+        step_name: str,
+        fields: tuple[str, ...],
+    ) -> None:
+        _index, step = named_step(step_name)
+        step_run = str(step.get("run", ""))
+        for field in fields:
+            if (
+                "scripts/read_release_state_boolean.py" not in step_run
+                or f"--field {field}" not in step_run
+            ):
+                raise ValueError(
+                    f"{path}: {step_name} must read {field!r} through the typed "
+                    "release-state boolean parser"
+                )
+        unsafe = re.search(
+            r"jq\s+-[^\n]*r[^\n]*['\"]\."
+            r"(?:release_exists|plan_exists|bundle_exists)['\"]",
+            step_run,
+        )
+        if unsafe is not None:
+            raise ValueError(
+                f"{path}: {step_name} uses jq truthiness for a release-state "
+                "boolean; valid false must not abort and untyped values must fail closed"
+            )
+
+    require_typed_release_booleans(
+        "Inspect and safely recover an exact draft release",
+        ("release_exists", "plan_exists", "bundle_exists"),
+    )
+    require_typed_release_booleans(
+        "Stage, verify, and atomically publish the GitHub Release",
+        ("plan_exists", "bundle_exists"),
+    )
+
+    boolean_reader = ROOT / "scripts" / "read_release_state_boolean.py"
+    if not boolean_reader.is_file():
+        raise ValueError(f"{path}: typed release-state boolean parser is missing")
+    boolean_reader_source = boolean_reader.read_text(encoding="utf-8")
+    for marker in (
+        'BOOLEAN_FIELDS = frozenset(("release_exists", "plan_exists", "bundle_exists"))',
+        "type(document[field]) is not bool",
+        'print("true" if value else "false")',
+    ):
+        if marker not in boolean_reader_source:
+            raise ValueError(
+                f"{path}: typed release-state boolean parser contract drifted: "
+                f"missing {marker!r}"
+            )
 
     candidate_marker = "candidate-${{ github.run_id }}-${{ github.run_attempt }}"
     build_steps = {
@@ -309,6 +386,71 @@ def _assert_docs(path: Path, workflow: dict[str, Any]) -> None:
     for marker in ("workflows/ci.yml/runs", 'CI passed', 'conclusion == "success"'):
         if marker not in run_text:
             raise ValueError(f"{path}: documentation may publish before exact tag CI: {marker}")
+
+    steps = publish.get("steps")
+    if not isinstance(steps, list):
+        raise ValueError(f"{path}: documentation publisher steps are missing")
+
+    def named_step(name: str) -> tuple[int, dict[str, Any]]:
+        matches = [
+            (index, step)
+            for index, step in enumerate(steps)
+            if isinstance(step, dict) and step.get("name") == name
+        ]
+        if len(matches) != 1:
+            raise ValueError(
+                f"{path}: documentation publication requires exactly one {name!r} step"
+            )
+        return matches[0]
+
+    ci_index, _ci_step = named_step(
+        "Require the exact tag CI run and fail-closed aggregate"
+    )
+    release_index, release_step = named_step(
+        "Require the exact signed Stable release before documentation publication"
+    )
+    mutate_index, _mutate_step = named_step("Update Stable version history")
+    if not ci_index < release_index < mutate_index:
+        raise ValueError(
+            f"{path}: Stable documentation aliases may move only after exact tag CI "
+            "and signed-release publication"
+        )
+
+    release_run = str(release_step.get("run", ""))
+    release_markers = (
+        "actions/workflows/release.yml/runs",
+        '.event == "push" and .head_sha == $sha and .head_branch == $tag',
+        'if [[ "${status}" != completed ]]',
+        'if [[ "${conclusion}" != success ]]',
+        '"repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}"',
+        ".draft == false",
+        ".prerelease == false",
+        "(.published_at | type == \"string\" and length > 0)",
+        "(.assets | length == 2)",
+        '"upgrade-plan.json"',
+        '"upgrade-plan.sigstore.json"',
+        'all(.assets[]; .state == "uploaded" and .size > 0)',
+        "scripts/release_asset_state.py",
+        '--commit-sha "${GITHUB_SHA}"',
+        '--release-notes "${release_notes}"',
+        '.release_state == "published"',
+        ".plan_exists == true",
+        ".bundle_exists == true",
+        ".delete_asset_ids == []",
+    )
+    for marker in release_markers:
+        if marker not in release_run:
+            raise ValueError(
+                f"{path}: documentation signed Stable release gate lacks {marker!r}"
+            )
+
+    release_env = release_step.get("env")
+    if not isinstance(release_env, dict) or set(release_env) != {
+        "GH_TOKEN",
+        "RELEASE_TAG",
+    }:
+        raise ValueError(f"{path}: documentation signed-release gate environment drifted")
+
     deploy = jobs.get("deploy")
     environment = deploy.get("environment") if isinstance(deploy, dict) else None
     if not isinstance(environment, dict) or environment.get("name") != "github-pages":

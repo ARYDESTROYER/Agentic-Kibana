@@ -156,10 +156,13 @@ jobs:
             jq -e '.delete_asset_ids == []' <<<"${state}" >/dev/null
           fi
           release_state="$(jq -er '.release_state' <<<"${state}")"
-          release_exists="$(jq -er '.release_exists' <<<"${state}")"
+          release_exists="$(python3 scripts/read_release_state_boolean.py \
+            --field release_exists <<<"${state}")"
           release_id="$(jq -r '.release_id // ""' <<<"${state}")"
-          plan_exists="$(jq -er '.plan_exists' <<<"${state}")"
-          bundle_exists="$(jq -er '.bundle_exists' <<<"${state}")"
+          plan_exists="$(python3 scripts/read_release_state_boolean.py \
+            --field plan_exists <<<"${state}")"
+          bundle_exists="$(python3 scripts/read_release_state_boolean.py \
+            --field bundle_exists <<<"${state}")"
           if [[ "${plan_exists}" == true ]]; then
             plan_asset_id="$(jq -er '.plan_asset_id' <<<"${state}")"
             gh api --method GET \
@@ -608,8 +611,10 @@ jobs:
           state="$(classify_all)"
           actual_state="$(jq -er '.release_state' <<<"${state}")"
           actual_id="$(jq -r '.release_id // ""' <<<"${state}")"
-          actual_plan="$(jq -er '.plan_exists' <<<"${state}")"
-          actual_bundle="$(jq -er '.bundle_exists' <<<"${state}")"
+          actual_plan="$(python3 scripts/read_release_state_boolean.py \
+            --field plan_exists <<<"${state}")"
+          actual_bundle="$(python3 scripts/read_release_state_boolean.py \
+            --field bundle_exists <<<"${state}")"
           if [[ "${actual_state}" != "${EXPECTED_RELEASE_STATE}" \
             || "${actual_id}" != "${EXPECTED_RELEASE_ID}" \
             || "${actual_plan}" != "${EXPECTED_PLAN_EXISTS}" \
@@ -643,11 +648,15 @@ jobs:
           release_state="$(jq -er '.release_state' <<<"${state}")"
           if [[ "${release_state}" == draft ]]; then
             jq -e '.delete_asset_ids == []' <<<"${state}" >/dev/null
-            if [[ "$(jq -r '.plan_exists' <<<"${state}")" != true ]]; then
+            plan_exists="$(python3 scripts/read_release_state_boolean.py \
+              --field plan_exists <<<"${state}")"
+            if [[ "${plan_exists}" != true ]]; then
               gh release upload "${tag}" upgrade-plan.json
             fi
             state="$(classify_id "${release_id}")"
-            if [[ "$(jq -r '.bundle_exists' <<<"${state}")" != true ]]; then
+            bundle_exists="$(python3 scripts/read_release_state_boolean.py \
+              --field bundle_exists <<<"${state}")"
+            if [[ "${bundle_exists}" != true ]]; then
               gh release upload "${tag}" upgrade-plan.sigstore.json
             fi
           elif [[ "${release_state}" != published ]]; then
