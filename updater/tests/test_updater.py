@@ -347,7 +347,7 @@ class ContractTests(unittest.TestCase):
         status = {
             "available": True,
             "protocol_version": 1,
-            "updater_version": "0.1.9",
+            "updater_version": "0.1.10",
             "state": "ready",
             "active_job": None,
             "capabilities": {
@@ -358,10 +358,10 @@ class ContractTests(unittest.TestCase):
             },
         }
         self.assertEqual(replacement_decision(status), "reuse")
-        self.assertEqual(replacement_decision(status, "0.1.9"), "reuse")
+        self.assertEqual(replacement_decision(status, "0.1.10"), "reuse")
         self.assertEqual(replacement_decision(status, "0.1.8"), "replace")
         self.assertEqual(
-            replacement_decision({**status, "updater_version": None}, "0.1.9"),
+            replacement_decision({**status, "updater_version": None}, "0.1.10"),
             "replace",
         )
         self.assertEqual(

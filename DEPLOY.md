@@ -5,22 +5,22 @@ The product is a read-only triage layer that consumes alerts from
 **any** SIEM / EDR / XDR and turns raw alert volume into audited, cost-metered,
 human-reviewable cases.
 
-The current source version is `0.1.9` (documentation line `0.1`). Source builds
+The current source version is `0.1.10` (documentation line `0.1`). Source builds
 default to `TLSOC_RELEASE_CHANNEL=testing`; set `stable` only while building the
-exact accepted `main` commit from its immutable `v0.1.9` tag. Version and channel
+exact accepted `main` commit from its immutable `v0.1.10` tag. Version and channel
 are independent, so a Testing candidate cannot report itself as Stable merely
 because it already carries the final SemVer.
 
 > **Release topology:** the remote uses `Testing` for integration and default
-> `main` for accepted Stable source. Version 0.1.9 is Stable only when its exact
-> verified `main` commit has the immutable `v0.1.9` tag and matching artifacts. Branch
+> `main` for accepted Stable source. Version 0.1.10 is Stable only when its exact
+> verified `main` commit has the immutable `v0.1.10` tag and matching artifacts. Branch
 > protections, required checks, and release-environment policies are repository
 > administration controls; verify them independently rather than inferring
 > acceptance from a branch or tag name.
 
 > **Do not deploy or bootstrap from `v0.1.4` or `v0.1.5`.** Those immutable
 > publication attempts did not produce a canonical signed plan and public GitHub
-> Release, so neither is an installation source. Use `v0.1.9` only when the complete
+> Release, so neither is an installation source. Use `v0.1.10` only when the complete
 > publication gate, canonical signed Release,
 > anonymous digest-pull evidence, and canonical PostgreSQL Compose runtime acceptance
 > verify; otherwise use a previously verified
@@ -33,8 +33,11 @@ because it already carries the final SemVer.
 > updater could not publish the private control socket under `cap_drop: ALL` on
 > Docker Desktop. The separately published `v0.1.8` correction reached signed-plan
 > verification, where cosign 3 attempted to write its default TUF cache beneath the
-> read-only `/root` filesystem. All three are preserved as evidence and superseded
-> by the separately gated `v0.1.9` correction.
+> read-only `/root` filesystem. The immutable `v0.1.9` attempt corrected that cache
+> boundary, then its constrained supervisor could not traverse the runner-owned
+> verification directory; it published no GitHub Release or installable plan. All
+> four are preserved as evidence and superseded by the separately gated `v0.1.10`
+> correction.
 
 > **The SIEM is NOT baked into the stack.** You connect your log source(s) from
 > the **first-run wizard** ("add a source") AFTER the stack is up — not in a
@@ -337,7 +340,7 @@ organization deliberately publishes the `core` target under a site-specific imag
 name, add only the required clients in a derived image, for example:
 
 ```dockerfile
-FROM registry.example/tlsoc-backend-core:0.1.9
+FROM registry.example/tlsoc-backend-core:0.1.10
 RUN pip install --no-cache-dir confluent-kafka boto3   # only what you need
 ```
 
@@ -463,13 +466,13 @@ independently. Back up first and follow
 ```bash
 cd <repo-root>
 git fetch --tags origin
-git checkout v0.1.9   # replace with the exact accepted release tag
+git checkout v0.1.10   # replace with the exact accepted release tag
 ./scripts/agentic-soc-compose.sh up -d --build
 ```
 
-Once its immutable publication gate completes, version 0.1.9 is the supported
-bootstrap boundary for supervised updates. The supported v0.1.1→v0.1.9 transition must run
-from the clean, exact annotated v0.1.9 tag whose commit remains contained in
+Once its immutable publication gate completes, version 0.1.10 is the supported
+bootstrap boundary for supervised updates. The supported v0.1.1→v0.1.10 transition must run
+from the clean, exact annotated v0.1.10 tag whose commit remains contained in
 `origin/main`, while the reference v0.1.1 PostgreSQL stack is still running:
 
 ```bash
@@ -477,7 +480,7 @@ from the clean, exact annotated v0.1.9 tag whose commit remains contained in
 ```
 
 That host-authorized step installs the private Unix-socket supervisor transport, then
-has it verify, preflight, and apply the signed, digest-pinned v0.1.9 release. The
+has it verify, preflight, and apply the signed, digest-pinned v0.1.10 release. The
 bootstrap transition therefore uses the same pull-first, quiesce, PostgreSQL backup,
 identity/readiness, receipt, and automatic rollback state machine as later Console
 updates. After bootstrap, a freshly authenticated built-in super administrator can
@@ -490,12 +493,12 @@ job is observed terminal.
 
 A Testing/source-built 0.1.3 deployment, the non-installable `v0.1.4` and `v0.1.5`
 publication attempts, and the published-but-bootstrap-blocked `v0.1.6` through
-`v0.1.8` artifact records cannot be relabeled Stable. If a failed 0.1.8 attempt left
-an inspectable idle supervisor while the application remained on v0.1.1, the 0.1.9
+`v0.1.9` artifact records cannot be relabeled Stable. If an earlier attempt left
+an inspectable idle supervisor while the application remained on v0.1.1, the 0.1.10
 bootstrap replaces that version-mismatched supervisor before signature verification.
-Reconcile other states only through the documented 0.1.9 path appropriate to their
+Reconcile other states only through the documented 0.1.10 path appropriate to their
 actual installed release. Bootstrap requires a strictly newer target, so an already
-running 0.1.9 deployment cannot bootstrap itself from the same plan.
+running 0.1.10 deployment cannot bootstrap itself from the same plan.
 
 The supported one-click profile is intentionally narrow: the reference standalone,
 single-replica Docker Compose deployment with the signed canonical base-file hash,
@@ -664,7 +667,7 @@ Mode A PostgreSQL reports the desired policy as advisory until timestamp partiti
 and an operator-managed scheduler/tablespace/archive workflow exist. SQLite reports
 export-only. Connected source indices and buckets are always external/read-only.
 
-The 0.1.9 Apply operation does not configure Glacier and never adds an ILM delete
+The 0.1.10 Apply operation does not configure Glacier and never adds an ILM delete
 phase. To archive safely, write a separate immutable export, manifest and checksums,
 verify restore, then apply S3 lifecycle to that **independent archive prefix**. Never
 transition the Elasticsearch snapshot-repository prefix itself.

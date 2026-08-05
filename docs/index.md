@@ -13,7 +13,7 @@ reference, and release material live in the same searchable portal.
 
 !!! info "Matched to this app"
 
-    **Documentation 0.1** describes **Agentic SOC 0.1.9**. The application bundles this
+    **Documentation 0.1** describes **Agentic SOC 0.1.10**. The application bundles this
     Help Center from the same accepted source and serves it on the application
     origin under `/docs/0.1/`. Use it as the authority for the behavior and controls
     available in the running build. The channel badge identifies whether that build
@@ -142,17 +142,19 @@ does not replace the version-matched Help Center bundled with the application.
 
 Agentic SOC uses one promotion path: feature branches merge into **Testing**, and the
 accepted source tree promotes through a protected pull request to **`main` /
-Stable**. The current source version uses SemVer `0.1.9`; compatible documentation
+Stable**. The current source version uses SemVer `0.1.10`; compatible documentation
 uses the major.minor line `0.1`.
 
 The repository uses default `main` for accepted source and retains `Testing` for
-integration. Version 0.1.9 is Stable only when the exact accepted `main` commit has
-the immutable `v0.1.9` tag and matching signed/public artifacts. Repository
+integration. Version 0.1.10 is Stable only when the exact accepted `main` commit has
+the immutable `v0.1.10` tag and matching signed/public artifacts. Repository
 protections and the native Pages deployment remain
 administrator-controlled and must be verified independently before treating a
 branch, workflow run, or public URL as accepted. The immutable `v0.1.4` and
-`v0.1.5` tags are failed, non-installable publication records. Read
-[Agentic SOC 0.1.9](releases/0.1.9.md),
+`v0.1.5` tags are failed, non-installable publication records. Version `v0.1.9`
+is also non-installable: its constrained signed-plan check failed before Release
+publication. Read [Agentic SOC 0.1.10](releases/0.1.10.md),
+[the 0.1.9 failed-publication record](releases/0.1.9.md),
 [the 0.1.8 bootstrap-blocked publication record](releases/0.1.8.md),
 [the 0.1.7 bootstrap-blocked publication record](releases/0.1.7.md),
 [the 0.1.5 failed-publication record](releases/0.1.5.md),

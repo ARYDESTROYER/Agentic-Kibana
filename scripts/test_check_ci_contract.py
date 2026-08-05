@@ -473,6 +473,86 @@ class WorkflowPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unconditional fail-closed"):
             policy._assert_release(release_path, workflow)
 
+    def test_release_signed_plan_gate_normalizes_bind_mount_permissions(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        gate = next(
+            step
+            for step in workflow["jobs"]["publish"]["steps"]
+            if step.get("name")
+            == "Verify the signed plan inside the constrained update supervisor"
+        )
+        gate["run"] = gate["run"].replace(
+            'chmod 0555 "${verification_dir}"',
+            ': # permission normalization removed',
+        )
+        with self.assertRaisesRegex(ValueError, "constrained updater"):
+            policy._assert_release(release_path, workflow)
+
+    def test_release_signed_plan_gate_requires_exact_bind_asset_destination(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        gate = next(
+            step
+            for step in workflow["jobs"]["publish"]["steps"]
+            if step.get("name")
+            == "Verify the signed plan inside the constrained update supervisor"
+        )
+        gate["run"] = gate["run"].replace(
+            '"${verification_dir}/upgrade-plan.sigstore.json"',
+            '"${verification_dir}/bundle.json"',
+            1,
+        )
+        with self.assertRaisesRegex(ValueError, "constrained updater"):
+            policy._assert_release(release_path, workflow)
+
+    def test_release_signed_plan_gate_normalizes_before_container_start(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        gate = next(
+            step
+            for step in workflow["jobs"]["publish"]["steps"]
+            if step.get("name")
+            == "Verify the signed plan inside the constrained update supervisor"
+        )
+        gate["run"] = gate["run"].replace(
+            'chmod 0555 "${verification_dir}"\n',
+            "",
+            1,
+        ).replace(
+            "docker run --detach \\\n",
+            "docker run --detach \\\n"
+            'chmod 0555 "${verification_dir}"\n',
+            1,
+        )
+        with self.assertRaisesRegex(ValueError, "must order"):
+            policy._assert_release(release_path, workflow)
+
+    def test_release_signed_plan_gate_rejects_broad_permission_changes(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        broad_mutations = (
+            'chmod 0777 "${verification_dir}"',
+            'chmod -R a+rX "${verification_dir}"',
+            'chown 0:10001 "${verification_dir}"',
+            'cp upgrade-plan.json upgrade-plan.sigstore.json "${verification_dir}/"',
+        )
+        for mutation in broad_mutations:
+            with self.subTest(mutation=mutation):
+                workflow = policy._load(release_path)
+                gate = next(
+                    step
+                    for step in workflow["jobs"]["publish"]["steps"]
+                    if step.get("name")
+                    == "Verify the signed plan inside the constrained update supervisor"
+                )
+                gate["run"] = gate["run"].replace(
+                    'chmod 0555 "${verification_dir}"',
+                    f'chmod 0555 "${{verification_dir}}"\n          {mutation}',
+                    1,
+                )
+                with self.assertRaisesRegex(ValueError, "forbidden runtime override"):
+                    policy._assert_release(release_path, workflow)
+
     def test_release_stable_tags_must_follow_release_publication(self) -> None:
         release_path = policy.WORKFLOW_DIR / "release.yml"
         workflow = policy._load(release_path)

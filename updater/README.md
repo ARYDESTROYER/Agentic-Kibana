@@ -29,14 +29,16 @@ catalog-verify a PostgreSQL custom-format backup. After cancellation is durably 
 it atomically promotes the pending pins to the updater-private and host-visible active
 overrides, then switches backend and Web separately.
 
-Version 0.1.9 bakes
+Version 0.1.10 bakes
 `TUF_ROOT=/var/lib/agentic-soc-updater/sigstore-root`, so cosign 3 initializes its
 TUF trust state on the existing writable updater-state volume instead of its
-read-only `/root/.sigstore` default. The keyless certificate identity, issuer,
-repository binding, updater protocol, process identity (`0:10001`), dropped-capability
+read-only `/root/.sigstore` default. The release gate also installs the canonical
+plan and bundle as read-only files beneath an explicitly traversable verification
+directory before invoking the constrained supervisor. The keyless certificate
+identity, issuer, repository binding, updater protocol, process identity (`0:10001`), dropped-capability
 runtime, and frozen base Compose bytes are unchanged. Bootstrap also replaces an
 inspectable idle supervisor whose reported updater version does not match the exact
-target; protocol compatibility alone cannot reuse the bootstrap-blocked 0.1.8 image.
+target; protocol compatibility alone cannot reuse a bootstrap-blocked older image.
 
 Job state survives browser/backend reconnects and normal supervisor-process restarts.
 The queued job and idempotency binding are fsynced before its lifecycle marker is
@@ -101,7 +103,7 @@ through the Console.
 
 ## Retention and cleanup
 
-Version 0.1.9 deliberately performs no automatic pruning. The updater state volume
+Version 0.1.10 deliberately performs no automatic pruning. The updater state volume
 retains durable jobs and preflights, cached `upgrade-plan.json` and Sigstore bundles,
 release overrides, deployment snapshots, and receipts. The separate backup volume
 retains the catalog-verified PostgreSQL dumps. Operators must monitor free space and
@@ -122,7 +124,7 @@ Do not delete:
 An older record may be archived or removed only after a later successful release has
 superseded its rollback authority, the backend has durably mirrored its terminal
 outcome into application audit, and operator policy permits disposal. There is no
-supported online per-record cleanup command in v0.1.9; never edit the live volume's
+supported online per-record cleanup command in v0.1.10; never edit the live volume's
 files while the supervisor is running or treat age alone as deletion authority.
 
 Future automatic pruning requires a versioned acknowledgement/retention protocol

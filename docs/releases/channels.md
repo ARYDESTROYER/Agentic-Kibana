@@ -65,9 +65,9 @@ healthy backend build before the new document activates.
 ## Version 0.1 nomenclature
 
 The first standardized release line is documentation version **0.1**. The current
-source version is product version **0.1.9**. It carries the accepted 0.1.2 through
-0.1.8 application scope and corrects the Sigstore trust-root defect found during
-canonical 0.1.8 bootstrap. The immutable
+source version is product version **0.1.10**. It carries the accepted application
+scope through 0.1.9 and corrects the constrained-supervisor verification-fixture
+defect that prevented 0.1.9 from publishing its GitHub Release. The immutable
 `v0.1.4` publication attempt produced documentation but no application artifacts.
 The immutable `v0.1.5` workflow built and signed candidate image digests but stopped
 before publishing the canonical signed plan, GitHub Release, or Stable tags. Both are
@@ -81,9 +81,14 @@ startup under the capability boundary. Version 0.1.7 is therefore historical,
 bootstrap-blocked, and superseded. Version 0.1.8 completed its exact-tag signed/public
 artifact publication, then canonical bootstrap failed when cosign 3 tried to write
 its default TUF cache beneath the read-only `/root` filesystem. It is immutable,
-bootstrap-blocked, and superseded. Version 0.1.9 is Stable only when its exact
-accepted `main` commit is immutably tagged
-`v0.1.9` and its complete signed/public artifact set plus updater runtime acceptance
+bootstrap-blocked, and superseded. Version 0.1.9 corrected that trust-root path and
+passed exact-tag CI, signed/public digest and anonymous-registry checks, and host-side
+plan verification. Its constrained updater could not traverse the runner-owned
+verification bind source, so attestations, GitHub Release publication, canonical
+plan assets, Stable convenience tags, and Stable documentation were skipped. It is
+immutable partial evidence and non-installable. Version 0.1.10 is Stable only when
+its exact accepted `main` commit is immutably tagged `v0.1.10` and its complete
+signed/public artifact set plus updater runtime and canonical deployment acceptance
 verify. If that evidence is incomplete, use a previously verified supported Stable
 release.
 
@@ -92,14 +97,14 @@ release.
 | Product | Agentic SOC |
 | Operator interface | Agentic SOC Console |
 | Backend service/API | Agentic SOC API |
-| SemVer package and image version | `0.1.9` |
-| Git release tag | `v0.1.9` only from the exact verified `main` commit; absent before publication and immutable afterward |
+| SemVer package and image version | `0.1.10` |
+| Git release tag | `v0.1.10` only from the exact verified `main` commit; absent before publication and immutable afterward |
 | Documentation selector and URL line | `0.1` and `/0.1/` |
 | Integration branch/channel | `Testing` |
 | Stable branch/channel | `main` / Stable |
 
 Patch releases remain within the same documentation line. For example, app
-versions `0.1.1`, `0.1.2`, `0.1.3`, `0.1.4`, `0.1.5`, `0.1.6`, `0.1.7`, `0.1.8`, and `0.1.9` use the `0.1` documentation rather than
+versions `0.1.1`, `0.1.2`, `0.1.3`, `0.1.4`, `0.1.5`, `0.1.6`, `0.1.7`, `0.1.8`, `0.1.9`, and `0.1.10` use the `0.1` documentation rather than
 creating new selector entries. A new minor release creates a new documentation
 line such as `0.2`.
 
@@ -195,7 +200,8 @@ describe its real operating boundary. At minimum:
   exact candidate identity before any tag can publish it;
 - the exact digest-pinned updater verifies the signed canonical plan inside the
   constrained read-only runtime, with its baked cosign TUF root writable on the
-  updater-state volume, before the GitHub Release becomes public;
+  updater-state volume and both immutable `/verification` inputs readable beneath
+  the dropped-capability runtime, before the GitHub Release becomes public;
 - workflow/ShellCheck and deploy/updater contracts run as separate required lanes so
   one early failure cannot hide another; the fail-closed `CI passed` aggregate must
   succeed on `Testing`, the resulting `main` commit, and the immutable tag;
@@ -225,8 +231,8 @@ is not a Console acceptance receipt.
 
 ## Build and badge provenance
 
-SemVer and channel are independent. The 0.1.9 Testing candidate and its accepted
-Stable build can both report version `0.1.9`; the channel says where that build sits in
+SemVer and channel are independent. The 0.1.10 Testing candidate and its accepted
+Stable build can both report version `0.1.10`; the channel says where that build sits in
 the acceptance lifecycle. Stamp the mutable provenance fields explicitly; keep or
 override the Dockerfile's canonical source URL as appropriate:
 
