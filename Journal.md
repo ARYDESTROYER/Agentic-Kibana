@@ -9473,3 +9473,10 @@
 - Tests: Updater **100/100**, CI policy **62/62**, version consistency, documentation **78 pages**, diff hygiene, and the exact frozen Compose SHA-256 passed. No workflow, frozen base Compose, or hash-pin diff exists.
 - Status: No diff-level release blocker was found. Remote Testing/main/tag CI, signed publication, anonymous digest reads, signature verification, canonical supervised update, receipt, and browser gates remain mandatory. No Codex Security review was run.
 - Next: Commit this exact accepted tree, promote it only through green protected Testing and main, then publish the fresh immutable tag and complete end-to-end acceptance.
+
+### 2026-08-05 21:50 IST — `/root` — v0.1.13 Testing pull-request gates passed
+- Context: Prove the exact release candidate on the integration pull request before mutating protected `Testing`.
+- Did: Rebased the single accepted release commit onto the current Testing tip only after confirming Testing and main had byte-identical trees; preserved the exact candidate tree; published branch `codex/release-0.1.13`; and opened pull request **#73** into `Testing`.
+- Tests: Documentation workflow passed. CI run **31024353260** completed successfully for exact head `1715eb365c2b50370d58e2e8558594765f1b4b6d`: all **18** substantive jobs and the fail-closed **`CI passed`** aggregate succeeded, including backend, PostgreSQL/Redis, Console, all three shipping-image, updater/deploy, package, version, OpenAPI, documentation, design, static, workflow/shell, and Bash 3.2 lanes.
+- Status: Pull-request source acceptance is green. This journal-only delta must receive its own exact-head aggregate before merge; protected Testing push, main promotion/push, tag CI, signed publication, canonical runtime, receipt, and browser gates remain mandatory. No Codex Security review was run.
+- Next: Push this journal record to PR #73, require its refreshed aggregate to pass, then merge and verify the resulting protected Testing push.
