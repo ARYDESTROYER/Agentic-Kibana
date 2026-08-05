@@ -278,7 +278,7 @@ A new `SourceType` enum value (`constants.py`) and (for receivers) the right
 ## Continuous integration (merge gate)
 
 `.github/workflows/ci.yml` runs on every pull request (and pushes to `main` /
-`Testing`) and must be green before merge. It exposes seventeen independently
+`Testing`) and must be green before merge. It exposes eighteen independently
 diagnosable quality checks plus one fail-closed aggregate:
 
 | Status check | Contract |
@@ -295,18 +295,71 @@ diagnosable quality checks plus one fail-closed aggregate:
 | Help Center & docs | Public structure/links, bundle/theme contracts, and the version-matched strict documentation build pass. |
 | Web UI production build | The release-stamped Console and installed Help Center compile into an inspectable production artifact. |
 | Workflow & shell contracts | Every workflow passes pinned actionlint with a checksum-verified ShellCheck binary, CI policy regression tests pass, and every tracked shell script parses. |
+| Bootstrap portability (macOS Bash 3.2) | A native `macos-14` runner proves the one-time supervisor bootstrap parses and forwards both zero-argument and replacement Compose invocations under Apple Bash 3.2. |
 | Deploy & updater contracts | The reference five-service Compose topology resolves, invalid startup modes fail closed, and updater wire, plan, lifecycle-wrapper, backup, and rollback contracts pass. |
 | Python static correctness | Ruff's fatal correctness rules reject syntax faults, invalid control flow, and undefined names without turning legacy style debt into a release bypass. |
 | Release image build (backend) | The complete backend image builds from the shipping Dockerfile and its OCI identity, healthcheck, port, and non-root runtime contract match the candidate. |
 | Release image build (webui) | The Console plus version-matched Help Center image builds and its OCI identity, healthcheck, and port match the candidate. |
 | Release image build (updater) | The isolated updater image builds and its OCI identity, healthcheck, protocol label, and entry point match the candidate. |
-| CI passed | Runs even after failures and fails unless every one of the seventeen checks completed successfully. |
+| CI passed | Runs even after failures and fails unless every one of the eighteen checks completed successfully. |
 
 The jobs intentionally run separately and in parallel. This costs a few repeated
 dependency-cache restores and image layers, but a pull request cannot hide API drift,
 packaging, production-state, image, documentation, or deployment failures inside one
 opaque log. A failing gate is repaired at its source; it is never weakened or bypassed
 to make a candidate mergeable.
+
+### Local CI parity
+
+Use Python 3.11, Node 22, Docker with BuildKit/buildx, Go, and native macOS
+`/bin/bash` 3.2 for the portability lane. Install only from the checked-in Python
+requirements and npm lockfile. These command groups mirror the locally runnable
+parts of the workflow; `.github/workflows/ci.yml` remains authoritative for its
+inline PostgreSQL/Redis probes, package-content assertions, release-image metadata
+checks, and clean-runner environment.
+
+```bash
+# Repository, backend, package, startup, and fatal static contracts
+python3 scripts/check_version.py
+(cd backend && .venv/bin/python -m pip check && .venv/bin/python -m pytest -q)
+(cd backend && .venv/bin/python -m build --sdist --wheel --outdir dist)
+backend/.venv/bin/python -m compileall -q backend/app
+backend/.venv/bin/python -m ruff check \
+  backend/app backend/tests updater/agentic_soc_updater scripts \
+  --select E9,F63,F7,F82
+
+# Console, API drift, design system, and production bundle
+(cd webui && npm ci && npm run test:strict)
+npm --prefix webui run check:types
+npm --prefix webui run typecheck
+npm --prefix webui run lint -- --max-warnings=0
+npm --prefix webui run gates
+(cd webui && TLSOC_RELEASE_CHANNEL=testing \
+  TLSOC_BUILD_SHA="$(git rev-parse HEAD)" \
+  TLSOC_BUILD_DATE="$(git show -s --format=%cI HEAD)" npm run build)
+
+# Help Center, workflow, host-bootstrap, and updater contracts
+python3 scripts/check_docs.py
+python3 scripts/test_build_docs_bundle.py
+python3 scripts/test_docs_theme.py
+TLSOC_RELEASE_CHANNEL=testing python3 scripts/run_docs_bundle.py \
+  --output /tmp/agentic-soc-docs
+TLSOC_RELEASE_CHANNEL=testing python3 scripts/run_docs_bundle.py \
+  --output /tmp/agentic-soc-docs --check-only
+python3 scripts/check_ci_contract.py
+backend/.venv/bin/python -m unittest scripts.test_check_ci_contract -v
+go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+/bin/bash -n scripts/bootstrap-updater.sh
+python3 scripts/test_bootstrap_bash32.py
+backend/.venv/bin/python -m unittest discover -s updater/tests -v
+```
+
+The workflow additionally checksum-installs ShellCheck 0.10.0, validates every
+tracked shell script, boots the exact digest-pinned PostgreSQL+pgvector and Redis
+services, validates the five-service Compose model, and builds/smokes backend,
+Console, and updater images for the candidate identity. Run those exact workflow
+blocks when their prerequisites are available; only GitHub's clean runners provide
+authoritative parity for branch protection.
 
 The workflow contract checker rejects missing or unreviewed workflow files (including
 either YAML extension), duplicate YAML keys, mutable external action references,
