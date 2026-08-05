@@ -8,11 +8,11 @@ risk-scores them deterministically, uses role-separated AI investigation, and ap
 operator policy through a deterministic case manager. The model can recommend a
 verdict; it cannot decide to close or escalate a case.
 
-> **Version 0.1.10 · `Testing` integration → `main` Stable**
+> **Version 0.1.11 · `Testing` integration → `main` Stable**
 > Start with the [Quickstart](docs/getting-started/quickstart.md), or open the
 > version-matched Help Center from inside the Console.
 
-Treat `v0.1.10` as installable only when its GitHub Release contains the canonical
+Treat `v0.1.11` as installable only when its GitHub Release contains the canonical
 signed plan, all three referenced GHCR image digests are anonymously pullable, and
 the canonical PostgreSQL Compose bootstrap/update acceptance completes.
 The immutable `v0.1.4` and `v0.1.5` tags record failed, non-installable publication
@@ -26,11 +26,15 @@ tried to initialize its default TUF cache beneath the updater's read-only `/root
 The immutable `v0.1.9` publication then built, signed, and anonymously proved all
 three images, but its constrained supervisor could not traverse the runner-owned
 verification directory, so it never published a GitHub Release or installable plan.
-All six are historical and must not be used as deployment, bootstrap, or update
-sources; never move or reuse their tags. Version 0.1.10 retains the writable
+The immutable `v0.1.10` tag passed source and exact-tag CI, but its release job
+timed out while target emulation ran the architecture-neutral Web Console builder;
+it published no GitHub Release or installable signed plan. All seven are historical
+and must not be used as deployment, bootstrap, or update sources; never move or
+reuse their tags. Version 0.1.11 retains the writable
 updater-state trust cache and materializes read-only verification assets with explicit
-traversal permissions, without a schema, protocol, identity, privilege, or frozen-base
-change.
+traversal permissions, while running the documentation and Node builder stages on
+BuildKit's native platform and keeping the final runtime multi-platform. It makes no
+schema, protocol, identity, privilege, or frozen-base change.
 
 ## What Agentic SOC delivers
 

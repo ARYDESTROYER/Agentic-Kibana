@@ -14,18 +14,24 @@ Use a short-lived feature branch, merge accepted work into `Testing`, and promot
 the accepted source tree through a protected pull request to `main`, the Stable branch:
 
 ```text
-feature branch -> Testing -> main (Stable) -> v0.1.10
+feature branch -> Testing -> main (Stable) -> v0.1.11
 ```
 
 Do not develop directly on `main`. `Testing` is the integration and acceptance
 channel, not a different edition of the product. Package/API/image metadata uses
-Semantic Version **0.1.10**; public documentation uses the **0.1** line.
+Semantic Version **0.1.11**; public documentation uses the **0.1** line.
 
 The remote uses `Testing` for integration and default `main` for accepted Stable
-source. Version 0.1.10 is Stable only when the exact verified `main` commit has the
-immutable `v0.1.10` tag and matching artifacts. Repository owners must independently
-verify pull-request protection, required checks, and release-environment policy;
-source topology alone does not prove that a change passed acceptance.
+source. Version 0.1.11 is Stable only when the exact verified `main` commit has the
+immutable `v0.1.11` tag and matching signed/public artifacts. Repository owners
+must independently verify pull-request protection, required checks, and release-
+environment policy; source topology alone does not prove that a change passed
+acceptance.
+
+The immutable `v0.1.10` tag is a failed-publication record, not an installation
+source: its release job timed out before the complete signed three-image set,
+canonical plan/bundle, GitHub Release, Stable tags, and Stable Help Center existed.
+Never move, reuse, repair, install, or bootstrap from that tag.
 
 See [Release channels](../releases/channels.md) for the promotion contract.
 

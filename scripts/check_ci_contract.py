@@ -663,6 +663,38 @@ def _assert_dockerfile_bases(path: Path) -> None:
             stages.add(stage_name)
 
 
+def _assert_webui_build_platforms(path: Path) -> None:
+    """Keep architecture-neutral Console builds native in multi-platform releases."""
+
+    stages: list[tuple[str | None, str | None]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        match = re.match(
+            r"^\s*FROM\s+(?:--platform=(\S+)\s+)?\S+(?:\s+AS\s+(\S+))?\s*$",
+            line,
+            flags=re.IGNORECASE,
+        )
+        if match is not None:
+            platform, stage_name = match.groups()
+            stages.append((stage_name.lower() if stage_name else None, platform))
+
+    stage_platforms = {
+        stage_name: platform for stage_name, platform in stages if stage_name is not None
+    }
+    for stage_name in ("docs", "build"):
+        if stage_platforms.get(stage_name) != "$BUILDPLATFORM":
+            raise ValueError(
+                f"{path}: architecture-neutral {stage_name!r} stage must use "
+                "--platform=$BUILDPLATFORM so package tools never run under target "
+                "architecture emulation"
+            )
+
+    if not stages or stages[-1] != (None, None):
+        raise ValueError(
+            f"{path}: final Web Console runtime stage must be the unnamed last stage "
+            "and inherit Docker's target platform without a --platform override"
+        )
+
+
 def main() -> int:
     paths = _workflow_paths()
     for path in paths:
@@ -676,6 +708,7 @@ def main() -> int:
             _assert_docs(path, workflow)
     for path in SHIPPING_DOCKERFILES:
         _assert_dockerfile_bases(path)
+    _assert_webui_build_platforms(ROOT / "webui" / "Dockerfile")
     print(
         f"CI policy passed for {len(paths)} workflows and "
         f"{len(SHIPPING_DOCKERFILES)} shipping Dockerfiles"

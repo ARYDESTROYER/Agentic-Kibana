@@ -716,6 +716,61 @@ class WorkflowPolicyTests(unittest.TestCase):
             )
             policy._assert_dockerfile_bases(path)
 
+    def test_webui_architecture_neutral_builds_use_native_platform(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "Dockerfile"
+            path.write_text(
+                "FROM --platform=$BUILDPLATFORM python:3.11-alpine@sha256:"
+                + "a" * 64
+                + " AS docs\n"
+                "RUN python3 -m pip install mkdocs\n"
+                "FROM --platform=$BUILDPLATFORM node:22-alpine@sha256:"
+                + "b" * 64
+                + " AS build\n"
+                "RUN npm ci\n"
+                "FROM nginx:1.27-alpine@sha256:"
+                + "c" * 64
+                + "\n",
+                encoding="utf-8",
+            )
+            policy._assert_webui_build_platforms(path)
+
+    def test_webui_docs_build_cannot_run_under_target_emulation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "Dockerfile"
+            path.write_text(
+                "FROM --platform=$TARGETPLATFORM python:3.11-alpine AS docs\n"
+                "FROM --platform=$BUILDPLATFORM node:22-alpine AS build\n"
+                "FROM nginx:1.27-alpine\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "'docs' stage"):
+                policy._assert_webui_build_platforms(path)
+
+    def test_webui_node_build_cannot_run_under_target_emulation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "Dockerfile"
+            path.write_text(
+                "FROM --platform=$BUILDPLATFORM python:3.11-alpine AS docs\n"
+                "FROM --platform=$TARGETPLATFORM node:22-alpine AS build\n"
+                "FROM nginx:1.27-alpine\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "'build' stage"):
+                policy._assert_webui_build_platforms(path)
+
+    def test_webui_runtime_must_remain_target_platform(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "Dockerfile"
+            path.write_text(
+                "FROM --platform=$BUILDPLATFORM python:3.11-alpine AS docs\n"
+                "FROM --platform=$BUILDPLATFORM node:22-alpine AS build\n"
+                "FROM --platform=$BUILDPLATFORM nginx:1.27-alpine\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "runtime stage"):
+                policy._assert_webui_build_platforms(path)
+
 
 if __name__ == "__main__":
     unittest.main()

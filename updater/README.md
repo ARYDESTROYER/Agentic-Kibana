@@ -18,6 +18,13 @@ The supervisor never transports, replaces, or rewrites the base Compose file. Th
 only in the signed generated override. This keeps sequential patch updates eligible.
 Changing the base requires a new protocol/bootstrap contract and a manual upgrade.
 
+The immutable `v0.1.10` tag is a superseded, non-installable failed-publication
+record. Its release job timed out before a complete signed three-image set,
+canonical plan and Sigstore bundle, GitHub Release, Stable tags, or Stable Help
+Center existed. Never move, reuse, repair, install, or bootstrap from that tag.
+Version 0.1.11 is the current release candidate and becomes installable only after
+its own complete signed/public publication and canonical acceptance succeed.
+
 The supervisor verifies the Sigstore bundle and each image signature against the
 configured repository's Stable-tag release workflow, pulls all images before any
 switch, and durably captures exact prior image IDs. Target pins are first written to
@@ -29,7 +36,7 @@ catalog-verify a PostgreSQL custom-format backup. After cancellation is durably 
 it atomically promotes the pending pins to the updater-private and host-visible active
 overrides, then switches backend and Web separately.
 
-Version 0.1.10 bakes
+Version 0.1.10 introduced, and 0.1.11 carries forward,
 `TUF_ROOT=/var/lib/agentic-soc-updater/sigstore-root`, so cosign 3 initializes its
 TUF trust state on the existing writable updater-state volume instead of its
 read-only `/root/.sigstore` default. The release gate also installs the canonical
@@ -103,7 +110,7 @@ through the Console.
 
 ## Retention and cleanup
 
-Version 0.1.10 deliberately performs no automatic pruning. The updater state volume
+Version 0.1.11 deliberately performs no automatic pruning. The updater state volume
 retains durable jobs and preflights, cached `upgrade-plan.json` and Sigstore bundles,
 release overrides, deployment snapshots, and receipts. The separate backup volume
 retains the catalog-verified PostgreSQL dumps. Operators must monitor free space and
@@ -124,7 +131,7 @@ Do not delete:
 An older record may be archived or removed only after a later successful release has
 superseded its rollback authority, the backend has durably mirrored its terminal
 outcome into application audit, and operator policy permits disposal. There is no
-supported online per-record cleanup command in v0.1.10; never edit the live volume's
+supported online per-record cleanup command in v0.1.11; never edit the live volume's
 files while the supervisor is running or treat age alone as deletion authority.
 
 Future automatic pruning requires a versioned acknowledgement/retention protocol
