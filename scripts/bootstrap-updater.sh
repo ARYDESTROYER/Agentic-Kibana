@@ -181,13 +181,20 @@ if ! docker inspect agentic-soc-updater >/dev/null 2>&1 || [[ "${replace_updater
     fi
   fi
   printf 'Installing the private update supervisor boundary...\n'
-  updater_compose_args=()
-  [[ "${replace_updater}" == true ]] && updater_compose_args+=(--force-recreate)
-  TLSOC_VERSION="${version}" \
-  TLSOC_RELEASE_CHANNEL=stable \
-  TLSOC_BUILD_SHA="${release_sha}" \
-  "${compose_wrapper}" up --detach --build \
-    "${updater_compose_args[@]}" agentic-soc-updater
+  start_updater() {
+    TLSOC_VERSION="${version}" \
+    TLSOC_RELEASE_CHANNEL=stable \
+    TLSOC_BUILD_SHA="${release_sha}" \
+    "${compose_wrapper}" up --detach --build "$@" agentic-soc-updater
+  }
+  if [[ "${replace_updater}" == true ]]; then
+    start_updater --force-recreate
+  else
+    # `"$@"` is intentionally used instead of an optional empty array. macOS
+    # still ships Bash 3.2, where expanding an empty array under `set -u` exits
+    # with "unbound variable" before Compose can install the supervisor.
+    start_updater
+  fi
 fi
 
 deadline=$((SECONDS + 180))

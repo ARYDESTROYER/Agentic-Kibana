@@ -26,7 +26,7 @@ for newer material; it is not the primary product-help destination.
 
 Every application build carries two related identifiers:
 
-- the full product SemVer, such as **0.1.6**; and
+- the full product SemVer, such as **0.1.7**; and
 - the compatible documentation line, such as **0.1**.
 
 The documentation build and the application build originate from the same source
@@ -47,13 +47,14 @@ newer Stable or Development material.
 
 | Documentation label | Application SemVer | Source identity | Channel |
 | --- | --- | --- | --- |
-| 0.1 installed Testing guide | 0.1.6 | candidate commit on `Testing` | Testing |
+| 0.1 installed Testing guide | 0.1.7 | candidate commit on `Testing` | Testing |
 | 0.1 installed prior Stable guide | 0.1.1 | verified `main` commit tagged `v0.1.1` | Stable |
 | 0.1 historical Testing guide | 0.1.2 | unpublished Testing snapshot; not a Stable tag or operational bootstrap source | Testing archive |
 | 0.1 historical Testing guide | 0.1.3 | unpublished Testing snapshot; not a Stable tag or artifact source | Testing archive |
 | 0.1 failed-publication guide | 0.1.4 | immutable `v0.1.4` tag and documentation only; no GitHub Release, signed plan, or release image | Historical, non-installable |
 | 0.1 failed-publication guide | 0.1.5 | immutable `v0.1.5` tag; candidate image digests built and signed, but no canonical plan, GitHub Release, or Stable tags | Historical, non-installable |
-| 0.1 installed 0.1.6 Stable guide | 0.1.6 | exact verified `main` commit after it is tagged `v0.1.6` and all signed/public artifacts pass | Stable |
+| 0.1 published-but-bootstrap-blocked guide | 0.1.6 | immutable `v0.1.6` tag plus public signed images, plan, bundle, and GitHub Release; canonical Bash 3.2 bootstrap acceptance failed before supervisor installation | Historical, superseded; not a supported bootstrap source |
+| 0.1 installed 0.1.7 Stable guide | 0.1.7 | exact verified `main` commit after it is tagged `v0.1.7` and all signed/public artifacts pass | Stable |
 | 0.1 public Stable guide | 0.1.x | current immutable release tag for the supported 0.1 line | Stable |
 
 The shorter documentation label keeps patch-compatible guidance together. When a
@@ -63,7 +64,7 @@ incompatible or feature release receives a new documentation line rather than
 rewriting 0.1 silently.
 
 The channel is independent of SemVer. A Testing candidate and a Stable artifact may
-both report application version `0.1.6`; only accepted `main`/tag provenance may
+both report application version `0.1.7`; only accepted `main`/tag provenance may
 claim a Stable application build. Public documentation can receive corrections on
 `Testing`, but a published Stable correction receives a new patch version and tag.
 The installed Help Center therefore remains authoritative for the exact binaries
@@ -90,7 +91,7 @@ describe only the closest accepted base release.
 The versioned public site complements the installed Help Center:
 
 ```text
-feature branches → Testing documentation review → main/tag Stable publication
+feature branches → Testing review → main verification → exact-tag Stable publication
 ```
 
 - Pull requests and `Testing` changes must pass a strict documentation build.
