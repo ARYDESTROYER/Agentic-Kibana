@@ -27,7 +27,7 @@ when infrastructure and external model calls are not part of your evaluation.
 Use the immutable Stable tag:
 
 ```bash
-git clone --branch v0.1.7 --depth 1 \
+git clone --branch v0.1.8 --depth 1 \
   https://github.com/ARYDESTROYER/Agentic-Kibana.git
 cd Agentic-Kibana
 ```
@@ -40,7 +40,9 @@ and required checks must be verified independently.
 
 The immutable `v0.1.4` and `v0.1.5` tags are not installable releases: their
 publication attempts stopped before a canonical signed plan and public GitHub
-Release existed. Use `v0.1.7` only
+Release existed. The immutable `v0.1.6` and `v0.1.7` publications have signed/public
+artifacts but failed canonical bootstrap acceptance at different portability
+boundaries. Use `v0.1.8` only
 when its canonical GitHub Release, plan signature, and public image digests verify;
 otherwise use a previously verified Stable release or Testing only for an explicitly
 unreleased evaluation.

@@ -15,7 +15,7 @@ import Docs, {
 expect.extend(toHaveNoViolations);
 
 const testingRelease: ReleaseIdentity = {
-  version: '0.1.7',
+  version: '0.1.8',
   channel: 'testing',
   commitSha: 'abc1234',
   buildTime: '2026-07-21T00:00:00Z',
@@ -30,7 +30,7 @@ describe('Help Center', () => {
 
     expect(screen.getByRole('heading', { level: 1, name: 'Help Center' })).toBeVisible();
     expect(screen.getByText('Documentation for this installation')).toBeVisible();
-    expect(screen.getAllByText('v0.1.7').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('v0.1.8').length).toBeGreaterThan(0);
     expect(screen.getByText('0.1')).toBeVisible();
     expect(screen.getAllByText('Testing').length).toBeGreaterThan(0);
   });

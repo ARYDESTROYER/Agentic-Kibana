@@ -7,6 +7,8 @@ import hashlib
 import inspect
 import os
 from pathlib import Path
+import socket
+import stat
 import subprocess
 import sys
 import tempfile
@@ -40,6 +42,7 @@ from agentic_soc_updater.server import (  # noqa: E402
     MAX_TERMINAL_JOBS,
     Handler,
     UnixHTTPServer,
+    _secure_control_socket,
     _terminal_limit,
     terminal_page,
 )
@@ -2259,6 +2262,98 @@ class UnixSocketWireTests(unittest.TestCase):
             self.assertEqual(terminal.jobs[0].status, "succeeded")
 
         asyncio.run(exercise())
+
+
+class ControlSocketPermissionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.socket_path = Path(self.temp.name) / "control.sock"
+        self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.socket.bind(str(self.socket_path))
+        self.addCleanup(self.socket.close)
+
+    @staticmethod
+    def _details_with(
+        details: os.stat_result,
+        *,
+        mode: int | None = None,
+        uid: int | None = None,
+        gid: int | None = None,
+    ) -> os.stat_result:
+        values = list(details)
+        values[0] = details.st_mode if mode is None else mode
+        values[4] = details.st_uid if uid is None else uid
+        values[5] = details.st_gid if gid is None else gid
+        return os.stat_result(values)
+
+    def test_socket_uses_inherited_backend_group_without_chown(self) -> None:
+        actual = self.socket_path.lstat()
+        expected_gid = actual.st_gid
+        root_owned = self._details_with(actual, uid=0)
+
+        with (
+            mock.patch.object(Path, "lstat", return_value=root_owned),
+            mock.patch(
+                "agentic_soc_updater.server.os.chown",
+                side_effect=AssertionError("CAP_CHOWN must not be required"),
+            ),
+        ):
+            _secure_control_socket(self.socket_path, expected_gid)
+
+        details = self.socket_path.stat()
+        self.assertEqual(details.st_gid, expected_gid)
+        self.assertEqual(stat.S_IMODE(details.st_mode), 0o660)
+
+    def test_socket_group_mismatch_fails_closed_before_publication(self) -> None:
+        actual = self.socket_path.lstat()
+        root_owned = self._details_with(actual, uid=0)
+
+        with (
+            mock.patch.object(Path, "lstat", return_value=root_owned),
+            mock.patch("agentic_soc_updater.server.os.chmod") as chmod,
+            self.assertRaisesRegex(PermissionError, "primary group"),
+        ):
+            _secure_control_socket(self.socket_path, actual.st_gid + 1)
+        chmod.assert_not_called()
+
+    def test_non_root_socket_owner_fails_closed_before_chmod(self) -> None:
+        actual = self.socket_path.lstat()
+        non_root = self._details_with(actual, uid=10001)
+
+        with (
+            mock.patch.object(Path, "lstat", return_value=non_root),
+            mock.patch("agentic_soc_updater.server.os.chmod") as chmod,
+            self.assertRaisesRegex(PermissionError, "owned by root"),
+        ):
+            _secure_control_socket(self.socket_path, actual.st_gid)
+        chmod.assert_not_called()
+
+    def test_non_socket_path_fails_closed_before_chmod(self) -> None:
+        regular_path = Path(self.temp.name) / "not-a-socket"
+        regular_path.write_text("not a socket", encoding="utf-8")
+        actual = regular_path.lstat()
+        root_owned = self._details_with(actual, uid=0)
+
+        with (
+            mock.patch.object(Path, "lstat", return_value=root_owned),
+            mock.patch("agentic_soc_updater.server.os.chmod") as chmod,
+            self.assertRaisesRegex(PermissionError, "not a Unix socket"),
+        ):
+            _secure_control_socket(regular_path, actual.st_gid)
+        chmod.assert_not_called()
+
+
+class UpdaterImageContractTests(unittest.TestCase):
+    def test_shipping_image_sets_backend_gid_without_adding_cap_chown(self) -> None:
+        dockerfile = (ROOT / "updater" / "Dockerfile").read_text(encoding="utf-8")
+        compose = (ROOT / "deploy" / "docker-compose.agnostic.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("USER 0:10001", dockerfile)
+        self.assertIn('cap_drop: ["ALL"]', compose)
+        self.assertIn("UPDATE_CONTROL_GID=10001", compose)
 
 
 if __name__ == "__main__":

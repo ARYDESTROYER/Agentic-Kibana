@@ -34,4 +34,9 @@ ENV PYTHONPATH=/opt/agentic-soc-updater \
 HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=6 \
   CMD ["python3", "-c", "import socket; s=socket.socket(socket.AF_UNIX); s.settimeout(2); s.connect('/run/agentic-soc-updater/control.sock'); s.sendall(b'GET /v1/status HTTP/1.1\\r\\nHost: updater\\r\\nConnection: close\\r\\n\\r\\n'); assert b'200 OK' in s.recv(128)"]
 
+# Keep the Docker-owning process at UID 0 while making the backend's fixed GID
+# the process primary group.  The Unix socket then inherits group 10001 without
+# CAP_CHOWN; Compose continues to drop every capability.
+USER 0:10001
+
 ENTRYPOINT ["python3", "-m", "agentic_soc_updater"]
