@@ -9214,3 +9214,10 @@
 - Tests: The exact previously failing test passes and the fresh complete backend suite passed **2,306/2,306**. All other Testing lanes, including strict Console, three shipping-image builds, PostgreSQL/Redis, updater/deploy, docs, design, workflow, version, package, and startup gates, succeeded. No Codex Security review was run.
 - Status: Root cause fixed and fully verified locally; the original Testing aggregate remains failed and will not be retried because its commit lacks this correction.
 - Next: Commit and push the correction, then require a new exact-SHA Testing aggregate.
+
+### 2026-08-05 05:40 IST — `/root` — corrected Testing candidate accepted and branch governance enabled
+- Context: Re-run the entire remote acceptance surface on the commit containing the UTC-boundary regression fix, then prevent an accepted release candidate from bypassing the documented promotion path.
+- Did: Pushed correction commit `7068f8a7f57b98170c2e61962822c024052fc9e1` to `Testing`; applied repository branch protection so `main` requires an up-to-date, GitHub Actions-owned `CI passed` check, a pull request, linear history, resolved conversations, and administrator enforcement, while `Testing` remains the direct integration branch but now rejects force pushes and deletion and requires linear history. No failed run was retried or bypassed.
+- Tests: GitHub Actions run `30962227638` completed all **17/17** independent jobs successfully, and aggregate check `CI passed` succeeded at 2026-08-05T00:10:16Z. Protection read-back reported strict `CI passed` on `main`, PR required, administrator enforcement on both branches, linear history on both branches, and force-push/deletion disabled.
+- Status: The corrected product candidate is accepted on Testing. This Journal entry will receive its own final exact-SHA Testing aggregate before the promotion PR is opened.
+- Next: Commit this durable milestone, require the final journal-complete Testing aggregate, then create the protected Testing-to-main pull request.
