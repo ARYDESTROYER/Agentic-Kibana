@@ -140,11 +140,11 @@ if docker inspect agentic-soc-updater >/dev/null 2>&1; then
     docker exec agentic-soc-updater python3 -c "${bootstrap_status_python}" 2>/dev/null
   )" || die "the existing updater state cannot be inspected safely; recover it before bootstrap."
   if ! updater_decision="$(
-    PYTHONPATH="${repo_root}/updater" python3 - "${existing_status}" <<'PY'
+    PYTHONPATH="${repo_root}/updater" python3 - "${existing_status}" "${version}" <<'PY'
 import json, sys
 from agentic_soc_updater.bootstrap import BootstrapStatusError, replacement_decision
 try:
-    print(replacement_decision(json.loads(sys.argv[1])))
+    print(replacement_decision(json.loads(sys.argv[1]), sys.argv[2]))
 except (BootstrapStatusError, json.JSONDecodeError) as exc:
     print(str(exc), file=sys.stderr)
     raise SystemExit(1)
@@ -211,10 +211,10 @@ verified_status="$(
   docker exec agentic-soc-updater python3 -c "${bootstrap_status_python}" 2>/dev/null
 )" || die "the installed updater status could not be verified."
 verified_decision="$(
-  PYTHONPATH="${repo_root}/updater" python3 - "${verified_status}" <<'PY'
+  PYTHONPATH="${repo_root}/updater" python3 - "${verified_status}" "${version}" <<'PY'
 import json, sys
 from agentic_soc_updater.bootstrap import replacement_decision
-print(replacement_decision(json.loads(sys.argv[1])))
+print(replacement_decision(json.loads(sys.argv[1]), sys.argv[2]))
 PY
 )" || die "the installed updater protocol or capabilities are incompatible."
 [[ "${verified_decision}" == reuse ]] \
@@ -237,8 +237,8 @@ print(json.dumps(value,separators=(",",":")))
 raise SystemExit(0 if status < 400 else 22)'
 
 updater_request() {
-  local method="$1" path="$2" body="$3" attempt response
-  for attempt in $(seq 1 30); do
+  local method="$1" path="$2" body="$3" _attempt response
+  for _attempt in $(seq 1 30); do
     if response="$(docker exec agentic-soc-updater python3 -c "${request_python}" "${method}" "${path}" "${body}" 2>/dev/null)"; then
       printf '%s' "${response}"
       return 0

@@ -559,6 +559,80 @@ jobs:
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
             upgrade-plan.json
 
+      - name: Verify the signed plan inside the constrained update supervisor
+        env:
+          UPDATER: ${{ steps.images.outputs.updater }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          suffix="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          container="agentic-soc-release-updater-${suffix}"
+          control_volume="agentic-soc-release-updater-control-${suffix}"
+          state_volume="agentic-soc-release-updater-state-${suffix}"
+          backup_volume="agentic-soc-release-updater-backup-${suffix}"
+          runtime_volume="agentic-soc-release-updater-runtime-${suffix}"
+          verification_dir="$(mktemp -d)"
+          cp upgrade-plan.json upgrade-plan.sigstore.json "${verification_dir}/"
+          cleanup() {
+            docker rm --force "${container}" >/dev/null 2>&1 || true
+            for volume in "${control_volume}" "${state_volume}" "${backup_volume}" "${runtime_volume}"; do
+              docker volume rm --force "${volume}" >/dev/null 2>&1 || true
+            done
+            rm -rf -- "${verification_dir}"
+          }
+          trap cleanup EXIT
+          for volume in "${control_volume}" "${state_volume}" "${backup_volume}" "${runtime_volume}"; do
+            docker volume create "${volume}" >/dev/null
+          done
+          identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@${GITHUB_REF}"
+          docker run --detach \
+            --name "${container}" \
+            --read-only \
+            --cap-drop ALL \
+            --security-opt no-new-privileges:true \
+            --health-interval 1s \
+            --health-start-period 1s \
+            --health-timeout 2s \
+            --health-retries 20 \
+            --tmpfs /tmp:rw,noexec,nosuid,nodev,size=67108864 \
+            --mount "type=volume,source=${control_volume},target=/run/agentic-soc-updater" \
+            --mount "type=volume,source=${state_volume},target=/var/lib/agentic-soc-updater" \
+            --mount "type=volume,source=${backup_volume},target=/var/backups/agentic-soc" \
+            --mount "type=volume,source=${runtime_volume},target=/deployment/host-runtime" \
+            --mount "type=bind,source=${verification_dir},target=/verification,readonly" \
+            --env UPDATE_TRUSTED_REPOSITORY="${GITHUB_REPOSITORY}" \
+            --env UPDATE_COMPOSE_FILE=/deployment/docker-compose.yml \
+            --env UPDATE_ENV_FILE=/deployment/.env \
+            --env UPDATE_STATE_DIR=/var/lib/agentic-soc-updater \
+            --env UPDATE_BACKUP_DIR=/var/backups/agentic-soc \
+            --env UPDATE_HOST_OVERRIDE_FILE=/deployment/host-runtime/active-release.compose.yml \
+            --env UPDATE_CONTROL_SOCKET=/run/agentic-soc-updater/control.sock \
+            --env UPDATE_CONTROL_GID=10001 \
+            "${UPDATER}" >/dev/null
+          deadline=$((SECONDS + 60))
+          health="starting"
+          while (( SECONDS < deadline )); do
+            health="$(docker inspect --format '{{.State.Health.Status}}' "${container}")"
+            [[ "${health}" == healthy || "${health}" == unhealthy ]] && break
+            sleep 1
+          done
+          if [[ "${health}" != healthy ]]; then
+            docker logs "${container}"
+            exit 1
+          fi
+          docker exec \
+            --env EXPECTED_IDENTITY="${identity}" \
+            "${container}" sh -ceu '
+          test "${TUF_ROOT}" = /var/lib/agentic-soc-updater/sigstore-root
+          mkdir -p "${TUF_ROOT}"
+          test -w "${TUF_ROOT}"
+          cosign verify-blob \
+            --bundle /verification/upgrade-plan.sigstore.json \
+            --certificate-identity "${EXPECTED_IDENTITY}" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            /verification/upgrade-plan.json
+          '
+
       - name: Attest published image provenance
         if: steps.assets.outputs.plan_exists != 'true'
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3

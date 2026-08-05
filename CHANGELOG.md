@@ -14,9 +14,54 @@ History is reconstructed from `git log`.
 
 No changes yet.
 
+## [0.1.9] - 2026-08-05
+
+**Governed Sigstore trust-root portability correction.** The immutable `v0.1.8`
+release completed exact-tag CI, public signed multi-platform images, the canonical
+signed plan and bundle, the GitHub Release, and the versioned Help Center. Canonical
+PostgreSQL Compose bootstrap then reached signed-plan verification inside the
+read-only updater container and exposed a separate cosign 3 runtime defect: its
+default TUF cache path was `/root/.sigstore`, which is not writable under the frozen
+`read_only: true` supervisor runtime. The application switch did not begin. Version
+0.1.9 preserves the complete 0.1.8 publication record and corrects that trust-state
+location without changing application state, updater protocol 1, publisher identity,
+process privilege, or the frozen base Compose file.
+
+### Fixed
+
+- The shipping updater image now bakes
+  `TUF_ROOT=/var/lib/agentic-soc-updater/sigstore-root`, placing cosign's TUF trust
+  state on the existing writable updater-state volume instead of the read-only root
+  filesystem. The release plan and image signatures keep the same keyless workflow
+  identity and issuer checks.
+- Bootstrap now reuses an idle supervisor only when its reported updater version
+  matches the target release in addition to protocol, capability, and readiness
+  checks. A healthy but mismatched 0.1.8 supervisor is therefore replaced by the
+  exact 0.1.9 updater before plan verification; active, unreadable, or invalid state
+  still fails closed.
+- Shipping-image acceptance proves the baked TUF root exists on the writable state
+  volume, and Stable publication verifies the signed canonical plan inside the real
+  digest-pinned updater under the production `read-only`, `cap_drop: ALL`, and
+  `no-new-privileges` constraints before the GitHub Release becomes public.
+
+### Release boundary
+
+- There is no state-schema migration, updater-protocol change, publisher-identity
+  change, privilege expansion, or frozen-base change. The updater still runs as
+  `0:10001`, all Linux capabilities remain dropped, and
+  `deploy/docker-compose.agnostic.yml` retains its protocol-1 SHA-256
+  `e3f7ecbb0f749cc9d88f4392c58c9a63ddbd064e80ecde9f21fe9de199086fd4`.
+- The immutable `v0.1.8` tag, images, signatures, plan, bundle, GitHub Release, and
+  Help Center remain historical evidence. Its canonical bootstrap is unsupported
+  because cosign cannot initialize its default trust cache on the read-only root
+  filesystem. Never move or reuse that tag; use `v0.1.9` only after its Testing,
+  promotion, `main`, exact-tag, signed-publication, and canonical end-to-end
+  acceptance gates pass.
+
 ## [0.1.8] - 2026-08-05
 
-**Governed Docker Desktop control-socket portability correction.** The immutable
+**Published Docker Desktop control-socket portability correction with a later
+Sigstore trust-root defect.** The immutable
 `v0.1.7` release completed exact-tag CI, published public signed component images,
 the canonical signed upgrade plan and bundle, the GitHub Release, and versioned
 documentation. Canonical PostgreSQL Compose acceptance then exposed a separate
@@ -26,6 +71,14 @@ process ran as UID/GID 0:0 and attempted to change the new Unix control socket t
 that `chown`. Version 0.1.8 preserves the complete publication record and corrects
 the least-privilege runtime boundary without an application-state migration or base
 Compose change.
+
+The immutable 0.1.8 publication then completed its exact-tag CI, public signed
+images, canonical signed plan and bundle, GitHub Release, and Help Center. Canonical
+bootstrap reached signed-plan verification inside the read-only updater container,
+where cosign 3 attempted to initialize its default TUF cache at `/root/.sigstore`.
+That path is not writable under the frozen runtime, so bootstrap stopped before the
+application switch. Preserve every 0.1.8 artifact as immutable evidence; 0.1.9 is
+the separately gated correction.
 
 ### Fixed
 
@@ -49,8 +102,9 @@ Compose change.
 - The published `v0.1.7` tag, public images, signatures, plan, bundle, GitHub Release,
   and Help Center remain immutable historical evidence. Its canonical bootstrap is
   unsupported because the supervisor cannot publish a usable control socket. Never
-  move or reuse that tag; use `v0.1.8` only after its Testing, promotion, `main`,
-  exact-tag, signed-publication, and canonical end-to-end acceptance gates pass.
+  move or reuse that tag. The later `v0.1.8` publication corrected this socket
+  boundary but remained bootstrap-blocked at cosign's read-only default TUF cache;
+  use `v0.1.9` only after its own complete acceptance sequence passes.
 
 ## [0.1.7] - 2026-08-05
 
@@ -61,7 +115,8 @@ Exact-tag CI, public signed images, the signed plan and bundle, GitHub Release, 
 Help Center completed. Canonical acceptance then found that `cap_drop: ALL` blocks
 the updater's unconditional control-socket ownership change. The application
 workload remained on its prior release. The tag and artifacts remain immutable;
-`v0.1.8` is the governed correction.
+`v0.1.8` corrected this socket boundary but remained bootstrap-blocked during
+Sigstore trust initialization, and `v0.1.9` is the governed correction.
 
 ### Added
 
@@ -86,7 +141,9 @@ workload remained on its prior release. The tag and artifacts remain immutable;
   Version 0.1.6 is blocked before supervisor installation by the Bash 3.2 host path;
   0.1.7 reaches the updater container but cannot publish the private control socket
   under its dropped-capability runtime. Do not move or reuse either tag. Version
-  0.1.8 repeats the complete release and canonical bootstrap acceptance sequence.
+  0.1.8 corrected that boundary but remained bootstrap-blocked at cosign's default
+  read-only TUF cache; 0.1.9 repeats the complete release and canonical bootstrap
+  acceptance sequence.
 
 ## [0.1.6] - 2026-08-05
 
@@ -98,7 +155,9 @@ Release, and Help Center completed. Canonical acceptance subsequently found that
 clean-tag bootstrap exits on macOS Bash 3.2 before installing the supervisor. The
 workload remains unchanged on that failure. The immutable tag and artifacts are
 preserved. Version 0.1.7 repaired this Bash defect but exposed a later updater
-control-socket startup failure; `v0.1.8` is the governed supported correction.
+control-socket startup failure. Version 0.1.8 corrected that boundary but remained
+bootstrap-blocked during Sigstore trust initialization; `v0.1.9` is the governed
+supported correction.
 
 ### Changed
 
@@ -132,7 +191,9 @@ upgrade plan, Sigstore plan bundle, public GitHub Release, or Stable convenience
 tags were published. Those partial objects are not installation authority. The tag
 must never be moved or reused. Version 0.1.6 was the next correction attempt; it
 published successfully but exposed the Bash bootstrap defect fixed in 0.1.7.
-Version 0.1.7 then exposed the updater control-socket defect corrected in 0.1.8.
+Version 0.1.7 then exposed the updater control-socket defect corrected in 0.1.8;
+0.1.8 was subsequently bootstrap-blocked by cosign's read-only default TUF cache,
+which 0.1.9 corrects.
 
 The attempted scope comprised supervised updates, public signed release artifacts,
 broader Intelligence coverage, truthful operator states, honest rule authoring,
@@ -249,8 +310,9 @@ boolean `false`. No backend, Web Console, or updater release image was built or
 published; no image or plan was signed; and no `upgrade-plan.json`, Sigstore bundle,
 or GitHub Release exists. The tag is immutable historical evidence and must never be
 moved or reused. See `docs/releases/0.1.4.md`; the first correction attempt, 0.1.5,
-also remained non-installable. Versions 0.1.6 and 0.1.7 published signed artifact
-sets but remained bootstrap-blocked; 0.1.8 is the governed correction.
+also remained non-installable. Versions 0.1.6, 0.1.7, and 0.1.8 published signed
+artifact sets but remained bootstrap-blocked at successive boundaries; 0.1.9 is the
+governed correction.
 
 ## Development snapshot — 2026-08-04 — 0.1.3 Testing candidate
 
@@ -385,8 +447,8 @@ in-app release activation, and a version-matched Help Center.**
   existing **0.1** Help Center line. It reached `main` without a published
   `v0.1.2` tag. The later 0.1.3 candidate also remained an unpublished Testing
   snapshot; the 0.1.4 and 0.1.5 publication attempts remained non-installable, while
-  0.1.6 and 0.1.7 published signed artifacts but remained bootstrap-blocked. Version
-  0.1.8 is the governed correction. A version string alone never implies Stable provenance or
+  0.1.6, 0.1.7, and 0.1.8 published signed artifacts but remained bootstrap-blocked.
+  Version 0.1.9 is the governed correction. A version string alone never implies Stable provenance or
   a completed deployment.
 - Fresh workspaces now use the bundled OpenAI model ID `gpt-5.6-luna` for every
   completion role, with `reasoning_effort: none` preserving the existing Chat Completions

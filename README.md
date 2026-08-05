@@ -8,19 +8,25 @@ risk-scores them deterministically, uses role-separated AI investigation, and ap
 operator policy through a deterministic case manager. The model can recommend a
 verdict; it cannot decide to close or escalate a case.
 
-> **Version 0.1.8 · `Testing` integration → `main` Stable**
+> **Version 0.1.9 · `Testing` integration → `main` Stable**
 > Start with the [Quickstart](docs/getting-started/quickstart.md), or open the
 > version-matched Help Center from inside the Console.
 
-Treat `v0.1.8` as installable only when its GitHub Release contains the canonical
-signed plan and all three referenced GHCR image digests are anonymously pullable.
+Treat `v0.1.9` as installable only when its GitHub Release contains the canonical
+signed plan, all three referenced GHCR image digests are anonymously pullable, and
+the canonical PostgreSQL Compose bootstrap/update acceptance completes.
 The immutable `v0.1.4` and `v0.1.5` tags record failed, non-installable publication
 attempts. The immutable `v0.1.6` tag records a fully published and signed artifact
 set whose canonical macOS Bash 3.2 bootstrap acceptance failed before supervisor
 installation. The immutable `v0.1.7` tag also has a complete signed/public artifact
 set, but canonical Docker Desktop acceptance found that its dropped-capability
-updater could not publish the private control socket. All four are historical and must not be used as deployment,
-bootstrap, or update sources; never move or reuse their tags.
+updater could not publish the private control socket. The immutable `v0.1.8`
+publication corrected that boundary, then canonical bootstrap failed when cosign 3
+tried to initialize its default TUF cache beneath the updater's read-only `/root`.
+All five are historical and must not be used as deployment, bootstrap, or update
+sources; never move or reuse their tags. Version 0.1.9 places that trust state on the
+writable updater-state volume and replaces an idle mismatched supervisor without a
+schema, protocol, identity, privilege, or frozen-base change.
 
 ## What Agentic SOC delivers
 

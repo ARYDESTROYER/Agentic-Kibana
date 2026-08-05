@@ -11,9 +11,9 @@ Vitest clean, **#3 `decide()` byte-identical**, and
 docs + Journal updated. Commit or publish only after the user or maintainer
 intentionally authorizes that repository mutation.
 
-**Current baseline (Version `0.1.8`; `Testing` integration and default `main`
-Stable source):** the canonical branches exist; 0.1.8 is a Stable release only when
-the exact accepted commit has the immutable `v0.1.8` tag and matching signed/public
+**Current baseline (Version `0.1.9`; `Testing` integration and default `main`
+Stable source):** the canonical branches exist; 0.1.9 is a Stable release only when
+the exact accepted commit has the immutable `v0.1.9` tag and matching signed/public
 artifacts. The immutable `v0.1.4` and `v0.1.5` tags are historical and
 non-installable because neither completed a canonical signed GitHub Release. The
 immutable `v0.1.6` tag is a published and signed artifact record whose canonical
@@ -21,8 +21,12 @@ macOS Bash 3.2 bootstrap acceptance failed before supervisor installation; it is
 superseded and not a supported bootstrap source. The immutable `v0.1.7` publication
 also completed its signed/public artifact gate, but canonical Docker Desktop
 acceptance found that its updater could not publish the private control socket under
-the dropped-capability runtime. It is also superseded and not a supported bootstrap
-source. Branch
+the dropped-capability runtime. The immutable `v0.1.8` publication corrected that
+socket boundary but canonical bootstrap then failed when cosign 3 tried to initialize
+its default TUF cache beneath the updater's read-only `/root`. It too is superseded
+and not a supported bootstrap source. Version 0.1.9 moves that trust state to the
+writable updater-state volume and replaces an idle mismatched supervisor without a
+schema, protocol, identity, privilege, or frozen-base change. Branch
 protections, required checks, Pages source selection, and `github-pages` environment
 policy remain repository-administration controls and must be verified independently;
 source files cannot attest to those settings. The current console adds the polished
@@ -199,12 +203,13 @@ continuous-improvement claim. The audited evidence boundaries are now closed as 
 Remaining scale-out work is intentionally separate: schedulers still need distributed
 leases/ownership and campaigns do not retain an immutable split/merge lifecycle history.
 
-**F. Ranked post-0.1.8 hardening sequence (release-gap audit, 2026-08-04):** keep the
-0.1.8 Stable release focused on truthful UI, documentation, and release acceptance. The next
+**F. Ranked post-0.1.9 hardening sequence (release-gap audit, 2026-08-04):** keep the
+0.1.9 Stable release focused on the truthful Sigstore/runtime correction and complete
+release acceptance. The next
 engineering sequence is ordered by data safety and measurable outcomes, not screen count:
 
 - ☐ **P0 — complete external Stable acceptance.** Verify branch protection and Pages
-  administration, publish the first real immutable signed release, make all required
+  administration, publish the first supported installable immutable signed release, make all required
   GHCR artifacts readable, and run clean/interrupted/cancel/automatic-rollback/operator-
   rollback acceptance against an isolated PostgreSQL Compose deployment. The project
   also needs an explicit maintainer license decision before it can make redistribution
