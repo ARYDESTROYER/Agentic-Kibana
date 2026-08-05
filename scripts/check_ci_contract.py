@@ -431,6 +431,15 @@ def _assert_release(path: Path, workflow: dict[str, Any]) -> None:
         "Verify the signed plan inside the constrained update supervisor"
     )
     constrained_run = str(constrained_step.get("run", ""))
+    permission_prep_markers = (
+        'verification_dir="$(mktemp -d)"',
+        "install -m 0444 upgrade-plan.json \\\n"
+        '  "${verification_dir}/upgrade-plan.json"',
+        "install -m 0444 upgrade-plan.sigstore.json \\\n"
+        '  "${verification_dir}/upgrade-plan.sigstore.json"',
+        'chmod 0555 "${verification_dir}"',
+        "docker run --detach",
+    )
     if constrained_step.get("env") != {
         "UPDATER": "${{ steps.images.outputs.updater }}"
     }:
@@ -454,6 +463,7 @@ def _assert_release(path: Path, workflow: dict[str, Any]) -> None:
         "target=/var/backups/agentic-soc",
         "target=/deployment/host-runtime",
         "target=/verification,readonly",
+        *permission_prep_markers[:-1],
         '"${UPDATER}"',
         ".State.Health.Status",
         "docker logs \"${container}\"",
@@ -462,6 +472,8 @@ def _assert_release(path: Path, workflow: dict[str, Any]) -> None:
         '--env EXPECTED_IDENTITY="${identity}"',
         'test "${TUF_ROOT}" = /var/lib/agentic-soc-updater/sigstore-root',
         'test -w "${TUF_ROOT}"',
+        "test -r /verification/upgrade-plan.json",
+        "test -r /verification/upgrade-plan.sigstore.json",
         "cosign verify-blob",
         "upgrade-plan.sigstore.json",
         "upgrade-plan.json",
@@ -472,12 +484,29 @@ def _assert_release(path: Path, workflow: dict[str, Any]) -> None:
             raise ValueError(
                 f"{path}: constrained updater signed-plan verification lacks {marker!r}"
             )
+    if any(constrained_run.count(marker) != 1 for marker in permission_prep_markers):
+        raise ValueError(
+            f"{path}: constrained updater verification preparation must contain "
+            "each least-privilege operation exactly once"
+        )
+    permission_prep_indices = [
+        constrained_run.index(marker) for marker in permission_prep_markers
+    ]
+    if permission_prep_indices != sorted(permission_prep_indices):
+        raise ValueError(
+            f"{path}: constrained updater verification preparation must order "
+            "mktemp, exact read-only installs, chmod 0555, then docker run"
+        )
     for forbidden in (
         "--entrypoint",
         "--env TUF_ROOT",
         "--env HOME",
         "/var/run/docker.sock",
         "continue-on-error",
+        "cp upgrade-plan.json upgrade-plan.sigstore.json",
+        "chmod 0777",
+        "chmod -R",
+        "chown ",
     ):
         if forbidden in constrained_run:
             raise ValueError(

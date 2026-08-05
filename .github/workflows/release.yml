@@ -572,7 +572,16 @@ jobs:
           backup_volume="agentic-soc-release-updater-backup-${suffix}"
           runtime_volume="agentic-soc-release-updater-runtime-${suffix}"
           verification_dir="$(mktemp -d)"
-          cp upgrade-plan.json upgrade-plan.sigstore.json "${verification_dir}/"
+          # mktemp creates a 0700 directory owned by the runner. The shipping
+          # supervisor deliberately drops every Linux capability, so even uid 0
+          # cannot traverse that host-owned directory through a read-only bind.
+          # Normalize the verification inputs to immutable, world-readable bytes
+          # before removing directory write access. The bind remains read-only.
+          install -m 0444 upgrade-plan.json \
+            "${verification_dir}/upgrade-plan.json"
+          install -m 0444 upgrade-plan.sigstore.json \
+            "${verification_dir}/upgrade-plan.sigstore.json"
+          chmod 0555 "${verification_dir}"
           cleanup() {
             docker rm --force "${container}" >/dev/null 2>&1 || true
             for volume in "${control_volume}" "${state_volume}" "${backup_volume}" "${runtime_volume}"; do
@@ -626,6 +635,8 @@ jobs:
           test "${TUF_ROOT}" = /var/lib/agentic-soc-updater/sigstore-root
           mkdir -p "${TUF_ROOT}"
           test -w "${TUF_ROOT}"
+          test -r /verification/upgrade-plan.json
+          test -r /verification/upgrade-plan.sigstore.json
           cosign verify-blob \
             --bundle /verification/upgrade-plan.sigstore.json \
             --certificate-identity "${EXPECTED_IDENTITY}" \

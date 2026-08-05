@@ -63,7 +63,7 @@ def _run_bootstrap(
             checkout / "updater",
             ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
         )
-        (checkout / "VERSION").write_text("0.1.9\n", encoding="utf-8")
+        (checkout / "VERSION").write_text("0.1.10\n", encoding="utf-8")
         (checkout / ".env").write_text(
             "\n".join(
                 (
@@ -256,22 +256,22 @@ class BootstrapShellRegressionTests(unittest.TestCase):
                 self.assertNotIn(service, call)
         return calls
 
-    def test_version_mismatched_idle_v018_is_recreated_only_as_v019_updater(
+    def test_version_mismatched_idle_v018_is_recreated_only_as_v0110_updater(
         self,
     ) -> None:
-        result = _run_bootstrap(replacement_status_version="0.1.9")
+        result = _run_bootstrap(replacement_status_version="0.1.10")
 
         self.assertNotEqual(result.process.returncode, 0)
         compose_calls = self._compose_calls(result)
         self.assertIn(
-            "compose|old|version=0.1.9|channel=stable|"
+            "compose|old|version=0.1.10|channel=stable|"
             f"sha={RELEASE_SHA}|args=up --detach --build --force-recreate "
             "agentic-soc-updater",
             compose_calls,
         )
         self.assertNotIn("docker|health|old", result.calls)
         self.assertIn("docker|health|new", result.calls)
-        self.assertIn("docker|status|new|0.1.9", result.calls)
+        self.assertIn("docker|status|new|0.1.10", result.calls)
         self.assertIn("docker|preflight|new", result.calls)
 
     def test_post_replacement_verification_failure_restores_prior_updater(self) -> None:
