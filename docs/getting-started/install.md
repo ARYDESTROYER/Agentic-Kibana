@@ -27,7 +27,7 @@ when infrastructure and external model calls are not part of your evaluation.
 Use the immutable Stable tag:
 
 ```bash
-git clone --branch v0.1.9 --depth 1 \
+git clone --branch v0.1.10 --depth 1 \
   https://github.com/ARYDESTROYER/Agentic-Kibana.git
 cd Agentic-Kibana
 ```
@@ -42,17 +42,18 @@ The immutable `v0.1.4` and `v0.1.5` tags are not installable releases: their
 publication attempts stopped before a canonical signed plan and public GitHub
 Release existed. The immutable `v0.1.6`, `v0.1.7`, and `v0.1.8` publications have signed/public
 artifacts but failed canonical bootstrap acceptance at different portability
-boundaries. Use `v0.1.9` only
+boundaries. The immutable `v0.1.9` publication built, signed, and anonymously proved
+all three images, but its constrained supervisor could not traverse the runner-owned
+verification directory and no GitHub Release or installable plan was published. Use `v0.1.10` only
 when its canonical GitHub Release, plan signature, and public image digests verify
 and canonical PostgreSQL Compose runtime acceptance completes. Otherwise use a
 previously verified Stable release or Testing only for an explicitly
 unreleased evaluation.
 
-The immutable `v0.1.8` tag has valid signed/public artifacts, but canonical
-bootstrap failed when cosign 3 tried to initialize its default TUF cache beneath the
-updater's read-only `/root`. It is a superseded historical record, not a supported
-deployment or bootstrap source; 0.1.9 moves that trust state to the writable updater
-state volume without a schema, protocol, identity, privilege, or frozen-base change.
+Version 0.1.10 retains the writable updater trust cache introduced by the previous
+correction and materializes verification assets with explicit read-only file and
+directory traversal permissions. It changes no schema, protocol, identity, privilege,
+or frozen-base bytes.
 
 ## 2. Prepare configuration
 

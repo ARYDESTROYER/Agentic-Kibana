@@ -8,8 +8,8 @@ import {
 
 describe('bundled documentation identity', () => {
   it('derives the installed documentation line from product SemVer', () => {
-    expect(resolveBundledDocumentationIdentity('0.1.9')).toEqual({
-      productVersion: '0.1.9',
+    expect(resolveBundledDocumentationIdentity('0.1.10')).toEqual({
+      productVersion: '0.1.10',
       documentationVersion: '0.1',
       canonicalPath: '/docs/0.1/',
       aliases: ['/docs/', '/docs/installed/'],

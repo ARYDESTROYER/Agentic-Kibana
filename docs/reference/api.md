@@ -6,7 +6,7 @@ description: Curated Agentic SOC API endpoint groups, authentication, pagination
 # API reference
 
 The **Agentic SOC API** is the FastAPI service behind the Agentic SOC Console. This page covers
-the public HTTP surface in application version **0.1.9** and documentation line
+the public HTTP surface in application version **0.1.10** and documentation line
 **0.1**. The API is mounted at `/api`; the service root is `/`.
 
 ## Interactive and machine-readable specifications
@@ -19,7 +19,7 @@ Each running API publishes:
 
 Build information reports the application version, independent release channel,
 commit SHA, build time, state backend, and OCSF version. A Testing candidate and its
-Stable promotion both remain `0.1.9`; `TLSOC_RELEASE_CHANNEL` distinguishes
+Stable promotion both remain `0.1.10`; `TLSOC_RELEASE_CHANNEL` distinguishes
 `testing` from the accepted `stable` build.
 
 The committed 0.1 OpenAPI snapshot contains 217 paths and 258 operations. It is the
@@ -308,7 +308,7 @@ polling is disabled.
 returns `status`, `recommendations`, `scanned_cases`, `truncated`,
 `evidence_schema="agentic-soc.telemetry-gap/v1"`, and an explicit
 `not_available_reason`. It also returns `capture_status` and
-`capture_not_available_reason`; v0.1.9 reports capture unavailable rather than
+`capture_not_available_reason`; v0.1.10 reports capture unavailable rather than
 claiming that uncontrolled legacy text is evidence. It accepts only stored structured
 history from a controlled producer after a bounded query/tool attempt with result `field_missing`,
 `query_unsupported`, or `source_unqueryable`. The v1 allowlist maps outbound DNS,

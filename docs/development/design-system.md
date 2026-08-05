@@ -150,7 +150,7 @@ module/export names, variants, token roles, accessibility requirements, and sour
 asset metadata. It can later back examples, code generators, or an MCP resource
 without scraping JSX.
 
-Version **0.1.9 does not ship a design-system MCP server, endpoint, registry
+Version **0.1.10 does not ship a design-system MCP server, endpoint, registry
 service, or remote package**. The serializable catalog is the deliberately small
 input contract for that future work. A future transport must version its schema
 independently and preserve existing token, component, accessibility, and asset ids.
