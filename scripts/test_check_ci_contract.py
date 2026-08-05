@@ -22,6 +22,19 @@ def _job() -> dict[str, object]:
 
 
 def _ci_workflow() -> dict[str, object]:
+    repository_contracts = _job()
+    repository_contracts["steps"] = [
+        {"uses": PINNED_CHECKOUT, "with": {"fetch-depth": 0}},
+        {
+            "name": "Reject Journal-only protected changes",
+            "run": "python scripts/check_protected_pr_scope.py",
+        },
+    ]
+    workflow_shell_contracts = _job()
+    workflow_shell_contracts["steps"] = [
+        {"uses": PINNED_CHECKOUT},
+        {"run": "python -m unittest scripts.test_check_protected_pr_scope -v"},
+    ]
     bootstrap_bash32 = _job()
     bootstrap_bash32["runs-on"] = "macos-14"
     bootstrap_bash32["steps"] = [
@@ -81,10 +94,15 @@ def _ci_workflow() -> dict[str, object]:
         },
     ]
     return {
-        "on": {"pull_request": {}, "push": {}},
+        "on": {
+            "pull_request": None,
+            "push": {"branches": ["main", "Testing"], "tags": ["v*"]},
+        },
         "permissions": {"contents": "read"},
         "jobs": {
             "quality": _job(),
+            "repository-contracts": repository_contracts,
+            "workflow-shell-contracts": workflow_shell_contracts,
             "bootstrap-bash32": bootstrap_bash32,
             "container-images": container_images,
             "ci": {
@@ -92,14 +110,24 @@ def _ci_workflow() -> dict[str, object]:
                 "runs-on": "ubuntu-latest",
                 "timeout-minutes": 5,
                 "if": "${{ always() }}",
-                "needs": ["quality", "bootstrap-bash32", "container-images"],
+                "needs": [
+                    "quality",
+                    "repository-contracts",
+                    "workflow-shell-contracts",
+                    "bootstrap-bash32",
+                    "container-images",
+                ],
                 "steps": [
                     {
                         "run": (
                             'result="${{ needs.quality.result }}"\n'
+                            'contracts="${{ needs.repository-contracts.result }}"\n'
+                            'workflow="${{ needs.workflow-shell-contracts.result }}"\n'
                             'bootstrap="${{ needs.bootstrap-bash32.result }}"\n'
                             'images="${{ needs.container-images.result }}"\n'
                             '[[ "$result" == "success" ]]\n'
+                            '[[ "$contracts" == "success" ]]\n'
+                            '[[ "$workflow" == "success" ]]\n'
                             '[[ "$bootstrap" == "success" ]]\n'
                             '[[ "$images" == "success" ]]'
                         )
@@ -183,6 +211,56 @@ class WorkflowPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unsafe or malformed"):
             policy._assert_ci(Path("ci.yml"), workflow)
 
+    def test_ci_pull_request_path_filter_is_rejected(self) -> None:
+        workflow = _ci_workflow()
+        workflow["on"]["pull_request"] = {"paths-ignore": ["Journal.md"]}  # type: ignore[index]
+        with self.assertRaisesRegex(ValueError, "must be unfiltered"):
+            policy._assert_ci(Path("ci.yml"), workflow)
+
+    def test_ci_push_scope_drift_is_rejected(self) -> None:
+        workflow = _ci_workflow()
+        workflow["on"]["push"] = {"branches": ["main"], "tags": ["v*"]}  # type: ignore[index]
+        with self.assertRaisesRegex(
+            ValueError,
+            r"target exactly main, Testing, and v\*",
+        ):
+            policy._assert_ci(Path("ci.yml"), workflow)
+
+    def test_ci_push_path_filter_is_rejected(self) -> None:
+        workflow = _ci_workflow()
+        workflow["on"]["push"]["paths"] = ["backend/**"]  # type: ignore[index]
+        with self.assertRaisesRegex(ValueError, "without path filters"):
+            policy._assert_ci(Path("ci.yml"), workflow)
+
+    def test_ci_scope_guard_allows_additional_checkout_hardening(self) -> None:
+        workflow = _ci_workflow()
+        checkout = workflow["jobs"]["repository-contracts"]["steps"][0]  # type: ignore[index]
+        checkout["with"]["persist-credentials"] = False  # type: ignore[index]
+        policy._assert_ci(Path("ci.yml"), workflow)
+
+    def test_ci_scope_guard_requires_full_history(self) -> None:
+        workflow = _ci_workflow()
+        checkout = workflow["jobs"]["repository-contracts"]["steps"][0]  # type: ignore[index]
+        checkout["with"]["fetch-depth"] = 1  # type: ignore[index]
+        with self.assertRaisesRegex(ValueError, "full exact commit history"):
+            policy._assert_ci(Path("ci.yml"), workflow)
+
+    def test_ci_scope_guard_cannot_be_removed(self) -> None:
+        workflow = _ci_workflow()
+        workflow["jobs"]["repository-contracts"]["steps"] = [  # type: ignore[index]
+            workflow["jobs"]["repository-contracts"]["steps"][0]  # type: ignore[index]
+        ]
+        with self.assertRaisesRegex(ValueError, "anti-loop guard is missing"):
+            policy._assert_ci(Path("ci.yml"), workflow)
+
+    def test_ci_scope_guard_regressions_cannot_be_removed(self) -> None:
+        workflow = _ci_workflow()
+        workflow["jobs"]["workflow-shell-contracts"]["steps"][1]["run"] = (  # type: ignore[index]
+            "python scripts/check_ci_contract.py"
+        )
+        with self.assertRaisesRegex(ValueError, "regressions are not required"):
+            policy._assert_ci(Path("ci.yml"), workflow)
+
     def test_new_job_must_enter_aggregate(self) -> None:
         workflow = _ci_workflow()
         workflow["jobs"]["untracked"] = _job()  # type: ignore[index]
@@ -218,6 +296,8 @@ class WorkflowPolicyTests(unittest.TestCase):
             {
                 "run": (
                     'echo "${{ needs.quality.result }}"\n'
+                    'echo "${{ needs.repository-contracts.result }}"\n'
+                    'echo "${{ needs.workflow-shell-contracts.result }}"\n'
                     'echo "${{ needs.bootstrap-bash32.result }}"\n'
                     'echo "${{ needs.container-images.result }}"'
                 )
@@ -312,14 +392,140 @@ class WorkflowPolicyTests(unittest.TestCase):
         workflow = policy._load(release_path)
         build = next(
             step
-            for step in workflow["jobs"]["publish"]["steps"]
-            if step.get("name") == "Build and publish backend by immutable digest"
+            for step in workflow["jobs"]["rehearse"]["steps"]
+            if step.get("name")
+            == "Rehearsal build and publish backend by immutable digest"
         )
         build["with"]["tags"] = (
             "${{ steps.release.outputs.image_prefix }}/backend:"
             "${{ steps.release.outputs.tag }}"
         )
-        with self.assertRaisesRegex(ValueError, "non-Stable candidate tag"):
+        with self.assertRaisesRegex(ValueError, "non-Stable candidate"):
+            policy._assert_release(release_path, workflow)
+
+    def test_release_trigger_requires_main_rehearsal_and_v_tags(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        trigger = workflow.get("on", workflow.get(True))
+        trigger["push"] = {"tags": ["v*"]}
+        with self.assertRaisesRegex(ValueError, "direct main and v\* pushes"):
+            policy._assert_release(release_path, workflow)
+
+    def test_release_rehearsal_must_be_main_only(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        workflow["jobs"]["rehearse"]["if"] = "github.ref == 'refs/heads/Testing'"
+        with self.assertRaisesRegex(ValueError, "rehearsal must be main-only"):
+            policy._assert_release(release_path, workflow)
+
+    def test_release_publish_must_be_tag_only(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        workflow["jobs"]["publish"]["if"] = "github.ref == 'refs/heads/main'"
+        with self.assertRaisesRegex(ValueError, "publication must be v\* tag-only"):
+            policy._assert_release(release_path, workflow)
+
+    def test_release_publish_cannot_rebuild_images(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        workflow["jobs"]["publish"]["steps"].append(
+            {"uses": "docker/build-push-action@" + "0" * 40}
+        )
+        with self.assertRaisesRegex(ValueError, "may not run image builds or QEMU"):
+            policy._assert_release(release_path, workflow)
+
+    def test_release_publish_cannot_setup_qemu(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        workflow["jobs"]["publish"]["steps"].append(
+            {"uses": "docker/setup-qemu-action@" + "0" * 40}
+        )
+        with self.assertRaisesRegex(ValueError, "may not run image builds or QEMU"):
+            policy._assert_release(release_path, workflow)
+
+    def test_release_rehearsal_requires_three_candidate_builds(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        workflow["jobs"]["rehearse"]["steps"] = [
+            step
+            for step in workflow["jobs"]["rehearse"]["steps"]
+            if step.get("id") != "updater"
+        ]
+        with self.assertRaisesRegex(ValueError, "Rehearsal build and publish update"):
+            policy._assert_release(release_path, workflow)
+
+    def test_release_rehearsal_requires_branch_identity_signatures(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        signature = next(
+            step
+            for step in workflow["jobs"]["rehearse"]["steps"]
+            if step.get("name") == "Sign and verify rehearsal images"
+        )
+        signature["run"] = signature["run"].replace(
+            "release.yml@refs/heads/main",
+            "release.yml@refs/tags/v0.0.0",
+        )
+        with self.assertRaisesRegex(ValueError, "rehearsal image signature gate"):
+            policy._assert_release(release_path, workflow)
+
+    def test_release_rehearsal_artifact_is_exact_sha_scoped(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        upload = next(
+            step
+            for step in workflow["jobs"]["rehearse"]["steps"]
+            if step.get("name") == "Upload exact-SHA signed rehearsal plan"
+        )
+        upload["with"]["name"] = "stable-release-rehearsal-latest"
+        with self.assertRaisesRegex(ValueError, "evidence artifact contract"):
+            policy._assert_release(release_path, workflow)
+
+    def test_release_publish_requires_exact_main_rehearsal(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        workflow["jobs"]["publish"]["steps"] = [
+            step
+            for step in workflow["jobs"]["publish"]["steps"]
+            if step.get("name") != "Require and verify the exact-SHA main rehearsal"
+        ]
+        with self.assertRaisesRegex(ValueError, "exact-SHA main rehearsal"):
+            policy._assert_release(release_path, workflow)
+
+    def test_release_publish_digests_must_come_from_rehearsal(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        images = next(
+            step
+            for step in workflow["jobs"]["publish"]["steps"]
+            if step.get("id") == "images"
+        )
+        images["env"]["BACKEND"] = "${{ steps.backend.outputs.digest }}"
+        with self.assertRaisesRegex(ValueError, "only from the exact-SHA rehearsal"):
+            policy._assert_release(release_path, workflow)
+
+    def test_release_recovered_plan_must_match_rehearsed_digests(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        prior = next(
+            step
+            for step in workflow["jobs"]["publish"]["steps"]
+            if step.get("name") == "Verify and reuse an exact prior upgrade plan"
+        )
+        prior["env"].pop("EXPECTED_UPDATER_DIGEST")
+        with self.assertRaisesRegex(ValueError, "match every exact rehearsed image"):
+            policy._assert_release(release_path, workflow)
+
+    def test_release_workflow_cannot_create_or_move_git_refs(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        proof = next(
+            step
+            for step in workflow["jobs"]["rehearse"]["steps"]
+            if step.get("name") == "Prove exact main candidate and canonical version"
+        )
+        proof["run"] += "\ngit tag v0.0.0\n"
+        with self.assertRaisesRegex(ValueError, "may not create, move, or push Git"):
             policy._assert_release(release_path, workflow)
 
     def test_release_anonymous_pull_gate_requires_fresh_docker_config(self) -> None:
@@ -731,7 +937,7 @@ class WorkflowPolicyTests(unittest.TestCase):
             == "Stage, verify, and atomically publish the GitHub Release"
         )
         steps.insert(publish_index, stable)
-        with self.assertRaisesRegex(ValueError, "publish before images"):
+        with self.assertRaisesRegex(ValueError, "tag publication must reuse digests"):
             policy._assert_release(release_path, workflow)
 
     def test_release_workflow_cannot_depend_on_documentation(self) -> None:
@@ -753,6 +959,22 @@ class WorkflowPolicyTests(unittest.TestCase):
             != "Require the exact tag CI run and fail-closed aggregate"
         ]
         with self.assertRaisesRegex(ValueError, "exact tag CI"):
+            policy._assert_docs(docs_path, workflow)
+
+    def test_docs_trigger_cannot_include_journal(self) -> None:
+        docs_path = policy.WORKFLOW_DIR / "docs.yml"
+        workflow = policy._load(docs_path)
+        trigger = workflow.get("on", workflow.get(True))
+        trigger["pull_request"]["paths"].append("Journal.md")
+        with self.assertRaisesRegex(ValueError, "must not turn Journal-only"):
+            policy._assert_docs(docs_path, workflow)
+
+    def test_docs_trigger_scope_drift_is_rejected(self) -> None:
+        docs_path = policy.WORKFLOW_DIR / "docs.yml"
+        workflow = policy._load(docs_path)
+        trigger = workflow.get("on", workflow.get(True))
+        trigger["push"]["branches"] = ["main"]
+        with self.assertRaisesRegex(ValueError, "exact reviewed"):
             policy._assert_docs(docs_path, workflow)
 
     def test_docs_publisher_requires_actions_read_permission(self) -> None:

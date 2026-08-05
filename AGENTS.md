@@ -23,6 +23,22 @@
 > Never record local credentials, tokens, host-specific paths, or transient runtime
 > details in the Journal.
 >
+> **Frozen-candidate exception (anti-loop):** the Journal must never mutate the exact
+> commit it is being used to certify. Write the start/freeze entry before the final
+> candidate gate. From that freeze onward, keep PR, CI, promotion, tag, publication,
+> runtime, and browser evidence in GitHub checks/Actions summaries and operator
+> receipts until the attempt reaches a terminal success or stop. Then append one
+> consolidated terminal entry with the next substantive `Testing` change—never open,
+> merge, or directly push a Journal-only change into `Testing` or `main`. Repository
+> rules must require pull requests and prevent unauthorized branch-protection bypass;
+> CI also rejects a Journal-only protected push after the fact as defense in depth.
+> While a candidate is frozen, this exception supersedes the normal start, end, and
+> milestone Journal cadence: do not mutate the candidate merely to journal the
+> attempt. This is still full journaling; it removes the self-referential “record the
+> accepted SHA inside that SHA” loop without weakening exact-SHA CI. The automated
+> guard proves only that another tracked path changed; reviewers remain responsible
+> for confirming that the companion change is substantive rather than bookkeeping.
+>
 > **Temporary task memory:** a long-running agent may keep a root `memory.md` scratchpad
 > to survive context compaction. It is local-only, is ignored by Git, contains no
 > secrets, and MUST be deleted when the task is complete. It is never staged,
@@ -590,6 +606,13 @@ cp .env.example .env   # set TLSOC_PG_PASSWORD + at least one LLM key
   service and Dockerfile base images use reviewed multi-platform digests; every job has an explicit timeout and least-
   privilege permissions. When a supported runtime, artifact, or release contract is
   added, extend the gate, fail-closed aggregate, and documentation in the same candidate.
+  The accepted `main` SHA must also complete the pre-tag signed-release rehearsal:
+  build the three dual-platform candidate images, prove anonymous reads and release
+  labels, sign and verify them under the `release.yml@refs/heads/main` rehearsal
+  identity, and verify its signed plan inside the constrained updater. That rehearsal
+  is evidence only and is never deployment authority. The immutable tag workflow
+  must consume those exact digests, add the distinct tag-bound signatures, and retain
+  every existing canonical publication gate; it must not rebuild release images.
 - **Release identity and update UI:** the shell always shows `vX.Y.Z · Testing|Stable`; its
   popover reconciles the immutable Console stamp with public backend build-info.
   Any known version/channel/SHA mismatch downgrades to Testing. `run-demo.sh`
@@ -648,6 +671,14 @@ cp .env.example .env   # set TLSOC_PG_PASSWORD + at least one LLM key
   promote, verify, and tag that exact prepared tree without leaving a Testing snapshot
   presented as an already-published release. The full checklist is
   `docs/releases/channels.md`.
+  A release attempt requires one explicit maintainer authorization. Rerunning the
+  same exact-SHA rehearsal, exact immutable-tag workflow, or recoverable exact draft
+  is the same attempt only for a documented transient infrastructure failure. A
+  deterministic rehearsal/contract failure, terminal publication failure, or runtime
+  failure ends the attempt. Never automatically increment `VERSION`, create a
+  replacement pull request, or mint the next tag. A fresh patch attempt starts only
+  after a maintainer reviews the terminal evidence and explicitly authorizes it.
+  Existing tags are never moved or reused.
 
 ## 9. Sub-agent workflow (how we parallelize)
 

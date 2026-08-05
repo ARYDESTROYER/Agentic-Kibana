@@ -30,7 +30,8 @@ flowchart LR
   F["Feature branch"] -->|pull request| T["Testing"]
   T --> G["Full release gate"]
   G -->|promotion PR; same source tree| M["main / Stable"]
-  M --> V["vX.Y.Z tag"]
+  M --> R["Pre-tag signed rehearsal"]
+  R -->|exact rehearsed digests| V["vX.Y.Z tag"]
   V --> D["Versioned documentation"]
 ```
 
@@ -43,11 +44,12 @@ The branch names and channel names are deliberately different kinds of label:
 Do not use “alpha”, “Bleeding Edge”, “next”, or a generic “production branch” as
 synonyms for these channels.
 
-For operators, this distinction is concrete: after `main` is provisioned, an
-ordinary clone or pull of `main` receives the last accepted Stable source tree,
-never in-progress work from `Testing`. Pulling `Testing` receives the current
-integration candidate and may include changes that have not passed release
-acceptance.
+For operators, this distinction is concrete: an ordinary clone or pull of `main`
+receives the Stable-channel source tree, never in-progress work from `Testing`.
+A promoted commit on `main` is still only a rehearsed or pending candidate until its
+complete immutable tag and signed/public artifacts pass publication; `main` alone is
+not an installable supported Stable release. Pulling `Testing` receives the current
+integration candidate and may include changes that have not passed release acceptance.
 
 The Console's **Settings → Organization → Updates & releases** section observes these
 two source refs by default. A fork or renamed repository can replace the public GitHub
@@ -136,10 +138,58 @@ Every release starts with a candidate commit on `Testing`:
 4. Promote the accepted `Testing` source tree to `main` through a protected pull
    request. The merge commit may have a different SHA, but the promotion must not
    introduce content changes; re-run the complete gate on that resulting `main` SHA.
-5. Create the immutable `vX.Y.Z` tag from the verified `main` commit and publish
-   artifacts from that SHA using the same `X.Y.Z` value from the root `VERSION` file.
-6. Let the documentation workflow publish the matching major.minor line and move
+5. Let the `main` push run the pre-tag signed-release rehearsal. It builds and
+   verifies the three dual-platform candidate images, proves their anonymous registry
+   contract, signs them under the branch-scoped rehearsal identity, and verifies a
+   rehearsal plan inside the constrained updater. Do not create the tag until this
+   exact-SHA run succeeds.
+6. Create the immutable `vX.Y.Z` tag from that rehearsed `main` commit. The tag
+   workflow must reuse the exact rehearsed image digests, add the tag-bound production
+   signatures, and publish the canonical plan and Release using the same `X.Y.Z`
+   value from the root `VERSION` file. It must not rebuild release images.
+7. Let the documentation workflow publish the matching major.minor line and move
    the `stable` and `latest` aliases to it.
+
+### Candidate freeze, evidence, and attempt boundary
+
+The candidate becomes frozen before the final `Testing` acceptance run. From that
+point until the attempt reaches a terminal result, **no tracked file may change**—not
+even an internal development record. Exact-SHA evidence is stored where it is produced:
+
+- pull-request and branch acceptance stays in GitHub checks and Actions summaries;
+- rehearsal and tag publication stays in their exact workflow runs;
+- immutable identity stays in the annotated tag, signed plans, Sigstore bundles,
+  attestations, and digest-pinned images; and
+- canonical runtime and browser acceptance stays in the updater receipt and dated
+  operator evidence.
+
+After terminal success or a terminal stop, record one consolidated internal evidence
+entry with the next substantive `Testing` change. An evidence-only pull request or
+direct push into `Testing` or `main` is invalid because recording that a SHA passed
+creates a new SHA that has not passed, producing an endless acceptance loop. CI
+rejects both forms, but the push check is detection after mutation: repository rules
+must require pull requests and deny unauthorized branch-protection bypass. The
+automated scope guard proves only that at least one other tracked path changed;
+reviewers must still confirm that the companion work is substantive rather than
+another bookkeeping file.
+
+One explicit maintainer authorization permits one release attempt. A same-exact-SHA
+rehearsal, immutable-tag, or recoverable-exact-draft retry remains part of that attempt
+only when the prior stop is a demonstrably transient infrastructure failure. A
+deterministic rehearsal/contract failure, terminal publication failure, or
+canonical-runtime failure stops the attempt. Automation must never bump the patch
+version, open a replacement release pull request, or create another tag. A maintainer
+must review the terminal evidence and explicitly authorize any new patch attempt.
+
+The rehearsal signature is intentionally branch-scoped to
+`release.yml@refs/heads/main` and is **not** trusted by deployed supervisors. The tag
+workflow re-signs the already-rehearsed digests and canonical plan under
+`release.yml@refs/tags/vX.Y.Z`; the updater's tag-only production trust predicate is
+unchanged. A successful rehearsal therefore removes irreversible tag-first build and
+packaging risk without becoming an alternate deployment authority. Real canonical
+v0.1.1-to-candidate PostgreSQL Compose acceptance remains post-publication because
+its production certificate identity and GitHub Release URLs do not exist before the
+immutable tag.
 
 The Documentation workflow validates `Testing` and `main`, but publication is gated
 on the exact annotated `vX.Y.Z` tag. Its tag must match `VERSION` and resolve to the
