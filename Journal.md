@@ -9480,3 +9480,10 @@
 - Tests: Documentation workflow passed. CI run **31024353260** completed successfully for exact head `1715eb365c2b50370d58e2e8558594765f1b4b6d`: all **18** substantive jobs and the fail-closed **`CI passed`** aggregate succeeded, including backend, PostgreSQL/Redis, Console, all three shipping-image, updater/deploy, package, version, OpenAPI, documentation, design, static, workflow/shell, and Bash 3.2 lanes.
 - Status: Pull-request source acceptance is green. This journal-only delta must receive its own exact-head aggregate before merge; protected Testing push, main promotion/push, tag CI, signed publication, canonical runtime, receipt, and browser gates remain mandatory. No Codex Security review was run.
 - Next: Push this journal record to PR #73, require its refreshed aggregate to pass, then merge and verify the resulting protected Testing push.
+
+### 2026-08-05 22:02 IST — `/root` — v0.1.13 protected Testing source gate passed
+- Context: Accept the protected integration-branch result before any Stable/main promotion or immutable tag.
+- Did: Merged pull request **#73** by squash only after its final journal-bearing head passed the complete fail-closed matrix, then independently inspected the workflows triggered by the resulting protected `Testing` commit `326c15a73d7ba2c398db0d47ed03ed61ac1c77d3`.
+- Tests: CI run **31025221226** completed with all **19** visible statuses successful, including all **18** substantive lanes and the required **`CI passed`** aggregate; Documentation run **31025221317** completed all **3** jobs successfully on the same exact SHA.
+- Status: v0.1.13 is accepted on protected `Testing`. No main mutation, tag, release asset, Stable alias, deployment update, or Codex Security review has occurred.
+- Next: Carry this durable acceptance record through its own protected Testing gate, promote that exact tree to `main`, and require main plus tag CI before signed publication.
