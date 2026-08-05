@@ -65,9 +65,9 @@ healthy backend build before the new document activates.
 ## Version 0.1 nomenclature
 
 The first standardized release line is documentation version **0.1**. The current
-source version is product version **0.1.11**. It carries the accepted application
-scope through 0.1.10 and corrects the native-builder portability defect that caused
-0.1.10 to time out before publishing its GitHub Release. The immutable
+source version is product version **0.1.12**. It carries the accepted application
+scope through 0.1.11 and corrects the post-verification cleanup defect that stopped
+0.1.11 after its constrained updater had already verified the signed plan. The immutable
 `v0.1.4` publication attempt produced documentation but no application artifacts.
 The immutable `v0.1.5` workflow built and signed candidate image digests but stopped
 before publishing the canonical signed plan, GitHub Release, or Stable tags. Both are
@@ -91,25 +91,31 @@ source and exact-tag CI, but the signed-release workflow timed out while the
 architecture-neutral Web Console builder ran under target emulation. It published
 no complete three-image set, canonical signed plan, GitHub Release, Stable tags, or
 Stable documentation and is immutable, superseded, and non-installable. Version
-0.1.11 is Stable only when its exact accepted `main` commit is immutably tagged
-`v0.1.11` and its complete
-signed/public artifact set plus updater runtime and canonical deployment acceptance
-verify. If that evidence is incomplete, use a previously verified supported Stable
-release.
+0.1.11 workflow built, signed, anonymously proved, and verified all three images and
+the canonical plan on the host and inside the constrained updater. Its cleanup trap
+then failed to unlink read-only verification files while their runner-owned parent
+directory remained mode `0555`, so attestations, GitHub Release publication,
+canonical asset publication, Stable tags, and Stable documentation were skipped. It
+is immutable partial evidence and non-installable. Version 0.1.12 restores the
+runner-owned directory to private mode `0700` only after verifier exit, then removes
+the fixture. It is Stable only when its exact accepted `main` commit is immutably
+tagged `v0.1.12` and its complete signed/public artifact set plus updater runtime and
+canonical deployment acceptance verify. If that evidence is incomplete, use a
+previously verified supported Stable release.
 
 | Surface | Canonical value |
 | --- | --- |
 | Product | Agentic SOC |
 | Operator interface | Agentic SOC Console |
 | Backend service/API | Agentic SOC API |
-| SemVer package and image version | `0.1.11` |
-| Git release tag | `v0.1.11` only from the exact verified `main` commit; absent before publication and immutable afterward |
+| SemVer package and image version | `0.1.12` |
+| Git release tag | `v0.1.12` only from the exact verified `main` commit; absent before publication and immutable afterward |
 | Documentation selector and URL line | `0.1` and `/0.1/` |
 | Integration branch/channel | `Testing` |
 | Stable branch/channel | `main` / Stable |
 
 Patch releases remain within the same documentation line. For example, app
-versions `0.1.1`, `0.1.2`, `0.1.3`, `0.1.4`, `0.1.5`, `0.1.6`, `0.1.7`, `0.1.8`, `0.1.9`, `0.1.10`, and `0.1.11` use the `0.1` documentation rather than
+versions `0.1.1`, `0.1.2`, `0.1.3`, `0.1.4`, `0.1.5`, `0.1.6`, `0.1.7`, `0.1.8`, `0.1.9`, `0.1.10`, `0.1.11`, and `0.1.12` use the `0.1` documentation rather than
 creating new selector entries. A new minor release creates a new documentation
 line such as `0.2`.
 
@@ -236,8 +242,8 @@ is not a Console acceptance receipt.
 
 ## Build and badge provenance
 
-SemVer and channel are independent. The 0.1.11 Testing candidate and its accepted
-Stable build can both report version `0.1.11`; the channel says where that build sits in
+SemVer and channel are independent. The 0.1.12 Testing candidate and its accepted
+Stable build can both report version `0.1.12`; the channel says where that build sits in
 the acceptance lifecycle. Stamp the mutable provenance fields explicitly; keep or
 override the Dockerfile's canonical source URL as appropriate:
 

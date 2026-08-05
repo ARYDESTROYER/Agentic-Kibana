@@ -79,6 +79,6 @@ components without duplicating or re-exporting their implementation here.
 `DESIGN_SYSTEM_CATALOG` is intentionally serialisable and uses stable ids instead of
 React implementation details. A future package can expose it as MCP resources and map
 component ids to examples or code generation guidance. **No MCP server, endpoint, or
-remote service exists in version 0.1.11**; the catalog is the input contract only. When
+remote service exists in version 0.1.12**; the catalog is the input contract only. When
 such a service is built, it must version this schema independently and keep token,
 accessibility, and source-mark ids backward compatible.
