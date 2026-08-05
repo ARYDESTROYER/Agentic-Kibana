@@ -27,7 +27,7 @@ when infrastructure and external model calls are not part of your evaluation.
 Use the immutable Stable tag:
 
 ```bash
-git clone --branch v0.1.5 --depth 1 \
+git clone --branch v0.1.6 --depth 1 \
   https://github.com/ARYDESTROYER/Agentic-Kibana.git
 cd Agentic-Kibana
 ```
@@ -38,8 +38,9 @@ locally. Pulling `main` means pulling the current
 accepted Stable source—not the next Testing candidate—but repository protections
 and required checks must be verified independently.
 
-The immutable `v0.1.4` tag is not an installable release: its publication stopped
-before the GitHub Release, signed plan, and release images existed. Use `v0.1.5` only
+The immutable `v0.1.4` and `v0.1.5` tags are not installable releases: their
+publication attempts stopped before a canonical signed plan and public GitHub
+Release existed. Use `v0.1.6` only
 when its canonical GitHub Release, plan signature, and public image digests verify;
 otherwise use a previously verified Stable release or Testing only for an explicitly
 unreleased evaluation.

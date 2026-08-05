@@ -368,8 +368,14 @@ jobs:
           export DOCKER_CONFIG="${anonymous_docker_config}"
           [[ ! -e "${DOCKER_CONFIG}/config.json" ]]
           for reference in "${BACKEND}" "${WEBUI}" "${UPDATER}"; do
+            # A classic Docker image store retains one selected platform behind
+            # this index-digest reference. Evict it after every real anonymous
+            # pull so the next architecture cannot reuse or overwrite that local
+            # reference. The registry verifier below independently checks the
+            # exact index, both child manifests/configs, and release labels.
             for platform in linux/amd64 linux/arm64; do
               docker pull --platform "${platform}" "${reference}" >/dev/null
+              docker image rm "${reference}" >/dev/null
               printf 'verified anonymous Docker pull: %s (%s)\n' \
                 "${reference}" "${platform}"
             done

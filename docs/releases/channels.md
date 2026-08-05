@@ -65,27 +65,29 @@ healthy backend build before the new document activates.
 ## Version 0.1 nomenclature
 
 The first standardized release line is documentation version **0.1**. The current
-source version is product version **0.1.5**. It carries the accepted 0.1.2 and 0.1.3
-Testing snapshots plus the exact 0.1.4 application scope. The immutable `v0.1.4`
-publication attempt produced documentation but no GitHub Release, signed plan, or
-release image, so it is historical and non-installable. Version 0.1.5 is Stable only
-when the accepted `main` commit is immutably tagged `v0.1.5` and its signed artifacts
-and public digest-pinned images verify. If that evidence is incomplete, use a
-previously verified Stable release.
+source version is product version **0.1.6**. It carries the accepted 0.1.2 and 0.1.3
+Testing snapshots plus the exact 0.1.4 and 0.1.5 application scope. The immutable
+`v0.1.4` publication attempt produced documentation but no application artifacts.
+The immutable `v0.1.5` workflow built and signed candidate image digests but stopped
+before publishing the canonical signed plan, GitHub Release, or Stable tags. Both are
+historical and non-installable. Version 0.1.6 is Stable only when the accepted `main`
+commit is immutably tagged `v0.1.6` and its signed plan, public GitHub Release, and
+public digest-pinned images verify. If that evidence is incomplete, use a previously
+verified Stable release.
 
 | Surface | Canonical value |
 | --- | --- |
 | Product | Agentic SOC |
 | Operator interface | Agentic SOC Console |
 | Backend service/API | Agentic SOC API |
-| SemVer package and image version | `0.1.5` |
-| Git release tag | `v0.1.5` only from the exact verified `main` commit; absent before publication and immutable afterward |
+| SemVer package and image version | `0.1.6` |
+| Git release tag | `v0.1.6` only from the exact verified `main` commit; absent before publication and immutable afterward |
 | Documentation selector and URL line | `0.1` and `/0.1/` |
 | Integration branch/channel | `Testing` |
 | Stable branch/channel | `main` / Stable |
 
 Patch releases remain within the same documentation line. For example, app
-versions `0.1.1`, `0.1.2`, `0.1.3`, `0.1.4`, and `0.1.5` use the `0.1` documentation rather than
+versions `0.1.1`, `0.1.2`, `0.1.3`, `0.1.4`, `0.1.5`, and `0.1.6` use the `0.1` documentation rather than
 creating new selector entries. A new minor release creates a new documentation
 line such as `0.2`.
 
@@ -208,8 +210,8 @@ is not a Console acceptance receipt.
 
 ## Build and badge provenance
 
-SemVer and channel are independent. The 0.1.5 Testing candidate and its accepted
-Stable build can both report version `0.1.5`; the channel says where that build sits in
+SemVer and channel are independent. The 0.1.6 Testing candidate and its accepted
+Stable build can both report version `0.1.6`; the channel says where that build sits in
 the acceptance lifecycle. Stamp the mutable provenance fields explicitly; keep or
 override the Dockerfile's canonical source URL as appropriate:
 
