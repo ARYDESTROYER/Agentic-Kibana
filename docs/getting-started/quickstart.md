@@ -12,13 +12,15 @@ real source with persistent application state.
 !!! info "Choose the matching channel"
 
     `Testing` contains integrated candidates. Under the release contract, `main`
-    holds only accepted Stable source and immutable `v0.1.6` identifies this patch.
-    The remote has both canonical branches; use `v0.1.6` only when its signed GitHub
+    holds only accepted Stable source and immutable `v0.1.7` identifies this patch.
+    The remote has both canonical branches; use `v0.1.7` only when its signed GitHub
     Release and public digest-pinned images verify, and use `Testing` only for an unreleased preview;
     repository administrators must verify branch protections and required checks
     independently. Never use `v0.1.4` or `v0.1.5`: those immutable
     failed-publication records do not have a canonical signed plan and public
-    GitHub Release.
+    GitHub Release. Never bootstrap from `v0.1.6` either: its signed/public artifact
+    set is valid, but canonical macOS Bash 3.2 acceptance failed before supervisor
+    installation. It is immutable, superseded history.
 
 ## Get the source
 
@@ -30,15 +32,15 @@ real source with persistent application state.
     cd Agentic-Kibana
     ```
 
-=== "Stable 0.1.6"
+=== "Stable 0.1.7"
 
     ```bash
-    git clone --branch v0.1.6 --depth 1 \
+    git clone --branch v0.1.7 --depth 1 \
       https://github.com/ARYDESTROYER/Agentic-Kibana.git
     cd Agentic-Kibana
     ```
 
-    The `v0.1.6` tag is immutable; do not create, move, or replace it locally. Users
+    The `v0.1.7` tag is immutable; do not create, move, or replace it locally. Users
     pulling `main` receive the current accepted Stable source, while candidate work
     remains isolated on `Testing`. A branch name alone is not acceptance evidence,
     so repository administrators must verify protections and required checks. If the

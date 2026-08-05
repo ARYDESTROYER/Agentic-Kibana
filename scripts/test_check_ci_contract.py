@@ -22,6 +22,19 @@ def _job() -> dict[str, object]:
 
 
 def _ci_workflow() -> dict[str, object]:
+    bootstrap_bash32 = _job()
+    bootstrap_bash32["runs-on"] = "macos-14"
+    bootstrap_bash32["steps"] = [
+        {"uses": PINNED_CHECKOUT},
+        {
+            "run": (
+                "/bin/bash -c 'printf ok'\n"
+                'test "3.2" = "3.2"\n'
+                "/bin/bash -n scripts/bootstrap-updater.sh\n"
+                "python3 scripts/test_bootstrap_bash32.py\n"
+            )
+        },
+    ]
     container_images = _job()
     container_images["steps"] = [
         {"uses": PINNED_CHECKOUT},
@@ -50,19 +63,22 @@ def _ci_workflow() -> dict[str, object]:
         "permissions": {"contents": "read"},
         "jobs": {
             "quality": _job(),
+            "bootstrap-bash32": bootstrap_bash32,
             "container-images": container_images,
             "ci": {
                 "name": "CI passed",
                 "runs-on": "ubuntu-latest",
                 "timeout-minutes": 5,
                 "if": "${{ always() }}",
-                "needs": ["quality", "container-images"],
+                "needs": ["quality", "bootstrap-bash32", "container-images"],
                 "steps": [
                     {
                         "run": (
                             'result="${{ needs.quality.result }}"\n'
+                            'bootstrap="${{ needs.bootstrap-bash32.result }}"\n'
                             'images="${{ needs.container-images.result }}"\n'
                             '[[ "$result" == "success" ]]\n'
+                            '[[ "$bootstrap" == "success" ]]\n'
                             '[[ "$images" == "success" ]]'
                         )
                     }
@@ -151,12 +167,36 @@ class WorkflowPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "dependency drift"):
             policy._assert_ci(Path("ci.yml"), workflow)
 
+    def test_bootstrap_bash32_job_is_required(self) -> None:
+        workflow = _ci_workflow()
+        del workflow["jobs"]["bootstrap-bash32"]  # type: ignore[index]
+        workflow["jobs"]["ci"]["needs"].remove("bootstrap-bash32")  # type: ignore[index]
+        with self.assertRaisesRegex(ValueError, "Bash 3.2 bootstrap gate is missing"):
+            policy._assert_ci(Path("ci.yml"), workflow)
+
+    def test_bootstrap_bash32_job_must_use_macos14(self) -> None:
+        workflow = _ci_workflow()
+        workflow["jobs"]["bootstrap-bash32"]["runs-on"] = "ubuntu-latest"  # type: ignore[index]
+        with self.assertRaisesRegex(ValueError, "must run on macos-14"):
+            policy._assert_ci(Path("ci.yml"), workflow)
+
+    def test_bootstrap_bash32_job_must_execute_shipping_harness(self) -> None:
+        workflow = _ci_workflow()
+        workflow["jobs"]["bootstrap-bash32"]["steps"][1]["run"] = (  # type: ignore[index]
+            "/bin/bash -c 'printf ok'\n"
+            'test "3.2" = "3.2"\n'
+            "/bin/bash -n scripts/bootstrap-updater.sh\n"
+        )
+        with self.assertRaisesRegex(ValueError, "test_bootstrap_bash32.py"):
+            policy._assert_ci(Path("ci.yml"), workflow)
+
     def test_aggregate_must_explicitly_require_success(self) -> None:
         workflow = _ci_workflow()
         workflow["jobs"]["ci"]["steps"] = [  # type: ignore[index]
             {
                 "run": (
                     'echo "${{ needs.quality.result }}"\n'
+                    'echo "${{ needs.bootstrap-bash32.result }}"\n'
                     'echo "${{ needs.container-images.result }}"'
                 )
             }

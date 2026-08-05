@@ -115,6 +115,22 @@ def _assert_ci(path: Path, workflow: dict[str, Any]) -> None:
         raise ValueError(f"{path}: CI must run for pull_request and push")
 
     jobs = workflow["jobs"]
+    bootstrap_bash32 = jobs.get("bootstrap-bash32")
+    if not isinstance(bootstrap_bash32, dict):
+        raise ValueError(f"{path}: macOS Bash 3.2 bootstrap gate is missing")
+    if bootstrap_bash32.get("runs-on") != "macos-14":
+        raise ValueError(f"{path}: bootstrap portability gate must run on macos-14")
+    bootstrap_run = _job_run_text(bootstrap_bash32)
+    for marker in (
+        "/bin/bash -c",
+        '= "3.2"',
+        "/bin/bash -n scripts/bootstrap-updater.sh",
+        "python3 scripts/test_bootstrap_bash32.py",
+    ):
+        if marker not in bootstrap_run:
+            raise ValueError(
+                f"{path}: macOS Bash 3.2 bootstrap gate lacks {marker!r}"
+            )
     container_images = jobs.get("container-images")
     if not isinstance(container_images, dict):
         raise ValueError(f"{path}: shipping-image acceptance job is missing")

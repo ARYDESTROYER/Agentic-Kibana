@@ -14,12 +14,49 @@ History is reconstructed from `git log`.
 
 No changes yet.
 
+## [0.1.7] - 2026-08-05
+
+**Governed Stable bootstrap portability correction.** This patch preserves the
+immutable, signed `v0.1.6` publication record and republishes its accepted product
+scope under a new version after canonical host acceptance exposed a macOS Bash 3.2
+failure in the one-time updater bootstrap. No application-state migration or base
+Compose change is introduced.
+
+### Added
+
+- A required `macos-14` CI lane executes the shipping updater-start helper with
+  Apple's Bash 3.2 for both first installation and `--force-recreate`, in addition
+  to syntax and static contract checks. The fail-closed `CI passed` aggregate now
+  requires this nineteenth visible status check.
+
+### Fixed
+
+- `scripts/bootstrap-updater.sh` no longer expands an empty optional Bash array
+  under `set -u`. The helper now forwards zero or one explicit Compose arguments
+  through `"$@"`, so a clean canonical v0.1.1 PostgreSQL deployment can install the
+  private supervisor before delegating the complete transition to the signed plan.
+
+### Release boundary
+
+- The frozen `deploy/docker-compose.agnostic.yml` remains byte-identical to updater
+  protocol 1. Release-specific backend, Console, and updater pins remain exclusively
+  in the signed, supervisor-generated override.
+- The published `v0.1.6` tag, images, signatures, plan, bundle, and GitHub Release
+  remain immutable evidence, but its clean-tag bootstrap is unsupported on the
+  canonical macOS host path. Do not move or reuse that tag; use `v0.1.7` only after
+  its Testing, promotion, main, exact-tag, publication, and end-to-end acceptance
+  gates all pass.
+
 ## [0.1.6] - 2026-08-05
 
-**Corrected governed Stable publication after the immutable, non-installable
-`v0.1.5` attempt.** This patch republishes the accepted 0.1.5 application scope
-without moving or reusing that tag and repairs the final anonymous multi-platform
-registry acceptance boundary.
+**Published, signed Stable artifact set with a canonical bootstrap portability
+defect.** This patch republished the accepted 0.1.5 application scope without moving
+or reusing that tag and repaired the anonymous multi-platform registry acceptance
+boundary. Its exact-tag CI, public signed images, signed plan and bundle, GitHub
+Release, and Help Center completed. Canonical acceptance subsequently found that the
+clean-tag bootstrap exits on macOS Bash 3.2 before installing the supervisor. The
+workload remains unchanged on that failure. The immutable tag and artifacts are
+preserved; `v0.1.7` is the governed correction.
 
 ### Changed
 
@@ -31,9 +68,10 @@ registry acceptance boundary.
   `linux/arm64` child manifests, each referenced config, and every required release
   label.
 - The complete Testing, promotion, `main`, exact annotated-tag, signed-image,
-  anonymous-registry, signed-plan, GitHub Release, canonical-bootstrap, and browser
-  acceptance sequence is repeated for 0.1.6. No 0.1.5 tag or workflow result is
-  substituted for the new candidate.
+  anonymous-registry, signed-plan, and GitHub Release sequence was repeated for
+  0.1.6. Canonical bootstrap acceptance was then attempted independently and failed
+  before supervisor installation on macOS Bash 3.2; browser update acceptance could
+  not begin. No 0.1.5 result substitutes for any 0.1.6 gate.
 
 ### Fixed
 
@@ -50,7 +88,8 @@ the release workflow built and signed candidate component digests, but publicati
 stopped during its anonymous multi-platform pull gate before the canonical signed
 upgrade plan, Sigstore plan bundle, public GitHub Release, or Stable convenience
 tags were published. Those partial objects are not installation authority. The tag
-must never be moved or reused; the corrected candidate is 0.1.6.
+must never be moved or reused. Version 0.1.6 was the next correction attempt; it
+published successfully but exposed the bootstrap defect corrected in 0.1.7.
 
 The attempted scope comprised supervised updates, public signed release artifacts,
 broader Intelligence coverage, truthful operator states, honest rule authoring,
@@ -167,7 +206,8 @@ boolean `false`. No backend, Web Console, or updater release image was built or
 published; no image or plan was signed; and no `upgrade-plan.json`, Sigstore bundle,
 or GitHub Release exists. The tag is immutable historical evidence and must never be
 moved or reused. See `docs/releases/0.1.4.md`; the first correction attempt, 0.1.5,
-also remained non-installable, and the current corrected candidate is 0.1.6.
+also remained non-installable, and 0.1.6 published a signed artifact set whose
+bootstrap defect is corrected in 0.1.7.
 
 ## Development snapshot — 2026-08-04 — 0.1.3 Testing candidate
 
@@ -301,9 +341,10 @@ in-app release activation, and a version-matched Help Center.**
 - The beta patch snapshot was versioned **0.1.2** and continued to bundle the
   existing **0.1** Help Center line. It reached `main` without a published
   `v0.1.2` tag. The later 0.1.3 candidate also remained an unpublished Testing
-  snapshot; the 0.1.4 and 0.1.5 publication attempts remained non-installable, and
-  0.1.6 is the corrected governed successor target. A version string alone never implies
-  Stable provenance or a completed deployment.
+  snapshot; the 0.1.4 and 0.1.5 publication attempts remained non-installable, while
+  0.1.6 published signed artifacts but remained bootstrap-blocked. Version 0.1.7 is
+  the governed correction. A version string alone never implies Stable provenance or
+  a completed deployment.
 - Fresh workspaces now use the bundled OpenAI model ID `gpt-5.6-luna` for every
   completion role, with `reasoning_effort: none` preserving the existing Chat Completions
   latency/tool contract. Embeddings remain on `text-embedding-3-small`; persisted
