@@ -14,13 +14,54 @@ History is reconstructed from `git log`.
 
 No changes yet.
 
+## [0.1.8] - 2026-08-05
+
+**Governed Docker Desktop control-socket portability correction.** The immutable
+`v0.1.7` release completed exact-tag CI, published public signed component images,
+the canonical signed upgrade plan and bundle, the GitHub Release, and versioned
+documentation. Canonical PostgreSQL Compose acceptance then exposed a separate
+supervisor-start failure: the 0.1.7 updater image had no `USER` instruction, so the
+process ran as UID/GID 0:0 and attempted to change the new Unix control socket to
+0:10001 while every Linux capability was dropped. Docker Desktop correctly denied
+that `chown`. Version 0.1.8 preserves the complete publication record and corrects
+the least-privilege runtime boundary without an application-state migration or base
+Compose change.
+
+### Fixed
+
+- The updater image starts its control-plane process with UID 0 and application
+  group 10001 while retaining `cap_drop: ALL`. The process therefore creates the
+  private control socket with the required application-readable group directly,
+  rather than depending on a forbidden post-bind ownership change.
+- Control-socket publication now validates the bound object fail closed before
+  serving: `lstat` must report a Unix socket with UID 0 and configured GID 10001;
+  the supervisor then sets its mode to `0660`. An unexpected object, owner, or group
+  stops startup instead of silently widening access.
+- Shipping-image acceptance exercises the real updater image with its capabilities
+  removed and verifies the socket's type and metadata from the backend-facing mount,
+  so source-only tests cannot substitute for the Docker Desktop runtime boundary.
+
+### Release boundary
+
+- The frozen `deploy/docker-compose.agnostic.yml` remains byte-identical to updater
+  protocol 1. Release-specific backend, Console, and updater pins remain exclusively
+  in the signed, supervisor-generated override.
+- The published `v0.1.7` tag, public images, signatures, plan, bundle, GitHub Release,
+  and Help Center remain immutable historical evidence. Its canonical bootstrap is
+  unsupported because the supervisor cannot publish a usable control socket. Never
+  move or reuse that tag; use `v0.1.8` only after its Testing, promotion, `main`,
+  exact-tag, signed-publication, and canonical end-to-end acceptance gates pass.
+
 ## [0.1.7] - 2026-08-05
 
-**Governed Stable bootstrap portability correction.** This patch preserves the
-immutable, signed `v0.1.6` publication record and republishes its accepted product
-scope under a new version after canonical host acceptance exposed a macOS Bash 3.2
-failure in the one-time updater bootstrap. No application-state migration or base
-Compose change is introduced.
+**Published, signed Stable artifact set with a Docker Desktop supervisor-start
+defect.** This patch preserved the immutable, signed `v0.1.6` publication record and
+republished its accepted product scope after repairing the macOS Bash 3.2 bootstrap.
+Exact-tag CI, public signed images, the signed plan and bundle, GitHub Release, and
+Help Center completed. Canonical acceptance then found that `cap_drop: ALL` blocks
+the updater's unconditional control-socket ownership change. The application
+workload remained on its prior release. The tag and artifacts remain immutable;
+`v0.1.8` is the governed correction.
 
 ### Added
 
@@ -41,11 +82,11 @@ Compose change is introduced.
 - The frozen `deploy/docker-compose.agnostic.yml` remains byte-identical to updater
   protocol 1. Release-specific backend, Console, and updater pins remain exclusively
   in the signed, supervisor-generated override.
-- The published `v0.1.6` tag, images, signatures, plan, bundle, and GitHub Release
-  remain immutable evidence, but its clean-tag bootstrap is unsupported on the
-  canonical macOS host path. Do not move or reuse that tag; use `v0.1.7` only after
-  its Testing, promotion, main, exact-tag, publication, and end-to-end acceptance
-  gates all pass.
+- The published `v0.1.6` and `v0.1.7` tags and artifacts remain immutable evidence.
+  Version 0.1.6 is blocked before supervisor installation by the Bash 3.2 host path;
+  0.1.7 reaches the updater container but cannot publish the private control socket
+  under its dropped-capability runtime. Do not move or reuse either tag. Version
+  0.1.8 repeats the complete release and canonical bootstrap acceptance sequence.
 
 ## [0.1.6] - 2026-08-05
 
@@ -56,7 +97,8 @@ boundary. Its exact-tag CI, public signed images, signed plan and bundle, GitHub
 Release, and Help Center completed. Canonical acceptance subsequently found that the
 clean-tag bootstrap exits on macOS Bash 3.2 before installing the supervisor. The
 workload remains unchanged on that failure. The immutable tag and artifacts are
-preserved; `v0.1.7` is the governed correction.
+preserved. Version 0.1.7 repaired this Bash defect but exposed a later updater
+control-socket startup failure; `v0.1.8` is the governed supported correction.
 
 ### Changed
 
@@ -89,7 +131,8 @@ stopped during its anonymous multi-platform pull gate before the canonical signe
 upgrade plan, Sigstore plan bundle, public GitHub Release, or Stable convenience
 tags were published. Those partial objects are not installation authority. The tag
 must never be moved or reused. Version 0.1.6 was the next correction attempt; it
-published successfully but exposed the bootstrap defect corrected in 0.1.7.
+published successfully but exposed the Bash bootstrap defect fixed in 0.1.7.
+Version 0.1.7 then exposed the updater control-socket defect corrected in 0.1.8.
 
 The attempted scope comprised supervised updates, public signed release artifacts,
 broader Intelligence coverage, truthful operator states, honest rule authoring,
@@ -206,8 +249,8 @@ boolean `false`. No backend, Web Console, or updater release image was built or
 published; no image or plan was signed; and no `upgrade-plan.json`, Sigstore bundle,
 or GitHub Release exists. The tag is immutable historical evidence and must never be
 moved or reused. See `docs/releases/0.1.4.md`; the first correction attempt, 0.1.5,
-also remained non-installable, and 0.1.6 published a signed artifact set whose
-bootstrap defect is corrected in 0.1.7.
+also remained non-installable. Versions 0.1.6 and 0.1.7 published signed artifact
+sets but remained bootstrap-blocked; 0.1.8 is the governed correction.
 
 ## Development snapshot — 2026-08-04 — 0.1.3 Testing candidate
 
@@ -342,8 +385,8 @@ in-app release activation, and a version-matched Help Center.**
   existing **0.1** Help Center line. It reached `main` without a published
   `v0.1.2` tag. The later 0.1.3 candidate also remained an unpublished Testing
   snapshot; the 0.1.4 and 0.1.5 publication attempts remained non-installable, while
-  0.1.6 published signed artifacts but remained bootstrap-blocked. Version 0.1.7 is
-  the governed correction. A version string alone never implies Stable provenance or
+  0.1.6 and 0.1.7 published signed artifacts but remained bootstrap-blocked. Version
+  0.1.8 is the governed correction. A version string alone never implies Stable provenance or
   a completed deployment.
 - Fresh workspaces now use the bundled OpenAI model ID `gpt-5.6-luna` for every
   completion role, with `reasoning_effort: none` preserving the existing Chat Completions
