@@ -48,14 +48,14 @@ rule. The image/build pipeline passes these names directly:
 
 | Variable | Meaning |
 |---|---|
-| `TLSOC_VERSION` | Compose image tag/build argument; must match the code's Semantic Version (`0.1.9`) |
+| `TLSOC_VERSION` | Compose image tag/build argument; must match the code's Semantic Version (`0.1.10`) |
 | `TLSOC_RELEASE_CHANNEL` | `testing` by default; set to `stable` only for the accepted `main`/tag build |
 | `TLSOC_BUILD_SHA` | Exact source commit embedded in `/api/health/build-info` and image metadata |
 | `TLSOC_BUILD_DATE` | Build timestamp embedded in `/api/health/build-info` and image metadata |
 | `TLSOC_SOURCE_URL` | Dockerfile build argument for the canonical source URL embedded in OCI image metadata; the reference Compose files currently use the Dockerfile's repository default |
 
 The release channel is independent of SemVer: both the accepted Testing candidate and
-its Stable promotion are application `0.1.9`. Promotion changes provenance/channel,
+its Stable promotion are application `0.1.10`. Promotion changes provenance/channel,
 not the source version.
 
 The Console compiles version/channel/SHA/date into its own build and displays an
@@ -127,7 +127,7 @@ always off.
 This is desired policy, not a cross-provider promise. The status/preview API reports
 the effective state and blockers before any mutation:
 
-| State backend | Effective 0.1.9 behavior |
+| State backend | Effective 0.1.10 behavior |
 |---|---|
 | Elasticsearch | Explicit Apply can install ILM for append-only `tlsoc-agent-audit-*` and `tlsoc-agent-usage-*` only, after the cluster/privilege/tier probe succeeds |
 | PostgreSQL | Advisory; no built-in partitions, tablespace movement, or archive scheduler |
