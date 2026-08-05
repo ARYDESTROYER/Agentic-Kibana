@@ -12,12 +12,12 @@
   (2026-07-14/15)** fixed **47 verified findings** (0 crit / 10 high / 24 med / 13 low)
   from a 24-auditor + adversarial-verify Workflow — **one atomic commit per finding, no
   co-author**, on `Testing` (`c5516e5`→`abd0385`).
-  The current source version is **`0.1.7`**. It is a Stable patch candidate on
+  The current source version is **`0.1.8`**. It is a Stable patch candidate on
   `Testing` and a Stable release only when the exact accepted `main` commit has the
-  immutable `v0.1.7` tag and matching artifacts. `Testing` is the permanent integration and
+  immutable `v0.1.8` tag and matching artifacts. `Testing` is the permanent integration and
   acceptance branch; accepted changes are promoted through a pull request to the Stable
   `main` branch and re-verified there. The remote now uses `main` as its default, retains
-  `Testing` for integration. The immutable `v0.1.7` tag is created only from the
+  `Testing` for integration. The immutable `v0.1.8` tag is created only from the
   fully verified promoted commit. The immutable `v0.1.4` attempt passed exact-tag CI,
   Help Center assembly, and Pages publication but stopped before every release
   artifact; it has no GitHub Release, signed plan, signature, digest, or GHCR release
@@ -27,8 +27,11 @@
   installable and must never be moved or reused. The immutable `v0.1.6` publication
   completed exact-tag CI, public signed images, plan, bundle, Release, and Help
   Center, but canonical macOS Bash 3.2 bootstrap acceptance failed before supervisor
-  installation. It remains immutable evidence, is superseded, and is not a supported
-  bootstrap source. See
+  installation. The immutable `v0.1.7` publication completed exact-tag CI, public
+  signed images, plan, bundle, Release, and Help Center, but canonical Docker Desktop
+  acceptance failed when `cap_drop: ALL` denied the updater's unconditional control-
+  socket ownership change. Both published records remain immutable evidence, are
+  superseded, and are not supported bootstrap sources. See
   `docs/releases/channels.md`. Repository administrators remain responsible for enforcing
   the documented branch and environment protections.
 - **Current CI contract:** every candidate exposes eighteen independent quality lanes
@@ -40,7 +43,7 @@
   Require **CI passed** on `Testing` and
   `main`; do not merge, tag, publish, skip, or soften a red/pending/cancelled lane.
 - **Release identity and supervised updates:** the top-right badge always reads
-  `v0.1.7 · Testing|Stable`; its popover reconciles build-time Console and public backend
+  `v0.1.8 · Testing|Stable`; its popover reconciles build-time Console and public backend
   build-info. Any known version/channel/SHA mismatch downgrades to Testing. Local demo auto-
   derives Stable only on literal `main`; Docker release builds must stamp channel/SHA/date.
   The reference standalone PostgreSQL Compose deployment can install a compatible,
@@ -57,11 +60,12 @@
   fails closed. The browser and
   ordinary backend never receive the Docker socket, host commands, arbitrary artifact
   coordinates, or registry credentials. The supported canonical `v0.1.1` deployment
-  requires one manual updater bootstrap to install the strictly newer signed 0.1.7
-  release after its canonical Release, signature, and public images verify. A Testing/source-built 0.1.3 deployment
-  either non-installable 0.1.4/0.1.5 publication attempt, or the published-but-
-  bootstrap-blocked 0.1.6 artifact record must instead be reconciled manually;
-  it cannot be relabelled Stable. An already-running 0.1.7 deployment cannot bootstrap
+  requires one manual updater bootstrap to install the strictly newer signed 0.1.8
+  release after its canonical Release, signature, and public images verify. A
+  Testing/source-built 0.1.3 deployment, either non-installable 0.1.4/0.1.5
+  publication attempt, or the published-but-
+  bootstrap-blocked 0.1.6/0.1.7 artifact records must instead be reconciled manually;
+  it cannot be relabelled Stable. An already-running 0.1.8 deployment cannot bootstrap
   itself from the same-version plan. Bootstrap safely reuses or replaces only inspectable idle
   supervisor state; an active/unreadable state fails closed. Bootstrap transfers
   lifecycle ownership before job submission and reuses a private per-release start key

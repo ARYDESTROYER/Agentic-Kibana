@@ -46,6 +46,22 @@ def _ci_workflow() -> dict[str, object]:
                 'docker run --rm --entrypoint python "${IMAGE}" -c '
                 "'from importlib.metadata import version; "
                 "assert version(\"wheel\") == \"0.45.1\"'\n"
+                'jq -e \'.Config.User == "0:10001"\' image.json\n'
+            ),
+        },
+        {
+            "name": "Smoke updater control socket without Linux capabilities",
+            "if": "${{ matrix.component == 'updater' }}",
+            "run": (
+                "docker run --detach --read-only --cap-drop ALL "
+                "--security-opt no-new-privileges:true image\n"
+                "docker inspect --format '{{.State.Health.Status}}' container\n"
+                "docker run --rm --user 10001:10001 image python3 -c '"
+                "stat.S_ISSOCK(details.st_mode); "
+                "details.st_uid == 0; "
+                "details.st_gid == 10001; "
+                "stat.S_IMODE(details.st_mode) == 0o660; "
+                "GET /v1/status HTTP/1.1'\n"
             ),
         },
         {
@@ -238,6 +254,31 @@ class WorkflowPolicyTests(unittest.TestCase):
             'version("wheel") != ""',
         )
         with self.assertRaisesRegex(ValueError, "reviewed Wheel version"):
+            policy._assert_ci(Path("ci.yml"), workflow)
+
+    def test_shipping_updater_primary_group_cannot_drift(self) -> None:
+        workflow = _ci_workflow()
+        identity = next(
+            step
+            for step in workflow["jobs"]["container-images"]["steps"]
+            if step.get("name") == "Verify image identity and runtime contract"
+        )
+        identity["run"] = identity["run"].replace(
+            '.Config.User == "0:10001"',
+            '.Config.User == ""',
+        )
+        with self.assertRaisesRegex(ValueError, "control-socket GID"):
+            policy._assert_ci(Path("ci.yml"), workflow)
+
+    def test_shipping_updater_socket_runtime_smoke_cannot_be_removed(self) -> None:
+        workflow = _ci_workflow()
+        workflow["jobs"]["container-images"]["steps"] = [
+            step
+            for step in workflow["jobs"]["container-images"]["steps"]
+            if step.get("name")
+            != "Smoke updater control socket without Linux capabilities"
+        ]
+        with self.assertRaisesRegex(ValueError, "control-socket runtime smoke"):
             policy._assert_ci(Path("ci.yml"), workflow)
 
     def test_repository_publishers_require_exact_tag_ci(self) -> None:

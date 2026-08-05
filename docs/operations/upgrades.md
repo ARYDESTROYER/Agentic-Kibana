@@ -12,15 +12,15 @@ feature branches → Testing → main (Stable)
 ```
 
 `Testing` is the integration and acceptance branch. `main` is the supported Stable
-branch. The current release is represented as `0.1.7` in packages/images and
-`v0.1.7` as an immutable release tag; its documentation
+branch. The current release is represented as `0.1.8` in packages/images and
+`v0.1.8` as an immutable release tag; its documentation
 line remains `0.1`.
 
 !!! note "Canonical topology and administrative controls"
 
     The remote now uses `Testing` for integration and default `main` for accepted
-    Stable source. Version 0.1.7 is Stable only when the exact verified `main`
-    commit has the immutable `v0.1.7` tag and matching signed/public artifacts.
+    Stable source. Version 0.1.8 is Stable only when the exact verified `main`
+    commit has the immutable `v0.1.8` tag and matching signed/public artifacts.
     Pull-request protections,
     required checks, and release-environment policy are repository settings rather
     than source-code guarantees. Administrators must verify them independently;
@@ -34,6 +34,11 @@ line remains `0.1`.
     macOS Bash 3.2 bootstrap acceptance failed before supervisor installation. It
     remains historical evidence and is not a supported deployment, bootstrap, or
     update source.
+
+    The immutable `v0.1.7` tag also has valid signed/public artifacts. Canonical
+    Docker Desktop acceptance reached the updater container, then `cap_drop: ALL`
+    denied its unconditional control-socket ownership change before `/v1/status`.
+    It is also historical, superseded, and not a supported installation source.
 
 ## Promotion gate
 
@@ -49,7 +54,7 @@ Before promoting `Testing` to `main`:
 - ensure every package, image, OpenAPI document, and documentation page uses the same
   release identity.
 
-Promote through a reviewed pull request. Tag the accepted `main` commit `v0.1.7` and
+Promote through a reviewed pull request. Tag the accepted `main` commit `v0.1.8` and
 publish artifacts identified by digest. Do not move a release tag.
 
 ### Version and promotion checklist
@@ -75,11 +80,11 @@ publish artifacts identified by digest. Do not move a release tag.
    publish by digest, and let the docs workflow move `stable`/`latest`.
 
 `TLSOC_VERSION` and `TLSOC_RELEASE_CHANNEL` answer different questions. Promoting
-`0.1.7` from Testing to Stable changes provenance, not its SemVer.
+`0.1.8` from Testing to Stable changes provenance, not its SemVer.
 
 ## Supported one-click upgrades
 
-Agentic SOC 0.1.7 includes the updater foundation for the reference deployment and
+Agentic SOC 0.1.8 includes the updater foundation for the reference deployment and
 publishes it only after the candidate completes the immutable Stable release gate.
 After one explicit bootstrap, a built-in `super_admin` can authorize a compatible
 Stable release from the Console and the updater performs the host-side work. The
@@ -112,13 +117,13 @@ that file is a manual upgrade even when every image and signature is otherwise v
 
 An installation made before the updater exists cannot grant itself host update
 authority. The supported transition from the final pre-supervisor Stable release,
-v0.1.1, to v0.1.7 therefore requires one host-authorized bootstrap. On the host:
+v0.1.1, to v0.1.8 therefore requires one host-authorized bootstrap. On the host:
 
 1. keep the existing reference PostgreSQL Compose deployment running;
 2. configure durable `.env` values for `TLSOC_PG_PASSWORD`,
    `TLSOC_AUTH_ENABLED=true`, a `TLSOC_AUTH_JWT_SECRET` of at least 32 characters,
    and the trusted `AGENTIC_SOC_UPDATE_REPOSITORY`;
-3. check out the clean, exact annotated `v0.1.7` tag whose commit is contained in
+3. check out the clean, exact annotated `v0.1.8` tag whose commit is contained in
    `origin/main`; and
 4. run `./scripts/bootstrap-updater.sh` from that checkout.
 
@@ -138,7 +143,7 @@ it is deleted only after bootstrap observes that exact job terminal. An unreadab
 invalid supervisor or any active job fails closed for operator recovery; bootstrap
 never force-replaces work in progress.
 It builds only the initial supervisor transport from the verified checkout, then
-asks that supervisor to fetch, verify, preflight, and apply the signed v0.1.7 plan.
+asks that supervisor to fetch, verify, preflight, and apply the signed v0.1.8 plan.
 The full transition therefore uses the same digest-pinned pull, quiesce, verified
 backup, identity/health checks, durable receipt, and automatic rollback state machine
 as later Console-initiated updates. It is not an unverified local rebuild of the
@@ -148,14 +153,14 @@ application pair.
 
     A Testing- or source-built 0.1.3 deployment, the non-installable `v0.1.4` /
     `v0.1.5` publication attempts, and the published-but-bootstrap-blocked `v0.1.6`
-    record are not the canonical `v0.1.1` Stable source and are rejected rather than
-    being relabelled. Reconcile them manually to the signed 0.1.7 deployment.
+    and `v0.1.7` records are not the canonical `v0.1.1` Stable source and are rejected rather than
+    being relabelled. Reconcile them manually to the signed 0.1.8 deployment.
     Bootstrap also requires a strictly newer target,
-    so an already-running 0.1.7 deployment cannot bootstrap itself from the 0.1.7
+    so an already-running 0.1.8 deployment cannot bootstrap itself from the 0.1.8
     plan; the next newer compatible Stable release can establish or use the
     supervised path according to this procedure.
 
-Once a supported 0.1.7 deployment has the supervisor, later compatible Stable
+Once a supported 0.1.8 deployment has the supervisor, later compatible Stable
 releases can be applied from the Console. A missing supervisor or a safely inspectable,
 idle older protocol is remediated by the host-authorized bootstrap; active, unreadable,
 or invalid supervisor state remains an explicit manual blocker. The product never
@@ -335,7 +340,7 @@ updater does not claim zero downtime or immunity from loss of its trusted host.
 
 ### Updater retention and capacity
 
-Version 0.1.7 does **not** automatically prune updater jobs, preflights, cached signed
+Version 0.1.8 does **not** automatically prune updater jobs, preflights, cached signed
 plans and signature bundles, deployment snapshots/receipts, or PostgreSQL backups.
 The reference deployment keeps updater state in the persistent
 `agentic-soc-updater-state` volume and verified dumps in the separate
@@ -359,7 +364,7 @@ Never remove or rotate away:
 Archive or remove eligible history only after **all** of these are true: a later
 successfully installed release has superseded the record's rollback authority; the
 exact terminal outcome is present in application audit; and the operator's backup and
-retention policy permits disposal. Version 0.1.7 provides no supported online,
+retention policy permits disposal. Version 0.1.8 provides no supported online,
 per-record cleanup command, so do not delete individual live-volume files while the
 supervisor is running or infer eligibility from age alone.
 

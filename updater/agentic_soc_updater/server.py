@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import re
 import socketserver
+import stat
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
@@ -46,6 +47,33 @@ def _terminal_limit(path: str) -> int:
             f"limit must be between 1 and {MAX_TERMINAL_JOBS}", 422
         )
     return limit
+
+
+def _secure_control_socket(socket_path: Path, socket_gid: int) -> None:
+    """Publish the socket only when its inherited group matches the contract.
+
+    The shipping container intentionally drops every Linux capability.  In
+    particular it does not have ``CAP_CHOWN``, so changing the socket group
+    after ``bind(2)`` is neither necessary nor permitted.  The image instead
+    starts the root-owned supervisor with the backend's fixed primary group;
+    Unix sockets inherit that effective group when they are created.
+
+    Validate that boundary before opening the API.  A runtime override that
+    changes the primary group therefore fails closed rather than publishing a
+    root-only socket or asking for a broader container capability.
+    """
+
+    details = socket_path.lstat()
+    if not stat.S_ISSOCK(details.st_mode):
+        raise PermissionError("control socket path is not a Unix socket")
+    if details.st_uid != 0:
+        raise PermissionError("control socket must be owned by root")
+    if details.st_gid != socket_gid:
+        raise PermissionError(
+            "control socket group does not match UPDATE_CONTROL_GID; "
+            "the updater container must run with that primary group"
+        )
+    os.chmod(socket_path, 0o660)
 
 
 class UnixHTTPServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
@@ -134,10 +162,9 @@ def serve(socket_path: Path, socket_gid: int, service: UpdateService) -> None:
     except FileNotFoundError:
         pass
     server = UnixHTTPServer(str(socket_path), Handler)
-    server.service = service  # type: ignore[attr-defined]
-    os.chown(socket_path, 0, socket_gid)
-    os.chmod(socket_path, 0o660)
     try:
+        server.service = service  # type: ignore[attr-defined]
+        _secure_control_socket(socket_path, socket_gid)
         service.resume()
         server.serve_forever(poll_interval=0.25)
     finally:
