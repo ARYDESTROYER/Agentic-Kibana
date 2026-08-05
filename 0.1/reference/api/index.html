@@ -2759,6 +2759,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2820,12 +2824,58 @@
   
   
     <li class="md-nav__item">
+      <a href="../../releases/0.1.6/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.6
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1.5/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.5 failed publication
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../releases/0.1.4/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Agentic SOC 0.1.4
+    Agentic SOC 0.1.4 failed publication
     
   </span>
   
@@ -3491,7 +3541,7 @@
 
 <h1 id="api-reference">API reference<a class="headerlink" href="#api-reference" title="Permanent link">&para;</a></h1>
 <p>The <strong>Agentic SOC API</strong> is the FastAPI service behind the Agentic SOC Console. This page covers
-the public HTTP surface in application version <strong>0.1.4</strong> and documentation line
+the public HTTP surface in application version <strong>0.1.6</strong> and documentation line
 <strong>0.1</strong>. The API is mounted at <code>/api</code>; the service root is <code>/</code>.</p>
 <h2 id="interactive-and-machine-readable-specifications">Interactive and machine-readable specifications<a class="headerlink" href="#interactive-and-machine-readable-specifications" title="Permanent link">&para;</a></h2>
 <p>Each running API publishes:</p>
@@ -3502,7 +3552,7 @@ the public HTTP surface in application version <strong>0.1.4</strong> and docume
 </ul>
 <p>Build information reports the application version, independent release channel,
 commit SHA, build time, state backend, and OCSF version. A Testing candidate and its
-Stable promotion both remain <code>0.1.4</code>; <code>TLSOC_RELEASE_CHANNEL</code> distinguishes
+Stable promotion both remain <code>0.1.6</code>; <code>TLSOC_RELEASE_CHANNEL</code> distinguishes
 <code>testing</code> from the accepted <code>stable</code> build.</p>
 <p>The committed 0.1 OpenAPI snapshot contains 210 paths and 251 operations. It is the
 best source for current request-body models, enums, parameters, and operation IDs.
@@ -3899,7 +3949,7 @@ polling is disabled.</p>
 returns <code>status</code>, <code>recommendations</code>, <code>scanned_cases</code>, <code>truncated</code>,
 <code>evidence_schema="agentic-soc.telemetry-gap/v1"</code>, and an explicit
 <code>not_available_reason</code>. It also returns <code>capture_status</code> and
-<code>capture_not_available_reason</code>; v0.1.4 reports capture unavailable rather than
+<code>capture_not_available_reason</code>; v0.1.6 reports capture unavailable rather than
 claiming that uncontrolled legacy text is evidence. It accepts only stored structured
 history from a controlled producer after a bounded query/tool attempt with result <code>field_missing</code>,
 <code>query_unsupported</code>, or <code>source_unqueryable</code>. The v1 allowlist maps outbound DNS,

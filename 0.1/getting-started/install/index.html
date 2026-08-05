@@ -2640,6 +2640,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -2701,12 +2705,58 @@
   
   
     <li class="md-nav__item">
+      <a href="../../releases/0.1.6/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.6
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1.5/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.5 failed publication
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../releases/0.1.4/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Agentic SOC 0.1.4
+    Agentic SOC 0.1.4 failed publication
     
   </span>
   
@@ -3154,16 +3204,21 @@ and read-only.</p>
 when infrastructure and external model calls are not part of your evaluation.</p>
 <h2 id="1-check-out-version-01">1. Check out version 0.1<a class="headerlink" href="#1-check-out-version-01" title="Permanent link">&para;</a></h2>
 <p>Use the immutable Stable tag:</p>
-<div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>--branch<span class="w"> </span>v0.1.4<span class="w"> </span>--depth<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>--branch<span class="w"> </span>v0.1.6<span class="w"> </span>--depth<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>https://github.com/ARYDESTROYER/Agentic-Kibana.git
 <span class="nb">cd</span><span class="w"> </span>Agentic-Kibana
 </code></pre></div>
 <p>For an unreleased preview, use the repository's <code>Testing</code> branch instead. The remote
-uses default <code>main</code> for accepted Stable source; <code>v0.1.4</code> exists only after the
-candidate has completed promotion and tagging. Do not
-create or move a release tag locally. Pulling <code>main</code> means pulling the current
+uses default <code>main</code> for accepted Stable source. Do not create or move a release tag
+locally. Pulling <code>main</code> means pulling the current
 accepted Stable source—not the next Testing candidate—but repository protections
 and required checks must be verified independently.</p>
+<p>The immutable <code>v0.1.4</code> and <code>v0.1.5</code> tags are not installable releases: their
+publication attempts stopped before a canonical signed plan and public GitHub
+Release existed. Use <code>v0.1.6</code> only
+when its canonical GitHub Release, plan signature, and public image digests verify;
+otherwise use a previously verified Stable release or Testing only for an explicitly
+unreleased evaluation.</p>
 <h2 id="2-prepare-configuration">2. Prepare configuration<a class="headerlink" href="#2-prepare-configuration" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code>cp<span class="w"> </span>.env.example<span class="w"> </span>.env
 </code></pre></div>
