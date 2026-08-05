@@ -2526,6 +2526,12 @@
       
         
       
+        
+      
+        
+      
+        
+      
     
     
     
@@ -2570,6 +2576,75 @@
   
   <span class="md-ellipsis">
     Agentic SOC 0.1
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0.1.4/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.4
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0.1.3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.3 (unpublished snapshot)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0.1.2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.2 (unpublished snapshot)
     
   </span>
   
@@ -2728,6 +2803,21 @@
       Semantic versioning before 1.0
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Semantic versioning before 1.0">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#version-every-published-change-not-every-internal-commit" class="md-nav__link">
+    <span class="md-ellipsis">
+      Version every published change, not every internal commit
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -2963,6 +3053,21 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Semantic versioning before 1.0">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#version-every-published-change-not-every-internal-commit" class="md-nav__link">
+    <span class="md-ellipsis">
+      Version every published change, not every internal commit
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -3082,6 +3187,21 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Semantic versioning before 1.0">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#version-every-published-change-not-every-internal-commit" class="md-nav__link">
+    <span class="md-ellipsis">
+      Version every published change, not every internal commit
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
         
           <li class="md-nav__item">
@@ -3149,7 +3269,7 @@ particular build passed acceptance.</p>
   T --&gt; G["Full release gate"]
   G --&gt;|promotion PR; same source tree| M["main / Stable"]
   M --&gt; V["vX.Y.Z tag"]
-  M --&gt; D["Versioned documentation"]</code></pre>
+  V --&gt; D["Versioned documentation"]</code></pre>
 <p>The branch names and channel names are deliberately different kinds of label:</p>
 <ul>
 <li>write <strong><code>Testing</code></strong> when referring to the integration branch or channel;</li>
@@ -3166,12 +3286,22 @@ acceptance.</p>
 <p>The Console's <strong>Settings → Organization → Updates &amp; releases</strong> section observes these
 two source refs by default. A fork or renamed repository can replace the public GitHub
 URL and either branch name without changing the application wire namespace. This is
-metadata discovery only: an observed source commit is linked for review and cannot
-deploy or activate itself. The actual top-bar update action still requires a different,
-already-deployed Console manifest that exactly matches a healthy backend build.</p>
+metadata discovery only: an observed branch-head commit is linked for review and
+cannot deploy or activate itself. Stable discovery separately dereferences the exact
+annotated <code>vVERSION</code> tag; only that immutable tag commit can become an update
+candidate. For a bootstrapped supported deployment, the actual top-bar action
+additionally requires a newer Stable version, a compatible signed release plan,
+the private updater's preflight, durable secrets and PostgreSQL state, exact image
+digests, a verified backup, and recent built-in-super-admin reauthentication. After a
+successful installation, the same-origin Console manifest must still exactly match a
+healthy backend build before the new document activates.</p>
 <h2 id="version-01-nomenclature">Version 0.1 nomenclature<a class="headerlink" href="#version-01-nomenclature" title="Permanent link">&para;</a></h2>
-<p>The first standardized release line is documentation version <strong>0.1</strong> and product
-version <strong>0.1.1</strong>.</p>
+<p>The first standardized release line is documentation version <strong>0.1</strong>. The current
+source version is product version <strong>0.1.4</strong>, built on the accepted but unpublished
+0.1.2 and 0.1.3 Testing snapshots. It is a Testing candidate before exact verified
+promotion and becomes a Stable release record only after the accepted <code>main</code> commit
+is immutably tagged <code>v0.1.4</code> and its signed artifacts are published. Until then,
+<code>v0.1.1</code> remains the last published Stable.</p>
 <table>
 <thead>
 <tr>
@@ -3194,11 +3324,11 @@ version <strong>0.1.1</strong>.</p>
 </tr>
 <tr>
 <td>SemVer package and image version</td>
-<td><code>0.1.1</code></td>
+<td><code>0.1.4</code></td>
 </tr>
 <tr>
 <td>Git release tag</td>
-<td><code>v0.1.1</code></td>
+<td><code>v0.1.4</code> only from the exact verified <code>main</code> commit; absent before publication and immutable afterward</td>
 </tr>
 <tr>
 <td>Documentation selector and URL line</td>
@@ -3215,9 +3345,9 @@ version <strong>0.1.1</strong>.</p>
 </tbody>
 </table>
 <p>Patch releases remain within the same documentation line. For example, app
-versions <code>0.1.1</code> and <code>0.1.2</code> update the <code>0.1</code> documentation rather than creating
-new selector entries. A new minor release creates a new documentation line such
-as <code>0.2</code>.</p>
+versions <code>0.1.1</code>, <code>0.1.2</code>, <code>0.1.3</code>, and <code>0.1.4</code> use the <code>0.1</code> documentation rather than
+creating new selector entries. A new minor release creates a new documentation
+line such as <code>0.2</code>.</p>
 <h2 id="promotion-procedure">Promotion procedure<a class="headerlink" href="#promotion-procedure" title="Permanent link">&para;</a></h2>
 <p>Every release starts with a candidate commit on <code>Testing</code>:</p>
 <ol>
@@ -3234,16 +3364,40 @@ as <code>0.2</code>.</p>
 <li>Let the documentation workflow publish the matching major.minor line and move
    the <code>stable</code> and <code>latest</code> aliases to it.</li>
 </ol>
+<p>The Documentation workflow validates <code>Testing</code> and <code>main</code>, but publication is gated
+on the exact annotated <code>vX.Y.Z</code> tag. Its tag must match <code>VERSION</code> and resolve to the
+current <code>origin/main</code> commit. Configure the <code>github-pages</code> environment to admit the
+<code>v*</code> release-tag pattern, and keep <strong>Settings → Pages → Source</strong> set to <strong>GitHub
+Actions</strong>. A <code>main</code> push alone must never move the public Stable aliases.</p>
 <p>Use an annotated tag and verify it before pushing:</p>
 <div class="highlight"><pre><span></span><code>git<span class="w"> </span>switch<span class="w"> </span>main
 git<span class="w"> </span>pull<span class="w"> </span>--ff-only<span class="w"> </span>origin<span class="w"> </span>main
 <span class="nb">test</span><span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>cat<span class="w"> </span>VERSION<span class="k">)</span><span class="s2">&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;X.Y.Z&quot;</span>
-git<span class="w"> </span>tag<span class="w"> </span>-a<span class="w"> </span><span class="s2">&quot;vX.Y.Z&quot;</span><span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;Agentic SOC X.Y.Z&quot;</span>
+<span class="nb">test</span><span class="w"> </span>-z<span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>git<span class="w"> </span>status<span class="w"> </span>--porcelain<span class="k">)</span><span class="s2">&quot;</span>
+git<span class="w"> </span>tag<span class="w"> </span>-a<span class="w"> </span><span class="s2">&quot;vX.Y.Z&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-m<span class="w"> </span><span class="s2">&quot;Agentic SOC X.Y.Z&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-m<span class="w"> </span><span class="s2">&quot;&lt;operator-relevant release summary&gt;. Detailed notes: docs/releases/X.Y.Z.md; CHANGELOG.md.&quot;</span>
+<span class="nb">test</span><span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>git<span class="w"> </span>cat-file<span class="w"> </span>-t<span class="w"> </span><span class="s1">&#39;vX.Y.Z&#39;</span><span class="k">)</span><span class="s2">&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;tag&quot;</span>
+<span class="nb">test</span><span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>git<span class="w"> </span>rev-parse<span class="w"> </span><span class="s1">&#39;vX.Y.Z^{commit}&#39;</span><span class="k">)</span><span class="s2">&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>git<span class="w"> </span>rev-parse<span class="w"> </span>HEAD<span class="k">)</span><span class="s2">&quot;</span>
 git<span class="w"> </span>show<span class="w"> </span>--no-patch<span class="w"> </span><span class="s2">&quot;vX.Y.Z&quot;</span>
 git<span class="w"> </span>push<span class="w"> </span>origin<span class="w"> </span><span class="s2">&quot;vX.Y.Z&quot;</span>
 </code></pre></div>
-<p>Replace <code>X.Y.Z</code> with the real <code>VERSION</code> value. Published tags are immutable; never
-force-update one.</p>
+<p>Replace <code>X.Y.Z</code> with the real <code>VERSION</code> value and replace the summary placeholder
+with the release's concrete operator-visible scope. Publish the GitHub Release from
+that existing tag with the versioned release page and changelog as canonical notes.
+<code>.github/release.yml</code> defines repository PR-note categories but does not replace the
+canonical versioned release body. Published tags are
+immutable; never force-update one. The workflow first creates a non-public draft bound
+to the exact tag and commit SHA, uploads both canonical upgrade-plan assets, downloads
+and byte-compares them, verifies the Sigstore bundle, and only then changes the draft to
+published in one API transition. An interrupted retry may resume only that exact draft:
+an authenticated plan is reused, incomplete <code>starter</code> uploads are removed, and a
+missing signature bundle is recreated and verified before publication. A published
+release is never repaired or overwritten; a missing, duplicate, unexpected, or partial
+asset inventory fails closed and requires a new patch release. A later workflow retry
+may reuse the latest completed, successful <code>ci.yml</code> push run only when its tag ref and
+commit SHA exactly match that immutable release; it is deliberately not coupled to the
+retry's wall-clock time.</p>
 <h3 id="changelog-discipline">Changelog discipline<a class="headerlink" href="#changelog-discipline" title="Permanent link">&para;</a></h3>
 <p><code>CHANGELOG.md</code> has exactly one active top-level <strong><code>[Unreleased]</code></strong> section during
 normal development. Dated work that is not a published release is a <strong>Development
@@ -3270,6 +3424,12 @@ describe its real operating boundary. At minimum:</p>
 <li>canonical version metadata, OpenAPI, TypeScript contracts, image defaults, and
   release notes agree;</li>
 <li>backend tests, web console lint/tests/build, and strict documentation build pass;</li>
+<li>the supported PostgreSQL+pgvector/Redis state lane performs a real readiness
+  write/read, and every shipping backend, Console, and updater image builds with the
+  exact candidate identity before any tag can publish it;</li>
+<li>workflow/ShellCheck and deploy/updater contracts run as separate required lanes so
+  one early failure cannot hide another; the fail-closed <code>CI passed</code> aggregate must
+  succeed on <code>Testing</code>, the resulting <code>main</code> commit, and the immutable tag;</li>
 <li>the documented Console release-candidate browser matrix passes on the exact built
   candidate in Light, Dark, and System at desktop and narrow widths, with build SHA,
   release badge, keyboard/focus, loading/error/empty behavior, same-origin Help Center,
@@ -3284,12 +3444,16 @@ describe its real operating boundary. At minimum:</p>
 <p>Passing unit tests does not by itself make a commit Stable. The accepted source,
 release metadata, documentation, and published artifacts must describe the same
 thing.</p>
+<p>Never remove, soften, skip, or mark a required lane <code>continue-on-error</code> merely to
+make a release green. Repair the underlying contract and re-run the exact candidate.
+The application release and Stable Help Center publication both verify the exact
+tag CI run and its successful <strong>CI passed</strong> aggregate before publishing anything.</p>
 <p>Use the <a href="../../development/testing/#release-candidate-browser-acceptance">release-candidate browser acceptance matrix</a>
 for the required route and interaction coverage. A screenshot of one successful page
 is not a Console acceptance receipt.</p>
 <h2 id="build-and-badge-provenance">Build and badge provenance<a class="headerlink" href="#build-and-badge-provenance" title="Permanent link">&para;</a></h2>
-<p>SemVer and channel are independent. A Testing candidate and the accepted Stable
-build can both report version <code>0.1.1</code>; the channel says where that build sits in
+<p>SemVer and channel are independent. The 0.1.4 Testing candidate and its accepted
+Stable build can both report version <code>0.1.4</code>; the channel says where that build sits in
 the acceptance lifecycle. Stamp the mutable provenance fields explicitly; keep or
 override the Dockerfile's canonical source URL as appropriate:</p>
 <table>
@@ -3333,12 +3497,16 @@ backend build-info is unavailable, the immutable Console build stamp determines 
 visible channel and remains inspectable.</p>
 <p>The web artifact also publishes a same-origin <code>/release.json</code> with its immutable
 version, channel, commit, and build time. Serve that file with <code>no-store</code> semantics.
-The top bar may show <strong>Update available</strong> beside the version badge only when a
-different, fully stamped manifest identity exactly matches public backend build-info and a healthy
-<code>/api/health</code> response. Activation requires operator confirmation and a final
-no-store check of the manifest, backend identity/readiness, and <code>/index.html</code>; known
-unsaved drafts block it. Discovery or preflight failure leaves the current document
-running, and the Console never auto-reloads.</p>
+For a bootstrapped supported Compose/PostgreSQL deployment, the top bar may show
+<strong>Update vX.Y.Z</strong> when the backend observes a newer Stable release and the isolated
+updater reports a compatible protocol. Branch HEAD remains observation-only; the
+release candidate is bound to the dereferenced annotated tag commit. A freshly
+authenticated built-in super
+administrator must confirm a server-bound preflight. The updater then verifies the
+signed plan and digest-pinned artifacts, backs up owned state, performs the rollout,
+observes health, and automatically rolls back on failure. A completed rollout uses
+the existing no-store manifest, backend identity/readiness, and <code>/index.html</code> checks
+to reload the open tab; known unsaved drafts block that reload.</p>
 <p>Separately, authenticated <code>settings:read</code> users may receive a read-only upstream
 observation from <code>GET /api/releases/upstream</code>. The backend checks only the saved public
 GitHub repository and Stable/Testing refs, caches successful metadata, and preserves a
@@ -3347,12 +3515,12 @@ same-version different SHA may be announced as source for review; an older SemVe
 never called an update. <code>POST /api/releases/upstream/check</code> refreshes that metadata
 subject to a cooldown. Neither endpoint has Git, deployment, process, migration, or
 activation authority.</p>
-<p>This is not a release-promotion signal or deployment authority. It activates an
-already-deployed coherent web/backend pair; it cannot pull artifacts, restart
-services, run migrations, carry deploy credentials, or perform rollback. Operators
-must retain the previous build's hashed assets—or use blue-green serving—through the
-observation window so an existing tab can continue lazy-loading while the new target
-is offered.</p>
+<p>Neither source-observation endpoint is a release-promotion signal or deployment
+authority. Only the private updater socket can reach the host runtime, and its fixed
+v1 contract rejects browser-supplied URLs, commands, paths, Compose fragments,
+untrusted registries, infrastructure upgrades, and migrations. Deployments without
+that supervisor—or outside its exact reference profile—continue to use the manual
+upgrade path and receive a precise blocker instead of a misleading install button.</p>
 <p>Local <code>run-demo.sh</code> derives Stable only from a literal <code>main</code> checkout; every
 other branch, detached checkout, or unknown channel fails safe to Testing unless
 an explicit release-build override is supplied. The documentation marquee is a
@@ -3374,6 +3542,23 @@ explicit channel, SHA, and build date rather than relying on a default.</p>
 <p>Before <code>1.0.0</code>, a minor increment can contain breaking changes. Those changes must
 still have explicit migration notes and cannot be hidden behind the Testing/Stable
 channel labels.</p>
+<h3 id="version-every-published-change-not-every-internal-commit">Version every published change, not every internal commit<a class="headerlink" href="#version-every-published-change-not-every-internal-commit" title="Permanent link">&para;</a></h3>
+<p>Every published change to user-visible behavior, dependencies, configuration,
+public API contracts, documentation, packaging, or operational procedure receives a
+new SemVer and patch notes. Backward-compatible corrections in the existing 0.1
+documentation line advance PATCH by one. The patch component is an integer, so
+<code>0.1.21</code> means patch 21; it is not a fourth-level version for a very small change.</p>
+<p>A candidate may bundle several related commits and changes under one version.
+Internal refactors, test additions, review fixes, and intermediate commits do not each
+need their own version while they remain unpublished inside the same candidate. If
+the candidate has already been published and any release content changes—even only
+Stable documentation or an operational instruction—prepare the next patch instead of
+moving the existing tag or silently republishing its artifacts.</p>
+<p>Each release record must cover the operator-visible change, compatibility and
+migration impact, rollback considerations, verification evidence, and known
+limitations. Choose the candidate version before final acceptance, align every
+artifact to it, promote the accepted tree to <code>main</code>, verify that exact <code>main</code> commit,
+and only then create its immutable Stable tag.</p>
 <h2 id="documentation-publication">Documentation publication<a class="headerlink" href="#documentation-publication" title="Permanent link">&para;</a></h2>
 <p>Every Console build first generates its own version-matched Help Center under
 <code>/docs/&lt;major.minor&gt;/</code>. That installed copy is part of the application artifact and
@@ -3382,9 +3567,10 @@ promotion direction as the source:</p>
 <ul>
 <li>a pull request or push to <code>Testing</code> runs a strict docs-plus-app build and can
   publish a Development review artifact, but does not move the public Stable site;</li>
-<li>a push to <code>main</code>, or a manual Documentation run selected on <code>main</code>, updates the
-  current major.minor history with Mike, assigns the <code>stable</code> and <code>latest</code> aliases,
-  and keeps older documentation directories;</li>
+<li>the promoted <code>main</code> commit is a final verification input, not publication authority;
+  only its matching immutable annotated release tag updates the current major.minor
+  history with Mike, assigns the <code>stable</code> and <code>latest</code> aliases, and keeps older
+  documentation directories;</li>
 <li>the generated <code>gh-pages</code> branch is the version-history backing store; GitHub Pages
   itself must use <strong>GitHub Actions</strong> as its source, and the workflow deploys a
   validated link-free artifact with the native Pages actions;</li>
@@ -3459,7 +3645,7 @@ maintenance rules, and <a href="../0.1/">Agentic SOC 0.1</a> for this release li
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
           </span>
           
-            <span class="tlsoc-page-footer__description">Promotion blockers and explicit operating constraints for Agentic SOC 0.1.1.</span>
+            <span class="tlsoc-page-footer__description">Release gates and explicit operating constraints for Agentic SOC 0.1.4.</span>
           
         </a>
       

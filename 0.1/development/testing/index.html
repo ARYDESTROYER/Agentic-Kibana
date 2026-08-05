@@ -2570,9 +2570,9 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#known-test-harness-noise" class="md-nav__link">
+  <a href="#console-output-contract" class="md-nav__link">
     <span class="md-ellipsis">
-      Known test-harness noise
+      Console output contract
     </span>
   </a>
   
@@ -2684,6 +2684,12 @@
       
         
       
+        
+      
+        
+      
+        
+      
     
     
     
@@ -2728,6 +2734,75 @@
   
   <span class="md-ellipsis">
     Agentic SOC 0.1
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1.4/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.4
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1.3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.3 (unpublished snapshot)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1.2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.2 (unpublished snapshot)
     
   </span>
   
@@ -2969,9 +3044,9 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#known-test-harness-noise" class="md-nav__link">
+  <a href="#console-output-contract" class="md-nav__link">
     <span class="md-ellipsis">
-      Known test-harness noise
+      Console output contract
     </span>
   </a>
   
@@ -3121,9 +3196,9 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#known-test-harness-noise" class="md-nav__link">
+  <a href="#console-output-contract" class="md-nav__link">
     <span class="md-ellipsis">
-      Known test-harness noise
+      Console output contract
     </span>
   </a>
   
@@ -3211,22 +3286,28 @@
 <p>Agentic SOC changes are accepted on <code>Testing</code> only after the relevant offline, contract,
 build, and documentation gates pass. Stable promotion moves that accepted source
 tree through a protected pull request to <code>main</code>; the resulting commit is gated again
-before application version <code>v0.1.1</code> is tagged.</p>
-<p>The latest fully recorded local baseline is <strong>2,174 backend tests</strong> and <strong>1,828
-Console tests across 277 files</strong>. Counts rise as coverage is added; the
-commands and zero-failure result are the contract, not a frozen target.</p>
-<p>The remote now uses <code>Testing</code> for integration and default <code>main</code> for accepted Stable
-source, and it has the <code>v0.1.1</code> release tag. Branch protection, required checks,
+before application version <code>v0.1.4</code> is tagged.</p>
+<p>The latest fully recorded local baseline is <strong>2,306 backend tests</strong> and <strong>1,936
+Console tests across 286 files</strong> (1,927 passed + 9 intentionally skipped). The
+Console baseline also has zero stderr bytes and zero Vitest-captured console stdout
+blocks under <code>npm run test:strict</code>. Counts rise as coverage is added; the commands
+and zero-failure result are the contract, not a frozen target.</p>
+<p>The remote uses <code>Testing</code> for integration and default <code>main</code> for accepted Stable
+source. Version 0.1.4 is a candidate on <code>Testing</code> and is Stable only when the
+resulting verified <code>main</code> commit has the immutable <code>v0.1.4</code> tag and matching
+artifacts. Branch protection, required checks,
 Pages source selection, and <code>github-pages</code> environment policy are repository settings;
 verify them independently before treating a merge or deployment as accepted.</p>
 <h2 id="github-merge-gate">GitHub merge gate<a class="headerlink" href="#github-merge-gate" title="Permanent link">&para;</a></h2>
-<p>Every pull request receives twelve visible statuses from
-<code>.github/workflows/ci.yml</code>: repository/version contracts, backend tests, backend
-package integrity, backend startup, Console tests, TypeScript/OpenAPI drift,
-Console lint, design-system gates, Help Center/docs, the production Console build,
-deployment/shell contracts, and the aggregate <strong>CI passed</strong> result. The first eleven
-run independently so the failed contract is obvious; the aggregate runs even when a
-dependency fails or is cancelled and succeeds only when all eleven report success.</p>
+<p>Every pull request receives eighteen visible statuses from
+<code>.github/workflows/ci.yml</code>: seventeen independently diagnosable quality lanes plus the
+aggregate <strong>CI passed</strong> result. In addition to repository, backend, Console, API,
+design, documentation, and package checks, the gate boots the supported
+PostgreSQL+pgvector/Redis state path, validates workflows and shell separately from
+deploy/updater contracts, rejects fatal Python correctness faults, and builds all
+three shipping images. The aggregate runs even when a dependency fails or is
+cancelled and succeeds only when all seventeen
+report success.</p>
 <p>Branch protection needs only the stable aggregate name <strong>CI passed</strong>. Requiring that
 single fail-closed result keeps protection intact if an internal job is renamed while
 still preventing a skipped or cancelled lane from passing a merge. The exact job-to-
@@ -3255,12 +3336,17 @@ npm<span class="w"> </span>ci
 npm<span class="w"> </span>run<span class="w"> </span>typecheck
 npm<span class="w"> </span>run<span class="w"> </span>lint
 npm<span class="w"> </span>run<span class="w"> </span>gates
-npm<span class="w"> </span><span class="nb">test</span>
+npm<span class="w"> </span>run<span class="w"> </span>test:strict
 npm<span class="w"> </span>run<span class="w"> </span>build
 </code></pre></div>
 <p>Component/page tests should cover loading, empty, error, populated, and permission-
 denied states. Interaction tests should use user-observable behavior and include
 keyboard/focus/accessibility assertions where the component is interactive.</p>
+<p>Use plain <code>npm test -- &lt;file-or-pattern&gt;</code> for focused iteration. The release-only
+<code>npm run test:strict</code> command first tests its own output parser, then runs the complete
+suite and fails if Vitest writes any stderr byte or reports any captured <code>console.log</code>
+block. CI uses the strict command; the focused developer path remains direct and
+argument-friendly.</p>
 <h3 id="release-candidate-browser-acceptance">Release-candidate browser acceptance<a class="headerlink" href="#release-candidate-browser-acceptance" title="Permanent link">&para;</a></h3>
 <p>The complete Console suite is necessary but does not replace browser acceptance. For
 every Stable candidate, inspect the exact built candidate through the supported same-
@@ -3291,15 +3377,15 @@ the receipt or linked automated evidence.</p>
 </tr>
 <tr>
 <td>Intelligence and analytics</td>
-<td>Knowledge, Memory, Playbooks browse/edit boundaries, Metrics, Agent effectiveness, Cost, Models, Baseline, Batch jobs, and Auto-tuning Operations/Outcomes/Policy &amp; history</td>
+<td>Knowledge corpus, Reference runbooks, Operator memory, Response playbooks, Agent personas, Metrics, Agent effectiveness, Cost, Models, Baseline, Batch jobs, and Auto-tuning Operations/Outcomes/Policy &amp; history</td>
 </tr>
 <tr>
 <td>Platform and help</td>
 <td>Sources catalog/detail/health, Audit log, Settings section search/deep links/dirty state/sticky actions, narrow Settings Sheet, appearance/branding isolation, and the in-app Help Center plus an installed <code>/docs/&lt;major.minor&gt;/</code> article</td>
 </tr>
 <tr>
-<td>Release activation</td>
-<td>Current release badge/popover; coherent different <code>/release.json</code> offer; confirmation/focus return; known-dirty blocking; stale-target, identity-mismatch, unhealthy, offline, and invalid-entry preflight failures; successful same-hash-route activation</td>
+<td>Release update</td>
+<td>Current release badge/popover; mutable Stable candidate versus signed preflight; unsupported-supervisor/manual boundary; blocker remediation; reauth and known-dirty blocking; durable progress/reconnect; cancellation-before-switch; automatic rollback; post-success image-only rollback; successful same-hash-route activation</td>
 </tr>
 <tr>
 <td>Compatibility paths</td>
@@ -3312,19 +3398,61 @@ search and state filters, inspector open/close, one grouped action per rule, mix
 safe/restricted outcomes, same-rule busy locking with unrelated rules still enabled,
 permission-isolated Outcomes loading, dirty policy preservation, newest-active
 rollback, and no horizontal overflow in Light/Dark desktop and 390px layouts.</p>
-<p>For release activation, run against a deployment fixture that can independently
-control <code>/release.json</code>, <code>/api/health/build-info</code>, <code>/api/health</code>, and <code>/index.html</code>.
-Confirm the action is absent for the loaded build and every incomplete/incoherent
-combination. Offer it only for a different exact manifest/backend identity with
-healthy readiness. After the dialog opens, change the target or fail each final
-preflight request in turn; the old document and current work must remain usable and
-must not enter a request/reload loop. Verify a known dirty Runbook or Settings draft
-removes the Update action, the native exit guard still covers the actual navigation,
-cancel restores focus, and a successful activation retains the exact hash route. Run
-the case with the previous hashed asset set retained (or against blue-green static
-origins) and prove an open tab can lazy-load both before and during the observation
-window. The browser must never receive a deployment credential or invoke a pull,
-restart, migration, promotion, or rollback path.</p>
+<p>For release update, separate mutable discovery from immutable authority. A newer
+Stable branch <code>VERSION</code> plus supervisor capability may display a candidate only when
+the exact annotated <code>vVERSION</code> tag dereferences to an immutable commit; branch HEAD is
+review metadata, not the candidate commit. It must not become confirmable until the
+backend derives the canonical GitHub Release assets and signed updater preflight
+returns zero blockers. Exercise unavailable,
+stale, same-version, malformed release, bad signature, wrong workflow/repository/tag/
+commit, unsupported source version, SQLite/Elasticsearch/custom topology, unhealthy
+Postgres/updater, canonical base-Compose hash mismatch, insufficient backup capacity,
+concurrent job, runtime-only secret,
+and expired preflight-token paths. Separately verify that private/missing registry
+images and digest/label mismatches fail after job creation but before application
+mutation. Every denial or failed job must remain usable and provide exact remediation
+without sending host paths, commands, Compose fragments, registry credentials, or
+Docker authority to the browser.</p>
+<p>Exercise the complete supported job against an isolated copy of the reference
+single-replica PostgreSQL Compose stack. Assert pull-before-mutation, quiesced and
+catalog-verified custom-format backup, exact backend/Web identity and readiness,
+installed Help Center checks, observation window, durable progress across backend and
+updater handoff, and same-hash-route browser reload. Inject failure before switching,
+after backend switch, after Web switch, and during observation. An automatic
+post-switch failure must restore prior images without rewriting PostgreSQL and must
+preserve a sentinel write accepted after the backup. Cancellation before switch and a
+rollback requested after success must also restore images only. Prove the verified
+dump remains available for an explicit break-glass recovery rehearsal, but is never
+consumed automatically. Any plan with a migration strategy other than <code>none</code> must fail
+preflight.</p>
+<p>Verify the one-time v0.1.1→v0.1.4 bootstrap separately from later Console updates:
+it must refuse a dirty checkout, a lightweight/mismatched tag, a tag whose commit is
+not contained in <code>origin/main</code>, missing durable secrets, an unsupported running
+topology, an active job, and unreadable/invalid existing supervisor state. Prove it
+reuses a compatible idle supervisor and replaces only an inspectable idle incompatible
+one while preserving/restoring the active digest override. Repeat the replacement test
+without an active override and prove bootstrap captures the exact immutable prior
+updater image ID, restores it after an injected replacement failure, and removes the
+temporary recovery override only after confirmed success. Its happy path installs only
+the initial supervisor transport before delegating the full v0.1.4 transition to the
+signed state machine. Afterward, prove
+<code>scripts/agentic-soc-compose.sh</code> layers the active digest override and document raw
+Compose lifecycle commands as unsupported. Verify a known dirty Runbook or Settings
+draft blocks confirmation, cancel restores focus, and the browser never receives a
+deployment credential or direct pull/restart/migration/rollback authority.</p>
+<p>Fault-inject helper-process, Docker-daemon, and host restarts at every updater
+self-replacement name-swap boundary. Confirm the restartable helper re-observes container
+names and immutable image IDs, then either resumes the target or restores the exact
+prior supervisor. Separately rehearse manual disaster recovery when Docker cannot run
+any container or its durable metadata/storage is unavailable; do not conflate that
+host-loss boundary with an ordinary restart.</p>
+<p>Fault-inject the Stable publication workflow before draft creation, after each
+canonical asset upload, after remote byte/signature verification, and immediately
+before and after the draft-to-published transition. A retry must recover only an exact
+tag/SHA draft, remove only validated incomplete draft assets, and publish only after
+both downloaded assets match and the Sigstore bundle verifies. A complete published
+release must become verify-only; a partial, duplicate, unexpected, or wrong-SHA release
+must fail closed without upload, overwrite, or publication.</p>
 <p>For each area, verify the states that can be reproduced safely: loading, populated,
 empty, refresh-in-place, retryable failure, permission denied/hidden navigation, and
 confirmation/progress for consequential actions. Use keyboard-only navigation through
@@ -3340,13 +3468,14 @@ failed same-origin API/docs requests, or repeated request loops fail acceptance.
 the corrected or high-risk surfaces and state that no unexplained console/network error
 remained. Re-run the focused browser path after a fix and repeat the complete matrix on
 the final promoted <code>main</code> commit before tagging.</p>
-<h3 id="known-test-harness-noise">Known test-harness noise<a class="headerlink" href="#known-test-harness-noise" title="Permanent link">&para;</a></h3>
-<p>The complete Console suite currently passes without failures. Its jsdom output has
-<strong>152</strong> Recharts zero-dimension notices and <strong>168</strong> React/Radix <code>act(...)</code> notices;
-there are <strong>0</strong> controlled-state transitions, error heads, or unimplemented-runtime
-errors. These are test-harness cleanup items rather than accepted product errors. Do
-not suppress them globally; remove each notice at its owning fixture or component so
-new regressions remain visible.</p>
+<h3 id="console-output-contract">Console output contract<a class="headerlink" href="#console-output-contract" title="Permanent link">&para;</a></h3>
+<p>The complete Console suite is quiet: passing tests must not emit React/Radix <code>act(...)</code>
+warnings, Recharts measurement warnings, other stderr, or captured console stdout.
+<code>npm run test:strict</code> streams Vitest output unchanged and fails closed on any such
+output even when every assertion passes. Fix noise at its owning fixture or component;
+do not add a global warning filter or weaken the strict runner. A test that deliberately
+exercises logging should install a local spy, assert the expected call, and restore it
+before the test ends.</p>
 <h2 id="api-contract-drift">API contract drift<a class="headerlink" href="#api-contract-drift" title="Permanent link">&para;</a></h2>
 <p>The OpenAPI document and generated TypeScript contract are committed artifacts.
 Regenerate them whenever a backend request, enum, or typed response changes:</p>
@@ -3364,7 +3493,7 @@ typed in the generated contract.</p>
 <p>Run the repository's standard-library metadata gate from the root:</p>
 <div class="highlight"><pre><span></span><code>python3<span class="w"> </span>scripts/check_version.py
 </code></pre></div>
-<p>For the 0.1 line it checks that the root <code>VERSION</code> (<code>0.1.1</code>) agrees with backend,
+<p>For the 0.1 line it checks that the root <code>VERSION</code> (<code>0.1.4</code>) agrees with backend,
 Console, lockfile, OpenAPI, Compose image/build metadata, release records, and the
 MkDocs/Mike documentation line (<code>0.1</code>).</p>
 <h2 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">&para;</a></h2>
@@ -3414,8 +3543,21 @@ Pages environment deployed or that the public aliases resolve.</p>
 <div class="highlight"><pre><span></span><code><span class="nv">TLSOC_PG_PASSWORD</span><span class="o">=</span>validation-only<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>docker<span class="w"> </span>compose<span class="w"> </span>-f<span class="w"> </span>deploy/docker-compose.agnostic.yml<span class="w"> </span>config<span class="w"> </span>--quiet
 bash<span class="w"> </span>-n<span class="w"> </span>scripts/run-demo.sh
+python3<span class="w"> </span>-m<span class="w"> </span>unittest<span class="w"> </span>discover<span class="w"> </span>-s<span class="w"> </span>updater/tests<span class="w"> </span>-v
+python3<span class="w"> </span>-m<span class="w"> </span>py_compile<span class="w"> </span>updater/agentic_soc_updater/*.py<span class="w"> </span>scripts/build_upgrade_plan.py
+go<span class="w"> </span>run<span class="w"> </span>github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
 </code></pre></div>
-<p><code>deploy/docker-compose.tlsoc.yml</code> is deliberately a fragment to merge into an
+<p>GitHub additionally runs the production-state acceptance against digest-pinned
+PostgreSQL+pgvector and Redis service images. Readiness must prove the bounded KV
+write/read, the <code>vector</code> extension must exist, and Redis must answer <code>PING</code>. A
+three-cell BuildKit matrix then builds the backend <code>full</code>, Console/Help Center, and
+updater images without publishing them and verifies their immutable candidate labels,
+healthchecks, ports, runtime user or updater protocol as applicable. These are
+required lanes, not advisory previews.</p>
+<p>The raw Compose invocation above is a read-only CI render, not a deployed-lifecycle
+command. After updater bootstrap, manual start/stop/build/restart operations must use
+<code>scripts/agentic-soc-compose.sh</code> so the active release override remains layered.
+<code>deploy/docker-compose.tlsoc.yml</code> is deliberately a fragment to merge into an
 operator's existing ELK project; validating it as a standalone topology would be a
 false failure because its Elasticsearch service is external. For a release candidate, additionally test
 the selected real state backend, restart persistence, source authentication, readiness,
@@ -3426,14 +3568,25 @@ isolated environment.</p>
 <ol>
 <li>Rebase/merge the intended feature changes into <code>Testing</code> and identify the candidate commit.</li>
 <li>Run backend, Console, generated-contract, version, strict-docs, and packaging/deployment checks.</li>
-<li>Resolve every failure on <code>Testing</code>; do not patch only the Stable branch.</li>
+<li>Resolve every failure on <code>Testing</code>; do not patch only the Stable branch, weaken a
+   gate, or use <code>continue-on-error</code> to manufacture a green candidate.</li>
 <li>Promote the accepted source tree to <code>main</code> without content changes, then run the
    release gate again on the resulting <code>main</code> commit.</li>
 <li>Build and stamp the verified commit with the correct channel, exact SHA, build
    date, and source URL.</li>
-<li>Create the immutable <code>v0.1.1</code> tag and publish matching application artifacts by
+<li>Create the immutable <code>v0.1.4</code> tag and publish matching application artifacts by
    digest; let the Documentation workflow publish the accepted public 0.1 line from
    <code>main</code>.</li>
+<li>Verify all three GHCR packages are public and anonymously pullable by the exact
+   backend, Web, and updater digests in the signed plan. Confirm the GitHub Release
+   carries the plan and Sigstore bundle and that the plan's tag, commit, workflow
+   identity, labels, and compatibility range match the release.</li>
+<li>In an isolated test repository, interrupt the tag workflow before either draft
+   upload, after the plan upload, after both uploads, and immediately after publication.
+   Prove each exact tag/SHA draft resumes without rebuilding a validated plan and that a
+   complete published release becomes verify-only. Separately present a partial or
+   unexpected published asset inventory and prove the retry fails closed without
+   upload, overwrite, or publication.</li>
 <li>Verify <code>/api/health/build-info</code>, image metadata, the native Pages deployment, and
    the 0.1 Stable docs selector and aliases.</li>
 </ol>

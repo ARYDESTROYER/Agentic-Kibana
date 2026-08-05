@@ -2634,6 +2634,12 @@
       
         
       
+        
+      
+        
+      
+        
+      
     
     
     
@@ -2678,6 +2684,75 @@
   
   <span class="md-ellipsis">
     Agentic SOC 0.1
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1.4/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.4
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1.3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.3 (unpublished snapshot)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1.2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.2 (unpublished snapshot)
     
   </span>
   
@@ -3109,24 +3184,36 @@ built, tested, or shipped as part of 0.1.</p>
 <li>source credentials scoped to the minimum required indices/APIs;</li>
 <li>HTTPS termination for any shared or non-loopback deployment.</li>
 </ul>
+<p>Supervised updates additionally require authentication enabled, a durable JWT secret
+of at least 32 characters, a durable PostgreSQL password, the unmodified reference
+Compose topology, and public anonymous pull access to the release's <code>backend</code>,
+<code>webui</code>, and <code>updater</code> GHCR packages.</p>
 <h2 id="standalone-stack">Standalone stack<a class="headerlink" href="#standalone-stack" title="Permanent link">&para;</a></h2>
 <ol>
-<li>Check out the accepted <code>v0.1.1</code> tag for Stable, or the <code>Testing</code> branch only for
+<li>Check out the accepted <code>v0.1.4</code> tag for Stable after release, or the <code>Testing</code> branch only for
    acceptance testing.</li>
 <li>Copy <code>.env.example</code> to <code>.env</code> and set a strong PostgreSQL password.</li>
 <li>Configure authentication and provider credentials.</li>
-<li>Validate the rendered Compose configuration.</li>
-<li>Build and start <code>deploy/docker-compose.agnostic.yml</code>.</li>
+<li>Validate the rendered Compose configuration through
+   <code>./scripts/agentic-soc-compose.sh config --quiet</code>.</li>
+<li>Build and start it through <code>./scripts/agentic-soc-compose.sh up --detach --build</code>.</li>
 <li>Confirm liveness, readiness, and build information before opening the UI.</li>
 <li>Complete first-run setup and add a synthetic source before real data.</li>
 </ol>
-<p>The stack contains PostgreSQL/pgvector, Redis, the backend, and the nginx-hosted
-Console. The web image serves both the compiled SPA and the version-matched Help
-Center at <code>/docs/0.1/</code>, and proxies <code>/api/*</code> to the backend. Redis is a cache, not
-the authoritative case/config store.</p>
-<p>The remote now uses <code>Testing</code> for integration and default <code>main</code> for accepted Stable
-source, and it has the <code>v0.1.1</code> release tag. A pull of <code>main</code> receives the current
-accepted Stable tree while integration work continues on <code>Testing</code>. Branch
+<p>The stack contains PostgreSQL/pgvector, Redis, the backend, the nginx-hosted Console,
+and the isolated update supervisor. The web image serves both the compiled SPA and
+the version-matched Help Center at <code>/docs/0.1/</code>, and proxies <code>/api/*</code> to the backend.
+Redis is a cache, not the authoritative case/config store.</p>
+<p>The updater is a privileged host boundary: it alone receives the Docker socket. The
+ordinary backend sees only its bounded private Unix control socket; the Web container
+and browser see neither. Docker-socket access is effectively root-equivalent on the
+host, so deploy only the reviewed supervisor image, restrict access to the host and
+Compose project, protect <code>.env</code> and updater volumes, and never expose the control
+socket over TCP.</p>
+<p>The remote uses <code>Testing</code> for integration and default <code>main</code> for accepted Stable
+source. Version 0.1.4 is Stable only when the exact verified <code>main</code> commit has the
+immutable <code>v0.1.4</code> tag and matching artifacts. A pull of <code>main</code> receives the current accepted Stable tree while
+integration work continues on <code>Testing</code>. Branch
 protections, required checks, and release-environment policy remain repository
 settings that administrators must verify independently.</p>
 <h2 id="existing-elasticsearch-attachment">Existing Elasticsearch attachment<a class="headerlink" href="#existing-elasticsearch-attachment" title="Permanent link">&para;</a></h2>
@@ -3151,19 +3238,19 @@ audit and usage/cost ledgers. Preview must confirm <code>manage_ilm</code>,
 warm tier capability before an administrator performs the explicit, freshly
 authenticated Apply. Cases and operational metadata stay Hot because they are
 mutable. PostgreSQL reports the policy as advisory; SQLite reports export-only.</p>
-<p>Archive is a desired target, not an active pipeline in 0.1.1. Build a separate
+<p>Archive is a desired target, not an active pipeline in 0.1.4. Build a separate
 immutable export with a manifest and checksums, verify restore, and only then place
 those independent archive objects under an S3 lifecycle rule. <strong>Never transition an
 Elasticsearch snapshot-repository prefix to Glacier</strong>; Elasticsearch expects its
 repository objects to remain directly readable.</p>
 <h2 id="image-identity">Image identity<a class="headerlink" href="#image-identity" title="Permanent link">&para;</a></h2>
-<p>Backend and web images use the machine version <code>0.1.1</code> and accept OCI version,
+<p>Backend and web images use the machine version <code>0.1.4</code> and accept OCI version,
 revision, build-date, and source metadata. Record the image digest and
 <code>/api/health/build-info</code> result with each deployment. Do not treat a mutable branch or
 image tag as an immutable release identity.</p>
 <p>Release channel is stamped independently from SemVer. Source builds default to
-<code>TLSOC_RELEASE_CHANNEL=testing</code>; the accepted <code>main</code>/<code>v0.1.1</code> build must explicitly
-set it to <code>stable</code>. This preserves the same <code>0.1.1</code> candidate identity through
+<code>TLSOC_RELEASE_CHANNEL=testing</code>; the accepted <code>main</code>/<code>v0.1.4</code> build must explicitly
+set it to <code>stable</code>. This preserves the same <code>0.1.4</code> candidate identity through
 acceptance without allowing a Testing build to report itself as Stable.</p>
 <p>Set <code>TLSOC_VERSION</code>, <code>TLSOC_RELEASE_CHANNEL</code>, <code>TLSOC_BUILD_SHA</code>, and
 <code>TLSOC_BUILD_DATE</code> explicitly through the reference Compose build. Its Dockerfiles
@@ -3176,19 +3263,83 @@ backend build-info; open the badge to inspect both identities. Any version,
 channel, or known-SHA mismatch displays Testing. This operator aid complements,
 but does not replace, digest and endpoint verification.</p>
 <p>The web artifact's <code>/release.json</code> and <code>/index.html</code> must be served with no-store
-semantics. After a different release has been deployed, <strong>Update available</strong> may
-appear beside the badge only when its version, channel, non-<code>unknown</code> SHA, and
-non-<code>unknown</code> build time exactly match backend build-info
-and healthy readiness. The operator confirms activation; the Console repeats the
-manifest/build-info/health checks, verifies <code>/index.html</code>, and only then reloads the
-same hash route. Any failed or incoherent check leaves the existing document usable.
-This browser flow does not deploy, restart, migrate, promote, or roll back anything.
-Builds left at the safe <code>unknown</code> SHA/date defaults remain operable but do not advertise
-an update; release automation must stamp both artifacts identically.</p>
-<p>Retain the previous release's immutable hashed assets for the full observation
-window, or use blue-green serving that keeps the old origin available until open
-sessions drain. Otherwise an existing tab can fail while requesting an old lazy
-chunk before activation, which violates the graceful-rollout contract.</p>
+semantics. A deployment bootstrapped with the external update supervisor may show one
+compact <strong>Update to vX.Y.Z</strong> candidate beside the release badge when mutable public
+Stable-branch observation reports a newer SemVer and the host reports the supported
+capability. The candidate is not installation authority. Selecting it asks the
+backend to derive canonical GitHub Release assets and the supervisor to perform the
+signed preflight. Confirmation remains blocked until the private supervisor verifies
+the declarative plan and signed digest-pinned backend/Web/updater image identities,
+compatibility, backup capacity, and installed identity. The browser supplies only the
+exact release ID and opaque idempotency/preflight tokens. Actual registry pulls and
+image-label inspection happen after job creation but before application mutation.
+Stable branch HEAD remains observation-only: the candidate commit is the immutable
+commit dereferenced from the exact annotated <code>vVERSION</code> tag.</p>
+<p>Starting the update creates a durable host-side job. The supervisor pulls and verifies
+all images first, creates and catalog-verifies a PostgreSQL custom-format backup,
+hands off to the signed updater when required, replaces the backend and Web Console,
+verifies readiness/build identity/Help Center, and observes the coherent pair. A
+post-switch failure automatically restores the prior application image IDs and
+leaves PostgreSQL untouched. The verified backup is retained only as a break-glass
+recovery artifact. The Console expects a temporary reconnect and resumes the
+same job; a successful installation still repeats the no-store manifest, backend
+identity/readiness, entry-document checks, and preserves the current hash route before
+activating the new Web document.</p>
+<p>Automatic in-flight failure, cancellation before switching, and deliberate rollback
+after success all restore application images only; none rewrites PostgreSQL. This
+preserves every write accepted after the snapshot was taken. The catalog-verified
+quiesced dump remains available for an explicit operator-controlled break-glass
+recovery, and v1 therefore permits only plans with <code>migration.strategy=none</code>.</p>
+<p>This support is deliberately narrow in 0.1.4: the reference single-replica standalone
+Docker Compose deployment whose mounted base file matches the signed canonical
+SHA-256, canonical project/network/service identities and PostgreSQL volume,
+PostgreSQL-owned state, coherent schema labels, authentication enabled with durable
+secrets, no database migration, and the separately bootstrapped supervisor. PostgreSQL
+and Redis infrastructure images are unchanged. SQLite, Elasticsearch-owned state,
+external PostgreSQL, legacy ELK, custom Compose/Kubernetes layouts, horizontal
+replicas, runtime-only secrets, unknown build identity, incompatible plans, or any
+release requiring a migration are blocked with a manual remediation. A pre-supervisor
+installation needs the documented one-time
+<code>scripts/bootstrap-updater.sh</code> host step; software cannot retroactively install its own
+privileged supervisor.</p>
+<p>The updater never transports or replaces <code>deploy/docker-compose.agnostic.yml</code>. The
+0.1.x protocol pins its version-invariant bytes in
+<code>deploy/update-base-v1.sha256</code>; the signed generated override carries versioned image
+digests. Changing that base requires a new updater protocol and manual bootstrap.</p>
+<p>The v0.1.1→v0.1.4 bootstrap must run from the clean, exact annotated <code>v0.1.4</code> tag
+whose commit remains contained in <code>origin/main</code>. It installs the initial supervisor
+transport and then delegates the complete v0.1.4 transition to the signed release plan
+and durable update state machine. After bootstrap, use
+<code>./scripts/agentic-soc-compose.sh</code> for
+every manual lifecycle command. Raw <code>docker compose -f
+deploy/docker-compose.agnostic.yml ...</code> bypasses the active digest override and is
+unsupported.</p>
+<p>A Testing/source-built 0.1.3 deployment is not the canonical legacy Stable source
+and cannot bootstrap by relabelling itself. Reconcile it manually to signed 0.1.4.
+Because bootstrap requires a strictly newer target, an already-running 0.1.4 cannot
+bootstrap from the 0.1.4 plan; use the next newer compatible Stable release's
+documented bootstrap path if no supervisor was established during reconciliation.</p>
+<p>The wrapper and supervisor also share a lifecycle lock: inspection commands remain
+available, while mutating or unknown Compose commands are refused for the full durable
+update transaction. Target pins remain private through self-handoff, writer quiescence,
+and verified backup, and become host-visible only at the switch boundary. Restart
+reconciliation clears a leftover marker only for an exact durable terminal job;
+unknown lifecycle state remains fail-closed.</p>
+<p>Bootstrap reuses a compatible idle supervisor and can replace an inspectable idle
+incompatible one while preserving/restoring the active digest override. It refuses an
+active job or unreadable/invalid supervisor state rather than replacing it blindly.
+Preserved pins may be restored only before <code>/v1/jobs</code> submission. At submission the
+durable supervisor owns the lifecycle; bootstrap retains and reuses an unpredictable
+per-release start key after interruption and deletes it only after observing the exact
+job terminal.</p>
+<p>Keep the prior backend/Web image digests and verified backup until the observation
+window and operator retention policy are satisfied. The supervisor's durable job and
+receipt remain the recovery source if the browser disconnects during replacement.
+Updater self-replacement uses a restartable helper and an idempotent name-swap
+transaction. It resumes replacement or restores the exact prior supervisor after an
+ordinary helper-process, Docker-daemon, or host restart. A failure that prevents Docker
+and all of its containers from running, or destroys Docker metadata/storage, remains a
+manual host recovery event.</p>
 <p>After deployment, open <strong>Documentation</strong> from the navigation rail and confirm it
 stays on the deployment origin at <code>/docs/0.1/</code>. Installed help is part of the web
 artifact and should remain available in an isolated network; public Stable and

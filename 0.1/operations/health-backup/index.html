@@ -2616,6 +2616,12 @@
       
         
       
+        
+      
+        
+      
+        
+      
     
     
     
@@ -2660,6 +2666,75 @@
   
   <span class="md-ellipsis">
     Agentic SOC 0.1
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1.4/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.4
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1.3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.3 (unpublished snapshot)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1.2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.2 (unpublished snapshot)
     
   </span>
   
@@ -3059,12 +3134,16 @@ notification tests for those dependencies.</p>
 </ul>
 <p>Redis is an optimization/cache and is not the authoritative application backup.
 Upstream logs remain in their source systems and require their own retention/backup.</p>
-<p><strong>Settings → Organization → Data export</strong> is a support/analysis snapshot, not a
-backup. It is intentionally bounded, omits credentials, users/sessions, raw upstream
-logs, and raw knowledge chunks, and has no matching import/restore endpoint. Use the
-selected state backend's consistent dump or snapshot mechanism for recovery.</p>
+<p><strong>Settings → Organization → Data export</strong> can page all records in its selected
+supported safe scopes, but it is a support/analysis artifact, not a whole-application
+backup. Its Knowledge scope preserves sanitized authoritative operator runbook and
+playbook documents plus safe bundled manifests/references, but it omits credentials,
+users/sessions, chat/collaboration state, raw upstream logs, and raw knowledge chunks,
+and has no matching import/restore endpoint. Resumable cursors are signed and bound to
+the requesting operator, scope, and snapshot. Use the selected state backend's
+consistent dump or snapshot mechanism for recovery.</p>
 <p>The desired Storage &amp; retention archive stage is also not a backup mechanism in
-0.1.1. Glacier requires an independent immutable export, manifest, checksums, and a
+0.1.4. Glacier requires an independent immutable export, manifest, checksums, and a
 tested restore path. Never transition an Elasticsearch snapshot-repository prefix to
 Glacier; every repository object must remain directly readable by Elasticsearch.</p>
 <h2 id="backup-procedure">Backup procedure<a class="headerlink" href="#backup-procedure" title="Permanent link">&para;</a></h2>

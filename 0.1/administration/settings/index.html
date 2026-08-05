@@ -2645,6 +2645,12 @@
       
         
       
+        
+      
+        
+      
+        
+      
     
     
     
@@ -2689,6 +2695,75 @@
   
   <span class="md-ellipsis">
     Agentic SOC 0.1
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1.4/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.4
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1.3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.3 (unpublished snapshot)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1.2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.2 (unpublished snapshot)
     
   </span>
   
@@ -3147,9 +3222,14 @@ default when one is configured, otherwise the device preference.</p>
 from one compact section trigger; it is not stacked above the active form. Settings
 URLs retain <code>#/settings?s=&lt;id&gt;&amp;a=&lt;anchor&gt;</code>, so an authorized operator can bookmark a
 section or a specific setting group. Modified sections show a dirty indicator, and
-one sticky <strong>Save changes / Discard</strong> bar owns buffered preference writes across the
-workspace. Immediate self-contained operations still report their own result, but a
-section renderer must not create a second preference-save path.</p>
+one sticky <strong>Save changes / Discard</strong> bar owns both buffered preference writes and
+write-only secret drafts across the workspace. Saving keeps the narrow API contracts:
+ordinary preferences are sent as a minimal top-level patch, then only non-blank
+replacement secrets are sent to the dedicated secret endpoint. If the preference
+write succeeds but a secret write fails, the saved preferences stay applied and the
+secret draft remains visible and retryable. Immediate self-contained operations still
+report their own result, but a section renderer must not create a second preference or
+credential save path.</p>
 <h2 id="safe-administration-sequence">Safe administration sequence<a class="headerlink" href="#safe-administration-sequence" title="Permanent link">&para;</a></h2>
 <ol>
 <li>Back up the application state before a broad policy change.</li>
@@ -3181,15 +3261,29 @@ repository used for release observations. Fresh installations point to the Agent
 SOC repository, Stable <code>main</code>, Testing <code>Testing</code>, and a six-hour cache. Forks can save
 a renamed repository or different branch refs; only canonical public GitHub URLs and
 bounded branch names are accepted.</p>
-<p>The observation cards show each channel's root <code>VERSION</code>, immutable commit, check
-time, and any typed unavailable/stale condition. <strong>Check now</strong> is available only for
+<p>The observation cards show each channel's root <code>VERSION</code>, branch-head commit, check
+time, and any typed unavailable/stale condition. Stable discovery also requires the
+exact annotated <code>vVERSION</code> tag and records its immutable commit for an update candidate;
+branch HEAD remains observation-only. <strong>Check now</strong> is available only for
 the server-saved configuration, so an unsaved repository edit can never be checked as
 though it were durable. If GitHub is unavailable, the rest of Settings remains usable
 and a previous verified result may be shown as <strong>Last verified</strong>.</p>
-<p>This feature does not deploy software. An amber source notice is only a review link.
-The separate top-bar update action appears only after release automation has already
-deployed a different coherent Web/backend pair and the same-origin manifest, build
-identity, readiness, and entry document all pass the activation contract.</p>
+<p>The channel cards themselves remain read-only observations. An amber source notice is
+only a review link and changing the saved repository never grants deployment authority.</p>
+<p>For the reference standalone Compose/PostgreSQL profile, a separately bootstrapped
+private supervisor adds a guarded <strong>Update to vX.Y.Z</strong> action beside the version badge.
+Only the built-in super-administrator can preflight or start it after recent
+reauthentication. The confirmation names the exact Stable release, application
+components, planned PostgreSQL backup, unchanged infrastructure, and rollback
+coverage. The job later checksum- and catalog-verifies that backup before switching
+either application service. Progress is host-durable across a backend/Web reconnect.
+The updater never replaces the base Compose file. Its restartable, idempotent
+self-replacement helper resumes or restores the exact prior supervisor after ordinary
+helper-process, Docker-daemon, and host restarts. Loss of the trusted host or Docker
+metadata/storage remains manual recovery. Unsupported
+state backends, runtime-only secrets, unknown build identity, custom deployment
+topologies, missing supervisor, and migration-bearing releases remain manual with a
+specific blocker. See <a href="../../operations/upgrades/">Upgrades</a>.</p>
 <h2 id="storage-and-retention">Storage and retention<a class="headerlink" href="#storage-and-retention" title="Permanent link">&para;</a></h2>
 <p>Open <strong>Settings → Organization → Storage &amp; retention</strong> to review the desired
 lifecycle for Agentic SOC's <strong>own application state</strong>. The default policy is:</p>
@@ -3246,21 +3340,35 @@ repository unreadable to Elasticsearch. Until that independent archive pipeline
 exists, warm data remains retained and the Console reports Archive as not configured.</p>
 <h2 id="export-portable-application-state">Export portable application state<a class="headerlink" href="#export-portable-application-state" title="Permanent link">&para;</a></h2>
 <p>Open <strong>Settings → Organization → Data export</strong> when support or offline analysis
-needs a bounded JSON snapshot. Select all safe scopes or any combination of cases,
-audit, usage, configuration, automation, and knowledge. <code>limit_per_scope</code> is an
-aggregate cap for each selected scope (1–5000, default 1000); the returned manifest
-states count, known total, and truncation.</p>
-<p>The export excludes environment/source credentials, users and sessions,
+needs all records from selected supported safe scopes. Select cases, audit, usage,
+configuration, automation, and/or knowledge. <strong>Records per file</strong> (up to 5,000) is a
+bounded response size, not a full-history ceiling: the Console follows authenticated
+opaque cursors and downloads numbered files until each scope explicitly reports
+complete. A cursor is bound to its requesting operator, scope, and snapshot; do not
+edit or share it. The Console shows record/file progress and supports cancellation.</p>
+<p>The Knowledge scope includes exact catalog counts, sanitized authoritative Markdown
+for operator-owned runbooks and playbooks, and metadata-only references/manifests for
+bundled procedures. It excludes environment/source credentials, users and sessions,
 password/MFA material, browser tokens, upstream raw logs, and raw knowledge chunks.
-It is capped at 25 MiB and is not an import format or backup/restore mechanism. Every
-request is audited and requires <code>data_export:export</code>, granted by default to
-<code>super_admin</code> and <code>soc_manager</code>. Use a custom role only after reviewing the exact
-data that the selected scopes disclose.</p>
+Each compact server response and compact Console-downloaded segment is capped at
+25 MiB, and this is not an import format, whole-application
+export, or backup/restore mechanism. Every segment is audited and requires
+<code>data_export:export</code> plus a fresh sign-in, granted by default to <code>super_admin</code> and
+<code>soc_manager</code>. Exact point-in-time consistency is available on the bundled
+Elasticsearch state path; other backends disclose weaker consistency. A cursor that
+expires (ten-minute PIT keep-alive), crosses a backend restart, or is invalid must be
+restarted for that scope.
+Unavailable/malformed registry data or an unavailable append-only audit store aborts
+the scope with an error; the Console never turns that failure into a completed export.</p>
 <h2 id="secrets">Secrets<a class="headerlink" href="#secrets" title="Permanent link">&para;</a></h2>
 <p>Use environment variables for restart-safe credentials. A value entered into a
 source, notification, enrichment, or SSO secret form is held in memory and represented
 later only as a configured/not-configured state. Plan to re-enter those values after
 a backend restart unless the deployment supplies them at boot.</p>
+<p>In <strong>Settings → Security &amp; access → Secret keys</strong>, replacement values participate in
+the page-wide <strong>Save changes / Discard</strong> flow. Blank fields preserve existing values;
+Discard clears only the local replacement drafts. A failed secret update never echoes
+or erases the attempted value, so the operator can correct the problem and retry.</p>
 <p>Continue with <a href="../../operations/configuration/">Configuration reference</a>,
 <a href="../authentication/">Authentication</a>, and <a href="../../operations/health-backup/">Health, backup, and restore</a>.</p>
 

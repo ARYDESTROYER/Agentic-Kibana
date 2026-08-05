@@ -2651,6 +2651,12 @@
       
         
       
+        
+      
+        
+      
+        
+      
     
     
     
@@ -2695,6 +2701,75 @@
   
   <span class="md-ellipsis">
     Agentic SOC 0.1
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1.4/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.4
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1.3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.3 (unpublished snapshot)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1.2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.2 (unpublished snapshot)
     
   </span>
   
@@ -3249,10 +3324,13 @@ are recomputed for the selected equal-length windows rather than reusing the def
 change, insufficient, or unavailable independently of the established headline.</p>
 <p>True-positive/raw-alert yield is deliberately unavailable: correlation turns many
 alerts into fewer cases, so dividing case outcomes by alert counts mixes units. A
-future yield needs durable like-for-like alert→case→outcome lineage. Semantic telemetry
-coverage recommendations (for example, suggesting outgoing DNS logs for a specific
-investigation class) are also a long-term objective. The current release has no
-deterministic coverage-gap model and therefore returns no invented recommendation.</p>
+future yield needs durable like-for-like alert→case→outcome lineage. The aggregate
+effectiveness response likewise does not invent semantic telemetry guidance.
+Separately, Auto-tuning exposes a deliberately narrow deterministic recommendation
+surface for outbound DNS, endpoint process, and identity-authentication evidence. It
+requires a stored, versioned query/tool failure proving a supported field was
+unavailable; connector absence and free-form model prose alone never create a
+recommendation.</p>
 <p>Applied tuning rows are reported as context with <code>causal_claim=false</code>. Threshold tuning
 can affect downstream clustered, promoted, or opened work; it cannot reduce the alerts
 emitted by an upstream source. Compare durable volume and safety evidence around a

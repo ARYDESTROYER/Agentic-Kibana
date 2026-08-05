@@ -16,7 +16,7 @@
         <link rel="prev" href="../../development/testing/">
       
       
-        <link rel="next" href="../documentation-versions/">
+        <link rel="next" href="../0.1.4/">
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
@@ -2526,6 +2526,12 @@
       
         
       
+        
+      
+        
+      
+        
+      
     
     
     
@@ -2665,6 +2671,75 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0.1.4/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.4
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0.1.3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.3 (unpublished snapshot)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0.1.2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.2 (unpublished snapshot)
+    
+  </span>
+  
+
+      </a>
     </li>
   
 
@@ -3009,16 +3084,20 @@
 
 <h1 id="agentic-soc-01">Agentic SOC 0.1<a class="headerlink" href="#agentic-soc-01" title="Permanent link">&para;</a></h1>
 <p>Agentic SOC 0.1 is the first standardized application and documentation release line.
-Human-facing documentation uses <strong>0.1</strong>; packages, APIs, and images use Semantic
-Version <strong>0.1.1</strong>. The first Stable source is recorded by release tag
-<strong><code>v0.1.1</code></strong>.</p>
-<p>Builds on <code>Testing</code> are integration and acceptance builds. A build becomes the
-supported Stable release only when that accepted source tree is promoted to <code>main</code>,
-the resulting commit passes the release gate, and it is tagged <code>v0.1.1</code>.</p>
-<p>The repository now uses <code>Testing</code> for integration and default <code>main</code> for accepted
-source, and it has the <code>v0.1.1</code> tag. Later documentation corrections can update the
-public 0.1 guide from <code>main</code> without changing the immutable installed Help Center
-inside an already-built 0.1.1 artifact.</p>
+Human-facing documentation uses <strong>0.1</strong>; the current source version is Semantic
+Version <strong>0.1.4</strong>, built on the accepted but unpublished 0.1.2 and 0.1.3 Testing
+snapshots.</p>
+<p>Builds on <code>Testing</code> are integration and acceptance builds. Version 0.1.4 is a
+Testing candidate before promotion and becomes the supported Stable patch only when
+the accepted tree is promoted to <code>main</code>, the resulting commit passes the release
+gate, and that exact commit is tagged <code>v0.1.4</code> with its signed release artifacts.
+Until then, <code>v0.1.1</code> remains the last published Stable. Branch state alone never
+establishes the installed release identity.</p>
+<p>The repository uses <code>Testing</code> for integration and default <code>main</code> for accepted
+source. Patch 0.1.4 rebuilds the public and installed 0.1 guide without changing the
+documentation selector line; already-built artifacts keep their immutable bundled
+Help Center. Versions 0.1.2 and 0.1.3 remain unpublished historical Testing records,
+not Stable tags or artifact sources.</p>
 <h2 id="what-01-provides">What 0.1 provides<a class="headerlink" href="#what-01-provides" title="Permanent link">&para;</a></h2>
 <ul>
 <li>Vendor-neutral pull and push ingestion normalized to OCSF.</li>
@@ -3087,7 +3166,7 @@ Elasticsearch environments may instead hold Agentic SOC state in dedicated indic
 separate management and read-only log credentials.</p>
 <p>Record the exact tag, image digests, commit SHA, build date, state backend, and
 <code>/api/health/build-info</code> response. A branch name alone is not a release identity.
-The Console badge shows <code>v0.1.1 · Testing|Stable</code> and exposes both Console and
+The Console badge shows <code>v0.1.4 · Testing|Stable</code> and exposes both Console and
 backend stamps; any identity mismatch is visibly downgraded to Testing.</p>
 <h2 id="important-limitations">Important limitations<a class="headerlink" href="#important-limitations" title="Permanent link">&para;</a></h2>
 <p>Version 0.1 does not claim:</p>
@@ -3111,7 +3190,10 @@ is a safe rollback; restore the matching pre-upgrade state when compatibility is
 explicitly documented.</p>
 <p>Start with <a href="../../operations/deployment/">Deployment</a>,
 <a href="../../operations/security/">Security hardening</a>, and
-<a href="../documentation-versions/">Documentation versions</a>.</p>
+<a href="../documentation-versions/">Documentation versions</a>. Read the detailed
+<a href="../0.1.4/">0.1.4 Stable patch record</a> before promoting or upgrading. The
+<a href="../0.1.3/">0.1.3 record</a> and <a href="../0.1.2/">0.1.2 record</a> remain historical
+unpublished Testing snapshots.</p>
 
 
 
@@ -3165,16 +3247,16 @@ explicitly documented.</p>
       
       
         <a
-          href="../documentation-versions/"
+          href="../0.1.4/"
           class="tlsoc-page-footer__link tlsoc-page-footer__link--next"
-          aria-label="Next: Documentation versions"
+          aria-label="Next: Agentic SOC 0.1.4"
         >
           <span class="tlsoc-page-footer__title">
-            Documentation versions
+            Agentic SOC 0.1.4
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
           </span>
           
-            <span class="tlsoc-page-footer__description">How installed, Stable, and Development documentation relate to Agentic SOC application releases.</span>
+            <span class="tlsoc-page-footer__description">Stable release notes, signed-update artifacts, compatibility boundary, and operator verification for Agentic SOC 0.1.4.</span>
           
         </a>
       

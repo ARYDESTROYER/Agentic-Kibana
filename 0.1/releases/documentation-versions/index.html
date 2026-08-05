@@ -13,7 +13,7 @@
         <link rel="canonical" href="https://arydestroyer.github.io/Agentic-Kibana/0.1/releases/documentation-versions/">
       
       
-        <link rel="prev" href="../0.1/">
+        <link rel="prev" href="../0.1.2/">
       
       
         <link rel="next" href="../channels/">
@@ -2526,6 +2526,12 @@
       
         
       
+        
+      
+        
+      
+        
+      
     
     
     
@@ -2570,6 +2576,75 @@
   
   <span class="md-ellipsis">
     Agentic SOC 0.1
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0.1.4/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.4
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0.1.3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.3 (unpublished snapshot)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0.1.2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.2 (unpublished snapshot)
     
   </span>
   
@@ -3083,7 +3158,7 @@ and previewing future work.</p>
 </tr>
 <tr>
 <td><strong>Latest Stable</strong></td>
-<td>Documentation built from the current accepted <code>main</code> source for the supported release line</td>
+<td>Documentation built from the latest immutable release tag on the verified <code>main</code> source for the supported release line</td>
 <td>Upgrade evaluation, current supported guidance, and comparison with an older installation</td>
 </tr>
 <tr>
@@ -3099,7 +3174,7 @@ for newer material; it is not the primary product-help destination.</p>
 <h2 id="installed-documentation-contract">Installed documentation contract<a class="headerlink" href="#installed-documentation-contract" title="Permanent link">&para;</a></h2>
 <p>Every application build carries two related identifiers:</p>
 <ul>
-<li>the full product SemVer, such as <strong>0.1.1</strong>; and</li>
+<li>the full product SemVer, such as <strong>0.1.4</strong>; and</li>
 <li>the compatible documentation line, such as <strong>0.1</strong>.</li>
 </ul>
 <p>The documentation build and the application build originate from the same source
@@ -3128,20 +3203,38 @@ newer Stable or Development material.</p>
 <tbody>
 <tr>
 <td>0.1 installed Testing guide</td>
-<td>0.1.1</td>
+<td>0.1.4</td>
 <td>candidate commit on <code>Testing</code></td>
 <td>Testing</td>
 </tr>
 <tr>
-<td>0.1 installed Stable guide</td>
+<td>0.1 installed prior Stable guide</td>
 <td>0.1.1</td>
 <td>verified <code>main</code> commit tagged <code>v0.1.1</code></td>
 <td>Stable</td>
 </tr>
 <tr>
+<td>0.1 historical Testing guide</td>
+<td>0.1.2</td>
+<td>unpublished Testing snapshot; not a Stable tag or operational bootstrap source</td>
+<td>Testing archive</td>
+</tr>
+<tr>
+<td>0.1 historical Testing guide</td>
+<td>0.1.3</td>
+<td>unpublished Testing snapshot; not a Stable tag or artifact source</td>
+<td>Testing archive</td>
+</tr>
+<tr>
+<td>0.1 installed 0.1.4 Stable guide</td>
+<td>0.1.4</td>
+<td>exact verified <code>main</code> commit after it is tagged <code>v0.1.4</code></td>
+<td>Stable</td>
+</tr>
+<tr>
 <td>0.1 public Stable guide</td>
 <td>0.1.x</td>
-<td>current accepted documentation on <code>main</code> for the supported 0.1 line</td>
+<td>current immutable release tag for the supported 0.1 line</td>
 <td>Stable</td>
 </tr>
 </tbody>
@@ -3152,10 +3245,11 @@ from that accepted patch and its release notes describe the change. A future
 incompatible or feature release receives a new documentation line rather than
 rewriting 0.1 silently.</p>
 <p>The channel is independent of SemVer. A Testing candidate and a Stable artifact may
-both report application version <code>0.1.1</code>; only accepted <code>main</code>/tag provenance may
+both report application version <code>0.1.4</code>; only accepted <code>main</code>/tag provenance may
 claim a Stable application build. Public documentation can receive corrections on
-<code>main</code> between application tags, so the installed Help Center remains authoritative
-for the exact binaries running in a deployment.</p>
+<code>Testing</code>, but a published Stable correction receives a new patch version and tag.
+The installed Help Center therefore remains authoritative for the exact binaries
+running in a deployment.</p>
 <h2 id="confirm-what-is-installed">Confirm what is installed<a class="headerlink" href="#confirm-what-is-installed" title="Permanent link">&para;</a></h2>
 <p>Use either of these sources:</p>
 <ol>
@@ -3176,13 +3270,14 @@ describe only the closest accepted base release.</p>
 <ul>
 <li>Pull requests and <code>Testing</code> changes must pass a strict documentation build.</li>
 <li><code>Testing</code> output is a review artifact, not supported Stable guidance.</li>
-<li>An accepted promotion to <code>main</code> publishes the versioned Stable documentation.</li>
+<li>Promotion to <code>main</code> permits final verification; only the exact immutable release
+  tag publishes the versioned Stable documentation and moves Stable aliases.</li>
 <li>The <code>stable</code> and <code>latest</code> aliases point to the current supported documentation
   line after its release.</li>
 <li>Previously published version directories remain available for older deployments.</li>
 </ul>
-<p>The initial Stable publication creates <code>/0.1/</code>; <code>/stable/</code>, <code>/latest/</code>, and the
-public-site root then resolve to that supported line. A public version selector
+<p>The Stable publication maintains <code>/0.1/</code>; <code>/stable/</code>, <code>/latest/</code>, and the public-site
+root resolve to that supported line. A public version selector
 attempts to preserve the current page in the selected release line and falls back to
 that line's home page when the article did not exist.</p>
 <p>Older public documentation displays an outdated-version warning. It remains useful
@@ -3190,28 +3285,29 @@ for operating an older deployment, but later security or upgrade guidance may ha
 superseded it. That warning concerns the selected public version; it does not make
 the documentation bundled with an older installed app inaccurate for that app.</p>
 <h2 id="repository-publication-prerequisites">Repository publication prerequisites<a class="headerlink" href="#repository-publication-prerequisites" title="Permanent link">&para;</a></h2>
-<p>Before the first Stable publish, repository administrators must:</p>
+<p>Before a Stable documentation publish, repository administrators must:</p>
 <ol>
 <li>keep <code>Testing</code> and <code>main</code> as the integration and Stable branches, make <code>main</code>
    the default, and require the documented pull-request and CI gates;</li>
 <li>open <strong>Settings → Pages</strong>, set <strong>Build and deployment → Source</strong> to
    <strong>GitHub Actions</strong>, and protect the generated <code>github-pages</code> environment as
    appropriate for the repository;</li>
-<li>promote accepted documentation to <code>main</code>; and</li>
+<li>promote accepted documentation to <code>main</code> and verify that exact commit;</li>
+<li>create the matching immutable annotated release tag only after verification; and</li>
 <li>allow the <code>Documentation</code> workflow to complete its <code>validate</code>, <code>publish</code>, and
-   <code>deploy</code> jobs.</li>
+   <code>deploy</code> jobs for that tag.</li>
 </ol>
 <p>The repository already uses <code>main</code> as its default branch and retains <code>Testing</code> as
 the integration branch. GitHub Actions Pages source selection is a one-time
 administrator setting; the workflow deliberately does not carry a personal access
 token that could change repository settings.</p>
-<p>On a push to <code>main</code>, or a manual <code>workflow_dispatch</code> run selected on <code>main</code>, the
-workflow uses Mike to update the generated history on <code>gh-pages</code>, assembles that
-history as a link-free Pages artifact, and deploys it with GitHub's native Pages
-actions. The <code>gh-pages</code> branch is generated version history, <strong>not</strong> the configured
-Pages publishing source. Pull requests, <code>Testing</code> pushes, and manual runs on any
-other ref validate and upload a preview artifact only; they cannot move the public
-Stable site.</p>
+<p>Pull requests, <code>Testing</code> pushes, and the promoted <code>main</code> commit validate and assemble
+review artifacts. Publication uses the exact annotated release tag after it is shown
+to match the verified <code>main</code> commit. The workflow then uses Mike to update generated
+history on <code>gh-pages</code>, assembles that history as a link-free Pages artifact, and
+deploys it with GitHub's native Pages actions. The <code>gh-pages</code> branch is generated
+version history, <strong>not</strong> the configured Pages publishing source. Untagged refs cannot
+move the public Stable site.</p>
 <p>Generated public-site output is a release artifact. Do not edit it by hand; edit the
 Markdown on <code>Testing</code>, promote the accepted source through <code>main</code>, and let the
 documentation workflow republish it.</p>
@@ -3269,16 +3365,16 @@ page” are secondary contributor actions.</p>
     <nav class="md-footer__inner" aria-label="Footer">
       
         <a
-          href="../0.1/"
+          href="../0.1.2/"
           class="tlsoc-page-footer__link tlsoc-page-footer__link--previous"
-          aria-label="Previous: Agentic SOC 0.1"
+          aria-label="Previous: Agentic SOC 0.1.2 (unpublished snapshot)"
         >
           <span class="tlsoc-page-footer__title">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg>
-            Agentic SOC 0.1
+            Agentic SOC 0.1.2 (unpublished snapshot)
           </span>
           
-            <span class="tlsoc-page-footer__description">Scope, capabilities, deployment expectations, and limitations for the Agentic SOC 0.1 release line.</span>
+            <span class="tlsoc-page-footer__description">Historical record of the unpublished Agentic SOC 0.1.2 Testing snapshot.</span>
           
         </a>
       

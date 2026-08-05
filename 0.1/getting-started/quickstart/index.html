@@ -2675,6 +2675,12 @@
       
         
       
+        
+      
+        
+      
+        
+      
     
     
     
@@ -2719,6 +2725,75 @@
   
   <span class="md-ellipsis">
     Agentic SOC 0.1
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1.4/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.4
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1.3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.3 (unpublished snapshot)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1.2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.2 (unpublished snapshot)
     
   </span>
   
@@ -3187,14 +3262,14 @@ real source with persistent application state.</p>
 <div class="admonition info">
 <p class="admonition-title">Choose the matching channel</p>
 <p><code>Testing</code> contains integrated candidates. Under the release contract, <code>main</code>
-holds only accepted Stable source and immutable <code>v0.1.1</code> identifies the released
-artifact. The remote now has both canonical branches and the release tag. Use
-<code>v0.1.1</code> for the immutable release and <code>Testing</code> only for an unreleased preview;
+holds only accepted Stable source and immutable <code>v0.1.4</code> identifies this patch
+after verified promotion. The remote has both canonical branches; use
+<code>v0.1.4</code> only after the tag is published and <code>Testing</code> only for an unreleased preview;
 repository administrators must verify branch protections and required checks
 independently.</p>
 </div>
 <h2 id="get-the-source">Get the source<a class="headerlink" href="#get-the-source" title="Permanent link">&para;</a></h2>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Testing</label><label for="__tabbed_1_2">Stable 0.1.1</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Testing</label><label for="__tabbed_1_2">Stable 0.1.4</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>--branch<span class="w"> </span>Testing<span class="w"> </span>--depth<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
@@ -3203,11 +3278,11 @@ independently.</p>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>--branch<span class="w"> </span>v0.1.1<span class="w"> </span>--depth<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>--branch<span class="w"> </span>v0.1.4<span class="w"> </span>--depth<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>https://github.com/ARYDESTROYER/Agentic-Kibana.git
 <span class="nb">cd</span><span class="w"> </span>Agentic-Kibana
 </code></pre></div>
-<p>The <code>v0.1.1</code> tag is immutable; do not create, move, or replace it locally. Users
+<p>The <code>v0.1.4</code> tag is immutable once published; do not create, move, or replace it locally. Users
 pulling <code>main</code> receive the current accepted Stable source, while candidate work
 remains isolated on <code>Testing</code>. A branch name alone is not acceptance evidence,
 so repository administrators must verify protections and required checks.</p>
@@ -3266,9 +3341,9 @@ TLSOC_OPENAI_API_KEY=
 <p>Generate random values with <code>openssl rand -hex 32</code>. Do not commit <code>.env</code>. Set
 <code>TLSOC_AUTH_COOKIE_SECURE=true</code> when TLS terminates in front of the console.</p>
 <h3 id="validate-and-start">Validate and start<a class="headerlink" href="#validate-and-start" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code>docker<span class="w"> </span>compose<span class="w"> </span>-f<span class="w"> </span>deploy/docker-compose.agnostic.yml<span class="w"> </span>config<span class="w"> </span>--quiet
-docker<span class="w"> </span>compose<span class="w"> </span>-f<span class="w"> </span>deploy/docker-compose.agnostic.yml<span class="w"> </span>up<span class="w"> </span>--detach<span class="w"> </span>--build
-docker<span class="w"> </span>compose<span class="w"> </span>-f<span class="w"> </span>deploy/docker-compose.agnostic.yml<span class="w"> </span>ps
+<div class="highlight"><pre><span></span><code>./scripts/agentic-soc-compose.sh<span class="w"> </span>config<span class="w"> </span>--quiet
+./scripts/agentic-soc-compose.sh<span class="w"> </span>up<span class="w"> </span>--detach<span class="w"> </span>--build
+./scripts/agentic-soc-compose.sh<span class="w"> </span>ps
 </code></pre></div>
 <p>Open <code>http://localhost:8080</code>, then verify the public probes:</p>
 <div class="highlight"><pre><span></span><code>curl<span class="w"> </span>--fail<span class="w"> </span>http://localhost:8080/api/health/live
@@ -3314,7 +3389,7 @@ secrets remain the durable deployment tier.</p>
 <li><strong>Audit</strong> records state-changing analyst and agent actions.</li>
 </ul>
 <h2 id="stop">Stop<a class="headerlink" href="#stop" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code>docker<span class="w"> </span>compose<span class="w"> </span>-f<span class="w"> </span>deploy/docker-compose.agnostic.yml<span class="w"> </span>down
+<div class="highlight"><pre><span></span><code>./scripts/agentic-soc-compose.sh<span class="w"> </span>down
 </code></pre></div>
 <p>The named PostgreSQL volume remains. Adding <code>--volumes</code> deletes that state and is
 not reversible; use the documented <a href="../../administration/reset/">reset controls</a>

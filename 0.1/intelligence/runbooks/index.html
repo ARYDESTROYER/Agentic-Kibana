@@ -2678,6 +2678,12 @@
       
         
       
+        
+      
+        
+      
+        
+      
     
     
     
@@ -2722,6 +2728,75 @@
   
   <span class="md-ellipsis">
     Agentic SOC 0.1
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1.4/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.4
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1.3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.3 (unpublished snapshot)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1.2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.2 (unpublished snapshot)
     
   </span>
   
@@ -3190,7 +3265,7 @@
 
 
 <h1 id="runbooks">Runbooks<a class="headerlink" href="#runbooks" title="Permanent link">&para;</a></h1>
-<p>Open <strong>Intelligence → Runbooks</strong> to browse the investigation guidance available to
+<p>Open <strong>Intelligence → Reference runbooks</strong> to browse the investigation guidance available to
 knowledge retrieval. A Runbook combines a small machine-readable manifest with a
 strict plain-text guidance body. It is a trusted reference for analysts and the
 investigator, not an executable response workflow. A Runbook cannot close, escalate,
@@ -3237,6 +3312,12 @@ entities, and keywords. Each row identifies its ownership and retrieval state:</
 </ul>
 <p>Reading the catalog and full content requires <code>runbooks:read</code>. The Console hides
 management actions without <code>runbooks:manage</code>, and the API enforces the same boundary.</p>
+<p>The installed catalog includes nine protected references spanning authentication
+abuse, cloud IAM compromise, data exfiltration, IOC reputation, mail abuse,
+malware/C2, reconnaissance, vulnerability scanning, and web exploitation. These are
+portable starting points, not claims that every environment emits the required
+telemetry. Operators should add a local Runbook only when its exact detection IDs,
+evidence fields, ownership context, and benign lookalikes are reviewed.</p>
 <p>The stricter authoring standard does not hide or invalidate older stored Runbooks.
 Legacy and bundled content remains readable and reindexable. When an operator edits a
 legacy Runbook, the replacement must satisfy the current manifest, body structure,

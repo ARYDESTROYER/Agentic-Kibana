@@ -2634,6 +2634,12 @@
       
         
       
+        
+      
+        
+      
+        
+      
     
     
     
@@ -2678,6 +2684,75 @@
   
   <span class="md-ellipsis">
     Agentic SOC 0.1
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1.4/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.4
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1.3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.3 (unpublished snapshot)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1.2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.2 (unpublished snapshot)
     
   </span>
   
@@ -3079,12 +3154,13 @@ and read-only.</p>
 when infrastructure and external model calls are not part of your evaluation.</p>
 <h2 id="1-check-out-version-01">1. Check out version 0.1<a class="headerlink" href="#1-check-out-version-01" title="Permanent link">&para;</a></h2>
 <p>Use the immutable Stable tag:</p>
-<div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>--branch<span class="w"> </span>v0.1.1<span class="w"> </span>--depth<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>--branch<span class="w"> </span>v0.1.4<span class="w"> </span>--depth<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>https://github.com/ARYDESTROYER/Agentic-Kibana.git
 <span class="nb">cd</span><span class="w"> </span>Agentic-Kibana
 </code></pre></div>
 <p>For an unreleased preview, use the repository's <code>Testing</code> branch instead. The remote
-now uses default <code>main</code> for accepted Stable source and has the <code>v0.1.1</code> tag. Do not
+uses default <code>main</code> for accepted Stable source; <code>v0.1.4</code> exists only after the
+candidate has completed promotion and tagging. Do not
 create or move a release tag locally. Pulling <code>main</code> means pulling the current
 accepted Stable source—not the next Testing candidate—but repository protections
 and required checks must be verified independently.</p>
@@ -3110,9 +3186,9 @@ Environment or an external deployment secret mechanism is the durable boot-time
 path.</p>
 </div>
 <h2 id="3-validate-and-start">3. Validate and start<a class="headerlink" href="#3-validate-and-start" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code>docker<span class="w"> </span>compose<span class="w"> </span>-f<span class="w"> </span>deploy/docker-compose.agnostic.yml<span class="w"> </span>config<span class="w"> </span>--quiet
-docker<span class="w"> </span>compose<span class="w"> </span>-f<span class="w"> </span>deploy/docker-compose.agnostic.yml<span class="w"> </span>up<span class="w"> </span>--detach<span class="w"> </span>--build
-docker<span class="w"> </span>compose<span class="w"> </span>-f<span class="w"> </span>deploy/docker-compose.agnostic.yml<span class="w"> </span>ps
+<div class="highlight"><pre><span></span><code>./scripts/agentic-soc-compose.sh<span class="w"> </span>config<span class="w"> </span>--quiet
+./scripts/agentic-soc-compose.sh<span class="w"> </span>up<span class="w"> </span>--detach<span class="w"> </span>--build
+./scripts/agentic-soc-compose.sh<span class="w"> </span>ps
 </code></pre></div>
 <p>Open <code>http://localhost:8080</code> for a workstation evaluation. Terminate TLS at a trusted
 ingress and set secure cookies before exposing the deployment beyond a trusted
@@ -3134,7 +3210,7 @@ site.</p>
 <p>If readiness fails, inspect the backend service logs and use the
 <a href="../../operations/troubleshooting/">troubleshooting guide</a>.</p>
 <h2 id="5-stop-the-stack">5. Stop the stack<a class="headerlink" href="#5-stop-the-stack" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code>docker<span class="w"> </span>compose<span class="w"> </span>-f<span class="w"> </span>deploy/docker-compose.agnostic.yml<span class="w"> </span>down
+<div class="highlight"><pre><span></span><code>./scripts/agentic-soc-compose.sh<span class="w"> </span>down
 </code></pre></div>
 <p>The named PostgreSQL volume remains. Adding <code>--volumes</code> removes application state
 and is destructive.</p>

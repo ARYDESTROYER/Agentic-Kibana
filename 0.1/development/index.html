@@ -2528,6 +2528,12 @@
       
         
       
+        
+      
+        
+      
+        
+      
     
     
     
@@ -2572,6 +2578,75 @@
   
   <span class="md-ellipsis">
     Agentic SOC 0.1
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../releases/0.1.4/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.4
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../releases/0.1.3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.3 (unpublished snapshot)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../releases/0.1.2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.2 (unpublished snapshot)
     
   </span>
   
@@ -2925,13 +3000,14 @@ Agentic SOC API, Agentic SOC Console, deployment assets, and versioned documenta
 <h2 id="contribution-flow">Contribution flow<a class="headerlink" href="#contribution-flow" title="Permanent link">&para;</a></h2>
 <p>Use a short-lived feature branch, merge accepted work into <code>Testing</code>, and promote
 the accepted source tree through a protected pull request to <code>main</code>, the Stable branch:</p>
-<div class="highlight"><pre><span></span><code>feature branch -&gt; Testing -&gt; main (Stable) -&gt; v0.1.1
+<div class="highlight"><pre><span></span><code>feature branch -&gt; Testing -&gt; main (Stable) -&gt; v0.1.4
 </code></pre></div>
 <p>Do not develop directly on <code>main</code>. <code>Testing</code> is the integration and acceptance
 channel, not a different edition of the product. Package/API/image metadata uses
-Semantic Version <strong>0.1.1</strong>; public documentation uses the <strong>0.1</strong> line.</p>
-<p>The remote now uses <code>Testing</code> for integration and default <code>main</code> for accepted Stable
-source, and it has the <code>v0.1.1</code> release tag. Repository owners must independently
+Semantic Version <strong>0.1.4</strong>; public documentation uses the <strong>0.1</strong> line.</p>
+<p>The remote uses <code>Testing</code> for integration and default <code>main</code> for accepted Stable
+source. Version 0.1.4 is Stable only when the exact verified <code>main</code> commit has the
+immutable <code>v0.1.4</code> tag and matching artifacts. Repository owners must independently
 verify pull-request protection, required checks, and release-environment policy;
 source topology alone does not prove that a change passed acceptance.</p>
 <p>See <a href="../releases/channels/">Release channels</a> for the promotion contract.</p>

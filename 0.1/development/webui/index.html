@@ -2627,6 +2627,12 @@
       
         
       
+        
+      
+        
+      
+        
+      
     
     
     
@@ -2671,6 +2677,75 @@
   
   <span class="md-ellipsis">
     Agentic SOC 0.1
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1.4/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.4
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1.3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.3 (unpublished snapshot)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1.2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.2 (unpublished snapshot)
     
   </span>
   
@@ -3156,7 +3231,7 @@ the backend change.</p>
 <div class="highlight"><pre><span></span><code>npm<span class="w"> </span>run<span class="w"> </span>typecheck
 npm<span class="w"> </span>run<span class="w"> </span>lint
 npm<span class="w"> </span>run<span class="w"> </span>gates
-npm<span class="w"> </span><span class="nb">test</span>
+npm<span class="w"> </span>run<span class="w"> </span>test:strict
 npm<span class="w"> </span>run<span class="w"> </span>build
 </code></pre></div>
 <p>The production build first generates the version-matched Help Center under
@@ -3164,6 +3239,9 @@ npm<span class="w"> </span>run<span class="w"> </span>build
 <code>npm run build:app</code> only for a deliberately app-only check. Lint includes React hook
 ordering and accessibility rules. Design gates protect architecture, tokens, bundle
 boundaries, and other repository-wide UI constraints.</p>
+<p>Use <code>npm test -- &lt;file-or-pattern&gt;</code> while iterating. <code>npm run test:strict</code> is the
+release/CI gate: it runs the full suite and also rejects any stderr byte or
+Vitest-captured console stdout block.</p>
 <p>See <a href="../testing/">Testing</a> for the full cross-stack gate and
 <a href="../../reference/api/">API reference</a> for the runtime surface.</p>
 
