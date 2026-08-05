@@ -7,11 +7,13 @@ There are **two distinct environments**. Confusing them causes most build/deploy
 pain, so they are documented separately.
 
 > **Branch topology:** the remote uses `Testing` for integration and default
-> `main` for accepted Stable source. Version 0.1.10 is Stable only when the exact
-> verified `main` commit has the immutable `v0.1.10` tag and matching artifacts. Branch
-> protection, required checks, Pages source selection, and environment policy are
-> repository settings; administrators must verify them independently of this
-> checkout.
+> `main` for accepted Stable source. Version 0.1.11 is Stable only when the exact
+> verified `main` commit has the immutable `v0.1.11` tag and matching signed/public
+> artifacts. The immutable `v0.1.10` tag is a superseded, non-installable
+> failed-publication record; never move, reuse, repair, install, or bootstrap from
+> it. Branch protection, required checks, Pages source selection, and environment
+> policy are repository settings; administrators must verify them independently of
+> this checkout.
 
 > The suite is **vendor-agnostic**: the backend (FastAPI+LangGraph) plus a
 > **standalone web UI** (`webui/`, Vite+React+TS+**Tailwind+shadcn/Radix** — EUI was
@@ -198,7 +200,7 @@ prefixed Docker build/runtime metadata rather than `Secrets` fields:
 
 | Build/runtime value | Default | Purpose |
 |---|---|---|
-| `TLSOC_VERSION` | `0.1.10` in Compose | Machine SemVer for images and API identity |
+| `TLSOC_VERSION` | `0.1.11` in Compose | Machine SemVer for images and API identity |
 | `TLSOC_RELEASE_CHANNEL` | `testing` | Independent promotion stamp; use `stable` only for the accepted main/tag build |
 | `TLSOC_BUILD_SHA` | `unknown` | Exact source revision |
 | `TLSOC_BUILD_DATE` | `unknown` | Reproducible-build timestamp supplied by the builder |

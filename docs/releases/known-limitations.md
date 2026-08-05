@@ -1,11 +1,11 @@
 ---
 title: Known limitations
-description: Release gates and explicit operating constraints for Agentic SOC 0.1.10.
+description: Release gates and explicit operating constraints for Agentic SOC 0.1.11.
 ---
 
 # Known limitations
 
-This list is part of the product contract for Agentic SOC `0.1.10` in Testing and,
+This list is part of the product contract for Agentic SOC `0.1.11` in Testing and,
 if the exact verified commit is published, its Stable artifacts. It distinguishes
 release gates from documented beta constraints so a green unit-test suite is never
 mistaken for release or production evidence.
@@ -37,7 +37,7 @@ users. This is an owner/product decision and must not be guessed by automation.
 
 The updater protocol, release plan, signature verification, rollback state machine,
 and reference Compose contracts have offline coverage. That does not prove the exact
-published `v0.1.10` images and signed assets work through a real PostgreSQL Compose
+published `v0.1.11` images and signed assets work through a real PostgreSQL Compose
 upgrade, interruption, cancellation, automatic rollback, and post-success rollback.
 
 **Required control:** after the exact accepted `main` commit passes remote CI, publish
@@ -151,12 +151,14 @@ related-but-not-merged cases.
 
 The unpublished 0.1.2 snapshot introduced source discovery and coherent-pair
 activation but did not publish the host supervisor or signed upgrade plan. Version
-0.1.10 carries the version-1 supervisor protocol and canonical base-Compose contract
+0.1.11 carries the version-1 supervisor protocol and canonical base-Compose contract
 without broadening its supported topology. It still cannot retroactively install a
 privileged host component. A supported canonical v0.1.1 installation requires one manual
-`scripts/bootstrap-updater.sh` step from the clean, exact annotated `v0.1.10` tag whose
+`scripts/bootstrap-updater.sh` step from the clean, exact annotated `v0.1.11` tag whose
 commit remains contained in `origin/main`; that step delegates the full
-v0.1.1→v0.1.10 transition to the signed plan. Testing/source-built 0.1.3 and the
+v0.1.1→v0.1.11 transition to the signed plan. That tag is not an installation source
+until the complete signed publication and canonical runtime acceptance evidence exists.
+Testing/source-built 0.1.3 and the
 non-installable v0.1.4/v0.1.5 attempts, plus the published-but-bootstrap-blocked
 v0.1.6 through v0.1.8 records and failed-publication v0.1.9 record, must instead be
 reconciled according to their actual installed state and cannot be relabelled
@@ -169,8 +171,14 @@ on the writable updater-state volume and replaced an inspectable idle mismatched
 supervisor before plan verification, but its constrained updater could not traverse
 the runner-owned verification bind source. Its workflow stopped before attestations,
 GitHub Release publication, canonical plan assets, Stable convenience tags, or
-Stable documentation. Version 0.1.10 corrects only that fixture permission boundary.
-It changes no application schema, updater protocol, publisher identity, process
+Stable documentation. Version 0.1.10 corrected that fixture permission boundary but
+its signed-release workflow then timed out while the architecture-neutral Web Console
+builder ran under target emulation. It published no complete three-image set,
+canonical signed plan, GitHub Release, Stable tags, or Stable documentation and is
+immutable, superseded, and non-installable. Version 0.1.11 retains the trust and
+traversal corrections and moves only architecture-neutral Console builder work to
+BuildKit's native platform; the final nginx runtime remains target-specific. It
+changes no application schema, updater protocol, publisher identity, process
 privilege, trust predicate, or frozen-base bytes.
 Subsequent compatible Stable releases can be installed from the Console only for
 the reference, single-replica
@@ -213,7 +221,7 @@ credential. See [Upgrades](../operations/upgrades.md).
 
 ### Updater artifacts are not auto-pruned
 
-The updater foundation included in version 0.1.10 retains updater jobs, preflights,
+The updater foundation included in version 0.1.11 retains updater jobs, preflights,
 signed plan assets, receipts, and deployment snapshots in the updater-state volume
 and verified PostgreSQL dumps in the
 updater-backup volume. It does not implement age-, count-, or status-based pruning.
