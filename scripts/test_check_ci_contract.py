@@ -46,7 +46,9 @@ def _ci_workflow() -> dict[str, object]:
                 'docker run --rm --entrypoint python "${IMAGE}" -c '
                 "'from importlib.metadata import version; "
                 "assert version(\"wheel\") == \"0.45.1\"'\n"
-                'jq -e \'.Config.User == "0:10001"\' image.json\n'
+                'jq -e \'.Config.User == "0:10001" and '
+                '(.Config.Env | index("TUF_ROOT=/var/lib/agentic-soc-updater/sigstore-root")) '
+                "!= null' image.json\n"
             ),
         },
         {
@@ -56,6 +58,10 @@ def _ci_workflow() -> dict[str, object]:
                 "docker run --detach --read-only --cap-drop ALL "
                 "--security-opt no-new-privileges:true image\n"
                 "docker inspect --format '{{.State.Health.Status}}' container\n"
+                "docker exec container sh -c '"
+                'test "${TUF_ROOT}" = /var/lib/agentic-soc-updater/sigstore-root; '
+                'test -w "${TUF_ROOT}"'
+                "'\n"
                 "docker run --rm --user 10001:10001 image python3 -c '"
                 "stat.S_ISSOCK(details.st_mode); "
                 "details.st_uid == 0; "
@@ -270,6 +276,20 @@ class WorkflowPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "control-socket GID"):
             policy._assert_ci(Path("ci.yml"), workflow)
 
+    def test_shipping_updater_sigstore_cache_cannot_leave_state_volume(self) -> None:
+        workflow = _ci_workflow()
+        identity = next(
+            step
+            for step in workflow["jobs"]["container-images"]["steps"]
+            if step.get("name") == "Verify image identity and runtime contract"
+        )
+        identity["run"] = identity["run"].replace(
+            "TUF_ROOT=/var/lib/agentic-soc-updater/sigstore-root",
+            "TUF_ROOT=/root/.sigstore/root",
+        )
+        with self.assertRaisesRegex(ValueError, "Sigstore trust state"):
+            policy._assert_ci(Path("ci.yml"), workflow)
+
     def test_shipping_updater_socket_runtime_smoke_cannot_be_removed(self) -> None:
         workflow = _ci_workflow()
         workflow["jobs"]["container-images"]["steps"] = [
@@ -394,6 +414,63 @@ class WorkflowPolicyTests(unittest.TestCase):
             "--field removed_bundle_exists",
         )
         with self.assertRaisesRegex(ValueError, "typed release-state boolean parser"):
+            policy._assert_release(release_path, workflow)
+
+    def test_release_requires_signed_plan_verification_in_shipping_updater(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        workflow["jobs"]["publish"]["steps"] = [
+            step
+            for step in workflow["jobs"]["publish"]["steps"]
+            if step.get("name")
+            != "Verify the signed plan inside the constrained update supervisor"
+        ]
+        with self.assertRaisesRegex(ValueError, "constrained update supervisor"):
+            policy._assert_release(release_path, workflow)
+
+    def test_release_signed_plan_gate_must_start_the_real_supervisor(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        gate = next(
+            step
+            for step in workflow["jobs"]["publish"]["steps"]
+            if step.get("name")
+            == "Verify the signed plan inside the constrained update supervisor"
+        )
+        gate["run"] = gate["run"].replace(
+            "docker run --detach",
+            "docker run --rm --entrypoint sh",
+        ).replace(
+            "docker exec \\",
+            "docker run --rm --entrypoint sh \\",
+        )
+        with self.assertRaisesRegex(ValueError, "constrained updater"):
+            policy._assert_release(release_path, workflow)
+
+    def test_release_signed_plan_gate_cannot_be_skipped(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        gate = next(
+            step
+            for step in workflow["jobs"]["publish"]["steps"]
+            if step.get("name")
+            == "Verify the signed plan inside the constrained update supervisor"
+        )
+        gate["if"] = "${{ false }}"
+        with self.assertRaisesRegex(ValueError, "unconditional fail-closed"):
+            policy._assert_release(release_path, workflow)
+
+    def test_release_signed_plan_gate_cannot_continue_on_error(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        gate = next(
+            step
+            for step in workflow["jobs"]["publish"]["steps"]
+            if step.get("name")
+            == "Verify the signed plan inside the constrained update supervisor"
+        )
+        gate["continue-on-error"] = True
+        with self.assertRaisesRegex(ValueError, "unconditional fail-closed"):
             policy._assert_release(release_path, workflow)
 
     def test_release_stable_tags_must_follow_release_publication(self) -> None:

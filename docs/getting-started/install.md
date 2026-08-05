@@ -27,7 +27,7 @@ when infrastructure and external model calls are not part of your evaluation.
 Use the immutable Stable tag:
 
 ```bash
-git clone --branch v0.1.8 --depth 1 \
+git clone --branch v0.1.9 --depth 1 \
   https://github.com/ARYDESTROYER/Agentic-Kibana.git
 cd Agentic-Kibana
 ```
@@ -40,16 +40,19 @@ and required checks must be verified independently.
 
 The immutable `v0.1.4` and `v0.1.5` tags are not installable releases: their
 publication attempts stopped before a canonical signed plan and public GitHub
-Release existed. The immutable `v0.1.6` and `v0.1.7` publications have signed/public
+Release existed. The immutable `v0.1.6`, `v0.1.7`, and `v0.1.8` publications have signed/public
 artifacts but failed canonical bootstrap acceptance at different portability
-boundaries. Use `v0.1.8` only
-when its canonical GitHub Release, plan signature, and public image digests verify;
-otherwise use a previously verified Stable release or Testing only for an explicitly
+boundaries. Use `v0.1.9` only
+when its canonical GitHub Release, plan signature, and public image digests verify
+and canonical PostgreSQL Compose runtime acceptance completes. Otherwise use a
+previously verified Stable release or Testing only for an explicitly
 unreleased evaluation.
 
-The immutable `v0.1.6` tag has valid signed/public artifacts, but its canonical
-macOS Bash 3.2 bootstrap acceptance failed before supervisor installation. It is a
-superseded historical record, not a supported deployment or bootstrap source.
+The immutable `v0.1.8` tag has valid signed/public artifacts, but canonical
+bootstrap failed when cosign 3 tried to initialize its default TUF cache beneath the
+updater's read-only `/root`. It is a superseded historical record, not a supported
+deployment or bootstrap source; 0.1.9 moves that trust state to the writable updater
+state volume without a schema, protocol, identity, privilege, or frozen-base change.
 
 ## 2. Prepare configuration
 

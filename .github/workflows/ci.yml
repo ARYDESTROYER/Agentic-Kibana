@@ -712,6 +712,7 @@ jobs:
               jq -e '
                 .[0].Config.Labels["io.agentic-soc.update-protocol"] == "1" and
                 .[0].Config.User == "0:10001" and
+                (.[0].Config.Env | index("TUF_ROOT=/var/lib/agentic-soc-updater/sigstore-root")) != null and
                 .[0].Config.Entrypoint == ["python3", "-m", "agentic_soc_updater"]
               ' "${RUNNER_TEMP}/${COMPONENT}-image.json"
               ;;
@@ -772,6 +773,11 @@ jobs:
             docker logs "${container}"
             exit 1
           fi
+          docker exec "${container}" sh -ceu '
+            test "${TUF_ROOT}" = /var/lib/agentic-soc-updater/sigstore-root
+            mkdir -p "${TUF_ROOT}"
+            test -w "${TUF_ROOT}"
+          '
           docker run --rm \
             --user 10001:10001 \
             --mount "type=volume,source=${control_volume},target=/run/agentic-soc-updater" \
