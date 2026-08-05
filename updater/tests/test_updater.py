@@ -1033,6 +1033,34 @@ class RuntimeTests(unittest.TestCase):
         self.assertNotIn("fromdateiso8601", gate)
         self.assertNotIn("$delta >= -300", gate)
 
+    def test_release_anonymous_gate_does_not_overwrite_one_digest_between_platforms(
+        self,
+    ) -> None:
+        source = (ROOT / ".github" / "workflows" / "release.yml").read_text(
+            encoding="utf-8"
+        )
+        gate = source.partition(
+            "- name: Prove anonymous pullability and exact OCI release labels"
+        )[2].partition("\n      - name:")[0]
+
+        self.assertIn("for platform in linux/amd64 linux/arm64", gate)
+        pull = 'docker pull --platform "${platform}" "${reference}"'
+        eviction = 'docker image rm "${reference}"'
+        self.assertIn(pull, gate)
+        self.assertIn(eviction, gate)
+        self.assertLess(gate.index(pull), gate.index(eviction))
+        self.assertIn(
+            'EXPECTED_PLATFORMS = {("linux", "amd64"), ("linux", "arm64")}',
+            gate,
+        )
+        self.assertIn("require_digest(raw_index, digest", gate)
+        self.assertIn("raw_manifest, _ = fetch(", gate)
+        self.assertIn("manifest_digest,", gate)
+        self.assertIn("raw_config, _ = fetch(", gate)
+        self.assertIn("config_digest,", gate)
+        self.assertIn("anonymous GHCR token unavailable", gate)
+        self.assertIn("OCI label mismatch", gate)
+
     def test_self_handoff_reuses_named_volume_name_not_engine_data_path(self) -> None:
         volume = {
             "Type": "volume",

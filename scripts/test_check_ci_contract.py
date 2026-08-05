@@ -234,7 +234,7 @@ class WorkflowPolicyTests(unittest.TestCase):
             'export DOCKER_CONFIG="${anonymous_docker_config}"',
             'export DOCKER_CONFIG="${HOME}/.docker"',
         )
-        with self.assertRaisesRegex(ValueError, "isolated multi-platform pull"):
+        with self.assertRaisesRegex(ValueError, "isolated multi-platform"):
             policy._assert_release(release_path, workflow)
 
     def test_release_anonymous_pull_gate_requires_both_platforms(self) -> None:
@@ -247,10 +247,28 @@ class WorkflowPolicyTests(unittest.TestCase):
             == "Prove anonymous pullability and exact OCI release labels"
         )
         gate["run"] = gate["run"].replace(
-            "for platform in linux/amd64 linux/arm64",
-            "for platform in linux/amd64",
+            'EXPECTED_PLATFORMS = {("linux", "amd64"), ("linux", "arm64")}',
+            'EXPECTED_PLATFORMS = {("linux", "amd64")}',
         )
-        with self.assertRaisesRegex(ValueError, "isolated multi-platform pull"):
+        with self.assertRaisesRegex(ValueError, "isolated multi-platform"):
+            policy._assert_release(release_path, workflow)
+
+    def test_release_anonymous_pull_gate_requires_exact_reference_eviction(
+        self,
+    ) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        gate = next(
+            step
+            for step in workflow["jobs"]["publish"]["steps"]
+            if step.get("name")
+            == "Prove anonymous pullability and exact OCI release labels"
+        )
+        gate["run"] = gate["run"].replace(
+            'docker image rm "${reference}"',
+            'echo "local image retained"',
+        )
+        with self.assertRaisesRegex(ValueError, "isolated multi-platform"):
             policy._assert_release(release_path, workflow)
 
     def test_release_anonymous_pull_gate_rejects_publisher_credentials(self) -> None:
