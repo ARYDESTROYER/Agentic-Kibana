@@ -2,9 +2,10 @@
 """Classify one exact Stable GitHub Release without mutating it.
 
 The release workflow uses this helper before every mutation.  A draft may be
-resumed only when its tag, target commit, and canonical asset inventory are
-unambiguous.  Published releases are immutable from the workflow's point of
-view: anything other than the complete canonical pair is rejected.
+resumed only when its tag, title, commit-bound canonical notes, and canonical
+asset inventory are unambiguous.  Published releases are immutable from the
+workflow's point of view: anything other than the exact metadata and complete
+canonical pair is rejected.
 """
 
 from __future__ import annotations
@@ -25,6 +26,17 @@ COMMIT_MARKER_RE = re.compile(r"<!-- agentic-soc-release-commit:([0-9a-f]{40}) -
 
 class ReleaseInventoryError(ValueError):
     """The remote release inventory is not safe to resume or publish."""
+
+
+def canonical_release_name(tag: str) -> str:
+    return f"Agentic SOC {tag}"
+
+
+def canonical_release_body(*, commit_sha: str, release_notes: str) -> str:
+    return (
+        f"<!-- agentic-soc-release-commit:{commit_sha} -->\n\n"
+        f"{release_notes}"
+    )
 
 
 def _require_positive_id(value: object, subject: str) -> int:
@@ -48,6 +60,7 @@ def classify_release_inventory(
     *,
     tag: str,
     commit_sha: str,
+    release_notes: str,
 ) -> dict[str, object]:
     if not re.fullmatch(r"[0-9a-f]{40}", commit_sha):
         raise ReleaseInventoryError("expected commit SHA is invalid")
@@ -79,6 +92,8 @@ def classify_release_inventory(
         raise ReleaseInventoryError("draft was previously published and cannot be repaired")
     if not draft and not isinstance(published_at, str):
         raise ReleaseInventoryError("published release has no publication timestamp")
+    if release.get("name") != canonical_release_name(tag):
+        raise ReleaseInventoryError("release title does not equal the canonical title")
     body = release.get("body")
     if not isinstance(body, str):
         raise ReleaseInventoryError("release body is missing or invalid")
@@ -86,6 +101,13 @@ def classify_release_inventory(
     if markers != [commit_sha]:
         raise ReleaseInventoryError(
             "release commit marker does not equal the exact tagged commit"
+        )
+    if body != canonical_release_body(
+        commit_sha=commit_sha,
+        release_notes=release_notes,
+    ):
+        raise ReleaseInventoryError(
+            "release body does not equal the canonical versioned release notes"
         )
 
     assets = release.get("assets")
@@ -150,6 +172,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--inventory", type=Path, required=True)
     parser.add_argument("--tag", required=True)
     parser.add_argument("--commit-sha", required=True)
+    parser.add_argument("--release-notes", type=Path, required=True)
     return parser.parse_args()
 
 
@@ -161,6 +184,7 @@ def main() -> int:
             raw,
             tag=args.tag,
             commit_sha=args.commit_sha,
+            release_notes=args.release_notes.read_text(encoding="utf-8"),
         )
     except (OSError, json.JSONDecodeError, ReleaseInventoryError) as exc:
         print(f"unsafe release inventory: {exc}", file=sys.stderr)

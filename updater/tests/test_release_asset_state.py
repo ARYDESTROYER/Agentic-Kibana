@@ -14,6 +14,7 @@ SPEC.loader.exec_module(release_asset_state)
 
 SHA = "a" * 40
 TAG = "v0.1.2"
+RELEASE_NOTES = "Release notes."
 
 
 def asset(asset_id: int, name: str, *, state: str = "uploaded", size: int = 64):
@@ -27,7 +28,8 @@ def release(*assets, draft: bool = True, sha: str = SHA, release_id: int = 11):
         # GitHub documents target_commitish as unused when the tag already
         # exists; the hidden release marker is the durable SHA binding.
         "target_commitish": "main",
-        "body": f"<!-- agentic-soc-release-commit:{sha} -->\n\nRelease notes.",
+        "name": f"Agentic SOC {TAG}",
+        "body": f"<!-- agentic-soc-release-commit:{sha} -->\n\n{RELEASE_NOTES}",
         "draft": draft,
         "prerelease": False,
         "published_at": None if draft else "2026-08-03T00:00:00Z",
@@ -38,7 +40,10 @@ def release(*assets, draft: bool = True, sha: str = SHA, release_id: int = 11):
 class ReleaseAssetStateTests(unittest.TestCase):
     def classify(self, inventory):
         return release_asset_state.classify_release_inventory(
-            inventory, tag=TAG, commit_sha=SHA
+            inventory,
+            tag=TAG,
+            commit_sha=SHA,
+            release_notes=RELEASE_NOTES,
         )
 
     def test_absent_release_is_clean_initial_state(self) -> None:
@@ -149,6 +154,23 @@ class ReleaseAssetStateTests(unittest.TestCase):
             release_asset_state.ReleaseInventoryError, "commit marker"
         ):
             self.classify([[release(sha="b" * 40)]])
+
+    def test_noncanonical_release_title_fails_closed(self) -> None:
+        candidate = release()
+        candidate["name"] = "Agentic SOC 0.1.2"
+        with self.assertRaisesRegex(
+            release_asset_state.ReleaseInventoryError, "canonical title"
+        ):
+            self.classify([[candidate]])
+
+    def test_noncanonical_release_body_fails_closed(self) -> None:
+        candidate = release()
+        candidate["body"] += "\nManually edited after staging."
+        with self.assertRaisesRegex(
+            release_asset_state.ReleaseInventoryError,
+            "canonical versioned release notes",
+        ):
+            self.classify([[candidate]])
 
     def test_target_commitish_is_not_mistaken_for_existing_tag_identity(self) -> None:
         result = self.classify([[release()]])

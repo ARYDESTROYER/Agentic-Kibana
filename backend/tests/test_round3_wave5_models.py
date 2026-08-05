@@ -159,12 +159,19 @@ async def test_es_and_sql_usage_summaries_agree_past_the_cap() -> None:
 
 
 @pytest.mark.asyncio
-async def test_summary_today_window_is_exact_under_the_cap() -> None:
+async def test_summary_today_window_is_exact_under_the_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A small, today-only set is byte-identical to the legacy per-hit numbers (no
     regression on the common path); the fallback scan reproduces them exactly."""
     es = InMemoryESClient()
     store = UsageStore(es)
-    now_ms = to_millis(now_utc())
+    # Pin both fixture timestamps and the summary clock to midday. Without one
+    # shared clock, a CI run crossing 00:00 UTC can correctly move four of the
+    # five rows into yesterday between setup and the assertion.
+    fixed_now = now_utc().replace(hour=12, minute=0, second=0, microsecond=0)
+    monkeypatch.setattr("app.stores.usage.now_utc", lambda: fixed_now)
+    now_ms = to_millis(fixed_now)
     for i in range(5):
         await store.write(UsageDoc(
             ts=_iso(now_ms - i * 60_000), surface="standup", role="standup",

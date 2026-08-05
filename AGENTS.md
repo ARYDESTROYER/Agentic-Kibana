@@ -505,7 +505,7 @@ uvicorn app.main:app --port 8088
 
 # Web UI + installed Help Center build, tests, and lint (Node 22)
 cd webui && npm install && npm run build   # MkDocs bundle + tsc --noEmit + Vite -> webui/dist/
-npm run docs:check                         # validate app 0.1.3 ↔ bundled docs 0.1
+npm run docs:check                         # validate app 0.1.4 ↔ bundled docs 0.1
 npm run test:strict                        # -> latest recorded full run: 1,927 passed + 9 skipped / 286 files; zero stderr/console output
 npm run lint                               # 0 errors, 0 warnings; jsx-a11y at error
 
@@ -547,7 +547,7 @@ cp .env.example .env   # set TLSOC_PG_PASSWORD + at least one LLM key
     feedback grammar, original theme-adaptive `SourceMark` asset catalog, and the
     JSON-serializable `DESIGN_SYSTEM_CATALOG`. Import from `@/design-system`; do not
     invent a page-local blocking loader or source mark. The catalog is an input for
-    future agent/MCP tooling—version 0.1.3 does **not** ship an MCP server.
+    future agent/MCP tooling—version 0.1.4 does **not** ship an MCP server.
   - **SOC-domain components** live in `webui/src/soc/components/*`
     (`PageHeader`, `KpiTile`/`StatCard`, `DataTable`, `EmptyState`, `RiskGauge`,
     `CaseHoverCard`, `ChatPanel`, `ChatHistoryRail`, `badges.tsx`, `charts.tsx`,
@@ -670,9 +670,9 @@ deep-audit hardening pass (2026-07-14/15)** fixed **47 verified findings** (0 cr
 high / 24 med / 13 low) from a 24-auditor + adversarial-verify Workflow — one atomic
 commit per finding on `Testing` (`c5516e5`→`abd0385`), local only, not tagged or pushed.
 See the "Deep-audit hardening" bullet in the round summary and the 2026-07-15 `Journal.md`
-entry. The product is now Version **`0.1.3`**: changes integrate and pass acceptance on
+entry. The product is now Version **`0.1.4`**: changes integrate and pass acceptance on
 `Testing`, then the exact accepted commit promotes to the Stable `main` branch and receives
-the immutable `v0.1.3` tag. Use `git log -1`, `VERSION`, and the latest `Journal.md` entry for the
+the immutable `v0.1.4` tag. Use `git log -1`, `VERSION`, and the latest `Journal.md` entry for the
 exact current snapshot rather than an embedded HEAD hash. Round 9c (`559ce88`, PR
 #27) is historical;
 `feature/round7-ui-overhaul` (Rounds 7–8) merged via PR #23/#24, Round 9 via PR #25,
@@ -681,8 +681,8 @@ flips the suite from "opt-in automation" to **comprehensive ingestion + smart-
 autopilot defaults ON out of the box** — see the Round-10 bullet below.
 
 **Release topology:** the remote now exposes canonical `Testing` and `main`, uses
-`main` as its default, and has the prior `v0.1.1` Stable tag; `v0.1.3` is created only
-from the fully verified promoted 0.1.3 commit. Repository-level branch
+`main` as its default, and has the prior `v0.1.1` Stable tag; `v0.1.4` is created only
+from the fully verified promoted 0.1.4 commit. Repository-level branch
 protection, required-check, and `github-pages` environment policy remain administrator
 controls and must be verified independently of source changes.
 

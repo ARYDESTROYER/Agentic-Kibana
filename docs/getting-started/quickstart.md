@@ -12,9 +12,9 @@ real source with persistent application state.
 !!! info "Choose the matching channel"
 
     `Testing` contains integrated candidates. Under the release contract, `main`
-    holds only accepted Stable source and immutable `v0.1.3` identifies this patch
+    holds only accepted Stable source and immutable `v0.1.4` identifies this patch
     after verified promotion. The remote has both canonical branches; use
-    `v0.1.3` only after the tag is published and `Testing` only for an unreleased preview;
+    `v0.1.4` only after the tag is published and `Testing` only for an unreleased preview;
     repository administrators must verify branch protections and required checks
     independently.
 
@@ -28,15 +28,15 @@ real source with persistent application state.
     cd Agentic-Kibana
     ```
 
-=== "Stable 0.1.3"
+=== "Stable 0.1.4"
 
     ```bash
-    git clone --branch v0.1.3 --depth 1 \
+    git clone --branch v0.1.4 --depth 1 \
       https://github.com/ARYDESTROYER/Agentic-Kibana.git
     cd Agentic-Kibana
     ```
 
-    The `v0.1.3` tag is immutable once published; do not create, move, or replace it locally. Users
+    The `v0.1.4` tag is immutable once published; do not create, move, or replace it locally. Users
     pulling `main` receive the current accepted Stable source, while candidate work
     remains isolated on `Testing`. A branch name alone is not acceptance evidence,
     so repository administrators must verify protections and required checks.

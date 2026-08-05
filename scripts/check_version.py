@@ -350,6 +350,7 @@ def main() -> int:
             )
         for marker in (
             "scripts/release_asset_state.py",
+            "--release-notes",
             "--paginate --slurp",
             ".delete_asset_ids[]",
             "== draft",
@@ -369,9 +370,12 @@ def main() -> int:
             "if: steps.assets.outputs.plan_exists != 'true'",
             "EXPECTED_RELEASE_STATE: ${{ steps.assets.outputs.release_state }}",
             "Release state changed after inspection",
+            "--release-notes",
             "draft:true",
             "cosign verify-blob",
             "-F draft=false",
+            '.name == $name',
+            '.body == ("<!-- agentic-soc-release-commit:" + $sha + " -->\\n\\n" + $notes)',
             '.release_state == "published"',
             'git ls-remote origin "refs/tags/${tag}"',
             'git ls-remote origin "refs/tags/${tag}^{}"',
@@ -419,6 +423,10 @@ def main() -> int:
             classifier_source = release_classifier.read_text(encoding="utf-8")
             for marker in (
                 "agentic-soc-release-commit",
+                "canonical_release_name",
+                "canonical_release_body",
+                "release title does not equal the canonical title",
+                "release body does not equal the canonical versioned release notes",
                 "published release is missing a canonical upgrade-plan asset",
                 "delete_asset_ids",
                 'state == "starter"',

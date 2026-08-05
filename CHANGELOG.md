@@ -14,14 +14,24 @@ History is reconstructed from `git log`.
 
 No changes yet.
 
-## [0.1.3] - 2026-08-04
+## [0.1.4] - 2026-08-05
 
-**Beta patch: supervised Stable updates, broader governed Intelligence coverage,
-truthful operator states, honest rule authoring, responsive Console hardening, and
-stricter release acceptance.**
+**First governed Stable patch since `v0.1.1`: supervised updates, public signed
+release artifacts, broader Intelligence coverage, truthful operator states, honest
+rule authoring, responsive Console hardening, and stricter release acceptance.**
+
+This release includes the accepted work from the unpublished 0.1.2 and 0.1.3
+Testing snapshots. Neither snapshot had an immutable tag, GitHub Release, signed
+upgrade plan, or supported Stable artifacts.
 
 ### Added
 
+- A complete immutable Stable publication contract: three multi-architecture,
+  digest-pinned GHCR images (`backend`, `webui`, and `updater`), keyless Sigstore
+  signatures bound to the exact tagged release workflow identity, a signed canonical
+  `upgrade-plan.json` plus verification bundle, and an atomically published GitHub
+  Release. Anonymous image access is verified before release publication so a private
+  or missing package fails closed instead of producing a non-installable update.
 - A supervised **one-click Stable update** foundation for the reference
   single-replica PostgreSQL Compose deployment. After one host bootstrap, a
   built-in super-admin can approve a server-bound preflight; an isolated updater
@@ -60,6 +70,9 @@ stricter release acceptance.**
   24-compatible commit SHAs, with weekly Dependabot update proposals.
 - Shipping Dockerfile bases are pinned to reviewed multi-platform manifest digests,
   with weekly Docker Dependabot update proposals.
+- The shipping-image gate now starts the built Web Console container and requires its
+  native health check plus an IPv4 HTTP probe to pass, rather than validating image
+  metadata without exercising nginx.
 - Stable artifacts and versioned Help Center publication both wait for the exact
   immutable tag's successful fail-closed CI aggregate.
 - Shared empty states now distinguish first use, no data, no results, success,
@@ -73,6 +86,12 @@ stricter release acceptance.**
 
 ### Fixed
 
+- The updater now publishes a terminal job only after its lifecycle generation has
+  settled, so an immediately requested rollback cannot overlap the completed update
+  worker or observe an incomplete durable state transition.
+- The shipping Web Console health check now probes nginx over explicit IPv4 loopback,
+  matching the container listener instead of remaining unhealthy when Alpine resolves
+  `localhost` to IPv6.
 - The backend distribution test now accepts only the reviewed Python tag plus a
   64-character immutable image digest and the expected runtime stage, so Docker
   reproducibility hardening no longer makes the complete offline suite fail.
@@ -91,7 +110,14 @@ stricter release acceptance.**
 - The Rules workspace and Case Manager remain within the viewport on compact screens
   while retaining keyboard access and the canonical detail handoff.
 
-## [0.1.2] - 2026-08-03
+## Development snapshot — 2026-08-04 — 0.1.3 Testing candidate
+
+Version 0.1.3 was prepared and accepted as Testing/main source but was never
+published as an annotated Stable tag or GitHub Release. Its accepted delta is
+included in 0.1.4 above. The historical operator record remains at
+`docs/releases/0.1.3.md`; do not create `v0.1.3` retroactively.
+
+## Development snapshot — 2026-08-03 — 0.1.2 Testing candidate
 
 **Unpublished Testing snapshot — no immutable tag or Stable artifact: Security
 Command Center, canonical Case Manager detail, governed continuous-improvement
@@ -214,9 +240,9 @@ in-app release activation, and a version-matched Help Center.**
 
 - The beta patch snapshot was versioned **0.1.2** and continued to bundle the
   existing **0.1** Help Center line. It reached `main` without a published
-  `v0.1.2` tag; the later 0.1.3 candidate therefore supersedes it as the next
-  immutable release target. A version string alone never implies Stable provenance
-  or a completed deployment.
+  `v0.1.2` tag. The later 0.1.3 candidate also remained an unpublished Testing
+  snapshot; 0.1.4 is the governed successor release target. A version string alone
+  never implies Stable provenance or a completed deployment.
 - Fresh workspaces now use the bundled OpenAI model ID `gpt-5.6-luna` for every
   completion role, with `reasoning_effort: none` preserving the existing Chat Completions
   latency/tool contract. Embeddings remain on `text-embedding-3-small`; persisted

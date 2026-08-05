@@ -89,8 +89,13 @@ describe('Dashboards page', () => {
     expect(await screen.findByTestId('dashboards-header')).toBeInTheDocument();
     // The role-default widget set landed in VIEW mode (plain CSS grid, no RGL).
     await waitFor(() => expect(screen.getByTestId('widget-grid-view')).toBeInTheDocument());
-    // A default-role widget resolves (needs-human is in every default set).
-    expect(await screen.findByText('Needs-human queue')).toBeInTheDocument();
+    // A default-role widget resolves (needs-human is in every default set). The
+    // provider settles one shared five-source batch; give a constrained native-Linux
+    // runner the same bounded allowance as the dashboard accessibility acceptance.
+    await waitFor(() => {
+      expect(apiMocks.getMetrics).toHaveBeenCalledTimes(1);
+      expect(screen.getByText('Needs-human queue')).toBeInTheDocument();
+    }, { timeout: 5000 });
 
     // THE lock: react-grid-layout was never evaluated on the default page render.
     expect(rglEvaluated.count).toBe(0);

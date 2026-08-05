@@ -63,7 +63,7 @@ fails.
 
 Verify backend readiness through the nginx `/api` proxy, then inspect browser network
 status and console errors. Confirm the web and backend artifacts are both version
-`0.1.3`. Clear only browser cache/site data needed to rule out stale assets; do not
+`0.1.4`. Clear only browser cache/site data needed to rule out stale assets; do not
 factory-reset application state for a presentation problem.
 
 ## Escalation package
