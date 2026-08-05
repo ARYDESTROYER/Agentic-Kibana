@@ -2698,6 +2698,14 @@
       
         
       
+        
+      
+        
+      
+        
+      
+        
+      
     
     
     
@@ -2759,12 +2767,104 @@
   
   
     <li class="md-nav__item">
+      <a href="../../releases/0.1.12/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.12
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1.11/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.11 (failed publication)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1.10/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.10 (failed publication)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1.9/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.9 (failed publication)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../releases/0.1.8/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Agentic SOC 0.1.8
+    Agentic SOC 0.1.8 (bootstrap blocked)
     
   </span>
   
@@ -3386,18 +3486,23 @@
 <p>Agentic SOC changes are accepted on <code>Testing</code> only after the relevant offline, contract,
 build, and documentation gates pass. Stable promotion moves that accepted source
 tree through a protected pull request to <code>main</code>; the resulting commit is gated again
-before application version <code>v0.1.8</code> is tagged.</p>
-<p>The latest fully recorded local baseline is <strong>2,306 backend tests</strong> and <strong>1,936
-Console tests across 286 files</strong> (1,927 passed + 9 intentionally skipped). The
+before application version <code>v0.1.12</code> is tagged.</p>
+<p>The latest fully recorded local baseline is <strong>2,306 backend tests</strong> and <strong>1,935/1,935
+Console tests across 286 files</strong>. The
 Console baseline also has zero stderr bytes and zero Vitest-captured console stdout
 blocks under <code>npm run test:strict</code>. Counts rise as coverage is added; the commands
 and zero-failure result are the contract, not a frozen target.</p>
 <p>The remote uses <code>Testing</code> for integration and default <code>main</code> for accepted Stable
-source. Version 0.1.8 is a candidate on <code>Testing</code> and is Stable only when the
-resulting verified <code>main</code> commit has the immutable <code>v0.1.8</code> tag and matching
+source. Version 0.1.12 is a candidate on <code>Testing</code> and is Stable only when the
+resulting verified <code>main</code> commit has the immutable <code>v0.1.12</code> tag and matching
 artifacts. Branch protection, required checks,
 Pages source selection, and <code>github-pages</code> environment policy are repository settings;
 verify them independently before treating a merge or deployment as accepted.</p>
+<p>The immutable <code>v0.1.10</code> tag passed source/tag CI but its signed-release job timed
+out during the emulated arm64 Console build. It has no complete signed image set,
+canonical plan/bundle, GitHub Release, Stable tags, or supported bootstrap path;
+preserve it as historical evidence and never move, reuse, repair, install, or
+bootstrap from it.</p>
 <h2 id="github-merge-gate">GitHub merge gate<a class="headerlink" href="#github-merge-gate" title="Permanent link">&para;</a></h2>
 <p>Every pull request receives nineteen visible statuses from
 <code>.github/workflows/ci.yml</code>: eighteen independently diagnosable quality lanes plus the
@@ -3514,6 +3619,13 @@ images and digest/label mismatches fail after job creation but before applicatio
 mutation. Every denial or failed job must remain usable and provide exact remediation
 without sending host paths, commands, Compose fragments, registry credentials, or
 Docker authority to the browser.</p>
+<p>Before release publication, start the exact digest-pinned updater with the production
+read-only root filesystem, <code>cap_drop: ALL</code>, <code>no-new-privileges</code>, and mounted state,
+backup, control, and runtime volumes. Assert its image-baked <code>TUF_ROOT</code> is exactly
+<code>/var/lib/agentic-soc-updater/sigstore-root</code>, that the path is writable on the state
+volume, and that the running supervisor's own cosign verifies the canonical signed
+plan. A host-injected <code>TUF_ROOT</code>, alternate entrypoint, writable root filesystem, or
+source-only signature check does not satisfy this release gate.</p>
 <p>Exercise the complete supported job against an isolated copy of the reference
 single-replica PostgreSQL Compose stack. Assert pull-before-mutation, quiesced and
 catalog-verified custom-format backup, exact backend/Web identity and readiness,
@@ -3526,16 +3638,18 @@ rollback requested after success must also restore images only. Prove the verifi
 dump remains available for an explicit break-glass recovery rehearsal, but is never
 consumed automatically. Any plan with a migration strategy other than <code>none</code> must fail
 preflight.</p>
-<p>Verify the one-time v0.1.1→v0.1.8 bootstrap separately from later Console updates:
+<p>Verify the one-time pre-supervisor/source-built→v0.1.12 bootstrap separately from
+later Console updates:
 it must refuse a dirty checkout, a lightweight/mismatched tag, a tag whose commit is
 not contained in <code>origin/main</code>, missing durable secrets, an unsupported running
 topology, an active job, and unreadable/invalid existing supervisor state. Prove it
-reuses a compatible idle supervisor and replaces only an inspectable idle incompatible
-one while preserving/restoring the active digest override. Repeat the replacement test
+reuses a protocol-compatible idle supervisor only when its reported updater version
+also exactly matches 0.1.12, and replaces an inspectable idle older supervisor while
+preserving/restoring the active digest override. Repeat the replacement test
 without an active override and prove bootstrap captures the exact immutable prior
 updater image ID, restores it after an injected replacement failure, and removes the
 temporary recovery override only after confirmed success. Its happy path installs only
-the initial supervisor transport before delegating the full v0.1.8 transition to the
+the initial supervisor transport before delegating the full v0.1.12 transition to the
 signed state machine. Afterward, prove
 <code>scripts/agentic-soc-compose.sh</code> layers the active digest override and document raw
 Compose lifecycle commands as unsupported. Verify a known dirty Runbook or Settings
@@ -3594,7 +3708,7 @@ typed in the generated contract.</p>
 <p>Run the repository's standard-library metadata gate from the root:</p>
 <div class="highlight"><pre><span></span><code>python3<span class="w"> </span>scripts/check_version.py
 </code></pre></div>
-<p>For the 0.1 line it checks that the root <code>VERSION</code> (<code>0.1.8</code>) agrees with backend,
+<p>For the 0.1 line it checks that the root <code>VERSION</code> (<code>0.1.12</code>) agrees with backend,
 Console, lockfile, OpenAPI, Compose image/build metadata, release records, and the
 MkDocs/Mike documentation line (<code>0.1</code>).</p>
 <h2 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">&para;</a></h2>
@@ -3678,7 +3792,7 @@ isolated environment.</p>
    release gate again on the resulting <code>main</code> commit.</li>
 <li>Build and stamp the verified commit with the correct channel, exact SHA, build
    date, and source URL.</li>
-<li>Create the immutable <code>v0.1.8</code> tag and publish matching application artifacts by
+<li>Create the immutable <code>v0.1.12</code> tag and publish matching application artifacts by
    digest; let the Documentation workflow publish the accepted public 0.1 line from
    <code>main</code>.</li>
 <li>Verify all three GHCR packages are public and anonymously pullable by the exact

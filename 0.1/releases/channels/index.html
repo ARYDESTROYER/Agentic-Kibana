@@ -2540,6 +2540,14 @@
       
         
       
+        
+      
+        
+      
+        
+      
+        
+      
     
     
     
@@ -2601,12 +2609,104 @@
   
   
     <li class="md-nav__item">
+      <a href="../0.1.12/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.12
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0.1.11/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.11 (failed publication)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0.1.10/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.10 (failed publication)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0.1.9/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.9 (failed publication)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../0.1.8/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Agentic SOC 0.1.8
+    Agentic SOC 0.1.8 (bootstrap blocked)
     
   </span>
   
@@ -3397,9 +3497,9 @@ successful installation, the same-origin Console manifest must still exactly mat
 healthy backend build before the new document activates.</p>
 <h2 id="version-01-nomenclature">Version 0.1 nomenclature<a class="headerlink" href="#version-01-nomenclature" title="Permanent link">&para;</a></h2>
 <p>The first standardized release line is documentation version <strong>0.1</strong>. The current
-source version is product version <strong>0.1.8</strong>. It carries the accepted 0.1.2 through
-0.1.7 application scope and corrects the canonical updater bootstrap defect found
-after 0.1.7 publication. The immutable
+source version is product version <strong>0.1.12</strong>. It carries the accepted application
+scope through 0.1.11 and corrects the post-verification cleanup defect that stopped
+0.1.11 after its constrained updater had already verified the signed plan. The immutable
 <code>v0.1.4</code> publication attempt produced documentation but no application artifacts.
 The immutable <code>v0.1.5</code> workflow built and signed candidate image digests but stopped
 before publishing the canonical signed plan, GitHub Release, or Stable tags. Both are
@@ -3410,11 +3510,30 @@ supported installation source. Version 0.1.7 met its exact-tag artifact-publicat
 contract: the signed plan, public GitHub Release, and public digest-pinned images all
 verify. Canonical acceptance then found that the shipped updater failed control-socket
 startup under the capability boundary. Version 0.1.7 is therefore historical,
-bootstrap-blocked, and superseded. Version 0.1.8 is Stable only when its exact
-accepted <code>main</code> commit is immutably tagged
-<code>v0.1.8</code> and its complete signed/public artifact set plus updater runtime acceptance
-verify. If that evidence is incomplete, use a previously verified supported Stable
-release.</p>
+bootstrap-blocked, and superseded. Version 0.1.8 completed its exact-tag signed/public
+artifact publication, then canonical bootstrap failed when cosign 3 tried to write
+its default TUF cache beneath the read-only <code>/root</code> filesystem. It is immutable,
+bootstrap-blocked, and superseded. Version 0.1.9 corrected that trust-root path and
+passed exact-tag CI, signed/public digest and anonymous-registry checks, and host-side
+plan verification. Its constrained updater could not traverse the runner-owned
+verification bind source, so attestations, GitHub Release publication, canonical
+plan assets, Stable convenience tags, and Stable documentation were skipped. It is
+immutable partial evidence and non-installable. Version 0.1.10 then passed protected
+source and exact-tag CI, but the signed-release workflow timed out while the
+architecture-neutral Web Console builder ran under target emulation. It published
+no complete three-image set, canonical signed plan, GitHub Release, Stable tags, or
+Stable documentation and is immutable, superseded, and non-installable. Version
+0.1.11 workflow built, signed, anonymously proved, and verified all three images and
+the canonical plan on the host and inside the constrained updater. Its cleanup trap
+then failed to unlink read-only verification files while their runner-owned parent
+directory remained mode <code>0555</code>, so attestations, GitHub Release publication,
+canonical asset publication, Stable tags, and Stable documentation were skipped. It
+is immutable partial evidence and non-installable. Version 0.1.12 restores the
+runner-owned directory to private mode <code>0700</code> only after verifier exit, then removes
+the fixture. It is Stable only when its exact accepted <code>main</code> commit is immutably
+tagged <code>v0.1.12</code> and its complete signed/public artifact set plus updater runtime and
+canonical deployment acceptance verify. If that evidence is incomplete, use a
+previously verified supported Stable release.</p>
 <table>
 <thead>
 <tr>
@@ -3437,11 +3556,11 @@ release.</p>
 </tr>
 <tr>
 <td>SemVer package and image version</td>
-<td><code>0.1.8</code></td>
+<td><code>0.1.12</code></td>
 </tr>
 <tr>
 <td>Git release tag</td>
-<td><code>v0.1.8</code> only from the exact verified <code>main</code> commit; absent before publication and immutable afterward</td>
+<td><code>v0.1.12</code> only from the exact verified <code>main</code> commit; absent before publication and immutable afterward</td>
 </tr>
 <tr>
 <td>Documentation selector and URL line</td>
@@ -3458,7 +3577,7 @@ release.</p>
 </tbody>
 </table>
 <p>Patch releases remain within the same documentation line. For example, app
-versions <code>0.1.1</code>, <code>0.1.2</code>, <code>0.1.3</code>, <code>0.1.4</code>, <code>0.1.5</code>, <code>0.1.6</code>, <code>0.1.7</code>, and <code>0.1.8</code> use the <code>0.1</code> documentation rather than
+versions <code>0.1.1</code>, <code>0.1.2</code>, <code>0.1.3</code>, <code>0.1.4</code>, <code>0.1.5</code>, <code>0.1.6</code>, <code>0.1.7</code>, <code>0.1.8</code>, <code>0.1.9</code>, <code>0.1.10</code>, <code>0.1.11</code>, and <code>0.1.12</code> use the <code>0.1</code> documentation rather than
 creating new selector entries. A new minor release creates a new documentation
 line such as <code>0.2</code>.</p>
 <h2 id="promotion-procedure">Promotion procedure<a class="headerlink" href="#promotion-procedure" title="Permanent link">&para;</a></h2>
@@ -3540,6 +3659,10 @@ describe its real operating boundary. At minimum:</p>
 <li>the supported PostgreSQL+pgvector/Redis state lane performs a real readiness
   write/read, and every shipping backend, Console, and updater image builds with the
   exact candidate identity before any tag can publish it;</li>
+<li>the exact digest-pinned updater verifies the signed canonical plan inside the
+  constrained read-only runtime, with its baked cosign TUF root writable on the
+  updater-state volume and both immutable <code>/verification</code> inputs readable beneath
+  the dropped-capability runtime, before the GitHub Release becomes public;</li>
 <li>workflow/ShellCheck and deploy/updater contracts run as separate required lanes so
   one early failure cannot hide another; the fail-closed <code>CI passed</code> aggregate must
   succeed on <code>Testing</code>, the resulting <code>main</code> commit, and the immutable tag;</li>
@@ -3565,8 +3688,8 @@ tag CI run and its successful <strong>CI passed</strong> aggregate before publis
 for the required route and interaction coverage. A screenshot of one successful page
 is not a Console acceptance receipt.</p>
 <h2 id="build-and-badge-provenance">Build and badge provenance<a class="headerlink" href="#build-and-badge-provenance" title="Permanent link">&para;</a></h2>
-<p>SemVer and channel are independent. The 0.1.8 Testing candidate and its accepted
-Stable build can both report version <code>0.1.8</code>; the channel says where that build sits in
+<p>SemVer and channel are independent. The 0.1.12 Testing candidate and its accepted
+Stable build can both report version <code>0.1.12</code>; the channel says where that build sits in
 the acceptance lifecycle. Stamp the mutable provenance fields explicitly; keep or
 override the Dockerfile's canonical source URL as appropriate:</p>
 <table>
@@ -3758,7 +3881,7 @@ maintenance rules, and <a href="../0.1/">Agentic SOC 0.1</a> for this release li
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
           </span>
           
-            <span class="tlsoc-page-footer__description">Release gates and explicit operating constraints for Agentic SOC 0.1.8.</span>
+            <span class="tlsoc-page-footer__description">Release gates and explicit operating constraints for Agentic SOC 0.1.12.</span>
           
         </a>
       

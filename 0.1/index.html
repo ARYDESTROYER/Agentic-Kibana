@@ -2538,6 +2538,14 @@
       
         
       
+        
+      
+        
+      
+        
+      
+        
+      
     
     
     
@@ -2599,12 +2607,104 @@
   
   
     <li class="md-nav__item">
+      <a href="releases/0.1.12/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.12
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="releases/0.1.11/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.11 (failed publication)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="releases/0.1.10/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.10 (failed publication)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="releases/0.1.9/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.9 (failed publication)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="releases/0.1.8/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Agentic SOC 0.1.8
+    Agentic SOC 0.1.8 (bootstrap blocked)
     
   </span>
   
@@ -3218,7 +3318,7 @@ The first section is the user and analyst guide; administration, deployment,
 reference, and release material live in the same searchable portal.</p>
 <div class="admonition info">
 <p class="admonition-title">Matched to this app</p>
-<p><strong>Documentation 0.1</strong> describes <strong>Agentic SOC 0.1.8</strong>. The application bundles this
+<p><strong>Documentation 0.1</strong> describes <strong>Agentic SOC 0.1.12</strong>. The application bundles this
 Help Center from the same accepted source and serves it on the application
 origin under <code>/docs/0.1/</code>. Use it as the authority for the behavior and controls
 available in the running build. The channel badge identifies whether that build
@@ -3384,16 +3484,28 @@ does not replace the version-matched Help Center bundled with the application.</
 <h2 id="release-status">Release status<a class="headerlink" href="#release-status" title="Permanent link">&para;</a></h2>
 <p>Agentic SOC uses one promotion path: feature branches merge into <strong>Testing</strong>, and the
 accepted source tree promotes through a protected pull request to <strong><code>main</code> /
-Stable</strong>. The current source version uses SemVer <code>0.1.8</code>; compatible documentation
+Stable</strong>. The current source version uses SemVer <code>0.1.12</code>; compatible documentation
 uses the major.minor line <code>0.1</code>.</p>
 <p>The repository uses default <code>main</code> for accepted source and retains <code>Testing</code> for
-integration. Version 0.1.8 is Stable only when the exact accepted <code>main</code> commit has
-the immutable <code>v0.1.8</code> tag and matching signed/public artifacts. Repository
+integration. Version 0.1.12 is Stable only when the exact accepted <code>main</code> commit has
+the immutable <code>v0.1.12</code> tag and matching signed/public artifacts and every canonical
+runtime acceptance gate passes. Repository
 protections and the native Pages deployment remain
 administrator-controlled and must be verified independently before treating a
 branch, workflow run, or public URL as accepted. The immutable <code>v0.1.4</code> and
-<code>v0.1.5</code> tags are failed, non-installable publication records. Read
-<a href="releases/0.1.8/">Agentic SOC 0.1.8</a>,
+<code>v0.1.5</code> tags are failed, non-installable publication records. Version <code>v0.1.9</code>
+is also non-installable: its constrained signed-plan check failed before Release
+publication. Version <code>v0.1.10</code> is immutable and non-installable: its signed-release
+workflow timed out during the emulated Web Console builder before the complete
+artifact set or GitHub Release existed. Version 0.1.11 completed image and plan
+verification but failed during post-verification cleanup before its GitHub Release
+or canonical assets were published. Version 0.1.12 remains a candidate until its
+full signed-publication and canonical acceptance evidence exists. Read
+<a href="releases/0.1.12/">Agentic SOC 0.1.12</a>,
+<a href="releases/0.1.11/">the 0.1.11 failed-publication record</a>,
+<a href="releases/0.1.10/">the 0.1.10 failed-publication record</a>,
+<a href="releases/0.1.9/">the 0.1.9 failed-publication record</a>,
+<a href="releases/0.1.8/">the 0.1.8 bootstrap-blocked publication record</a>,
 <a href="releases/0.1.7/">the 0.1.7 bootstrap-blocked publication record</a>,
 <a href="releases/0.1.5/">the 0.1.5 failed-publication record</a>,
 <a href="releases/0.1.4/">the 0.1.4 failed-publication record</a>,

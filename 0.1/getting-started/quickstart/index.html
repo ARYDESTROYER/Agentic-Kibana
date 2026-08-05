@@ -2689,6 +2689,14 @@
       
         
       
+        
+      
+        
+      
+        
+      
+        
+      
     
     
     
@@ -2750,12 +2758,104 @@
   
   
     <li class="md-nav__item">
+      <a href="../../releases/0.1.12/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.12
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1.11/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.11 (failed publication)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1.10/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.10 (failed publication)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../releases/0.1.9/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.9 (failed publication)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../releases/0.1.8/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Agentic SOC 0.1.8
+    Agentic SOC 0.1.8 (bootstrap blocked)
     
   </span>
   
@@ -3362,18 +3462,30 @@ real source with persistent application state.</p>
 <div class="admonition info">
 <p class="admonition-title">Choose the matching channel</p>
 <p><code>Testing</code> contains integrated candidates. Under the release contract, <code>main</code>
-holds only accepted Stable source and immutable <code>v0.1.8</code> identifies this patch.
-The remote has both canonical branches; use <code>v0.1.8</code> only when its signed GitHub
-Release and public digest-pinned images verify, and use <code>Testing</code> only for an unreleased preview;
+holds only accepted Stable source and immutable <code>v0.1.12</code> identifies this candidate.
+The remote has both canonical branches; use <code>v0.1.12</code> only when its signed GitHub
+Release and public digest-pinned images verify and canonical PostgreSQL Compose
+runtime acceptance completes, and use <code>Testing</code> only for an unreleased preview;
 repository administrators must verify branch protections and required checks
 independently. Never use <code>v0.1.4</code> or <code>v0.1.5</code>: those immutable
 failed-publication records do not have a canonical signed plan and public
 GitHub Release. Never bootstrap from <code>v0.1.6</code> either: its signed/public artifact
 set is valid, but canonical macOS Bash 3.2 acceptance failed before supervisor
-installation. It is immutable, superseded history.</p>
+installation. Versions 0.1.7 and 0.1.8 are also immutable, superseded history:
+0.1.7 could not publish the private control socket under dropped capabilities,
+while 0.1.8 reached signed-plan verification but cosign's default TUF cache was
+unwritable beneath the read-only root filesystem. Version 0.1.9 corrected that
+cache location, then failed when the constrained supervisor could not traverse
+the runner-owned verification directory; it has no installable GitHub Release.
+Version 0.1.10 fixed that traversal boundary but its signed-release job timed out
+while the architecture-neutral Web Console builder ran under target emulation.
+Version 0.1.11 then passed all image and plan verification, including inside the
+constrained updater, but its post-verification cleanup failed before canonical
+Release publication. Both are immutable, non-installable history and must never
+be recommended.</p>
 </div>
 <h2 id="get-the-source">Get the source<a class="headerlink" href="#get-the-source" title="Permanent link">&para;</a></h2>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Testing</label><label for="__tabbed_1_2">Stable 0.1.8</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Testing</label><label for="__tabbed_1_2">Stable 0.1.12 (after acceptance)</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>--branch<span class="w"> </span>Testing<span class="w"> </span>--depth<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
@@ -3382,15 +3494,17 @@ installation. It is immutable, superseded history.</p>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>--branch<span class="w"> </span>v0.1.8<span class="w"> </span>--depth<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>--branch<span class="w"> </span>v0.1.12<span class="w"> </span>--depth<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>https://github.com/ARYDESTROYER/Agentic-Kibana.git
 <span class="nb">cd</span><span class="w"> </span>Agentic-Kibana
 </code></pre></div>
-<p>The <code>v0.1.8</code> tag is immutable after publication; do not create, move, or replace it locally. Users
+<p>The <code>v0.1.12</code> tag is absent before publication and immutable afterward; do not
+create, move, or replace it locally. Users
 pulling <code>main</code> receive the current accepted Stable source, while candidate work
 remains isolated on <code>Testing</code>. A branch name alone is not acceptance evidence,
 so repository administrators must verify protections and required checks. If the
-signed Release or public image evidence is missing, use a previously verified Stable release.</p>
+signed Release, public image evidence, or canonical runtime acceptance is missing,
+use a previously verified Stable release.</p>
 </div>
 </div>
 </div>

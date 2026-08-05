@@ -2540,6 +2540,14 @@
       
         
       
+        
+      
+        
+      
+        
+      
+        
+      
     
     
     
@@ -2601,12 +2609,104 @@
   
   
     <li class="md-nav__item">
+      <a href="../0.1.12/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.12
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0.1.11/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.11 (failed publication)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0.1.10/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.10 (failed publication)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0.1.9/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.9 (failed publication)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../0.1.8/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Agentic SOC 0.1.8
+    Agentic SOC 0.1.8 (bootstrap blocked)
     
   </span>
   
@@ -3163,8 +3263,8 @@ release-inventory parser, and tightened shipping-image dependency checks. The
 anonymous multi-platform pull gate before publishing the canonical signed plan,
 Sigstore plan bundle, GitHub Release, or Stable convenience tags.</p>
 <p>Those partial registry objects are not installation authority. The current governed
-correction is <a href="../0.1.8/">0.1.8</a>; <code>v0.1.5</code> must never be moved, deleted, recreated,
-or reused. Versions 0.1.6 and 0.1.7 published signed artifact sets but remain
+correction is <a href="../0.1.12/">0.1.12</a>; <code>v0.1.5</code> must never be moved, deleted, recreated,
+or reused. Versions 0.1.6, 0.1.7, and 0.1.8 published signed artifact sets but remain
 superseded, bootstrap-blocked historical records.</p>
 <div class="admonition danger">
 <p class="admonition-title">Do not install, bootstrap, or update from v0.1.5</p>
@@ -3228,11 +3328,18 @@ signed new component digests, and published a new plan and GitHub Release; its
 canonical macOS Bash 3.2 bootstrap then failed before supervisor installation.
 Version 0.1.7 preserved both records and fixed the Bash 3.2 host script, but its
 updater could not publish the private control socket under the shipped capability
-boundary. Version 0.1.8 preserves every record and repeats the complete acceptance
-sequence with the corrected runtime identity and fail-closed socket gate.</p>
+boundary. Version 0.1.8 preserved every record and corrected the socket runtime, but
+canonical bootstrap then failed when cosign's default TUF cache was unwritable
+beneath the read-only root filesystem. Version 0.1.9 preserved every record and
+added writable trust state, but failed later in its constrained verification fixture.
+Version 0.1.10 repeated that sequence with the least-privilege fixture correction
+but timed out during the emulated Web Console build. Version 0.1.11 used native
+architecture-neutral builders and completed image plus plan verification, but failed
+during post-verification cleanup. Version 0.1.12 repeats the complete acceptance
+sequence with fail-closed cleanup.</p>
 <h2 id="operator-action">Operator action<a class="headerlink" href="#operator-action" title="Permanent link">&para;</a></h2>
 <p>Do not run bootstrap, artifact-download, image-pin, or tag-creation commands from this
-historical page. Use the <a href="../0.1.8/">0.1.8 release procedure</a> only after all evidence
+historical page. Use the <a href="../0.1.12/">0.1.12 release procedure</a> only after all evidence
 it requires is present, or continue using a previously verified Stable release.</p>
 <p>For the general immutable promotion and recovery policy, read
 <a href="../channels/">Release channels and versioning</a>. For the supported supervisor boundary,

@@ -2540,6 +2540,14 @@
       
         
       
+        
+      
+        
+      
+        
+      
+        
+      
     
     
     
@@ -2601,12 +2609,104 @@
   
   
     <li class="md-nav__item">
+      <a href="../0.1.12/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.12
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0.1.11/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.11 (failed publication)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0.1.10/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.10 (failed publication)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0.1.9/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.9 (failed publication)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../0.1.8/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Agentic SOC 0.1.8
+    Agentic SOC 0.1.8 (bootstrap blocked)
     
   </span>
   
@@ -3274,7 +3374,7 @@ for newer material; it is not the primary product-help destination.</p>
 <h2 id="installed-documentation-contract">Installed documentation contract<a class="headerlink" href="#installed-documentation-contract" title="Permanent link">&para;</a></h2>
 <p>Every application build carries two related identifiers:</p>
 <ul>
-<li>the full product SemVer, such as <strong>0.1.8</strong>; and</li>
+<li>the full product SemVer, such as <strong>0.1.12</strong>; and</li>
 <li>the compatible documentation line, such as <strong>0.1</strong>.</li>
 </ul>
 <p>The documentation build and the application build originate from the same source
@@ -3303,7 +3403,7 @@ newer Stable or Development material.</p>
 <tbody>
 <tr>
 <td>0.1 installed Testing guide</td>
-<td>0.1.8</td>
+<td>0.1.12</td>
 <td>candidate commit on <code>Testing</code></td>
 <td>Testing</td>
 </tr>
@@ -3350,10 +3450,34 @@ newer Stable or Development material.</p>
 <td>Historical, superseded; not a supported bootstrap source</td>
 </tr>
 <tr>
-<td>0.1 installed 0.1.8 Stable guide</td>
+<td>0.1 published-but-bootstrap-blocked guide</td>
 <td>0.1.8</td>
-<td>exact verified <code>main</code> commit after it is tagged <code>v0.1.8</code> and all signed/public artifacts plus updater runtime acceptance pass</td>
-<td>Stable</td>
+<td>immutable <code>v0.1.8</code> tag plus public signed images, plan, bundle, and GitHub Release; canonical signed-plan verification failed because cosign's default TUF cache was unwritable beneath the read-only root filesystem</td>
+<td>Historical, superseded; not a supported bootstrap source</td>
+</tr>
+<tr>
+<td>0.1 failed-publication guide</td>
+<td>0.1.9</td>
+<td>immutable <code>v0.1.9</code> tag plus public signed digest images and a generated signed plan; constrained-updater fixture failed before attestations, GitHub Release, plan-asset publication, Stable convenience tags, or Stable documentation</td>
+<td>Historical, non-installable</td>
+</tr>
+<tr>
+<td>0.1 failed-publication guide</td>
+<td>0.1.10</td>
+<td>immutable <code>v0.1.10</code> tag and green exact-tag source CI; signed-release job timed out during the emulated Web Console builder before the complete signed artifact set, canonical Release, or Stable documentation existed</td>
+<td>Historical, non-installable</td>
+</tr>
+<tr>
+<td>0.1 failed-publication guide</td>
+<td>0.1.11</td>
+<td>immutable <code>v0.1.11</code> tag plus public signed digest images and a generated signed plan that verified on the host and inside the constrained updater; post-verification cleanup failed before attestations, GitHub Release, plan assets, Stable tags, or Stable documentation</td>
+<td>Historical, non-installable</td>
+</tr>
+<tr>
+<td>0.1 prospective 0.1.12 Stable guide</td>
+<td>0.1.12</td>
+<td>exact verified <code>main</code> commit after it is tagged <code>v0.1.12</code> and all signed/public artifacts plus updater runtime and canonical deployment acceptance pass</td>
+<td>Candidate; Stable only after full acceptance</td>
 </tr>
 <tr>
 <td>0.1 public Stable guide</td>
@@ -3369,7 +3493,7 @@ from that accepted patch and its release notes describe the change. A future
 incompatible or feature release receives a new documentation line rather than
 rewriting 0.1 silently.</p>
 <p>The channel is independent of SemVer. A Testing candidate and a Stable artifact may
-both report application version <code>0.1.8</code>; only accepted <code>main</code>/tag provenance may
+both report application version <code>0.1.12</code>; only accepted <code>main</code>/tag provenance may
 claim a Stable application build. Public documentation can receive corrections on
 <code>Testing</code>, but a published Stable correction receives a new patch version and tag.
 The installed Help Center therefore remains authoritative for the exact binaries

@@ -2540,6 +2540,14 @@
       
         
       
+        
+      
+        
+      
+        
+      
+        
+      
     
     
     
@@ -2601,12 +2609,104 @@
   
   
     <li class="md-nav__item">
+      <a href="../0.1.12/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.12
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0.1.11/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.11 (failed publication)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0.1.10/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.10 (failed publication)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0.1.9/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.9 (failed publication)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../0.1.8/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Agentic SOC 0.1.8
+    Agentic SOC 0.1.8 (bootstrap blocked)
     
   </span>
   
@@ -3324,15 +3424,23 @@ signed plan and bundle, GitHub Release, and Help Center completed. Canonical hos
 acceptance subsequently found that its one-time supervisor bootstrap exits on macOS
 Bash 3.2 before changing the workload. The tag and artifacts remain immutable, but
 the release is not a supported bootstrap source. Version 0.1.7 repaired the Bash
-3.2 host path but exposed a later updater control-socket startup defect. Use the
-governed <a href="../0.1.8/">0.1.8 correction</a>.</p>
+3.2 host path but exposed a later updater control-socket startup defect. Version
+0.1.8 corrected that socket boundary but remained bootstrap-blocked during Sigstore
+trust initialization. Version 0.1.9 corrected the trust-root path but failed later
+in its constrained verification fixture. Version 0.1.10 later timed out during the
+emulated Web Console build, and version 0.1.11 failed during post-verification
+cleanup. Use the governed <a href="../0.1.12/">0.1.12 correction</a>.</p>
 <div class="admonition danger">
 <p class="admonition-title">Historical publication — do not bootstrap from this tag</p>
 <p>Do not run <code>scripts/bootstrap-updater.sh</code> from <code>v0.1.6</code>, move or reuse the tag,
 replace its published assets, or reinterpret its signed plan as the corrected
 release. Version 0.1.7 repeated every release gate with a Bash 3.2-safe
 bootstrap, published successfully, and then failed updater socket startup under
-the dropped-capability runtime. Version 0.1.8 is the next supported candidate.</p>
+the dropped-capability runtime. Version 0.1.8 corrected that boundary but was
+itself bootstrap-blocked. Version 0.1.9 failed later in its constrained
+verification fixture; version 0.1.10 then timed out during the emulated Web
+Console build; and version 0.1.11 failed during post-verification cleanup.
+Version 0.1.12 is the next supported candidate.</p>
 <p>The immutable <code>v0.1.5</code> tag is a failed publication record. Its workflow built
 and signed candidate component digests but stopped before publishing the signed
 plan, Sigstore plan bundle, GitHub Release, or Stable convenience tags. Those
@@ -3503,7 +3611,7 @@ expanding the empty optional Compose-argument array under <code>set -u</code> ex
 The running backend remained at 0.1.1 and no application switch occurred.</p>
 <p>The signed 0.1.6 assets remain independently verifiable below, but they are not a
 supported installation path. A canonical v0.1.1 deployment must remain unchanged
-until the strictly newer <a href="../0.1.8/">v0.1.8 procedure</a> passes its complete published
+until the strictly newer <a href="../0.1.12/">v0.1.12 procedure</a> passes its complete published
 and end-to-end acceptance gate. A deployment already running 0.1.6 also requires a
 strictly newer target; the updater deliberately rejects same-version installation.</p>
 <p>Read <a href="../../operations/upgrades/">Upgrades and promotion</a> and
@@ -3591,7 +3699,11 @@ Testing and cannot authorize installation.</p>
 recreated, or reassigned. Its exact source and signed artifacts are retained as
 historical evidence. The portability repair is a new SemVer with a new candidate,
 promotion, main, exact-tag, signing, anonymous-pull, bootstrap, and browser acceptance
-sequence. See <a href="../0.1.8/">Agentic SOC 0.1.8</a>, the historical
+sequence. See <a href="../0.1.12/">Agentic SOC 0.1.12</a>, the historical
+<a href="../0.1.11/">0.1.11 failed-publication record</a>, the historical
+<a href="../0.1.10/">0.1.10 failed-publication record</a>, the historical
+<a href="../0.1.9/">0.1.9 failed-publication record</a>, the historical
+<a href="../0.1.8/">0.1.8 publication record</a>, the historical
 <a href="../0.1.7/">0.1.7 publication record</a>, and <a href="../channels/">Release channels and
 versioning</a>.</p>
 

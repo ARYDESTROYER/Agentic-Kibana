@@ -2540,6 +2540,14 @@
       
         
       
+        
+      
+        
+      
+        
+      
+        
+      
     
     
     
@@ -2601,12 +2609,104 @@
   
   
     <li class="md-nav__item">
+      <a href="../0.1.12/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.12
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0.1.11/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.11 (failed publication)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0.1.10/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.10 (failed publication)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0.1.9/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.9 (failed publication)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../0.1.8/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Agentic SOC 0.1.8
+    Agentic SOC 0.1.8 (bootstrap blocked)
     
   </span>
   
@@ -3327,14 +3427,25 @@ shipped image had no <code>USER</code> instruction, so the supervisor ran as UID
 attempted to change the socket to 0:10001 while the runtime dropped every Linux
 capability. Docker Desktop denied that unconditional <code>chown</code>. The application workload remained
 on its prior release. The tag and artifacts remain immutable, but this release is
-not a supported bootstrap source. Use the governed <a href="../0.1.8/">0.1.8 correction</a>.</p>
+not a supported bootstrap source. Version 0.1.8 corrected this socket boundary but
+remained bootstrap-blocked during Sigstore trust initialization. Version 0.1.9
+corrected the trust-root path but failed later in its constrained verification
+fixture. Version 0.1.10 later timed out during the emulated Web Console build, and
+version 0.1.11 failed during post-verification cleanup. Use the governed
+<a href="../0.1.12/">0.1.12 correction</a>.</p>
 <div class="admonition danger">
 <p class="admonition-title">Historical publication — do not bootstrap from this tag</p>
 <p>Do not run <code>scripts/bootstrap-updater.sh</code> from <code>v0.1.7</code>, move or reuse the tag,
 replace its published assets, or reinterpret its signed plan as the corrected
 release. The signed artifacts remain valid evidence of what was published; they
-do not override the failed canonical bootstrap acceptance. Version 0.1.8 repeats
-every release gate with a least-privilege control-socket correction.</p>
+do not override the failed canonical bootstrap acceptance. Version 0.1.8 repeated
+every release gate with a least-privilege control-socket correction but later
+failed at cosign's read-only default TUF cache. Version 0.1.9 repeated the gates
+with writable trust state but failed later in its constrained verification
+fixture. Version 0.1.10 repeated those gates with the least-privilege fixture
+correction but timed out during the Web Console build. Version 0.1.11 used
+native architecture-neutral builders and completed image plus plan verification,
+but failed during post-verification cleanup. Version 0.1.12 repeats every gate.</p>
 <p>The immutable <code>v0.1.6</code> publication is also bootstrap-blocked, but at the earlier
 macOS Bash 3.2 host-shell boundary. Neither historical plan is installation
 authority for the corrected release.</p>
@@ -3510,7 +3621,7 @@ became reachable, the Console could not expose an enabled update action. That is
 precise bootstrap-blocked boundary—publication and signatures succeeded, canonical
 installation did not.</p>
 <p>Do not bootstrap from or manually pin 0.1.7 artifacts. Use the
-<a href="../0.1.8/">0.1.8 procedure</a> only after its independent release and end-to-end
+<a href="../0.1.12/">0.1.12 procedure</a> only after its independent release and end-to-end
 acceptance evidence exists.</p>
 <p>Read <a href="../../operations/upgrades/">Upgrades and promotion</a> and
 <a href="../known-limitations/">Known limitations</a> before rehearsing the transition.</p>
@@ -3570,8 +3681,12 @@ immutable <code>v0.1.7</code> tag. The release workflow then verified:</p>
 </ol>
 <p>The separate canonical PostgreSQL Compose bootstrap/update rehearsal failed at the
 control-socket boundary documented above, before Console browser update acceptance.
-Never move, reuse, or repair this published tag. Version 0.1.8 carries the correction
-and must repeat every gate under its own immutable identity.</p>
+Never move, reuse, or repair this published tag. Version 0.1.8 carried the socket
+correction but remained bootstrap-blocked during Sigstore trust initialization.
+Version 0.1.9 corrected that path but failed later in its constrained verification
+fixture. Version 0.1.10 carried the fixture correction but timed out during the
+emulated Web Console build; version 0.1.11 later failed during post-verification
+cleanup; version 0.1.12 must repeat every gate under its own immutable identity.</p>
 <h2 id="exact-historical-build-identity">Exact historical build identity<a class="headerlink" href="#exact-historical-build-identity" title="Permanent link">&para;</a></h2>
 <p>Resolve every historical stamp from the immutable annotated tag. Do not assume that
 the current <code>main</code> branch still points to this older release:</p>
@@ -3631,14 +3746,14 @@ versioning</a> for the recovery policy that requires a newer patch.</p>
         <a
           href="../0.1.8/"
           class="tlsoc-page-footer__link tlsoc-page-footer__link--previous"
-          aria-label="Previous: Agentic SOC 0.1.8"
+          aria-label="Previous: Agentic SOC 0.1.8 (bootstrap blocked)"
         >
           <span class="tlsoc-page-footer__title">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg>
-            Agentic SOC 0.1.8
+            Agentic SOC 0.1.8 (bootstrap blocked)
           </span>
           
-            <span class="tlsoc-page-footer__description">Docker Desktop control-socket portability release notes, signed-update artifacts, compatibility boundary, and operator verification for Agentic SOC 0.1.8.</span>
+            <span class="tlsoc-page-footer__description">Immutable, bootstrap-blocked historical publication record and independent artifact-verification guidance for Agentic SOC 0.1.8.</span>
           
         </a>
       

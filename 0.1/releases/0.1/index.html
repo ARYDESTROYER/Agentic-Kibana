@@ -16,7 +16,7 @@
         <link rel="prev" href="../../development/testing/">
       
       
-        <link rel="next" href="../0.1.8/">
+        <link rel="next" href="../0.1.12/">
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
@@ -2540,6 +2540,14 @@
       
         
       
+        
+      
+        
+      
+        
+      
+        
+      
     
     
     
@@ -2691,12 +2699,104 @@
   
   
     <li class="md-nav__item">
+      <a href="../0.1.12/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.12
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0.1.11/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.11 (failed publication)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0.1.10/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.10 (failed publication)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0.1.9/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.9 (failed publication)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../0.1.8/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Agentic SOC 0.1.8
+    Agentic SOC 0.1.8 (bootstrap blocked)
     
   </span>
   
@@ -3185,12 +3285,12 @@
 <h1 id="agentic-soc-01">Agentic SOC 0.1<a class="headerlink" href="#agentic-soc-01" title="Permanent link">&para;</a></h1>
 <p>Agentic SOC 0.1 is the first standardized application and documentation release line.
 Human-facing documentation uses <strong>0.1</strong>; the current source version is Semantic
-Version <strong>0.1.8</strong>. It carries the accepted 0.1.2 through 0.1.7 application scope
-and corrects the canonical updater bootstrap defect discovered after 0.1.7
-publication.</p>
-<p>Builds on <code>Testing</code> are integration and acceptance builds. Version 0.1.8 is a
+Version <strong>0.1.12</strong>. It carries the accepted application scope through 0.1.11 and
+corrects the post-verification fixture-cleanup defect that stopped the immutable
+0.1.11 signed-release job before publishing a GitHub Release.</p>
+<p>Builds on <code>Testing</code> are integration and acceptance builds. Version 0.1.12 is a
 supported Stable patch only when the accepted tree is on <code>main</code>, the resulting
-commit has passed the release gate, and that exact commit is tagged <code>v0.1.8</code> with
+commit has passed the release gate, and that exact commit is tagged <code>v0.1.12</code> with
 verifiable signed release artifacts and public image digests. If that evidence is
 incomplete, use a previously verified Stable release. The immutable
 <code>v0.1.4</code> tag records a failed publication that produced documentation but no
@@ -3203,17 +3303,47 @@ superseded and is not an update or bootstrap source.
 The immutable <code>v0.1.7</code> artifact set also published, signed, and pulled anonymously,
 but its updater process could not create the control socket under the shipped
 capability boundary. It remains an immutable publication record and is superseded by
-0.1.8; do not use it as an installation or update source.
+0.1.8; do not use it as an installation or update source. The immutable <code>v0.1.8</code>
+publication corrected that socket boundary but canonical bootstrap then failed when
+cosign 3 tried to initialize its default TUF cache beneath the read-only root
+filesystem. It too is superseded and is not an installation or update source.
+The immutable <code>v0.1.9</code> workflow corrected that trust-root path, passed exact-tag CI,
+built and signed all three public image digests, passed anonymous registry checks,
+and generated and host-verified its signed plan. Its constrained updater could not
+traverse the runner-owned <code>/verification</code> bind source, so the workflow published no
+GitHub Release, plan assets, Stable convenience tags, or Stable Help Center. It is
+immutable partial evidence, not an installation or update source.
+The immutable <code>v0.1.10</code> tag passed protected source and exact-tag CI, but its
+signed-release job timed out while the architecture-neutral Web Console builder ran
+under target emulation. It published no complete three-image set, canonical signed
+plan, GitHub Release, Stable tags, or Stable Help Center. It is immutable partial
+evidence, not an installation or update source.
+The immutable <code>v0.1.11</code> workflow then built, signed, anonymously proved, and
+verified all three images and the canonical plan on the host and inside the
+constrained updater. Its post-verification cleanup trap could not unlink the
+read-only fixture files while their runner-owned parent directory remained mode
+<code>0555</code>. It published no attestations, GitHub Release, canonical plan assets, Stable
+tags, or Stable Help Center. It too is immutable partial evidence, not an
+installation or update source.
 Branch state alone never establishes the installed release identity.</p>
 <p>The repository uses <code>Testing</code> for integration and default <code>main</code> for accepted
-source. Patch 0.1.8 rebuilds the public and installed 0.1 guide without changing the
+source. Patch 0.1.12 rebuilds the public and installed 0.1 guide without changing the
 documentation selector line; already-built artifacts keep their immutable bundled
 Help Center. Versions 0.1.2 and 0.1.3 remain unpublished historical Testing records.
 Versions 0.1.4 and 0.1.5 remain immutable failed-publication records, not installable
 Stable releases or artifact sources. Version 0.1.6 remains an immutable signed
 publication record, but not a supported bootstrap source.
 Version 0.1.7 remains an immutable signed publication record whose canonical updater
-bootstrap is blocked by its control-socket startup defect.</p>
+bootstrap is blocked by its control-socket startup defect.
+Version 0.1.8 remains an immutable signed publication record whose canonical updater
+bootstrap is blocked by its read-only Sigstore trust-root defect.
+Version 0.1.9 remains an immutable failed-publication record whose canonical Release
+and signed-plan asset pair were never published.
+Version 0.1.10 remains an immutable failed-publication record whose release job
+timed out before the complete signed artifact set or canonical Release existed.
+Version 0.1.11 remains an immutable failed-publication record whose cleanup failure
+occurred after successful constrained plan verification but before canonical Release
+publication.</p>
 <h2 id="what-01-provides">What 0.1 provides<a class="headerlink" href="#what-01-provides" title="Permanent link">&para;</a></h2>
 <ul>
 <li>Vendor-neutral pull and push ingestion normalized to OCSF.</li>
@@ -3282,7 +3412,7 @@ Elasticsearch environments may instead hold Agentic SOC state in dedicated indic
 separate management and read-only log credentials.</p>
 <p>Record the exact tag, image digests, commit SHA, build date, state backend, and
 <code>/api/health/build-info</code> response. A branch name alone is not a release identity.
-The Console badge shows <code>v0.1.8 · Testing|Stable</code> and exposes both Console and
+The Console badge shows <code>v0.1.12 · Testing|Stable</code> and exposes both Console and
 backend stamps; any identity mismatch is visibly downgraded to Testing.</p>
 <h2 id="important-limitations">Important limitations<a class="headerlink" href="#important-limitations" title="Permanent link">&para;</a></h2>
 <p>Version 0.1 does not claim:</p>
@@ -3307,7 +3437,11 @@ explicitly documented.</p>
 <p>Start with <a href="../../operations/deployment/">Deployment</a>,
 <a href="../../operations/security/">Security hardening</a>, and
 <a href="../documentation-versions/">Documentation versions</a>. Read the detailed
-<a href="../0.1.8/">0.1.8 Stable patch record</a> before promoting or upgrading. The
+<a href="../0.1.12/">0.1.12 Stable patch record</a> before promoting or upgrading. The
+<a href="../0.1.11/">0.1.11 failed-publication record</a>,
+<a href="../0.1.10/">0.1.10 failed-publication record</a>,
+<a href="../0.1.9/">0.1.9 failed-publication record</a>,
+<a href="../0.1.8/">0.1.8 bootstrap-blocked publication record</a>,
 <a href="../0.1.7/">0.1.7 bootstrap-blocked publication record</a>,
 <a href="../0.1.6/">0.1.6 superseded publication record</a>,
 <a href="../0.1.5/">0.1.5 failed-publication record</a> and
@@ -3367,16 +3501,16 @@ Testing snapshots.</p>
       
       
         <a
-          href="../0.1.8/"
+          href="../0.1.12/"
           class="tlsoc-page-footer__link tlsoc-page-footer__link--next"
-          aria-label="Next: Agentic SOC 0.1.8"
+          aria-label="Next: Agentic SOC 0.1.12"
         >
           <span class="tlsoc-page-footer__title">
-            Agentic SOC 0.1.8
+            Agentic SOC 0.1.12
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
           </span>
           
-            <span class="tlsoc-page-footer__description">Docker Desktop control-socket portability release notes, signed-update artifacts, compatibility boundary, and operator verification for Agentic SOC 0.1.8.</span>
+            <span class="tlsoc-page-footer__description">Constrained-verifier cleanup release notes, signed-update artifacts, compatibility boundary, bootstrap, and operator verification for Agentic SOC 0.1.12.</span>
           
         </a>
       
