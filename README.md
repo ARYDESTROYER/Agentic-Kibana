@@ -8,9 +8,14 @@ risk-scores them deterministically, uses role-separated AI investigation, and ap
 operator policy through a deterministic case manager. The model can recommend a
 verdict; it cannot decide to close or escalate a case.
 
-> **Version 0.1.4 Stable candidate · Testing integration → `main` Stable**
+> **Version 0.1.5 · `Testing` integration → `main` Stable**
 > Start with the [Quickstart](docs/getting-started/quickstart.md), or open the
 > version-matched Help Center from inside the Console.
+
+Treat `v0.1.5` as installable only when its GitHub Release contains the canonical
+signed plan and all three referenced GHCR image digests are anonymously pullable.
+The immutable `v0.1.4` tag records a failed publication with no GitHub Release,
+signed plan, or release image and must not be used as an update source.
 
 ## What Agentic SOC delivers
 

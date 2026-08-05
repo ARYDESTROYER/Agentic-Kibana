@@ -7,8 +7,8 @@ There are **two distinct environments**. Confusing them causes most build/deploy
 pain, so they are documented separately.
 
 > **Branch topology:** the remote uses `Testing` for integration and default
-> `main` for accepted Stable source. Version 0.1.4 is Stable only when the exact
-> verified `main` commit has the immutable `v0.1.4` tag and matching artifacts. Branch
+> `main` for accepted Stable source. Version 0.1.5 is Stable only when the exact
+> verified `main` commit has the immutable `v0.1.5` tag and matching artifacts. Branch
 > protection, required checks, Pages source selection, and environment policy are
 > repository settings; administrators must verify them independently of this
 > checkout.
@@ -198,7 +198,7 @@ prefixed Docker build/runtime metadata rather than `Secrets` fields:
 
 | Build/runtime value | Default | Purpose |
 |---|---|---|
-| `TLSOC_VERSION` | `0.1.4` in Compose | Machine SemVer for images and API identity |
+| `TLSOC_VERSION` | `0.1.5` in Compose | Machine SemVer for images and API identity |
 | `TLSOC_RELEASE_CHANNEL` | `testing` | Independent promotion stamp; use `stable` only for the accepted main/tag build |
 | `TLSOC_BUILD_SHA` | `unknown` | Exact source revision |
 | `TLSOC_BUILD_DATE` | `unknown` | Reproducible-build timestamp supplied by the builder |

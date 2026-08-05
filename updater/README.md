@@ -92,7 +92,7 @@ through the Console.
 
 ## Retention and cleanup
 
-Version 0.1.4 deliberately performs no automatic pruning. The updater state volume
+Version 0.1.5 deliberately performs no automatic pruning. The updater state volume
 retains durable jobs and preflights, cached `upgrade-plan.json` and Sigstore bundles,
 release overrides, deployment snapshots, and receipts. The separate backup volume
 retains the catalog-verified PostgreSQL dumps. Operators must monitor free space and
@@ -113,7 +113,7 @@ Do not delete:
 An older record may be archived or removed only after a later successful release has
 superseded its rollback authority, the backend has durably mirrored its terminal
 outcome into application audit, and operator policy permits disposal. There is no
-supported online per-record cleanup command in v0.1.4; never edit the live volume's
+supported online per-record cleanup command in v0.1.5; never edit the live volume's
 files while the supervisor is running or treat age alone as deletion authority.
 
 Future automatic pruning requires a versioned acknowledgement/retention protocol

@@ -26,6 +26,16 @@ def _ci_workflow() -> dict[str, object]:
     container_images["steps"] = [
         {"uses": PINNED_CHECKOUT},
         {
+            "name": "Verify image identity and runtime contract",
+            "run": (
+                'IMAGE="agentic-soc-ci/backend:${GITHUB_SHA}"\n'
+                'docker run --rm --entrypoint python "${IMAGE}" -m pip check\n'
+                'docker run --rm --entrypoint python "${IMAGE}" -c '
+                "'from importlib.metadata import version; "
+                "assert version(\"wheel\") == \"0.45.1\"'\n"
+            ),
+        },
+        {
             "name": "Smoke the shipping Web Console health contract",
             "if": "${{ matrix.component == 'webui' }}",
             "run": (
@@ -162,6 +172,34 @@ class WorkflowPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "health smoke"):
             policy._assert_ci(Path("ci.yml"), workflow)
 
+    def test_shipping_backend_dependency_check_cannot_be_removed(self) -> None:
+        workflow = _ci_workflow()
+        identity = next(
+            step
+            for step in workflow["jobs"]["container-images"]["steps"]
+            if step.get("name") == "Verify image identity and runtime contract"
+        )
+        identity["run"] = identity["run"].replace(
+            'docker run --rm --entrypoint python "${IMAGE}" -m pip check',
+            'echo "dependency check omitted"',
+        )
+        with self.assertRaisesRegex(ValueError, "installed dependency contract"):
+            policy._assert_ci(Path("ci.yml"), workflow)
+
+    def test_shipping_backend_wheel_pin_cannot_drift(self) -> None:
+        workflow = _ci_workflow()
+        identity = next(
+            step
+            for step in workflow["jobs"]["container-images"]["steps"]
+            if step.get("name") == "Verify image identity and runtime contract"
+        )
+        identity["run"] = identity["run"].replace(
+            'version("wheel") == "0.45.1"',
+            'version("wheel") != ""',
+        )
+        with self.assertRaisesRegex(ValueError, "reviewed Wheel version"):
+            policy._assert_ci(Path("ci.yml"), workflow)
+
     def test_repository_publishers_require_exact_tag_ci(self) -> None:
         docs_path = policy.WORKFLOW_DIR / "docs.yml"
         release_path = policy.WORKFLOW_DIR / "release.yml"
@@ -228,6 +266,37 @@ class WorkflowPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "may not receive publisher credentials"):
             policy._assert_release(release_path, workflow)
 
+    def test_release_inspection_cannot_use_jq_truthiness_for_false(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        inspection = next(
+            step
+            for step in workflow["jobs"]["publish"]["steps"]
+            if step.get("name")
+            == "Inspect and safely recover an exact draft release"
+        )
+        inspection["run"] += (
+            '\nrelease_exists="$(jq -er \'.release_exists\' <<<"${state}")"\n'
+        )
+        with self.assertRaisesRegex(ValueError, "valid false must not abort"):
+            policy._assert_release(release_path, workflow)
+
+    def test_release_publication_requires_typed_boolean_reads(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        publication = next(
+            step
+            for step in workflow["jobs"]["publish"]["steps"]
+            if step.get("name")
+            == "Stage, verify, and atomically publish the GitHub Release"
+        )
+        publication["run"] = publication["run"].replace(
+            "--field bundle_exists",
+            "--field removed_bundle_exists",
+        )
+        with self.assertRaisesRegex(ValueError, "typed release-state boolean parser"):
+            policy._assert_release(release_path, workflow)
+
     def test_release_stable_tags_must_follow_release_publication(self) -> None:
         release_path = policy.WORKFLOW_DIR / "release.yml"
         workflow = policy._load(release_path)
@@ -249,6 +318,14 @@ class WorkflowPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "publish before images"):
             policy._assert_release(release_path, workflow)
 
+    def test_release_workflow_cannot_depend_on_documentation(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        trigger = workflow.get("on", workflow.get(True))
+        trigger["workflow_run"] = {"workflows": ["Documentation"]}
+        with self.assertRaisesRegex(ValueError, "may not depend on documentation"):
+            policy._assert_release(release_path, workflow)
+
     def test_docs_publisher_cannot_drop_exact_tag_ci_gate(self) -> None:
         docs_path = policy.WORKFLOW_DIR / "docs.yml"
         workflow = policy._load(docs_path)
@@ -267,6 +344,103 @@ class WorkflowPolicyTests(unittest.TestCase):
         workflow = policy._load(docs_path)
         workflow["jobs"]["publish"]["permissions"] = {"contents": "write"}
         with self.assertRaisesRegex(ValueError, "publisher permissions drifted"):
+            policy._assert_docs(docs_path, workflow)
+
+    def test_docs_publisher_cannot_drop_signed_release_gate(self) -> None:
+        docs_path = policy.WORKFLOW_DIR / "docs.yml"
+        workflow = policy._load(docs_path)
+        publish = workflow["jobs"]["publish"]
+        publish["steps"] = [
+            step
+            for step in publish["steps"]
+            if step.get("name")
+            != "Require the exact signed Stable release before documentation publication"
+        ]
+        with self.assertRaisesRegex(ValueError, "signed Stable release"):
+            policy._assert_docs(docs_path, workflow)
+
+    def test_docs_publisher_rejects_prerelease_gate_drift(self) -> None:
+        docs_path = policy.WORKFLOW_DIR / "docs.yml"
+        workflow = policy._load(docs_path)
+        gate = next(
+            step
+            for step in workflow["jobs"]["publish"]["steps"]
+            if step.get("name")
+            == "Require the exact signed Stable release before documentation publication"
+        )
+        gate["run"] = gate["run"].replace(
+            ".prerelease == false",
+            ".prerelease == true",
+        )
+        with self.assertRaisesRegex(ValueError, "prerelease"):
+            policy._assert_docs(docs_path, workflow)
+
+    def test_docs_publisher_requires_successful_release_workflow(self) -> None:
+        docs_path = policy.WORKFLOW_DIR / "docs.yml"
+        workflow = policy._load(docs_path)
+        gate = next(
+            step
+            for step in workflow["jobs"]["publish"]["steps"]
+            if step.get("name")
+            == "Require the exact signed Stable release before documentation publication"
+        )
+        gate["run"] = gate["run"].replace(
+            'if [[ "${conclusion}" != success ]]',
+            'if [[ "${conclusion}" == success ]]',
+        )
+        with self.assertRaisesRegex(ValueError, "conclusion"):
+            policy._assert_docs(docs_path, workflow)
+
+    def test_docs_publisher_requires_exact_release_asset_inventory(self) -> None:
+        docs_path = policy.WORKFLOW_DIR / "docs.yml"
+        workflow = policy._load(docs_path)
+        gate = next(
+            step
+            for step in workflow["jobs"]["publish"]["steps"]
+            if step.get("name")
+            == "Require the exact signed Stable release before documentation publication"
+        )
+        gate["run"] = gate["run"].replace(
+            '"upgrade-plan.sigstore.json"',
+            '"upgrade-plan.sigstore.txt"',
+        )
+        with self.assertRaisesRegex(ValueError, "upgrade-plan.sigstore.json"):
+            policy._assert_docs(docs_path, workflow)
+
+    def test_docs_publisher_requires_canonical_release_identity_classifier(self) -> None:
+        docs_path = policy.WORKFLOW_DIR / "docs.yml"
+        workflow = policy._load(docs_path)
+        gate = next(
+            step
+            for step in workflow["jobs"]["publish"]["steps"]
+            if step.get("name")
+            == "Require the exact signed Stable release before documentation publication"
+        )
+        gate["run"] = gate["run"].replace(
+            "scripts/release_asset_state.py",
+            "scripts/unsafe_release_identity.py",
+        )
+        with self.assertRaisesRegex(ValueError, "release_asset_state.py"):
+            policy._assert_docs(docs_path, workflow)
+
+    def test_docs_signed_release_gate_must_precede_alias_mutation(self) -> None:
+        docs_path = policy.WORKFLOW_DIR / "docs.yml"
+        workflow = policy._load(docs_path)
+        steps = workflow["jobs"]["publish"]["steps"]
+        gate = next(
+            step
+            for step in steps
+            if step.get("name")
+            == "Require the exact signed Stable release before documentation publication"
+        )
+        steps.remove(gate)
+        mutate_index = next(
+            index
+            for index, step in enumerate(steps)
+            if step.get("name") == "Update Stable version history"
+        )
+        steps.insert(mutate_index + 1, gate)
+        with self.assertRaisesRegex(ValueError, "aliases may move only after"):
             policy._assert_docs(docs_path, workflow)
 
     def test_external_dockerfile_base_requires_digest(self) -> None:

@@ -81,7 +81,7 @@ jobs:
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: validate
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 180
     permissions:
       actions: read
       contents: write
@@ -185,6 +185,94 @@ jobs:
             exit 0
           done
           echo "Timed out waiting for exact tag CI acceptance; refusing documentation publication." >&2
+          exit 1
+
+      - name: Require the exact signed Stable release before documentation publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.version.outputs.release_tag }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          deadline=$((SECONDS + 7200))
+          while (( SECONDS < deadline )); do
+            runs="$(gh api --method GET \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml/runs" \
+              -f event=push -f branch="${RELEASE_TAG}" -f per_page=100)"
+            candidate="$(jq -c \
+              --arg sha "${GITHUB_SHA}" \
+              --arg tag "${RELEASE_TAG}" '
+              [.workflow_runs[]
+                | select(.event == "push" and .head_sha == $sha and .head_branch == $tag)]
+              | sort_by(.run_started_at, .id)
+              | last // empty
+            ' <<<"${runs}")"
+            if [[ -z "${candidate}" ]]; then
+              sleep 15
+              continue
+            fi
+
+            status="$(jq -r '.status' <<<"${candidate}")"
+            if [[ "${status}" != completed ]]; then
+              sleep 15
+              continue
+            fi
+            conclusion="$(jq -r '.conclusion' <<<"${candidate}")"
+            if [[ "${conclusion}" != success ]]; then
+              printf 'Exact signed-release workflow completed with conclusion %s; refusing documentation publication.\n' \
+                "${conclusion}" >&2
+              exit 1
+            fi
+
+            if ! release="$(gh api --method GET \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" 2>/dev/null)"; then
+              sleep 5
+              continue
+            fi
+            jq -e \
+              --arg tag "${RELEASE_TAG}" \
+              '
+              .tag_name == $tag and
+              .draft == false and
+              .prerelease == false and
+              (.published_at | type == "string" and length > 0) and
+              (.assets | length == 2) and
+              ([.assets[].name] | sort) == [
+                "upgrade-plan.json",
+                "upgrade-plan.sigstore.json"
+              ] and
+              all(.assets[]; .state == "uploaded" and .size > 0)
+            ' <<<"${release}" >/dev/null || {
+              echo "Published Stable release identity or asset inventory is invalid." >&2
+              exit 1
+            }
+
+            release_inventory="${RUNNER_TEMP}/stable-release-inventory.json"
+            release_notes="docs/releases/$(tr -d '[:space:]' < VERSION).md"
+            jq -s '.' <<<"${release}" >"${release_inventory}"
+            release_state="$(python3 scripts/release_asset_state.py \
+              --inventory "${release_inventory}" \
+              --tag "${RELEASE_TAG}" \
+              --commit-sha "${GITHUB_SHA}" \
+              --release-notes "${release_notes}")"
+            jq -e '
+              .release_state == "published" and
+              .plan_exists == true and
+              .bundle_exists == true and
+              .delete_asset_ids == []
+            ' <<<"${release_state}" >/dev/null || {
+              echo "Published Stable release is not canonically bound to the exact tag commit and notes." >&2
+              exit 1
+            }
+            printf 'Accepted signed-release workflow %s and exact published assets for %s.\n' \
+              "$(jq -r '.id' <<<"${candidate}")" "${GITHUB_SHA}"
+            exit 0
+          done
+          echo "Timed out waiting for the exact signed Stable release; refusing documentation publication." >&2
           exit 1
 
       - name: Update Stable version history
