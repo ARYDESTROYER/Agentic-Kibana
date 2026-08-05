@@ -322,13 +322,30 @@ def _assert_release(path: Path, workflow: dict[str, Any]) -> None:
         '[[ ! -e "${DOCKER_CONFIG}/config.json" ]]',
         "for platform in linux/amd64 linux/arm64",
         'docker pull --platform "${platform}" "${reference}"',
+        'docker image rm "${reference}"',
+        'EXPECTED_PLATFORMS = {("linux", "amd64"), ("linux", "arm64")}',
+        "anonymous GHCR token unavailable",
+        "require_digest(raw_index, digest",
+        "raw_manifest, _ = fetch(",
+        "raw_config, _ = fetch(",
+        "OCI label mismatch",
     )
     for marker in anonymous_markers:
         if marker not in anonymous_run:
             raise ValueError(
-                f"{path}: anonymous image gate lacks isolated multi-platform pull "
+                f"{path}: anonymous image gate lacks isolated multi-platform "
+                "pull and registry proof "
                 f"contract {marker!r}"
             )
+    pull_index = anonymous_run.index(
+        'docker pull --platform "${platform}" "${reference}"'
+    )
+    eviction_index = anonymous_run.index('docker image rm "${reference}"')
+    if eviction_index <= pull_index:
+        raise ValueError(
+            f"{path}: anonymous image gate must evict the exact digest reference "
+            "after each platform pull"
+        )
     anonymous_env = anonymous_step.get("env", {})
     expected_anonymous_env = {
         "BACKEND",
