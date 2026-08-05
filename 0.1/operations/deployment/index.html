@@ -2644,6 +2644,8 @@
       
         
       
+        
+      
     
     
     
@@ -2705,12 +2707,35 @@
   
   
     <li class="md-nav__item">
+      <a href="../../releases/0.1.7/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.7
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../releases/0.1.6/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Agentic SOC 0.1.6
+    Agentic SOC 0.1.6 bootstrap-blocked publication
     
   </span>
   
@@ -3240,7 +3265,7 @@ Compose topology, and public anonymous pull access to the release's <code>backen
 <code>webui</code>, and <code>updater</code> GHCR packages.</p>
 <h2 id="standalone-stack">Standalone stack<a class="headerlink" href="#standalone-stack" title="Permanent link">&para;</a></h2>
 <ol>
-<li>Check out the accepted <code>v0.1.6</code> tag for Stable after release, or the <code>Testing</code> branch only for
+<li>Check out the accepted <code>v0.1.7</code> tag for Stable after release, or the <code>Testing</code> branch only for
    acceptance testing.</li>
 <li>Copy <code>.env.example</code> to <code>.env</code> and set a strong PostgreSQL password.</li>
 <li>Configure authentication and provider credentials.</li>
@@ -3261,15 +3286,18 @@ host, so deploy only the reviewed supervisor image, restrict access to the host 
 Compose project, protect <code>.env</code> and updater volumes, and never expose the control
 socket over TCP.</p>
 <p>The remote uses <code>Testing</code> for integration and default <code>main</code> for accepted Stable
-source. Version 0.1.6 is Stable only when the exact verified <code>main</code> commit has the
-immutable <code>v0.1.6</code> tag and matching artifacts. A pull of <code>main</code> receives the current accepted Stable tree while
+source. Version 0.1.7 is Stable only when the exact verified <code>main</code> commit has the
+immutable <code>v0.1.7</code> tag and matching artifacts. A pull of <code>main</code> receives the current accepted Stable tree while
 integration work continues on <code>Testing</code>. Branch
 protections, required checks, and release-environment policy remain repository
 settings that administrators must verify independently.</p>
 <p>The immutable <code>v0.1.4</code> and <code>v0.1.5</code> tags are failed, non-installable publication
-attempts and must not be used as deployment or bootstrap sources. Use <code>v0.1.6</code> only when its complete
+attempts and must not be used as deployment or bootstrap sources. Use <code>v0.1.7</code> only when its complete
 publication gate, canonical signed Release, and anonymous digest-pull evidence
 verify; otherwise use a previously verified Stable release.</p>
+<p>The immutable <code>v0.1.6</code> tag has a valid signed/public artifact set, but canonical
+macOS Bash 3.2 bootstrap acceptance failed before supervisor installation. Preserve
+it as historical evidence; do not use it as a deployment or bootstrap source.</p>
 <h2 id="existing-elasticsearch-attachment">Existing Elasticsearch attachment<a class="headerlink" href="#existing-elasticsearch-attachment" title="Permanent link">&para;</a></h2>
 <p>Keep two physical credentials:</p>
 <ul>
@@ -3292,19 +3320,19 @@ audit and usage/cost ledgers. Preview must confirm <code>manage_ilm</code>,
 warm tier capability before an administrator performs the explicit, freshly
 authenticated Apply. Cases and operational metadata stay Hot because they are
 mutable. PostgreSQL reports the policy as advisory; SQLite reports export-only.</p>
-<p>Archive is a desired target, not an active pipeline in 0.1.6. Build a separate
+<p>Archive is a desired target, not an active pipeline in 0.1.7. Build a separate
 immutable export with a manifest and checksums, verify restore, and only then place
 those independent archive objects under an S3 lifecycle rule. <strong>Never transition an
 Elasticsearch snapshot-repository prefix to Glacier</strong>; Elasticsearch expects its
 repository objects to remain directly readable.</p>
 <h2 id="image-identity">Image identity<a class="headerlink" href="#image-identity" title="Permanent link">&para;</a></h2>
-<p>Backend and web images use the machine version <code>0.1.6</code> and accept OCI version,
+<p>Backend and web images use the machine version <code>0.1.7</code> and accept OCI version,
 revision, build-date, and source metadata. Record the image digest and
 <code>/api/health/build-info</code> result with each deployment. Do not treat a mutable branch or
 image tag as an immutable release identity.</p>
 <p>Release channel is stamped independently from SemVer. Source builds default to
-<code>TLSOC_RELEASE_CHANNEL=testing</code>; the accepted <code>main</code>/<code>v0.1.6</code> build must explicitly
-set it to <code>stable</code>. This preserves the same <code>0.1.6</code> candidate identity through
+<code>TLSOC_RELEASE_CHANNEL=testing</code>; the accepted <code>main</code>/<code>v0.1.7</code> build must explicitly
+set it to <code>stable</code>. This preserves the same <code>0.1.7</code> candidate identity through
 acceptance without allowing a Testing build to report itself as Stable.</p>
 <p>Set <code>TLSOC_VERSION</code>, <code>TLSOC_RELEASE_CHANNEL</code>, <code>TLSOC_BUILD_SHA</code>, and
 <code>TLSOC_BUILD_DATE</code> explicitly through the reference Compose build. Its Dockerfiles
@@ -3344,7 +3372,7 @@ after success all restore application images only; none rewrites PostgreSQL. Thi
 preserves every write accepted after the snapshot was taken. The catalog-verified
 quiesced dump remains available for an explicit operator-controlled break-glass
 recovery, and v1 therefore permits only plans with <code>migration.strategy=none</code>.</p>
-<p>This support is deliberately narrow in 0.1.6: the reference single-replica standalone
+<p>This support is deliberately narrow in 0.1.7: the reference single-replica standalone
 Docker Compose deployment whose mounted base file matches the signed canonical
 SHA-256, canonical project/network/service identities and PostgreSQL volume,
 PostgreSQL-owned state, coherent schema labels, authentication enabled with durable
@@ -3360,19 +3388,20 @@ privileged supervisor.</p>
 0.1.x protocol pins its version-invariant bytes in
 <code>deploy/update-base-v1.sha256</code>; the signed generated override carries versioned image
 digests. Changing that base requires a new updater protocol and manual bootstrap.</p>
-<p>The v0.1.1→v0.1.6 bootstrap must run from the clean, exact annotated <code>v0.1.6</code> tag
+<p>The v0.1.1→v0.1.7 bootstrap must run from the clean, exact annotated <code>v0.1.7</code> tag
 whose commit remains contained in <code>origin/main</code>. It installs the initial supervisor
-transport and then delegates the complete v0.1.6 transition to the signed release plan
+transport and then delegates the complete v0.1.7 transition to the signed release plan
 and durable update state machine. After bootstrap, use
 <code>./scripts/agentic-soc-compose.sh</code> for
 every manual lifecycle command. Raw <code>docker compose -f
 deploy/docker-compose.agnostic.yml ...</code> bypasses the active digest override and is
 unsupported.</p>
-<p>A Testing/source-built 0.1.3 deployment and the non-installable <code>v0.1.4</code> / <code>v0.1.5</code>
-publication attempts are not canonical installable Stable sources and cannot
-bootstrap by relabelling themselves. Reconcile them manually to signed 0.1.6.
-Because bootstrap requires a strictly newer target, an already-running 0.1.6 cannot
-bootstrap from the 0.1.6 plan; use the next newer compatible Stable release's
+<p>A Testing/source-built 0.1.3 deployment, the non-installable <code>v0.1.4</code> / <code>v0.1.5</code>
+publication attempts, and the published-but-bootstrap-blocked <code>v0.1.6</code> record are
+not canonical installable Stable sources and cannot bootstrap by relabelling
+themselves. Reconcile them manually to signed 0.1.7.
+Because bootstrap requires a strictly newer target, an already-running 0.1.7 cannot
+bootstrap from the 0.1.7 plan; use the next newer compatible Stable release's
 documented bootstrap path if no supervisor was established during reconciliation.</p>
 <p>The wrapper and supervisor also share a lifecycle lock: inspection commands remain
 available, while mutating or unknown Compose commands are refused for the full durable

@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Release gates and explicit operating constraints for Agentic SOC 0.1.6.">
+        <meta name="description" content="Release gates and explicit operating constraints for Agentic SOC 0.1.7.">
       
       
       
@@ -2534,6 +2534,8 @@
       
         
       
+        
+      
     
     
     
@@ -2595,12 +2597,35 @@
   
   
     <li class="md-nav__item">
+      <a href="../0.1.7/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.7
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../0.1.6/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Agentic SOC 0.1.6
+    Agentic SOC 0.1.6 bootstrap-blocked publication
     
   </span>
   
@@ -3887,7 +3912,7 @@
 
 
 <h1 id="known-limitations">Known limitations<a class="headerlink" href="#known-limitations" title="Permanent link">&para;</a></h1>
-<p>This list is part of the product contract for Agentic SOC <code>0.1.6</code> in Testing and,
+<p>This list is part of the product contract for Agentic SOC <code>0.1.7</code> in Testing and,
 if the exact verified commit is published, its Stable artifacts. It distinguishes
 release gates from documented beta constraints so a green unit-test suite is never
 mistaken for release or production evidence.</p>
@@ -3910,7 +3935,7 @@ users. This is an owner/product decision and must not be guessed by automation.<
 <h3 id="signed-update-acceptance-is-external-to-local-unit-tests">Signed update acceptance is external to local unit tests<a class="headerlink" href="#signed-update-acceptance-is-external-to-local-unit-tests" title="Permanent link">&para;</a></h3>
 <p>The updater protocol, release plan, signature verification, rollback state machine,
 and reference Compose contracts have offline coverage. That does not prove the exact
-published <code>v0.1.6</code> images and signed assets work through a real PostgreSQL Compose
+published <code>v0.1.7</code> images and signed assets work through a real PostgreSQL Compose
 upgrade, interruption, cancellation, automatic rollback, and post-success rollback.</p>
 <p><strong>Required control:</strong> after the exact accepted <code>main</code> commit passes remote CI, publish
 the immutable tag artifacts, then run the documented isolated signed-update acceptance
@@ -3999,14 +4024,15 @@ related-but-not-merged cases.</p>
 <h3 id="one-click-updates-support-one-deployment-profile">One-click updates support one deployment profile<a class="headerlink" href="#one-click-updates-support-one-deployment-profile" title="Permanent link">&para;</a></h3>
 <p>The unpublished 0.1.2 snapshot introduced source discovery and coherent-pair
 activation but did not publish the host supervisor or signed upgrade plan. Version
-0.1.6 carries the version-1 supervisor protocol and canonical base-Compose contract
+0.1.7 carries the version-1 supervisor protocol and canonical base-Compose contract
 without broadening its supported topology. It still cannot retroactively install a
 privileged host component. A supported canonical v0.1.1 installation requires one manual
-<code>scripts/bootstrap-updater.sh</code> step from the clean, exact annotated <code>v0.1.6</code> tag whose
+<code>scripts/bootstrap-updater.sh</code> step from the clean, exact annotated <code>v0.1.7</code> tag whose
 commit remains contained in <code>origin/main</code>; that step delegates the full
-v0.1.1→v0.1.6 transition to the signed plan. Testing/source-built 0.1.3 and the
-non-installable v0.1.4/v0.1.5 attempts must instead be reconciled manually and cannot
-be relabelled Stable. Subsequent compatible Stable
+v0.1.1→v0.1.7 transition to the signed plan. Testing/source-built 0.1.3 and the
+non-installable v0.1.4/v0.1.5 attempts, plus the published-but-bootstrap-blocked
+v0.1.6 record, must instead be reconciled manually and cannot be relabelled Stable.
+Subsequent compatible Stable
 releases can be installed from the Console only for the reference, single-replica
 standalone Docker Compose topology with PostgreSQL-owned state, durable authentication/secrets, a
 coherent known build/schema identity, a base Compose file matching the signed
@@ -4042,7 +4068,7 @@ application sidecar. Official update plans are also anonymously pull-only: the t
 GHCR packages must be public because the supervisor intentionally stores no registry
 credential. See <a href="../../operations/upgrades/">Upgrades</a>.</p>
 <h3 id="updater-artifacts-are-not-auto-pruned">Updater artifacts are not auto-pruned<a class="headerlink" href="#updater-artifacts-are-not-auto-pruned" title="Permanent link">&para;</a></h3>
-<p>The updater foundation included in version 0.1.6 retains updater jobs, preflights,
+<p>The updater foundation included in version 0.1.7 retains updater jobs, preflights,
 signed plan assets, receipts, and deployment snapshots in the updater-state volume
 and verified PostgreSQL dumps in the
 updater-backup volume. It does not implement age-, count-, or status-based pruning.

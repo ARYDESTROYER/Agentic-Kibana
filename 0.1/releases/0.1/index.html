@@ -16,7 +16,7 @@
         <link rel="prev" href="../../development/testing/">
       
       
-        <link rel="next" href="../0.1.6/">
+        <link rel="next" href="../0.1.7/">
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
@@ -2536,6 +2536,8 @@
       
         
       
+        
+      
     
     
     
@@ -2687,12 +2689,35 @@
   
   
     <li class="md-nav__item">
+      <a href="../0.1.7/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.7
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../0.1.6/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Agentic SOC 0.1.6
+    Agentic SOC 0.1.6 bootstrap-blocked publication
     
   </span>
   
@@ -3135,24 +3160,28 @@
 <h1 id="agentic-soc-01">Agentic SOC 0.1<a class="headerlink" href="#agentic-soc-01" title="Permanent link">&para;</a></h1>
 <p>Agentic SOC 0.1 is the first standardized application and documentation release line.
 Human-facing documentation uses <strong>0.1</strong>; the current source version is Semantic
-Version <strong>0.1.6</strong>. It carries the accepted 0.1.2 and 0.1.3 Testing snapshots plus
-the exact accepted 0.1.4 and 0.1.5 application scope.</p>
-<p>Builds on <code>Testing</code> are integration and acceptance builds. Version 0.1.6 is a
+Version <strong>0.1.7</strong>. It carries the accepted 0.1.2 and 0.1.3 Testing snapshots plus
+the exact accepted 0.1.4, 0.1.5, and 0.1.6 application scope.</p>
+<p>Builds on <code>Testing</code> are integration and acceptance builds. Version 0.1.7 is a
 supported Stable patch only when the accepted tree is on <code>main</code>, the resulting
-commit has passed the release gate, and that exact commit is tagged <code>v0.1.6</code> with
+commit has passed the release gate, and that exact commit is tagged <code>v0.1.7</code> with
 verifiable signed release artifacts and public image digests. If that evidence is
 incomplete, use a previously verified Stable release. The immutable
 <code>v0.1.4</code> tag records a failed publication that produced documentation but no
 application artifacts. The immutable <code>v0.1.5</code> workflow built and signed candidate
 image digests but stopped before the canonical plan, bundle, GitHub Release, and
 Stable tags. Neither is an update or bootstrap source.
+The immutable <code>v0.1.6</code> artifact set published and signed successfully, but canonical
+macOS Bash 3.2 bootstrap acceptance failed before supervisor installation. It is
+superseded and is not an update or bootstrap source.
 Branch state alone never establishes the installed release identity.</p>
 <p>The repository uses <code>Testing</code> for integration and default <code>main</code> for accepted
-source. Patch 0.1.6 rebuilds the public and installed 0.1 guide without changing the
+source. Patch 0.1.7 rebuilds the public and installed 0.1 guide without changing the
 documentation selector line; already-built artifacts keep their immutable bundled
 Help Center. Versions 0.1.2 and 0.1.3 remain unpublished historical Testing records.
 Versions 0.1.4 and 0.1.5 remain immutable failed-publication records, not installable
-Stable releases or artifact sources.</p>
+Stable releases or artifact sources. Version 0.1.6 remains an immutable signed
+publication record, but not a supported bootstrap source.</p>
 <h2 id="what-01-provides">What 0.1 provides<a class="headerlink" href="#what-01-provides" title="Permanent link">&para;</a></h2>
 <ul>
 <li>Vendor-neutral pull and push ingestion normalized to OCSF.</li>
@@ -3221,7 +3250,7 @@ Elasticsearch environments may instead hold Agentic SOC state in dedicated indic
 separate management and read-only log credentials.</p>
 <p>Record the exact tag, image digests, commit SHA, build date, state backend, and
 <code>/api/health/build-info</code> response. A branch name alone is not a release identity.
-The Console badge shows <code>v0.1.6 · Testing|Stable</code> and exposes both Console and
+The Console badge shows <code>v0.1.7 · Testing|Stable</code> and exposes both Console and
 backend stamps; any identity mismatch is visibly downgraded to Testing.</p>
 <h2 id="important-limitations">Important limitations<a class="headerlink" href="#important-limitations" title="Permanent link">&para;</a></h2>
 <p>Version 0.1 does not claim:</p>
@@ -3246,7 +3275,8 @@ explicitly documented.</p>
 <p>Start with <a href="../../operations/deployment/">Deployment</a>,
 <a href="../../operations/security/">Security hardening</a>, and
 <a href="../documentation-versions/">Documentation versions</a>. Read the detailed
-<a href="../0.1.6/">0.1.6 Stable patch record</a> before promoting or upgrading. The
+<a href="../0.1.7/">0.1.7 Stable patch record</a> before promoting or upgrading. The
+<a href="../0.1.6/">0.1.6 superseded publication record</a>,
 <a href="../0.1.5/">0.1.5 failed-publication record</a> and
 <a href="../0.1.4/">0.1.4 failed-publication record</a> are immutable but non-installable; the
 <a href="../0.1.3/">0.1.3 record</a> and <a href="../0.1.2/">0.1.2 record</a> remain historical unpublished
@@ -3304,16 +3334,16 @@ Testing snapshots.</p>
       
       
         <a
-          href="../0.1.6/"
+          href="../0.1.7/"
           class="tlsoc-page-footer__link tlsoc-page-footer__link--next"
-          aria-label="Next: Agentic SOC 0.1.6"
+          aria-label="Next: Agentic SOC 0.1.7"
         >
           <span class="tlsoc-page-footer__title">
-            Agentic SOC 0.1.6
+            Agentic SOC 0.1.7
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
           </span>
           
-            <span class="tlsoc-page-footer__description">Corrected Stable release notes, signed-update artifacts, compatibility boundary, and operator verification for Agentic SOC 0.1.6.</span>
+            <span class="tlsoc-page-footer__description">Stable bootstrap portability release notes, signed-update artifacts, compatibility boundary, and operator verification for Agentic SOC 0.1.7.</span>
           
         </a>
       

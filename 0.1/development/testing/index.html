@@ -2694,6 +2694,8 @@
       
         
       
+        
+      
     
     
     
@@ -2755,12 +2757,35 @@
   
   
     <li class="md-nav__item">
+      <a href="../../releases/0.1.7/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.7
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../releases/0.1.6/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Agentic SOC 0.1.6
+    Agentic SOC 0.1.6 bootstrap-blocked publication
     
   </span>
   
@@ -3336,32 +3361,33 @@
 <p>Agentic SOC changes are accepted on <code>Testing</code> only after the relevant offline, contract,
 build, and documentation gates pass. Stable promotion moves that accepted source
 tree through a protected pull request to <code>main</code>; the resulting commit is gated again
-before application version <code>v0.1.6</code> is tagged.</p>
+before application version <code>v0.1.7</code> is tagged.</p>
 <p>The latest fully recorded local baseline is <strong>2,306 backend tests</strong> and <strong>1,936
 Console tests across 286 files</strong> (1,927 passed + 9 intentionally skipped). The
 Console baseline also has zero stderr bytes and zero Vitest-captured console stdout
 blocks under <code>npm run test:strict</code>. Counts rise as coverage is added; the commands
 and zero-failure result are the contract, not a frozen target.</p>
 <p>The remote uses <code>Testing</code> for integration and default <code>main</code> for accepted Stable
-source. Version 0.1.6 is a candidate on <code>Testing</code> and is Stable only when the
-resulting verified <code>main</code> commit has the immutable <code>v0.1.6</code> tag and matching
+source. Version 0.1.7 is a candidate on <code>Testing</code> and is Stable only when the
+resulting verified <code>main</code> commit has the immutable <code>v0.1.7</code> tag and matching
 artifacts. Branch protection, required checks,
 Pages source selection, and <code>github-pages</code> environment policy are repository settings;
 verify them independently before treating a merge or deployment as accepted.</p>
 <h2 id="github-merge-gate">GitHub merge gate<a class="headerlink" href="#github-merge-gate" title="Permanent link">&para;</a></h2>
-<p>Every pull request receives eighteen visible statuses from
-<code>.github/workflows/ci.yml</code>: seventeen independently diagnosable quality lanes plus the
+<p>Every pull request receives nineteen visible statuses from
+<code>.github/workflows/ci.yml</code>: eighteen independently diagnosable quality lanes plus the
 aggregate <strong>CI passed</strong> result. In addition to repository, backend, Console, API,
 design, documentation, and package checks, the gate boots the supported
 PostgreSQL+pgvector/Redis state path, validates workflows and shell separately from
 deploy/updater contracts, rejects fatal Python correctness faults, and builds all
 three shipping images. The aggregate runs even when a dependency fails or is
-cancelled and succeeds only when all seventeen
+cancelled and succeeds only when all eighteen
 report success.</p>
 <p>Branch protection needs only the stable aggregate name <strong>CI passed</strong>. Requiring that
 single fail-closed result keeps protection intact if an internal job is renamed while
 still preventing a skipped or cancelled lane from passing a merge. The exact job-to-
-command mapping is maintained in the repository's root <code>CONTRIBUTING.md</code>.</p>
+command parity guidance is maintained in the repository's root <code>CONTRIBUTING.md</code>;
+the workflow itself remains authoritative for inline service and container probes.</p>
 <h2 id="backend-suite">Backend suite<a class="headerlink" href="#backend-suite" title="Permanent link">&para;</a></h2>
 <p>The backend tests use fake Elasticsearch, mock model providers, and SQLite for SQL
 repository coverage. They do not require production credentials or a live SIEM.</p>
@@ -3475,7 +3501,7 @@ rollback requested after success must also restore images only. Prove the verifi
 dump remains available for an explicit break-glass recovery rehearsal, but is never
 consumed automatically. Any plan with a migration strategy other than <code>none</code> must fail
 preflight.</p>
-<p>Verify the one-time v0.1.1→v0.1.6 bootstrap separately from later Console updates:
+<p>Verify the one-time v0.1.1→v0.1.7 bootstrap separately from later Console updates:
 it must refuse a dirty checkout, a lightweight/mismatched tag, a tag whose commit is
 not contained in <code>origin/main</code>, missing durable secrets, an unsupported running
 topology, an active job, and unreadable/invalid existing supervisor state. Prove it
@@ -3484,7 +3510,7 @@ one while preserving/restoring the active digest override. Repeat the replacemen
 without an active override and prove bootstrap captures the exact immutable prior
 updater image ID, restores it after an injected replacement failure, and removes the
 temporary recovery override only after confirmed success. Its happy path installs only
-the initial supervisor transport before delegating the full v0.1.6 transition to the
+the initial supervisor transport before delegating the full v0.1.7 transition to the
 signed state machine. Afterward, prove
 <code>scripts/agentic-soc-compose.sh</code> layers the active digest override and document raw
 Compose lifecycle commands as unsupported. Verify a known dirty Runbook or Settings
@@ -3543,7 +3569,7 @@ typed in the generated contract.</p>
 <p>Run the repository's standard-library metadata gate from the root:</p>
 <div class="highlight"><pre><span></span><code>python3<span class="w"> </span>scripts/check_version.py
 </code></pre></div>
-<p>For the 0.1 line it checks that the root <code>VERSION</code> (<code>0.1.6</code>) agrees with backend,
+<p>For the 0.1 line it checks that the root <code>VERSION</code> (<code>0.1.7</code>) agrees with backend,
 Console, lockfile, OpenAPI, Compose image/build metadata, release records, and the
 MkDocs/Mike documentation line (<code>0.1</code>).</p>
 <h2 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">&para;</a></h2>
@@ -3565,13 +3591,15 @@ stay on the application origin. Internal development records are deliberately ex
 from the Help Center build.</p>
 <h3 id="native-pages-publication-verification">Native Pages publication verification<a class="headerlink" href="#native-pages-publication-verification" title="Permanent link">&para;</a></h3>
 <p>The <code>Documentation</code> workflow validates every eligible pull request, push, and manual
-run. Only a push to <code>main</code>, or a manual run explicitly selected on <code>main</code>, may enter
-the Stable publication path. Pull requests, <code>Testing</code> pushes, and manual runs on any
+run. Only the exact annotated <code>vX.Y.Z</code> tag may enter the Stable publication path,
+whether triggered by its tag push or an explicit manual run selected on that tag.
+Pull requests, branch pushes (including <code>main</code> and <code>Testing</code>), and manual runs on any
 other ref must stop after validation and preview-artifact upload.</p>
 <p>After a Stable publication event:</p>
 <ol>
 <li>Confirm <strong>Validate Help Center</strong>, <strong>Assemble Stable documentation</strong>, and
-   <strong>Deploy Stable documentation</strong> all succeed for the same <code>main</code> SHA.</li>
+   <strong>Deploy Stable documentation</strong> all succeed for the exact tag SHA, and that the
+   tag dereferences to the accepted <code>main</code> commit.</li>
 <li>Confirm the generated <code>gh-pages</code> history contains <code>index.html</code>,
    <code>0.1/index.html</code>, <code>stable/index.html</code>, <code>latest/index.html</code>, and <code>versions.json</code>.
    <code>gh-pages</code> is a Mike-managed backing store; never edit it by hand.</li>
@@ -3581,9 +3609,10 @@ other ref must stop after validation and preview-artifact upload.</p>
 <li>Request the public root, <code>/0.1/</code>, <code>/stable/</code>, and <code>/latest/</code>; follow redirects,
    require successful responses, and confirm the version selector, Stable marquee,
    and <code>main</code> edit links render from the deployed artifact.</li>
-<li>Run the workflow manually on <code>main</code> once to prove an idempotent redeploy preserves
-   prior version history. Also inspect a <code>Testing</code> or non-main manual run and confirm
-   that neither publication nor deployment executes.</li>
+<li>Re-run the workflow manually on the exact immutable release tag once to prove an
+   idempotent redeploy preserves prior version history. Also inspect a manual run on
+   <code>main</code>, <code>Testing</code>, or another non-tag ref and confirm that it validates only:
+   neither publication nor deployment may execute.</li>
 </ol>
 <p>The native Pages artifact is assembled from the complete generated branch tree and
 must be free of symbolic links. A green preview artifact does not prove that the
@@ -3624,7 +3653,7 @@ isolated environment.</p>
    release gate again on the resulting <code>main</code> commit.</li>
 <li>Build and stamp the verified commit with the correct channel, exact SHA, build
    date, and source URL.</li>
-<li>Create the immutable <code>v0.1.6</code> tag and publish matching application artifacts by
+<li>Create the immutable <code>v0.1.7</code> tag and publish matching application artifacts by
    digest; let the Documentation workflow publish the accepted public 0.1 line from
    <code>main</code>.</li>
 <li>Verify all three GHCR packages are public and anonymously pullable by the exact

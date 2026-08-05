@@ -2536,6 +2536,8 @@
       
         
       
+        
+      
     
     
     
@@ -2597,12 +2599,35 @@
   
   
     <li class="md-nav__item">
+      <a href="../0.1.7/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.7
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../0.1.6/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Agentic SOC 0.1.6
+    Agentic SOC 0.1.6 bootstrap-blocked publication
     
   </span>
   
@@ -3112,8 +3137,10 @@ release-inventory parser, and tightened shipping-image dependency checks. The
 <code>v0.1.5</code> workflow built and signed candidate component digests, but stopped in its
 anonymous multi-platform pull gate before publishing the canonical signed plan,
 Sigstore plan bundle, GitHub Release, or Stable convenience tags.</p>
-<p>Those partial registry objects are not installation authority. The corrected release
-is <a href="../0.1.6/">0.1.6</a>; <code>v0.1.5</code> must never be moved, deleted, recreated, or reused.</p>
+<p>Those partial registry objects are not installation authority. The current governed
+correction is <a href="../0.1.7/">0.1.7</a>; <code>v0.1.5</code> must never be moved, deleted, recreated,
+or reused. Version 0.1.6 published a signed artifact set but remains a superseded,
+bootstrap-blocked historical record.</p>
 <div class="admonition danger">
 <p class="admonition-title">Do not install, bootstrap, or update from v0.1.5</p>
 <p>The annotated tag exists, but the complete release evidence does not. There is no
@@ -3171,13 +3198,15 @@ workflow correction cannot change that source by rerunning <code>v0.1.5</code>. 
 would destroy its audit identity, while deleting and recreating it would violate the
 release contract.</p>
 <p>The only valid recovery is a strictly newer patch release that repeats every gate.
-Version 0.1.6 preserves the tag, corrects the anonymous pull verifier, rebuilds and
-signs new component digests, generates and signs a new plan, publishes a new GitHub
-Release, and exercises the canonical supervised bootstrap independently.</p>
+Version 0.1.6 preserved the tag, corrected the anonymous pull verifier, rebuilt and
+signed new component digests, and published a new plan and GitHub Release; its
+canonical macOS Bash 3.2 bootstrap then failed before supervisor installation.
+Version 0.1.7 preserves both records and repeats the complete acceptance sequence
+with a native Bash 3.2 gate.</p>
 <h2 id="operator-action">Operator action<a class="headerlink" href="#operator-action" title="Permanent link">&para;</a></h2>
 <p>Do not run bootstrap, artifact-download, image-pin, or tag-creation commands from this
-historical page. Use the <a href="../0.1.6/">0.1.6 release procedure</a> only after all evidence it
-requires is present, or continue using a previously verified Stable release.</p>
+historical page. Use the <a href="../0.1.7/">0.1.7 release procedure</a> only after all evidence
+it requires is present, or continue using a previously verified Stable release.</p>
 <p>For the general immutable promotion and recovery policy, read
 <a href="../channels/">Release channels and versioning</a>. For the supported supervisor boundary,
 read <a href="../../operations/upgrades/">Upgrades and promotion</a> and
@@ -3222,11 +3251,11 @@ read <a href="../../operations/upgrades/">Upgrades and promotion</a> and
         <a
           href="../0.1.6/"
           class="tlsoc-page-footer__link tlsoc-page-footer__link--previous"
-          aria-label="Previous: Agentic SOC 0.1.6"
+          aria-label="Previous: Agentic SOC 0.1.6 bootstrap-blocked publication"
         >
           <span class="tlsoc-page-footer__title">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg>
-            Agentic SOC 0.1.6
+            Agentic SOC 0.1.6 bootstrap-blocked publication
           </span>
           
             <span class="tlsoc-page-footer__description">Corrected Stable release notes, signed-update artifacts, compatibility boundary, and operator verification for Agentic SOC 0.1.6.</span>

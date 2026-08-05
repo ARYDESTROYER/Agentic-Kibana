@@ -13,7 +13,7 @@
         <link rel="canonical" href="https://arydestroyer.github.io/Agentic-Kibana/0.1/releases/0.1.6/">
       
       
-        <link rel="prev" href="../0.1/">
+        <link rel="prev" href="../0.1.7/">
       
       
         <link rel="next" href="../0.1.5/">
@@ -2536,6 +2536,8 @@
       
         
       
+        
+      
     
     
     
@@ -2594,6 +2596,29 @@
                 
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../0.1.7/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.7
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
     
   
   
@@ -2611,7 +2636,7 @@
   
   
   <span class="md-ellipsis">
-    Agentic SOC 0.1.6
+    Agentic SOC 0.1.6 bootstrap-blocked publication
     
   </span>
   
@@ -2624,7 +2649,7 @@
   
   
   <span class="md-ellipsis">
-    Agentic SOC 0.1.6
+    Agentic SOC 0.1.6 bootstrap-blocked publication
     
   </span>
   
@@ -2695,9 +2720,9 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#bootstrap-and-upgrade-boundary" class="md-nav__link">
+  <a href="#historical-bootstrap-outcome" class="md-nav__link">
     <span class="md-ellipsis">
-      Bootstrap and upgrade boundary
+      Historical bootstrap outcome
     </span>
   </a>
   
@@ -2731,9 +2756,9 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#immutable-annotated-tag-checklist" class="md-nav__link">
+  <a href="#immutable-tag-status" class="md-nav__link">
     <span class="md-ellipsis">
-      Immutable annotated-tag checklist
+      Immutable tag status
     </span>
   </a>
   
@@ -3079,9 +3104,9 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#bootstrap-and-upgrade-boundary" class="md-nav__link">
+  <a href="#historical-bootstrap-outcome" class="md-nav__link">
     <span class="md-ellipsis">
-      Bootstrap and upgrade boundary
+      Historical bootstrap outcome
     </span>
   </a>
   
@@ -3115,9 +3140,9 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#immutable-annotated-tag-checklist" class="md-nav__link">
+  <a href="#immutable-tag-status" class="md-nav__link">
     <span class="md-ellipsis">
-      Immutable annotated-tag checklist
+      Immutable tag status
     </span>
   </a>
   
@@ -3210,9 +3235,9 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#bootstrap-and-upgrade-boundary" class="md-nav__link">
+  <a href="#historical-bootstrap-outcome" class="md-nav__link">
     <span class="md-ellipsis">
-      Bootstrap and upgrade boundary
+      Historical bootstrap outcome
     </span>
   </a>
   
@@ -3246,9 +3271,9 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#immutable-annotated-tag-checklist" class="md-nav__link">
+  <a href="#immutable-tag-status" class="md-nav__link">
     <span class="md-ellipsis">
-      Immutable annotated-tag checklist
+      Immutable tag status
     </span>
   </a>
   
@@ -3268,19 +3293,19 @@
 
 
 <h1 id="agentic-soc-016">Agentic SOC 0.1.6<a class="headerlink" href="#agentic-soc-016" title="Permanent link">&para;</a></h1>
-<p>Agentic SOC <strong>0.1.6</strong> is the corrected governed Stable candidate after the
-immutable, non-installable <code>v0.1.5</code> publication attempt. It republishes the exact
-accepted 0.1.5 application scope under a new version and repairs the final anonymous
-multi-platform registry acceptance boundary. It remains in the <strong>0.1</strong>
-documentation line.</p>
-<div class="admonition warning">
-<p class="admonition-title">Verify the immutable release before installation</p>
-<p>A source checkout, branch head, version string, candidate image, or signed image
-alone is not a Stable release. Version 0.1.6 is installable only when the
-annotated tag <code>v0.1.6</code> resolves to the accepted <code>main</code> commit, the exact-tag CI
-and release workflows succeed, the GitHub Release contains the canonical signed
-plan and bundle, and every digest in that plan is anonymously readable. If any
-evidence is absent, continue using a previously verified Stable release.</p>
+<p>Agentic SOC <strong>0.1.6</strong> is an immutable, published Stable artifact record after the
+non-installable <code>v0.1.5</code> attempt. Its exact-tag CI, public signed images, canonical
+signed plan and bundle, GitHub Release, and Help Center completed. Canonical host
+acceptance subsequently found that its one-time supervisor bootstrap exits on macOS
+Bash 3.2 before changing the workload. The tag and artifacts remain immutable, but
+the release is not a supported bootstrap source. Use the governed
+<a href="../0.1.7/">0.1.7 correction</a>.</p>
+<div class="admonition danger">
+<p class="admonition-title">Historical publication — do not bootstrap from this tag</p>
+<p>Do not run <code>scripts/bootstrap-updater.sh</code> from <code>v0.1.6</code>, move or reuse the tag,
+replace its published assets, or reinterpret its signed plan as the corrected
+release. Version 0.1.7 repeats every release gate with a Bash 3.2-safe bootstrap
+and is the next supported candidate.</p>
 <p>The immutable <code>v0.1.5</code> tag is a failed publication record. Its workflow built
 and signed candidate component digests but stopped before publishing the signed
 plan, Sigstore plan bundle, GitHub Release, or Stable convenience tags. Those
@@ -3443,29 +3468,17 @@ infrastructure remain operator-managed.</p>
 PostgreSQL dump is still mandatory before application switching. Automatic rollback
 restores prior application image pins; database restore remains an explicit
 break-glass operation because restoring automatically could discard valid writes.</p>
-<h2 id="bootstrap-and-upgrade-boundary">Bootstrap and upgrade boundary<a class="headerlink" href="#bootstrap-and-upgrade-boundary" title="Permanent link">&para;</a></h2>
-<p>For a canonical deployment currently running supported Stable <code>v0.1.1</code>, use a
-clean checkout of the strictly newer, fully published <code>v0.1.6</code> tag as the
-host-authorized bootstrap transport:</p>
-<div class="highlight"><pre><span></span><code>git<span class="w"> </span>fetch<span class="w"> </span>--tags<span class="w"> </span>origin
-git<span class="w"> </span>switch<span class="w"> </span>--detach<span class="w"> </span>v0.1.6
-<span class="nb">test</span><span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>git<span class="w"> </span>cat-file<span class="w"> </span>-t<span class="w"> </span>v0.1.6<span class="k">)</span><span class="s2">&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>tag
-<span class="nb">test</span><span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>git<span class="w"> </span>rev-parse<span class="w"> </span><span class="s1">&#39;v0.1.6^{commit}&#39;</span><span class="k">)</span><span class="s2">&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>git<span class="w"> </span>rev-parse<span class="w"> </span>HEAD<span class="k">)</span><span class="s2">&quot;</span>
-<span class="nb">test</span><span class="w"> </span>-z<span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>git<span class="w"> </span>status<span class="w"> </span>--porcelain<span class="w"> </span>--untracked-files<span class="o">=</span>all<span class="k">)</span><span class="s2">&quot;</span>
-
-<span class="c1"># .env must contain durable TLSOC_PG_PASSWORD, TLSOC_AUTH_ENABLED=true,</span>
-<span class="c1"># TLSOC_AUTH_JWT_SECRET with at least 32 characters, and:</span>
-<span class="c1"># AGENTIC_SOC_UPDATE_REPOSITORY=ARYDESTROYER/Agentic-Kibana</span>
-./scripts/bootstrap-updater.sh
-</code></pre></div>
-<p>The bootstrap verifies the exact release before installing or reconciling the
-private supervisor and applying its strictly newer plan. After the successful
-transition, use <code>./scripts/agentic-soc-compose.sh</code> for every manual lifecycle
-operation so the active digest override and lifecycle lock remain in effect.</p>
-<p>Source-built/Testing deployments and the non-installable 0.1.4 or 0.1.5 attempts
-cannot be relabelled Stable. Reconcile them manually to the canonical signed 0.1.6
-deployment. A deployment already running 0.1.6 cannot bootstrap from the same plan;
-the updater deliberately requires a strictly newer target.</p>
+<h2 id="historical-bootstrap-outcome">Historical bootstrap outcome<a class="headerlink" href="#historical-bootstrap-outcome" title="Permanent link">&para;</a></h2>
+<p>The clean exact-tag bootstrap was exercised against a canonical v0.1.1 PostgreSQL
+Compose deployment with authentication and durable secrets. On macOS Bash 3.2,
+expanding the empty optional Compose-argument array under <code>set -u</code> exited with
+<code>unbound variable</code> before the updater container or release override was created.
+The running backend remained at 0.1.1 and no application switch occurred.</p>
+<p>The signed 0.1.6 assets remain independently verifiable below, but they are not a
+supported installation path. A canonical v0.1.1 deployment must remain unchanged
+until the strictly newer <a href="../0.1.7/">v0.1.7 procedure</a> passes its complete published
+and end-to-end acceptance gate. A deployment already running 0.1.6 also requires a
+strictly newer target; the updater deliberately rejects same-version installation.</p>
 <p>Read <a href="../../operations/upgrades/">Upgrades and promotion</a> and
 <a href="../known-limitations/">Known limitations</a> before rehearsing the transition.</p>
 <h2 id="independent-artifact-verification">Independent artifact verification<a class="headerlink" href="#independent-artifact-verification" title="Permanent link">&para;</a></h2>
@@ -3546,22 +3559,13 @@ git<span class="w"> </span>fetch<span class="w"> </span>--tags<span class="w"> <
 <p>Backend, Console, updater, <code>/release.json</code>, OCI labels, signed plan, tag, and GitHub
 Release must all resolve to the same version and commit. A mismatch fails safe to
 Testing and cannot authorize installation.</p>
-<h2 id="immutable-annotated-tag-checklist">Immutable annotated-tag checklist<a class="headerlink" href="#immutable-annotated-tag-checklist" title="Permanent link">&para;</a></h2>
-<p>Create the tag only after the clean candidate passes on <code>Testing</code>, promotion passes
-on the resulting <code>main</code> commit, and the final tree is frozen:</p>
-<div class="highlight"><pre><span></span><code><span class="nb">test</span><span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>tr<span class="w"> </span>-d<span class="w"> </span><span class="s1">&#39;[:space:]&#39;</span><span class="w"> </span>&lt;<span class="w"> </span>VERSION<span class="k">)</span><span class="s2">&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;0.1.6&quot;</span>
-<span class="nb">test</span><span class="w"> </span>-z<span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>git<span class="w"> </span>status<span class="w"> </span>--porcelain<span class="k">)</span><span class="s2">&quot;</span>
-git<span class="w"> </span>tag<span class="w"> </span>-a<span class="w"> </span>v0.1.6<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-m<span class="w"> </span><span class="s2">&quot;Agentic SOC 0.1.6&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-m<span class="w"> </span><span class="s2">&quot;Corrected Stable beta publication: signed supervised updates, governed Intelligence, truthful operator states, and repaired anonymous multi-platform registry acceptance. Detailed notes: docs/releases/0.1.6.md; CHANGELOG.md.&quot;</span>
-<span class="nb">test</span><span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>git<span class="w"> </span>cat-file<span class="w"> </span>-t<span class="w"> </span>v0.1.6<span class="k">)</span><span class="s2">&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>tag
-<span class="nb">test</span><span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>git<span class="w"> </span>rev-parse<span class="w"> </span><span class="s1">&#39;v0.1.6^{commit}&#39;</span><span class="k">)</span><span class="s2">&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>git<span class="w"> </span>rev-parse<span class="w"> </span>HEAD<span class="k">)</span><span class="s2">&quot;</span>
-git<span class="w"> </span>show<span class="w"> </span>--no-patch<span class="w"> </span>--show-signature<span class="w"> </span>v0.1.6
-git<span class="w"> </span>push<span class="w"> </span>origin<span class="w"> </span>v0.1.6
-</code></pre></div>
-<p>Do not create the tag before all candidate/main gates pass, and never force, delete,
-move, or reassign it after push. See <a href="../channels/">Release channels and
-versioning</a> for the canonical promotion sequence.</p>
+<h2 id="immutable-tag-status">Immutable tag status<a class="headerlink" href="#immutable-tag-status" title="Permanent link">&para;</a></h2>
+<p>The annotated <code>v0.1.6</code> tag already exists and must never be force-updated, deleted,
+recreated, or reassigned. Its exact source and signed artifacts are retained as
+historical evidence. The portability repair is a new SemVer with a new candidate,
+promotion, main, exact-tag, signing, anonymous-pull, bootstrap, and browser acceptance
+sequence. See <a href="../0.1.7/">Agentic SOC 0.1.7</a> and <a href="../channels/">Release channels and
+versioning</a>.</p>
 
 
 
@@ -3600,16 +3604,16 @@ versioning</a> for the canonical promotion sequence.</p>
     <nav class="md-footer__inner" aria-label="Footer">
       
         <a
-          href="../0.1/"
+          href="../0.1.7/"
           class="tlsoc-page-footer__link tlsoc-page-footer__link--previous"
-          aria-label="Previous: Agentic SOC 0.1"
+          aria-label="Previous: Agentic SOC 0.1.7"
         >
           <span class="tlsoc-page-footer__title">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg>
-            Agentic SOC 0.1
+            Agentic SOC 0.1.7
           </span>
           
-            <span class="tlsoc-page-footer__description">Scope, capabilities, deployment expectations, and limitations for the Agentic SOC 0.1 release line.</span>
+            <span class="tlsoc-page-footer__description">Stable bootstrap portability release notes, signed-update artifacts, compatibility boundary, and operator verification for Agentic SOC 0.1.7.</span>
           
         </a>
       

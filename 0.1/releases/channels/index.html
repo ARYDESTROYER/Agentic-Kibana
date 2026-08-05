@@ -2536,6 +2536,8 @@
       
         
       
+        
+      
     
     
     
@@ -2597,12 +2599,35 @@
   
   
     <li class="md-nav__item">
+      <a href="../0.1.7/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agentic SOC 0.1.7
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../0.1.6/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Agentic SOC 0.1.6
+    Agentic SOC 0.1.6 bootstrap-blocked publication
     
   </span>
   
@@ -3347,13 +3372,16 @@ successful installation, the same-origin Console manifest must still exactly mat
 healthy backend build before the new document activates.</p>
 <h2 id="version-01-nomenclature">Version 0.1 nomenclature<a class="headerlink" href="#version-01-nomenclature" title="Permanent link">&para;</a></h2>
 <p>The first standardized release line is documentation version <strong>0.1</strong>. The current
-source version is product version <strong>0.1.6</strong>. It carries the accepted 0.1.2 and 0.1.3
-Testing snapshots plus the exact 0.1.4 and 0.1.5 application scope. The immutable
+source version is product version <strong>0.1.7</strong>. It carries the accepted 0.1.2 and 0.1.3
+Testing snapshots plus the exact 0.1.4, 0.1.5, and 0.1.6 application scope. The immutable
 <code>v0.1.4</code> publication attempt produced documentation but no application artifacts.
 The immutable <code>v0.1.5</code> workflow built and signed candidate image digests but stopped
 before publishing the canonical signed plan, GitHub Release, or Stable tags. Both are
-historical and non-installable. Version 0.1.6 is Stable only when the accepted <code>main</code>
-commit is immutably tagged <code>v0.1.6</code> and its signed plan, public GitHub Release, and
+historical and non-installable. The immutable <code>v0.1.6</code> images, signed plan, bundle,
+and GitHub Release published successfully, but canonical macOS Bash 3.2 bootstrap
+acceptance failed before supervisor installation; it is superseded and not a
+supported installation source. Version 0.1.7 is Stable only when the accepted <code>main</code>
+commit is immutably tagged <code>v0.1.7</code> and its signed plan, public GitHub Release, and
 public digest-pinned images verify. If that evidence is incomplete, use a previously
 verified Stable release.</p>
 <table>
@@ -3378,11 +3406,11 @@ verified Stable release.</p>
 </tr>
 <tr>
 <td>SemVer package and image version</td>
-<td><code>0.1.6</code></td>
+<td><code>0.1.7</code></td>
 </tr>
 <tr>
 <td>Git release tag</td>
-<td><code>v0.1.6</code> only from the exact verified <code>main</code> commit; absent before publication and immutable afterward</td>
+<td><code>v0.1.7</code> only from the exact verified <code>main</code> commit; absent before publication and immutable afterward</td>
 </tr>
 <tr>
 <td>Documentation selector and URL line</td>
@@ -3399,7 +3427,7 @@ verified Stable release.</p>
 </tbody>
 </table>
 <p>Patch releases remain within the same documentation line. For example, app
-versions <code>0.1.1</code>, <code>0.1.2</code>, <code>0.1.3</code>, <code>0.1.4</code>, <code>0.1.5</code>, and <code>0.1.6</code> use the <code>0.1</code> documentation rather than
+versions <code>0.1.1</code>, <code>0.1.2</code>, <code>0.1.3</code>, <code>0.1.4</code>, <code>0.1.5</code>, <code>0.1.6</code>, and <code>0.1.7</code> use the <code>0.1</code> documentation rather than
 creating new selector entries. A new minor release creates a new documentation
 line such as <code>0.2</code>.</p>
 <h2 id="promotion-procedure">Promotion procedure<a class="headerlink" href="#promotion-procedure" title="Permanent link">&para;</a></h2>
@@ -3506,8 +3534,8 @@ tag CI run and its successful <strong>CI passed</strong> aggregate before publis
 for the required route and interaction coverage. A screenshot of one successful page
 is not a Console acceptance receipt.</p>
 <h2 id="build-and-badge-provenance">Build and badge provenance<a class="headerlink" href="#build-and-badge-provenance" title="Permanent link">&para;</a></h2>
-<p>SemVer and channel are independent. The 0.1.6 Testing candidate and its accepted
-Stable build can both report version <code>0.1.6</code>; the channel says where that build sits in
+<p>SemVer and channel are independent. The 0.1.7 Testing candidate and its accepted
+Stable build can both report version <code>0.1.7</code>; the channel says where that build sits in
 the acceptance lifecycle. Stamp the mutable provenance fields explicitly; keep or
 override the Dockerfile's canonical source URL as appropriate:</p>
 <table>
@@ -3699,7 +3727,7 @@ maintenance rules, and <a href="../0.1/">Agentic SOC 0.1</a> for this release li
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
           </span>
           
-            <span class="tlsoc-page-footer__description">Release gates and explicit operating constraints for Agentic SOC 0.1.6.</span>
+            <span class="tlsoc-page-footer__description">Release gates and explicit operating constraints for Agentic SOC 0.1.7.</span>
           
         </a>
       
