@@ -28,9 +28,14 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          # The protected-change scope guard compares exact event commit identities.
+          fetch-depth: 0
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+      - name: Reject Journal-only protected changes
+        run: python scripts/check_protected_pr_scope.py
       - name: Check canonical version and release metadata
         env:
           TLSOC_SOURCE_REF: ${{ github.ref }}
@@ -513,6 +518,7 @@ jobs:
         run: |
           python scripts/check_ci_contract.py
           python -m unittest scripts.test_check_ci_contract -v
+          python -m unittest scripts.test_check_protected_pr_scope -v
       - name: Install the verified ShellCheck binary
         env:
           SHELLCHECK_VERSION: "0.10.0"
