@@ -14,12 +14,47 @@ History is reconstructed from `git log`.
 
 No changes yet.
 
+## [0.1.6] - 2026-08-05
+
+**Corrected governed Stable publication after the immutable, non-installable
+`v0.1.5` attempt.** This patch republishes the accepted 0.1.5 application scope
+without moving or reusing that tag and repairs the final anonymous multi-platform
+registry acceptance boundary.
+
+### Changed
+
+- The anonymous GHCR release gate performs a real credential-free Docker pull for
+  each required platform and removes the exact digest reference after every pull,
+  preventing Docker's classic image store from retaining one architecture under the
+  shared index name. Its independent registry verifier remains the authoritative
+  acceptance proof: it fetches and hashes the exact index, both `linux/amd64` and
+  `linux/arm64` child manifests, each referenced config, and every required release
+  label.
+- The complete Testing, promotion, `main`, exact annotated-tag, signed-image,
+  anonymous-registry, signed-plan, GitHub Release, canonical-bootstrap, and browser
+  acceptance sequence is repeated for 0.1.6. No 0.1.5 tag or workflow result is
+  substituted for the new candidate.
+
+### Fixed
+
+- Stable publication now evicts the immutable multi-architecture digest reference
+  after each real platform pull. Retaining that reference caused the second platform
+  pull in the `v0.1.5` workflow to conflict with the first even though the registry
+  objects had already been built and signed.
+
 ## [0.1.5] - 2026-08-05
 
-**Corrected governed Stable patch after the non-installable `v0.1.4` publication
-attempt: supervised updates, public signed
-release artifacts, broader Intelligence coverage, truthful operator states, honest
-rule authoring, responsive Console hardening, and stricter release acceptance.**
+**Failed, non-installable publication attempt after the non-installable `v0.1.4`
+attempt.** The immutable `v0.1.5` tag records the accepted application source and
+the release workflow built and signed candidate component digests, but publication
+stopped during its anonymous multi-platform pull gate before the canonical signed
+upgrade plan, Sigstore plan bundle, public GitHub Release, or Stable convenience
+tags were published. Those partial objects are not installation authority. The tag
+must never be moved or reused; the corrected candidate is 0.1.6.
+
+The attempted scope comprised supervised updates, public signed release artifacts,
+broader Intelligence coverage, truthful operator states, honest rule authoring,
+responsive Console hardening, and stricter release acceptance.
 
 This release includes the accepted work from the unpublished 0.1.2 and 0.1.3
 Testing snapshots and the exact accepted application scope from 0.1.4. Neither
@@ -131,13 +166,14 @@ initial empty-inventory boundary because `jq -e` returned exit 1 for the expecte
 boolean `false`. No backend, Web Console, or updater release image was built or
 published; no image or plan was signed; and no `upgrade-plan.json`, Sigstore bundle,
 or GitHub Release exists. The tag is immutable historical evidence and must never be
-moved or reused. See `docs/releases/0.1.4.md`; the corrected release is 0.1.5.
+moved or reused. See `docs/releases/0.1.4.md`; the first correction attempt, 0.1.5,
+also remained non-installable, and the current corrected candidate is 0.1.6.
 
 ## Development snapshot — 2026-08-04 — 0.1.3 Testing candidate
 
 Version 0.1.3 was prepared and accepted as Testing/main source but was never
 published as an annotated Stable tag or GitHub Release. Its accepted delta is
-included in 0.1.5 above and was also present in the non-installable 0.1.4 publication
+included in the 0.1.5 attempt and 0.1.6 candidate above and was also present in the non-installable 0.1.4 publication
 attempt. The historical operator record remains at
 `docs/releases/0.1.3.md`; do not create `v0.1.3` retroactively.
 
@@ -265,8 +301,8 @@ in-app release activation, and a version-matched Help Center.**
 - The beta patch snapshot was versioned **0.1.2** and continued to bundle the
   existing **0.1** Help Center line. It reached `main` without a published
   `v0.1.2` tag. The later 0.1.3 candidate also remained an unpublished Testing
-  snapshot; the 0.1.4 publication attempt produced no release artifacts, and 0.1.5
-  is the corrected governed successor target. A version string alone never implies
+  snapshot; the 0.1.4 and 0.1.5 publication attempts remained non-installable, and
+  0.1.6 is the corrected governed successor target. A version string alone never implies
   Stable provenance or a completed deployment.
 - Fresh workspaces now use the bundled OpenAI model ID `gpt-5.6-luna` for every
   completion role, with `reasoning_effort: none` preserving the existing Chat Completions
