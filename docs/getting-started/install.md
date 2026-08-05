@@ -25,10 +25,10 @@ when infrastructure and external model calls are not part of your evaluation.
 ## 1. Check out version 0.1
 
 After its complete signed publication and canonical runtime acceptance succeed, use
-the immutable `v0.1.12` Stable tag:
+the immutable `v0.1.13` Stable tag:
 
 ```bash
-git clone --branch v0.1.12 --depth 1 \
+git clone --branch v0.1.13 --depth 1 \
   https://github.com/ARYDESTROYER/Agentic-Kibana.git
 cd Agentic-Kibana
 ```
@@ -50,14 +50,18 @@ immutable `v0.1.10` workflow later timed out while its Web Console builder ran u
 target emulation; it also has no installable GitHub Release or canonical signed plan.
 The immutable `v0.1.11` workflow built, signed, anonymously proved, and verified all
 three images and the plan but failed during post-verification cleanup before its
-canonical Release or assets were published. Both must never be used. Use `v0.1.12`
+canonical Release or assets were published. The immutable `v0.1.12` release then
+completed the entire signed/public publication, but canonical v0.1.1 bootstrap
+failed closed before application mutation because matching absent legacy
+state-schema labels were normalized asymmetrically. These records must never be
+used as installation sources. Use `v0.1.13`
 only when its canonical GitHub Release, plan
 signature, public image digests, and canonical PostgreSQL Compose runtime acceptance
 all verify. Otherwise use a
 previously verified Stable release or Testing only for an explicitly
 unreleased evaluation.
 
-Version 0.1.12 retains the writable updater trust cache and least-privilege verification
+Version 0.1.13 retains the writable updater trust cache and least-privilege verification
 assets, and moves only architecture-neutral Console builder work to BuildKit's native
 platform. The final nginx runtime remains target-platform-specific. It also restores
 the runner-owned verification fixture to private mode only after verifier exit. It changes no

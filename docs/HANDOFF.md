@@ -12,12 +12,12 @@
   (2026-07-14/15)** fixed **47 verified findings** (0 crit / 10 high / 24 med / 13 low)
   from a 24-auditor + adversarial-verify Workflow — **one atomic commit per finding, no
   co-author**, on `Testing` (`c5516e5`→`abd0385`).
-  The current source version is **`0.1.12`**. It is a Stable patch candidate on
+  The current source version is **`0.1.13`**. It is a Stable patch candidate on
   `Testing` and a Stable release only when the exact accepted `main` commit has the
-  immutable `v0.1.12` tag and matching artifacts. `Testing` is the permanent integration and
+  immutable `v0.1.13` tag and matching artifacts. `Testing` is the permanent integration and
   acceptance branch; accepted changes are promoted through a pull request to the Stable
   `main` branch and re-verified there. The remote now uses `main` as its default, retains
-  `Testing` for integration. The immutable `v0.1.12` tag is created only from the
+  `Testing` for integration. The immutable `v0.1.13` tag is created only from the
   fully verified promoted commit. The immutable `v0.1.4` attempt passed exact-tag CI,
   Help Center assembly, and Pages publication but stopped before every release
   artifact; it has no GitHub Release, signed plan, signature, digest, or GHCR release
@@ -46,14 +46,21 @@
   images and the canonical plan on the host and inside the constrained updater. Its
   post-verification cleanup trap failed before attestations, GitHub Release,
   canonical asset, Stable-tag, or Stable-documentation publication. It is immutable,
-  superseded, and non-installable. Version 0.1.12 retains the writable
+  superseded, and non-installable. Version 0.1.12 subsequently completed every
+  protected source, exact-tag, signed-publication, public-image, attestation, Release,
+  Stable-tag, and documentation gate. Canonical v0.1.1 acceptance then failed closed
+  before application mutation because both legacy images omit the state-schema label
+  and its supervisor compared one normalized absence with one raw absence. It is
+  immutable, bootstrap-blocked, and superseded. Version 0.1.13 retains the writable
   updater-state trust cache and least-privilege verification assets, and moves only
   the Python documentation and Node application builder stages to BuildKit's native
   build platform; the final nginx runtime remains target-platform-specific. Its
   cleanup restores the runner-owned verification fixture to private mode only after
-  the constrained verifier exits, then removes it. It changes
+  the constrained verifier exits, then removes it. It symmetrically normalizes
+  matching absent legacy schema labels while mixed labels and unmanaged later
+  releases remain blocked. It changes
   no schema, updater protocol 1, publisher identity, process privilege, trust predicate,
-  or frozen-base bytes. Version 0.1.12 is not installable until every signed-publication
+  or frozen-base bytes. Version 0.1.13 is not installable until every signed-publication
   and canonical runtime acceptance gate passes. See
   `docs/releases/channels.md`. Repository administrators remain responsible for enforcing
   the documented branch and environment protections.
@@ -66,7 +73,7 @@
   Require **CI passed** on `Testing` and
   `main`; do not merge, tag, publish, skip, or soften a red/pending/cancelled lane.
 - **Release identity and supervised updates:** the top-right badge always reads
-  `v0.1.12 · Testing|Stable`; its popover reconciles build-time Console and public backend
+  `v0.1.13 · Testing|Stable`; its popover reconciles build-time Console and public backend
   build-info. Any known version/channel/SHA mismatch downgrades to Testing. Local demo auto-
   derives Stable only on literal `main`; Docker release builds must stamp channel/SHA/date.
   The reference standalone PostgreSQL Compose deployment can install a compatible,
@@ -83,17 +90,17 @@
   fails closed. The browser and
   ordinary backend never receive the Docker socket, host commands, arbitrary artifact
   coordinates, or registry credentials. The supported canonical `v0.1.1` deployment
-  requires one manual updater bootstrap to install the strictly newer signed 0.1.12
+  requires one manual updater bootstrap to install the strictly newer signed 0.1.13
   release after its canonical Release, signature, and public images verify. A
   Testing/source-built 0.1.3 deployment, either non-installable 0.1.4/0.1.5
   publication attempt, or the published-but-
-  bootstrap-blocked 0.1.6/0.1.7/0.1.8 artifact records, or failed-publication
+  bootstrap-blocked 0.1.6/0.1.7/0.1.8/0.1.12 artifact records, or failed-publication
   0.1.9/0.1.10/0.1.11 records must instead be reconciled
   according to their actual installed state; none can be relabelled Stable. An
   earlier failed bootstrap that left an inspectable idle older supervisor on an unchanged
-  v0.1.1 application is repaired by the v0.1.12 bootstrap, which replaces the
+  v0.1.1 application is repaired by the v0.1.13 bootstrap, which replaces the
   version-mismatched supervisor before signature verification. An already-running
-  0.1.12 deployment cannot bootstrap itself from the same-version plan. Bootstrap
+  0.1.13 deployment cannot bootstrap itself from the same-version plan. Bootstrap
   safely reuses or replaces only inspectable idle supervisor state; an active/unreadable
   state fails closed. Bootstrap transfers
   lifecycle ownership before job submission and reuses a private per-release start key

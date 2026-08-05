@@ -7,11 +7,13 @@ There are **two distinct environments**. Confusing them causes most build/deploy
 pain, so they are documented separately.
 
 > **Branch topology:** the remote uses `Testing` for integration and default
-> `main` for accepted Stable source. Version 0.1.12 is Stable only when the exact
-> verified `main` commit has the immutable `v0.1.12` tag and matching signed/public
+> `main` for accepted Stable source. Version 0.1.13 is Stable only when the exact
+> verified `main` commit has the immutable `v0.1.13` tag and matching signed/public
 > artifacts. The immutable `v0.1.10` and `v0.1.11` tags are superseded,
-> non-installable failed-publication records; never move, reuse, repair, install, or
-> bootstrap from them. Branch protection, required checks, Pages source selection, and environment
+> non-installable failed-publication records. The immutable `v0.1.12` tag completed
+> its signed/public publication but is bootstrap-blocked by its legacy installed-
+> identity comparison and is also unsupported; never move, reuse, repair, install,
+> or bootstrap from these records. Branch protection, required checks, Pages source selection, and environment
 > policy are repository settings; administrators must verify them independently of
 > this checkout.
 
@@ -200,7 +202,7 @@ prefixed Docker build/runtime metadata rather than `Secrets` fields:
 
 | Build/runtime value | Default | Purpose |
 |---|---|---|
-| `TLSOC_VERSION` | `0.1.12` in Compose | Machine SemVer for images and API identity |
+| `TLSOC_VERSION` | `0.1.13` in Compose | Machine SemVer for images and API identity |
 | `TLSOC_RELEASE_CHANNEL` | `testing` | Independent promotion stamp; use `stable` only for the accepted main/tag build |
 | `TLSOC_BUILD_SHA` | `unknown` | Exact source revision |
 | `TLSOC_BUILD_DATE` | `unknown` | Reproducible-build timestamp supplied by the builder |

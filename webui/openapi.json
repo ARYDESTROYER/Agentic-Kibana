@@ -6224,7 +6224,7 @@
   "info": {
     "description": "Vendor-neutral Agentic SOC API. It consumes source data read-only and owns only Agentic SOC application state.",
     "title": "Agentic SOC API",
-    "version": "0.1.12"
+    "version": "0.1.13"
   },
   "openapi": "3.1.0",
   "paths": {

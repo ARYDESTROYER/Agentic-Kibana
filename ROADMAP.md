@@ -11,9 +11,9 @@ Vitest clean, **#3 `decide()` byte-identical**, and
 docs + Journal updated. Commit or publish only after the user or maintainer
 intentionally authorizes that repository mutation.
 
-**Current baseline (Version `0.1.12`; `Testing` integration and default `main`
-Stable source):** the canonical branches exist; 0.1.12 is a Stable release only when
-the exact accepted commit has the immutable `v0.1.12` tag and matching signed/public
+**Current baseline (Version `0.1.13`; `Testing` integration and default `main`
+Stable source):** the canonical branches exist; 0.1.13 is a Stable release only when
+the exact accepted commit has the immutable `v0.1.13` tag and matching signed/public
 artifacts. The immutable `v0.1.4` and `v0.1.5` tags are historical and
 non-installable because neither completed a canonical signed GitHub Release. The
 immutable `v0.1.6` tag is a published and signed artifact record whose canonical
@@ -36,8 +36,12 @@ trust and traversal corrections while moving architecture-neutral Console builde
 work to BuildKit's native platform; its release built, signed, anonymously proved,
 and verified all three images and the plan, including inside the constrained updater,
 but post-verification cleanup failed before canonical publication. It is immutable,
-superseded, and non-installable. Version 0.1.12 restores the runner-owned verification
-fixture to private mode only after verifier exit, then removes it. It changes no
+superseded, and non-installable. Version 0.1.12 restored the runner-owned verification
+fixture to private mode only after verifier exit, then removed it, and completed the
+entire signed/public publication. Canonical v0.1.1 bootstrap then failed closed
+before application mutation because matching absent legacy state-schema labels were
+normalized asymmetrically. It is also immutable, bootstrap-blocked, and unsupported.
+Version 0.1.13 corrects only that legacy identity comparison. It changes no
 schema, protocol, identity, privilege, trust predicate, or frozen-base bytes and
 remains a candidate until every publication and canonical runtime acceptance gate
 passes. Branch
@@ -216,8 +220,8 @@ continuous-improvement claim. The audited evidence boundaries are now closed as 
 Remaining scale-out work is intentionally separate: schedulers still need distributed
 leases/ownership and campaigns do not retain an immutable split/merge lifecycle history.
 
-**F. Ranked post-0.1.12 hardening sequence (release-gap audit, 2026-08-05):** keep the
-0.1.12 Stable candidate focused on the truthful constrained-verifier cleanup correction and complete
+**F. Ranked post-0.1.13 hardening sequence (release-gap audit, 2026-08-05):** keep the
+0.1.13 Stable candidate focused on the truthful legacy-bootstrap identity correction and complete
 release acceptance. The next
 engineering sequence is ordered by data safety and measurable outcomes, not screen count:
 

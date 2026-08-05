@@ -46,7 +46,7 @@ the requesting operator, scope, and snapshot. Use the selected state backend's
 consistent dump or snapshot mechanism for recovery.
 
 The desired Storage & retention archive stage is also not a backup mechanism in
-0.1.12. Glacier requires an independent immutable export, manifest, checksums, and a
+0.1.13. Glacier requires an independent immutable export, manifest, checksums, and a
 tested restore path. Never transition an Elasticsearch snapshot-repository prefix to
 Glacier; every repository object must remain directly readable by Elasticsearch.
 

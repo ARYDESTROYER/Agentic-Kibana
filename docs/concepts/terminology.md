@@ -19,7 +19,8 @@ operator procedures, API integrations, and support requests.
 | **Testing** | Integration branch and pre-stable validation channel |
 | **Stable** | Supported release channel built from the `main` branch |
 | **0.1** | Documentation and human-facing release line |
-| **0.1.12** | Current SemVer artifact version; immutable tag `v0.1.12` only after verified Stable promotion and complete signed/public artifact publication |
+| **0.1.13** | Current SemVer artifact version; immutable tag `v0.1.13` only after verified Stable promotion and complete signed/public artifact publication |
+| **0.1.12** | Immutable complete signed-publication record; canonical v0.1.1 bootstrap failed closed before application mutation because matching absent legacy schema labels were normalized asymmetrically |
 | **0.1.11** | Immutable failed-publication record; images and plan verified, including inside the constrained updater, but post-verification cleanup failed before the canonical Release and assets existed |
 | **0.1.10** | Immutable failed-publication record; superseded and non-installable because its signed-release job stopped before a complete public release existed |
 
