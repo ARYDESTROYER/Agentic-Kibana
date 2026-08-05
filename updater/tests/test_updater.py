@@ -347,6 +347,7 @@ class ContractTests(unittest.TestCase):
         status = {
             "available": True,
             "protocol_version": 1,
+            "updater_version": "0.1.9",
             "state": "ready",
             "active_job": None,
             "capabilities": {
@@ -357,6 +358,12 @@ class ContractTests(unittest.TestCase):
             },
         }
         self.assertEqual(replacement_decision(status), "reuse")
+        self.assertEqual(replacement_decision(status, "0.1.9"), "reuse")
+        self.assertEqual(replacement_decision(status, "0.1.8"), "replace")
+        self.assertEqual(
+            replacement_decision({**status, "updater_version": None}, "0.1.9"),
+            "replace",
+        )
         self.assertEqual(
             replacement_decision({**status, "protocol_version": 0}), "replace"
         )
@@ -960,6 +967,14 @@ class RuntimeTests(unittest.TestCase):
         self.assertNotIn('"${updater_compose_args[@]}"', source)
         self.assertIn(
             '"${compose_wrapper}" up --detach --build "$@" agentic-soc-updater',
+            source,
+        )
+        self.assertIn(
+            'python3 - "${existing_status}" "${version}"',
+            source,
+        )
+        self.assertIn(
+            'replacement_decision(json.loads(sys.argv[1]), sys.argv[2])',
             source,
         )
         self.assertIn("start_updater --force-recreate", source)
@@ -2354,6 +2369,15 @@ class UpdaterImageContractTests(unittest.TestCase):
         self.assertIn("USER 0:10001", dockerfile)
         self.assertIn('cap_drop: ["ALL"]', compose)
         self.assertIn("UPDATE_CONTROL_GID=10001", compose)
+
+    def test_shipping_image_places_sigstore_cache_on_durable_writable_state(self) -> None:
+        dockerfile = (ROOT / "updater" / "Dockerfile").read_text(encoding="utf-8")
+
+        self.assertIn(
+            "TUF_ROOT=/var/lib/agentic-soc-updater/sigstore-root",
+            dockerfile,
+        )
+        self.assertNotIn("TUF_ROOT=/root/", dockerfile)
 
 
 if __name__ == "__main__":

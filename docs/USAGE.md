@@ -2265,7 +2265,7 @@ curl -s -b cookies.txt "localhost:8088/api/audit?source_id=prod-es&limit=50"   #
 ## 32. Using the API directly (`curl`)
 
 Every surface is backed by an HTTP route under `/api` — the base monolith
-(`backend/app/api/routes.py`) plus 26 auto-discovered `routes_*.py` feature
+(`backend/app/api/routes.py`) plus 27 auto-discovered `routes_*.py` feature
 routers (`main.py::discover_feature_routers()`; no manual registration needed).
 You can drive them directly for ops/automation. Examples below hit the backend on
 `localhost:8088` (the agnostic stack publishes it); through the web UI's nginx,
@@ -2274,7 +2274,7 @@ the same paths work under the SPA origin (e.g. `http://localhost:8080/api/...`).
 ```bash
 # Health
 curl -s localhost:8088/api/health
-# -> {"status":"ok","version":"0.1.8","es_connected":true,"store_type":"...","setup_complete":true}
+# -> {"status":"ok","version":"0.1.9","es_connected":true,"store_type":"...","setup_complete":true}
 # NOTE: "store_type" is the log-surface ES CLIENT CLASS ("RealESClient" /
 # "InMemoryESClient") — it never reports your STATE_BACKEND (elasticsearch /
 # postgres / sqlite). "InMemoryESClient" with no pull source wired is expected,

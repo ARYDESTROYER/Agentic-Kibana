@@ -180,6 +180,14 @@ def _assert_ci(path: Path, workflow: dict[str, Any]) -> None:
         raise ValueError(
             f"{path}: shipping updater image must inherit the backend control-socket GID"
         )
+    if (
+        'index("TUF_ROOT=/var/lib/agentic-soc-updater/sigstore-root")'
+        not in identity_run
+    ):
+        raise ValueError(
+            f"{path}: shipping updater image must place Sigstore trust state "
+            "on the writable updater-state volume"
+        )
     updater_smoke = next(
         (
             step
@@ -205,6 +213,8 @@ def _assert_ci(path: Path, workflow: dict[str, Any]) -> None:
         "details.st_gid == 10001",
         "stat.S_IMODE(details.st_mode) == 0o660",
         "GET /v1/status HTTP/1.1",
+        'test "${TUF_ROOT}" = /var/lib/agentic-soc-updater/sigstore-root',
+        'test -w "${TUF_ROOT}"',
     ):
         if marker not in updater_smoke_run:
             raise ValueError(
@@ -417,13 +427,81 @@ def _assert_release(path: Path, workflow: dict[str, Any]) -> None:
     plan_index, _plan_step = named_step(
         "Verify the canonical upgrade plan before draft staging"
     )
+    constrained_index, constrained_step = named_step(
+        "Verify the signed plan inside the constrained update supervisor"
+    )
+    constrained_run = str(constrained_step.get("run", ""))
+    if constrained_step.get("env") != {
+        "UPDATER": "${{ steps.images.outputs.updater }}"
+    }:
+        raise ValueError(
+            f"{path}: constrained updater verification must use the exact "
+            "resolved updater digest"
+        )
+    if constrained_step.get("continue-on-error") or "if" in constrained_step:
+        raise ValueError(
+            f"{path}: constrained updater verification must be an "
+            "unconditional fail-closed release gate"
+        )
+    for marker in (
+        "docker run --detach",
+        '--name "${container}"',
+        "--read-only",
+        "--cap-drop ALL",
+        "--security-opt no-new-privileges:true",
+        "target=/run/agentic-soc-updater",
+        "target=/var/lib/agentic-soc-updater",
+        "target=/var/backups/agentic-soc",
+        "target=/deployment/host-runtime",
+        "target=/verification,readonly",
+        '"${UPDATER}"',
+        ".State.Health.Status",
+        "docker logs \"${container}\"",
+        "exit 1",
+        "docker exec \\",
+        '--env EXPECTED_IDENTITY="${identity}"',
+        'test "${TUF_ROOT}" = /var/lib/agentic-soc-updater/sigstore-root',
+        'test -w "${TUF_ROOT}"',
+        "cosign verify-blob",
+        "upgrade-plan.sigstore.json",
+        "upgrade-plan.json",
+        "certificate-identity",
+        "token.actions.githubusercontent.com",
+    ):
+        if marker not in constrained_run:
+            raise ValueError(
+                f"{path}: constrained updater signed-plan verification lacks {marker!r}"
+            )
+    for forbidden in (
+        "--entrypoint",
+        "--env TUF_ROOT",
+        "--env HOME",
+        "/var/run/docker.sock",
+        "continue-on-error",
+    ):
+        if forbidden in constrained_run:
+            raise ValueError(
+                f"{path}: constrained updater signed-plan verification includes "
+                f"forbidden runtime override {forbidden!r}"
+            )
     publish_index, _publish_step = named_step(
         "Stage, verify, and atomically publish the GitHub Release"
     )
     stable_index, stable_step = named_step(
         "Publish Stable convenience tags after release publication"
     )
-    if stable_index <= max(sign_index, anonymous_index, plan_index, publish_index):
+    if not plan_index < constrained_index < publish_index:
+        raise ValueError(
+            f"{path}: constrained updater verification must follow plan signing "
+            "and precede release publication"
+        )
+    if stable_index <= max(
+        sign_index,
+        anonymous_index,
+        plan_index,
+        constrained_index,
+        publish_index,
+    ):
         raise ValueError(
             f"{path}: Stable convenience tags publish before images, anonymous pulls, "
             "the signed plan, and the GitHub Release are verified and published"

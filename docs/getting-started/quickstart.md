@@ -12,15 +12,19 @@ real source with persistent application state.
 !!! info "Choose the matching channel"
 
     `Testing` contains integrated candidates. Under the release contract, `main`
-    holds only accepted Stable source and immutable `v0.1.8` identifies this patch.
-    The remote has both canonical branches; use `v0.1.8` only when its signed GitHub
-    Release and public digest-pinned images verify, and use `Testing` only for an unreleased preview;
+    holds only accepted Stable source and immutable `v0.1.9` identifies this patch.
+    The remote has both canonical branches; use `v0.1.9` only when its signed GitHub
+    Release and public digest-pinned images verify and canonical PostgreSQL Compose
+    runtime acceptance completes, and use `Testing` only for an unreleased preview;
     repository administrators must verify branch protections and required checks
     independently. Never use `v0.1.4` or `v0.1.5`: those immutable
     failed-publication records do not have a canonical signed plan and public
     GitHub Release. Never bootstrap from `v0.1.6` either: its signed/public artifact
     set is valid, but canonical macOS Bash 3.2 acceptance failed before supervisor
-    installation. It is immutable, superseded history.
+    installation. Versions 0.1.7 and 0.1.8 are also immutable, superseded history:
+    0.1.7 could not publish the private control socket under dropped capabilities,
+    while 0.1.8 reached signed-plan verification but cosign's default TUF cache was
+    unwritable beneath the read-only root filesystem.
 
 ## Get the source
 
@@ -32,15 +36,15 @@ real source with persistent application state.
     cd Agentic-Kibana
     ```
 
-=== "Stable 0.1.8"
+=== "Stable 0.1.9"
 
     ```bash
-    git clone --branch v0.1.8 --depth 1 \
+    git clone --branch v0.1.9 --depth 1 \
       https://github.com/ARYDESTROYER/Agentic-Kibana.git
     cd Agentic-Kibana
     ```
 
-    The `v0.1.8` tag is immutable after publication; do not create, move, or replace it locally. Users
+    The `v0.1.9` tag is immutable after publication; do not create, move, or replace it locally. Users
     pulling `main` receive the current accepted Stable source, while candidate work
     remains isolated on `Testing`. A branch name alone is not acceptance evidence,
     so repository administrators must verify protections and required checks. If the
