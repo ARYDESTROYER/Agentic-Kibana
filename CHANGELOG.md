@@ -14,15 +14,18 @@ History is reconstructed from `git log`.
 
 No changes yet.
 
-## [0.1.4] - 2026-08-05
+## [0.1.5] - 2026-08-05
 
-**First governed Stable patch since `v0.1.1`: supervised updates, public signed
+**Corrected governed Stable patch after the non-installable `v0.1.4` publication
+attempt: supervised updates, public signed
 release artifacts, broader Intelligence coverage, truthful operator states, honest
 rule authoring, responsive Console hardening, and stricter release acceptance.**
 
 This release includes the accepted work from the unpublished 0.1.2 and 0.1.3
-Testing snapshots. Neither snapshot had an immutable tag, GitHub Release, signed
-upgrade plan, or supported Stable artifacts.
+Testing snapshots and the exact accepted application scope from 0.1.4. Neither
+Testing snapshot had an immutable tag, GitHub Release, signed upgrade plan, or
+supported Stable artifacts. The immutable `v0.1.4` attempt published only its tag
+and documentation; it produced no application release artifact.
 
 ### Added
 
@@ -86,6 +89,16 @@ upgrade plan, or supported Stable artifacts.
 
 ### Fixed
 
+- The shipping backend now pins the build helper version compatible with its
+  constrained runtime dependency graph and runs `pip check` both while building the
+  image and against the final container in CI, eliminating a latent
+  `wheel`/`packaging` inconsistency that source-environment tests could not observe.
+- Stable publication now reads valid absent-release and absent-asset booleans without
+  using `jq -e` to reinterpret JSON `false` as a shell failure. The release inventory
+  classifier remains fail closed for malformed, ambiguous, unexpected, duplicate,
+  incomplete, or non-canonical release state. The complete Testing, promotion, main,
+  tag, signing, anonymous-pull, canonical-bootstrap, and browser gates are repeated
+  for 0.1.5; no 0.1.4 acceptance result substitutes for the new candidate's gates.
 - The updater now publishes a terminal job only after its lifecycle generation has
   settled, so an immediately requested rollback cannot overlap the completed update
   worker or observe an incomplete durable state transition.
@@ -110,11 +123,22 @@ upgrade plan, or supported Stable artifacts.
 - The Rules workspace and Case Manager remain within the viewport on compact screens
   while retaining keyboard access and the canonical detail handoff.
 
+## [0.1.4] - 2026-08-05 — failed, non-installable publication attempt
+
+The accepted source tree, immutable annotated `v0.1.4` tag, exact-tag CI, Help Center,
+and GitHub Pages deployment succeeded. The release publisher then stopped at its
+initial empty-inventory boundary because `jq -e` returned exit 1 for the expected JSON
+boolean `false`. No backend, Web Console, or updater release image was built or
+published; no image or plan was signed; and no `upgrade-plan.json`, Sigstore bundle,
+or GitHub Release exists. The tag is immutable historical evidence and must never be
+moved or reused. See `docs/releases/0.1.4.md`; the corrected release is 0.1.5.
+
 ## Development snapshot — 2026-08-04 — 0.1.3 Testing candidate
 
 Version 0.1.3 was prepared and accepted as Testing/main source but was never
 published as an annotated Stable tag or GitHub Release. Its accepted delta is
-included in 0.1.4 above. The historical operator record remains at
+included in 0.1.5 above and was also present in the non-installable 0.1.4 publication
+attempt. The historical operator record remains at
 `docs/releases/0.1.3.md`; do not create `v0.1.3` retroactively.
 
 ## Development snapshot — 2026-08-03 — 0.1.2 Testing candidate
@@ -241,8 +265,9 @@ in-app release activation, and a version-matched Help Center.**
 - The beta patch snapshot was versioned **0.1.2** and continued to bundle the
   existing **0.1** Help Center line. It reached `main` without a published
   `v0.1.2` tag. The later 0.1.3 candidate also remained an unpublished Testing
-  snapshot; 0.1.4 is the governed successor release target. A version string alone
-  never implies Stable provenance or a completed deployment.
+  snapshot; the 0.1.4 publication attempt produced no release artifacts, and 0.1.5
+  is the corrected governed successor target. A version string alone never implies
+  Stable provenance or a completed deployment.
 - Fresh workspaces now use the bundled OpenAI model ID `gpt-5.6-luna` for every
   completion role, with `reasoning_effort: none` preserving the existing Chat Completions
   latency/tool contract. Embeddings remain on `text-embedding-3-small`; persisted

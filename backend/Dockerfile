@@ -34,7 +34,8 @@ WORKDIR /app
 # Install the product's core runtime first so this layer is shared by both image
 # targets.  No compiler or package manager is retained in the runtime image.
 COPY requirements.txt ./
-RUN python -m pip install --no-cache-dir -r requirements.txt \
+RUN python -m pip install --no-cache-dir wheel==0.45.1 -r requirements.txt \
+    && python -m pip check \
     && groupadd --gid 10001 tlsoc \
     && useradd --uid 10001 --gid tlsoc --create-home --home-dir /home/tlsoc tlsoc \
     && chown tlsoc:tlsoc /app
@@ -61,6 +62,7 @@ USER 10001:10001
 # connector manifest.  Protocol certification remains separate from availability.
 FROM runtime-base AS full
 COPY requirements-connectors.txt ./
-RUN python -m pip install --no-cache-dir -r requirements-connectors.txt \
+RUN python -m pip install --no-cache-dir wheel==0.45.1 -r requirements-connectors.txt \
+    && python -m pip check \
     && rm requirements-connectors.txt
 USER 10001:10001

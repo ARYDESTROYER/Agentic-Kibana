@@ -11,10 +11,11 @@ Vitest clean, **#3 `decide()` byte-identical**, and
 docs + Journal updated. Commit or publish only after the user or maintainer
 intentionally authorizes that repository mutation.
 
-**Current baseline (Version `0.1.4`; `Testing` integration and default `main`
-Stable source):** the canonical branches exist; 0.1.4 is a Testing candidate before
-promotion and a Stable release only when the exact accepted commit has the immutable
-`v0.1.4` tag and matching artifacts. Branch
+**Current baseline (Version `0.1.5`; `Testing` integration and default `main`
+Stable source):** the canonical branches exist; 0.1.5 is a Stable release only when
+the exact accepted commit has the immutable `v0.1.5` tag and matching signed/public
+artifacts. The immutable `v0.1.4` tag is historical and non-installable because its
+publication stopped before every release artifact. Branch
 protections, required checks, Pages source selection, and `github-pages` environment
 policy remain repository-administration controls and must be verified independently;
 source files cannot attest to those settings. The current console adds the polished
@@ -191,8 +192,8 @@ continuous-improvement claim. The audited evidence boundaries are now closed as 
 Remaining scale-out work is intentionally separate: schedulers still need distributed
 leases/ownership and campaigns do not retain an immutable split/merge lifecycle history.
 
-**F. Ranked post-0.1.4 hardening sequence (release-gap audit, 2026-08-04):** keep the
-0.1.4 Stable release focused on truthful UI, documentation, and release acceptance. The next
+**F. Ranked post-0.1.5 hardening sequence (release-gap audit, 2026-08-04):** keep the
+0.1.5 Stable release focused on truthful UI, documentation, and release acceptance. The next
 engineering sequence is ordered by data safety and measurable outcomes, not screen count:
 
 - ☐ **P0 — complete external Stable acceptance.** Verify branch protection and Pages
