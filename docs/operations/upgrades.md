@@ -12,19 +12,23 @@ feature branches → Testing → main (Stable)
 ```
 
 `Testing` is the integration and acceptance branch. `main` is the supported Stable
-branch. The current Stable candidate is represented as `0.1.4` in packages/images and
-`v0.1.4` as an immutable release tag after verified promotion; its documentation
+branch. The current release is represented as `0.1.5` in packages/images and
+`v0.1.5` as an immutable release tag; its documentation
 line remains `0.1`.
 
 !!! note "Canonical topology and administrative controls"
 
     The remote now uses `Testing` for integration and default `main` for accepted
-    Stable source. Version 0.1.4 is a Testing candidate before promotion and is
-    Stable only when the exact verified `main` commit has the immutable `v0.1.4`
-    tag and matching artifacts. Pull-request protections,
+    Stable source. Version 0.1.5 is Stable only when the exact verified `main`
+    commit has the immutable `v0.1.5` tag and matching signed/public artifacts.
+    Pull-request protections,
     required checks, and release-environment policy are repository settings rather
     than source-code guarantees. Administrators must verify them independently;
     branch and tag names alone do not prove acceptance.
+
+    The immutable `v0.1.4` tag is a failed, non-installable publication attempt. It
+    has documentation but no GitHub Release, signed plan, or release image. Never use
+    it as a deployment, bootstrap, or update source.
 
 ## Promotion gate
 
@@ -40,7 +44,7 @@ Before promoting `Testing` to `main`:
 - ensure every package, image, OpenAPI document, and documentation page uses the same
   release identity.
 
-Promote through a reviewed pull request. Tag the accepted `main` commit `v0.1.4` and
+Promote through a reviewed pull request. Tag the accepted `main` commit `v0.1.5` and
 publish artifacts identified by digest. Do not move a release tag.
 
 ### Version and promotion checklist
@@ -66,11 +70,11 @@ publish artifacts identified by digest. Do not move a release tag.
    publish by digest, and let the docs workflow move `stable`/`latest`.
 
 `TLSOC_VERSION` and `TLSOC_RELEASE_CHANNEL` answer different questions. Promoting
-`0.1.4` from Testing to Stable changes provenance, not its SemVer.
+`0.1.5` from Testing to Stable changes provenance, not its SemVer.
 
 ## Supported one-click upgrades
 
-Agentic SOC 0.1.4 includes the updater foundation for the reference deployment and
+Agentic SOC 0.1.5 includes the updater foundation for the reference deployment and
 publishes it only after the candidate completes the immutable Stable release gate.
 After one explicit bootstrap, a built-in `super_admin` can authorize a compatible
 Stable release from the Console and the updater performs the host-side work. The
@@ -103,13 +107,13 @@ that file is a manual upgrade even when every image and signature is otherwise v
 
 An installation made before the updater exists cannot grant itself host update
 authority. The supported transition from the final pre-supervisor Stable release,
-v0.1.1, to v0.1.4 therefore requires one host-authorized bootstrap. On the host:
+v0.1.1, to v0.1.5 therefore requires one host-authorized bootstrap. On the host:
 
 1. keep the existing reference PostgreSQL Compose deployment running;
 2. configure durable `.env` values for `TLSOC_PG_PASSWORD`,
    `TLSOC_AUTH_ENABLED=true`, a `TLSOC_AUTH_JWT_SECRET` of at least 32 characters,
    and the trusted `AGENTIC_SOC_UPDATE_REPOSITORY`;
-3. check out the clean, exact annotated `v0.1.4` tag whose commit is contained in
+3. check out the clean, exact annotated `v0.1.5` tag whose commit is contained in
    `origin/main`; and
 4. run `./scripts/bootstrap-updater.sh` from that checkout.
 
@@ -129,7 +133,7 @@ it is deleted only after bootstrap observes that exact job terminal. An unreadab
 invalid supervisor or any active job fails closed for operator recovery; bootstrap
 never force-replaces work in progress.
 It builds only the initial supervisor transport from the verified checkout, then
-asks that supervisor to fetch, verify, preflight, and apply the signed v0.1.4 plan.
+asks that supervisor to fetch, verify, preflight, and apply the signed v0.1.5 plan.
 The full transition therefore uses the same digest-pinned pull, quiesce, verified
 backup, identity/health checks, durable receipt, and automatic rollback state machine
 as later Console-initiated updates. It is not an unverified local rebuild of the
@@ -137,14 +141,15 @@ application pair.
 
 !!! warning "Testing/source builds are not bootstrap identities"
 
-    A Testing- or source-built 0.1.3 deployment is not the canonical `v0.1.1`
-    Stable source and is rejected rather than being relabelled. Reconcile it manually
-    to the signed 0.1.4 deployment. Bootstrap also requires a strictly newer target,
-    so an already-running 0.1.4 deployment cannot bootstrap itself from the 0.1.4
+    A Testing- or source-built 0.1.3 deployment and the artifact-free `v0.1.4`
+    publication attempt are not the canonical `v0.1.1` Stable source and are rejected
+    rather than being relabelled. Reconcile either manually to the signed 0.1.5
+    deployment. Bootstrap also requires a strictly newer target,
+    so an already-running 0.1.5 deployment cannot bootstrap itself from the 0.1.5
     plan; the next newer compatible Stable release can establish or use the
     supervised path according to this procedure.
 
-Once a supported 0.1.4 deployment has the supervisor, later compatible Stable
+Once a supported 0.1.5 deployment has the supervisor, later compatible Stable
 releases can be applied from the Console. A missing supervisor or a safely inspectable,
 idle older protocol is remediated by the host-authorized bootstrap; active, unreadable,
 or invalid supervisor state remains an explicit manual blocker. The product never
@@ -324,7 +329,7 @@ updater does not claim zero downtime or immunity from loss of its trusted host.
 
 ### Updater retention and capacity
 
-Version 0.1.4 does **not** automatically prune updater jobs, preflights, cached signed
+Version 0.1.5 does **not** automatically prune updater jobs, preflights, cached signed
 plans and signature bundles, deployment snapshots/receipts, or PostgreSQL backups.
 The reference deployment keeps updater state in the persistent
 `agentic-soc-updater-state` volume and verified dumps in the separate
@@ -348,7 +353,7 @@ Never remove or rotate away:
 Archive or remove eligible history only after **all** of these are true: a later
 successfully installed release has superseded the record's rollback authority; the
 exact terminal outcome is present in application audit; and the operator's backup and
-retention policy permits disposal. Version 0.1.4 provides no supported online,
+retention policy permits disposal. Version 0.1.5 provides no supported online,
 per-record cleanup command, so do not delete individual live-volume files while the
 supervisor is running or infer eligibility from age alone.
 

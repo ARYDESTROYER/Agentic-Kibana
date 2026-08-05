@@ -969,6 +969,12 @@ class RuntimeTests(unittest.TestCase):
         self.assertIn('echo "release_state=${release_state}"', inspection)
         self.assertIn('echo "release_exists=${release_exists}"', inspection)
         self.assertIn('echo "release_id=${release_id}"', inspection)
+        for field in ("release_exists", "plan_exists", "bundle_exists"):
+            self.assertIn("scripts/read_release_state_boolean.py", inspection)
+            self.assertIn(f"--field {field}", inspection)
+        self.assertNotIn("jq -er '.release_exists'", inspection)
+        self.assertNotIn("jq -er '.plan_exists'", inspection)
+        self.assertNotIn("jq -er '.bundle_exists'", inspection)
 
         generation = source.partition(
             "- name: Generate the declarative upgrade plan when absent"
@@ -982,6 +988,11 @@ class RuntimeTests(unittest.TestCase):
         )[2]
         self.assertIn("EXPECTED_RELEASE_STATE", publication)
         self.assertIn("Release state changed after inspection", publication)
+        for field in ("plan_exists", "bundle_exists"):
+            self.assertIn("scripts/read_release_state_boolean.py", publication)
+            self.assertIn(f"--field {field}", publication)
+        self.assertNotIn("jq -er '.plan_exists'", publication)
+        self.assertNotIn("jq -er '.bundle_exists'", publication)
         self.assertIn("agentic-soc-release-commit:${GITHUB_SHA}", publication)
         self.assertIn("draft:true", publication)
         self.assertNotIn("--clobber", publication)

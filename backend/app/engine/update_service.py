@@ -512,7 +512,7 @@ class UpdateService:
         if not match:
             raise UpdateCapabilityError(
                 "invalid_release_id",
-                "Only an exact Stable release ID such as v0.1.4 can be installed.",
+                "Only an exact Stable release ID such as vX.Y.Z can be installed.",
                 status_code=422,
             )
         status, release = await self._status_with_candidate()
@@ -553,7 +553,7 @@ class UpdateService:
         if not _RELEASE_ID_RE.fullmatch(str(release_id or "")):
             raise UpdateCapabilityError(
                 "invalid_release_id",
-                "Only an exact Stable release ID such as v0.1.4 can be installed.",
+                "Only an exact Stable release ID such as vX.Y.Z can be installed.",
                 status_code=422,
             )
         try:

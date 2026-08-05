@@ -688,6 +688,9 @@ jobs:
             backend)
               jq -e '.[0].Config.User == "10001:10001" and .[0].Config.ExposedPorts["8088/tcp"] != null' \
                 "${RUNNER_TEMP}/${COMPONENT}-image.json"
+              docker run --rm --entrypoint python "${IMAGE}" -m pip check
+              docker run --rm --entrypoint python "${IMAGE}" -c \
+                'from importlib.metadata import version; assert version("wheel") == "0.45.1"'
               ;;
             webui)
               jq -e '.[0].Config.ExposedPorts["80/tcp"] != null' \
