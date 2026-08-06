@@ -31,6 +31,15 @@ WHY THIS IS SAFE (the five rails):
    ``IndexPattern.severity_floor`` in ``Preferences`` through an injected writer
    callback. ``correlate()`` reads ``cfg.n`` live and the connector reads
    ``severity_floor`` live on the next poll — NO pipeline change.
+7. **No inert change.** A knob the live pipeline would DISCARD is never drafted,
+   never applied, and never audited as "auto-applied ... reversible". ``correlate()``
+   deliberately overrides per-rule correlation to ``mode=EVERY, n=1`` for any group
+   carrying an alerts-role event (every SIEM alert becomes exactly one case), and a
+   rule an operator configured as ``EVERY`` never consults ``n`` at all. In both
+   situations a ``correlation_n`` raise cannot change tomorrow's volume, so the tuner
+   RE-TARGETS to a knob that can (a feed ``severity_floor``) or reports the rule as
+   untunable-by-n with the structural reason — see :func:`correlation_n_inert_reason`,
+   :func:`inert_correlation_skips` and ``TuningOutcome.inert_rules``.
 
 HARD BOUNDARY (enforced structurally + by a source-text guard test): this module NEVER
 imports the case-manager module / invokes the close-decision function; NEVER sets a case
@@ -49,7 +58,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable
 
 from ..config import Preferences
-from ..constants import ActionType, TERMINAL_CASE_STATUSES
+from ..constants import ActionType, CorrelationMode, TERMINAL_CASE_STATUSES
 from ..models import Case, Proposal
 from ..stores.tuning import TuningRecord, TuningStore
 from ..utils import now_utc
@@ -69,6 +78,41 @@ _WINDOW_DAYS = {"hourly": 7, "nightly": 14, "weekly": 30, "manual": 14}
 # The absolute ceiling for a feed severity_floor (OCSF severity_id 1..6).
 _SEVERITY_FLOOR_MAX = 6
 _SEVERITY_FLOOR_MIN = 1
+
+# --------------------------------------------------------------------------- #
+# Structural inertness of a ``correlation_n`` raise (rail 7)
+# --------------------------------------------------------------------------- #
+# The pseudo-kind for the review-only "this rule cannot be tuned by n" finding. It is
+# NEVER a mutation target: it carries ``before == after`` and is routed to a HITL
+# acknowledgement, never to a config writer.
+CORRELATION_N_INERT_KIND = "correlation_n_inert"
+
+# EVIDENCE-side: every observed firing of this rule went through an effective
+# ``mode=EVERY`` correlation. ``correlate()`` forces exactly that for a group carrying
+# an alerts-role event, so the rule's ``n`` was never consulted and raising it cannot
+# reduce tomorrow's volume.
+INERT_ALERTS_ROLE_OVERRIDE = "alerts_role_every_override"
+# CONFIG-side: this rule is EXPLICITLY configured ``mode=EVERY`` (a per-rule
+# ``correlation_rules`` entry or an inline ``RuleDefinition`` correlation), which
+# short-circuits the window/threshold test entirely — ``n`` is dead configuration.
+INERT_CONFIGURED_MODE_EVERY = "correlation_mode_every"
+
+INERT_REASON_DETAIL: dict[str, str] = {
+    INERT_ALERTS_ROLE_OVERRIDE: (
+        "every observed case for this rule fired with an effective correlation mode of "
+        "EVERY (n=1), which is what an alerts-role feed forces, so a correlation_n raise "
+        "would be discarded on the next poll"
+    ),
+    INERT_CONFIGURED_MODE_EVERY: (
+        "this rule is explicitly configured mode=EVERY, which never consults n, so a "
+        "correlation_n raise would change nothing"
+    ),
+}
+
+# Keep one aggregated inertness audit row bounded (#2 stays append-only + durable, but a
+# nightly observer must not be able to write an unbounded summary).
+_INERT_AUDIT_MAX_RULES = 10
+_INERT_AUDIT_MAX_RULE_CHARS = 120
 
 
 def tuning_window_start(cadence: str, *, now: datetime | None = None) -> datetime:
@@ -181,6 +225,16 @@ class RuleStat:
     fp_lower_bound: float = 0.0
     volume_ewma: float | None = None
     daily_counts: list[float] = field(default_factory=list)
+    # --- EFFECTIVE-correlation evidence (rail 7; additive, defaulted to "no evidence"
+    # so a hand-built RuleStat behaves exactly as before). ``correlate()`` writes the
+    # mode/n it ACTUALLY fired with into the cluster meta, which is copied onto the
+    # Case as ``trigger_reason``. Only the case's PRIMARY rule (``trigger_reason
+    # .rule_value``) is described by that mode/n, so a rule is credited here only when
+    # it was the primary trigger — a secondary rule id proves nothing about its own
+    # thresholding.
+    primary_cases: int = 0            # window cases where this rule was the primary trigger
+    primary_mode_every: int = 0       # ... of which the effective mode was EVERY
+    primary_mode_threshold: int = 0   # ... of which the effective mode was THRESHOLD
 
 
 def _accumulate_rule_stats(cases: list[Case], *, ewma_alpha: float, z: float) -> dict[str, RuleStat]:
@@ -200,6 +254,7 @@ def _accumulate_rule_stats(cases: list[Case], *, ewma_alpha: float, z: float) ->
         canonical_rule_ids = dict.fromkeys(
             normalize_rule_id(raw) for raw in (case.rule_ids or [])
         )
+        primary_rule, primary_mode = _effective_trigger(case)
         for rid in canonical_rule_ids:
             if not rid:
                 continue
@@ -221,6 +276,12 @@ def _accumulate_rule_stats(cases: list[Case], *, ewma_alpha: float, z: float) ->
                 st.feedback_labels += 1
             elif evidence_source == "explicit_analyst_disposition":
                 st.disposition_labels += 1
+            if primary_rule and primary_mode and rid == primary_rule:
+                st.primary_cases += 1
+                if primary_mode == CorrelationMode.EVERY.value:
+                    st.primary_mode_every += 1
+                elif primary_mode == CorrelationMode.THRESHOLD.value:
+                    st.primary_mode_threshold += 1
             per_rule_days[rid][day_key] = per_rule_days[rid].get(day_key, 0) + 1
     # Finalise the Wilson LB + EWMA volume trend per rule.
     for rid, st in stats.items():
@@ -230,6 +291,139 @@ def _accumulate_rule_stats(cases: list[Case], *, ewma_alpha: float, z: float) ->
         st.daily_counts = ordered
         st.volume_ewma = ewma(ordered, ewma_alpha)
     return stats
+
+
+def _effective_trigger(case: Case) -> tuple[str, str]:
+    """Return ``(primary_rule_id, effective_mode)`` recorded for this case.
+
+    ``correlate()`` copies the mode/n it ACTUALLY fired with — after the alerts-role
+    override — onto the cluster's :class:`app.models.TriggerReason`, which the case
+    carries verbatim. The recorded mode/n describe the PRIMARY rule only
+    (``rule_value``), so this never attributes a firing to a secondary rule id.
+    Returns empty strings when the case carries no usable trigger evidence.
+    """
+    tr = getattr(case, "trigger_reason", None)
+    if tr is None:
+        return "", ""
+    rule = normalize_rule_id(getattr(tr, "rule_value", ""))
+    mode = str(getattr(tr, "mode", "") or "").strip().lower()
+    if not rule or not mode:
+        return "", ""
+    return rule, mode
+
+
+def _is_every(rule: Any) -> bool:
+    mode = getattr(rule, "mode", None)
+    return str(getattr(mode, "value", mode) or "").strip().lower() == CorrelationMode.EVERY.value
+
+
+def _explicitly_configured_every(prefs: Preferences, rule_id: str) -> bool:
+    """True when THIS rule is explicitly configured to correlate on EVERY occurrence.
+
+    Resolution mirrors ``engine.correlation.correlate``: an inline
+    :class:`app.config.RuleDefinition` correlation wins over ``correlation_rules[name]``.
+    An inherited tenant-wide ``default_correlation`` is deliberately NOT counted — that
+    is a global posture rather than a statement about this rule, and treating it as a
+    per-rule verdict would silently change tuning for every rule of such a tenant.
+    Never raises: a malformed catalog degrades to the by-name lookup.
+    """
+    rid = normalize_rule_id(rule_id)
+    if not rid:
+        return False
+    try:
+        for rd in getattr(prefs, "rule_catalog", None) or []:
+            if normalize_rule_id(getattr(rd, "name", "")) != rid:
+                continue
+            inline = getattr(rd, "correlation", None)
+            if inline is not None:
+                return _is_every(inline)
+            break
+    except Exception:  # noqa: BLE001 — a malformed catalog never breaks tuning
+        pass
+    try:
+        for key, entry in (prefs.correlation_rules or {}).items():
+            if normalize_rule_id(key) == rid:
+                return _is_every(entry)
+    except Exception:  # noqa: BLE001 — a malformed map never breaks tuning
+        return False
+    return False
+
+
+def correlation_n_inert_reason(
+    prefs: Preferences, stat: RuleStat, *, rule_id: str | None = None,
+) -> str | None:
+    """Why a ``correlation_n`` raise for this rule could NOT take effect (else None).
+
+    Two independent, positive-evidence signals — both meaning the live pipeline never
+    consults the rule's ``n``:
+
+    * :data:`INERT_CONFIGURED_MODE_EVERY` (config-side, certain) — this rule is
+      EXPLICITLY configured ``mode=EVERY`` (a per-rule ``correlation_rules`` entry or an
+      inline ``RuleDefinition`` correlation), which short-circuits the threshold/window
+      test. ``apply_correlation_n`` only ever rewrites ``n`` on that same entry, so the
+      raise is dead configuration.
+    * :data:`INERT_ALERTS_ROLE_OVERRIDE` (evidence-side) — the cases this rule actually
+      produced record an effective ``mode=EVERY``. ``correlate()`` forces exactly that
+      for any group carrying an alerts-role event, so the configured ``n`` was
+      discarded on every observed firing.
+
+    FALSE POSITIVES ARE THE FAILURE MODE HERE, so the evidence-side signal demands
+    positive, unanimous, majority evidence: at least one primary-trigger case recorded
+    ``EVERY``, NO primary-trigger case recorded ``THRESHOLD`` (mixed evidence — e.g. a
+    rule fed by both an events-role and an alerts-role feed — is never inert), and the
+    ``EVERY`` firings cover at least half of everything observed for the rule. A rule
+    with no trigger evidence at all falls through to today's behaviour.
+
+    Pure + deterministic. Reads only configuration and the case-derived counters; it
+    never touches a verdict, a risk score, or the close decision (#3).
+    """
+    rid = normalize_rule_id(rule_id if rule_id is not None else stat.rule_id)
+    if not rid:
+        return None
+    if _explicitly_configured_every(prefs, rid):
+        return INERT_CONFIGURED_MODE_EVERY
+    if stat.primary_mode_threshold > 0:
+        return None            # contrary evidence: n really did gate a firing
+    if stat.primary_mode_every <= 0:
+        return None            # no positive evidence at all → today's behaviour
+    if stat.primary_mode_every * 2 < stat.observed:
+        return None            # the override explains a minority → not proven
+    return INERT_ALERTS_ROLE_OVERRIDE
+
+
+def inert_correlation_skips(
+    prefs: Preferences,
+    stats: dict[str, RuleStat],
+    *,
+    already_tuned: dict[str, int] | None = None,
+) -> dict[str, str]:
+    """``rule_id -> inertness reason`` for every noisy rule whose ``n`` raise is inert.
+
+    Exactly the rules :func:`derive_proposals` would have drafted a ``correlation_n``
+    raise for, had the raise been capable of taking effect. Pure — the caller decides
+    how to surface it. Empty when ``max_n_step`` disables n-tuning outright (then
+    "inert" is not why nothing was drafted).
+    """
+    cfg = prefs.threshold_tuning
+    if int(cfg.max_n_step) <= 0:
+        return {}
+    target = float(cfg.fp_rate_target)
+    min_samples = int(cfg.min_samples)
+    tuned = {
+        normalize_rule_id(key) for key in (already_tuned or {})
+        if normalize_rule_id(key)
+    }
+    out: dict[str, str] = {}
+    for raw_rid, st in sorted(stats.items()):
+        rid = normalize_rule_id(raw_rid)
+        if not rid or rid in tuned:
+            continue
+        if st.total < min_samples or st.fp_lower_bound <= target:
+            continue
+        reason = correlation_n_inert_reason(prefs, st, rule_id=rid)
+        if reason:
+            out[rid] = reason
+    return out
 
 
 # --------------------------------------------------------------------------- #
@@ -243,13 +437,19 @@ class TuningProposal:
     and ``suppression`` are always human-review proposals and never mutate a threshold."""
 
     rule_id: str
-    kind: str  # correlation_n | severity_floor | evidence_collection | suppression
+    # correlation_n | severity_floor | evidence_collection | suppression |
+    # correlation_n_inert (review-only, never a mutation target)
+    kind: str
     before: int
     after: int
     stat: RuleStat
     feed_key: str | None = None      # for severity_floor: "<source_id>:<feed_id>"
     source_id: str | None = None
     feed_id: str | None = None
+    # Why a ``correlation_n`` raise was NOT the chosen target for this rule (rail 7).
+    # Set on the review-only ``correlation_n_inert`` finding AND on a re-targeted
+    # ``severity_floor`` raise, so the operator sees the structural reason either way.
+    inert_reason: str | None = None
 
 
 @dataclass
@@ -263,6 +463,10 @@ class TuningOutcome:
     proposals: list[Proposal] = field(default_factory=list)
     shadow_blocked: list[str] = field(default_factory=list)   # rule_ids forced to review
     persistence_errors: list[str] = field(default_factory=list)
+    # Noisy rules whose ``correlation_n`` raise would have been structurally discarded
+    # (rail 7). Additive + JSON-safe: one row per rule with the reason, the counters
+    # behind it, and the bounded alternative it was re-targeted to (or None).
+    inert_rules: list[dict[str, Any]] = field(default_factory=list)
 
 
 # The config-writer callback: given the current prefs + a proposal, RETURN a new
@@ -586,9 +790,12 @@ def derive_proposals(
 
     Preference order for the bounded change:
     1. Raise the matching ``CorrelationRule.n`` by ``max_n_step`` (a low-impact volume
-       reduction) — the preferred bounded candidate.
-    2. If ``max_n_step`` is 0 (n-tuning disabled) but a feed carries this rule, raise
-       that feed's ``severity_floor`` by 1.
+       reduction) — the preferred bounded candidate, UNLESS the raise would be
+       structurally inert (:func:`correlation_n_inert_reason`): a knob the live
+       pipeline discards must never reach the queue.
+    2. If ``max_n_step`` is 0 (n-tuning disabled) OR the n raise would be inert, and a
+       feed carries this rule, raise that feed's ``severity_floor`` by 1 instead — a
+       knob the ingest path honours for alerts feeds too.
     ``already_tuned`` maps rule_id → the n already applied within this
     cadence window. Such a rule is SKIPPED entirely (not re-raised) — the FP-rate is
     computed over the same trailing window of already-closed cases, which does not change
@@ -633,8 +840,12 @@ def derive_proposals(
         if rid in already_tuned:
             continue
         # Genuinely noisy. Prefer a bounded n raise (off the CURRENT live n, which the
-        # prior cycle already persisted — so ``before`` is always the live value).
-        if step > 0:
+        # prior cycle already persisted — so ``before`` is always the live value) —
+        # but ONLY when the pipeline would actually honour it (rail 7). An alerts-role
+        # group is correlated with mode=EVERY/n=1 by design, so an n raise there is
+        # written, discarded on the next poll, and re-drafted forever.
+        inert_reason = correlation_n_inert_reason(prefs, st, rule_id=rid) if step > 0 else None
+        if step > 0 and inert_reason is None:
             current_n = prefs.correlation_for(rid).n
             new_n = current_n + step
             out.append(TuningProposal(
@@ -642,7 +853,8 @@ def derive_proposals(
                 before=current_n, after=new_n, stat=st,
             ))
             continue
-        # n-tuning off → try a feed severity_floor raise for a feed carrying this rule.
+        # n-tuning off, or an n raise that could never take effect → re-target to a feed
+        # severity_floor raise for a feed carrying this rule.
         feed = _find_feed_for_rule(prefs, rid)
         if feed is not None:
             source_id, feed_id, cur_floor = feed
@@ -659,6 +871,7 @@ def derive_proposals(
                     before=cur_floor or _SEVERITY_FLOOR_MIN, after=new_floor, stat=st,
                     source_id=source_id, feed_id=feed_id,
                     feed_key=feed_key,
+                    inert_reason=inert_reason,
                 ))
     return out
 
@@ -888,9 +1101,25 @@ async def run_once(
             prefs, stats, already_tuned=already_tuned,
             already_tuned_floors=already_tuned_floors,
         )
+
+        # Rail 7: a noisy rule whose ``correlation_n`` raise the pipeline would discard
+        # is NOT silently dropped. It is recorded on the outcome, audited once per pass,
+        # and — when no bounded alternative was re-targeted — surfaced in Approvals as a
+        # review-only finding. It is never applied and never claimed as "auto-applied".
+        await _report_inert_correlation(
+            prefs, stats, proposals_to_make,
+            already_tuned=already_tuned,
+            proposals=proposals, audit=audit, outcome=outcome,
+        )
+        if outcome.persistence_errors:
+            outcome.reason = "proposal persistence failed; scheduler retry required"
+            return outcome
+
         if not proposals_to_make:
             outcome.reason = (
-                "historical tuning changes awaiting review"
+                "correlation_n tuning is structurally inert for every noisy rule"
+                if outcome.inert_rules
+                else "historical tuning changes awaiting review"
                 if outcome.proposals
                 else "no noisy rule cleared the bar"
             )
@@ -959,6 +1188,101 @@ async def run_once(
         return outcome
 
 
+async def _report_inert_correlation(
+    prefs: Preferences,
+    stats: dict[str, RuleStat],
+    derived: list[TuningProposal],
+    *,
+    already_tuned: dict[str, int],
+    proposals: Any,
+    audit: Any,
+    outcome: TuningOutcome,
+) -> None:
+    """Surface every noisy rule whose ``correlation_n`` raise would be inert (rail 7).
+
+    Three effects, none of which mutate a threshold:
+
+    * ``outcome.inert_rules`` records the rule, the structural reason, the counters
+      behind it, and the bounded alternative it was re-targeted to (or ``None``).
+    * ONE bounded ``ActionType.TUNING`` audit row per pass states why the tuner is not
+      raising ``n`` for these rules (best-effort, like every other tuner audit).
+    * A rule with NO bounded alternative gets a review-only Approvals finding, so a
+      permanently noisy rule is never invisible just because ``n`` cannot fix it.
+    """
+    skips = inert_correlation_skips(prefs, stats, already_tuned=already_tuned)
+    if not skips:
+        return
+    retargeted = {
+        normalize_rule_id(p.rule_id): p.kind
+        for p in derived
+        if p.kind != "correlation_n"
+    }
+    findings: list[tuple[TuningProposal, str]] = []
+    for rid, reason in sorted(skips.items()):
+        st = stats.get(rid) or RuleStat(rule_id=rid)
+        alternative = retargeted.get(rid)
+        current_n = int(prefs.correlation_for(rid).n)
+        outcome.inert_rules.append({
+            "rule_id": rid,
+            "target": "correlation_n",
+            "reason": reason,
+            "detail": INERT_REASON_DETAIL.get(reason, "the raise could not take effect"),
+            "retargeted_to": alternative,
+            "current_n": current_n,
+            "observed_cases": st.observed,
+            "analyst_samples": st.total,
+            "fp_rate": round(st.fp_lower_bound, 4),
+            "observed_primary_cases": st.primary_cases,
+            "observed_mode_every": st.primary_mode_every,
+            "observed_mode_threshold": st.primary_mode_threshold,
+        })
+        if alternative is None:
+            findings.append((
+                TuningProposal(
+                    rule_id=rid,
+                    kind=CORRELATION_N_INERT_KIND,
+                    before=current_n,
+                    after=current_n,   # review-only: there is nothing to apply
+                    stat=st,
+                    inert_reason=reason,
+                ),
+                reason,
+            ))
+    # Audit BEFORE drafting: the observation must survive even if the Approvals write
+    # is unavailable and the pass aborts for a scheduler retry.
+    await _audit_inert_correlation(audit, outcome.inert_rules)
+    for prop, reason in findings:
+        await _open_proposal(prop, proposals, audit, outcome, reason=reason)
+
+
+async def _audit_inert_correlation(audit: Any, rows: list[dict[str, Any]]) -> None:
+    """One bounded ``ActionType.TUNING`` observation row for a pass's inert rules."""
+    if audit is None or not rows:
+        return
+    shown = rows[:_INERT_AUDIT_MAX_RULES]
+    parts: list[str] = []
+    for row in shown:
+        rid = str(row.get("rule_id") or "")[:_INERT_AUDIT_MAX_RULE_CHARS]
+        target = row.get("retargeted_to")
+        parts.append(
+            f"{rid} ({row.get('reason')} -> "
+            f"{'re-targeted to ' + str(target) if target else 'no bounded alternative'})"
+        )
+    extra = len(rows) - len(shown)
+    summary = (
+        f"correlation_n tuning skipped as structurally inert for {len(rows)} rule(s): "
+        + "; ".join(parts)
+        + (f"; +{extra} more" if extra > 0 else "")
+    )
+    try:
+        await audit.record(
+            action_type=ActionType.TUNING, surface="tuner", actor="tuner",
+            result_summary=summary,
+        )
+    except Exception as exc:  # noqa: BLE001 — audit is best-effort
+        logger.debug("inert tuning audit failed: %s", exc)
+
+
 async def _handle_proposal(
     prop: TuningProposal,
     prefs: Preferences,
@@ -981,6 +1305,16 @@ async def _handle_proposal(
     HITL Proposal write and makes no 'applied' claim)."""
     if prop.kind == "evidence_collection":
         await _open_proposal(prop, proposals, audit, outcome, reason="insufficient_analyst_evidence")
+        return prefs, None
+
+    # A structurally inert correlation_n finding is REVIEW-ONLY and can never be
+    # applied — the live pipeline would discard the value (rail 7). Routed here
+    # defensively so no present or future caller can push it down the writer path.
+    if prop.kind == CORRELATION_N_INERT_KIND:
+        await _open_proposal(
+            prop, proposals, audit, outcome,
+            reason=prop.inert_reason or CORRELATION_N_INERT_KIND,
+        )
         return prefs, None
 
     # A suppression DROP is NEVER auto-applied — always HITL.
@@ -1049,7 +1383,14 @@ async def _open_proposal(
     existing ``/proposals/{id}/approve`` path (the only live-write route)."""
     expires = (now_utc() + timedelta(days=30)).isoformat()
     rid = normalize_rule_id(prop.rule_id)
-    action = "collect_evidence" if prop.kind == "evidence_collection" else "apply_change"
+    if prop.kind == "evidence_collection":
+        action = "collect_evidence"
+    elif prop.kind == CORRELATION_N_INERT_KIND:
+        # Acknowledgement-only: there is no threshold to apply, so approving this
+        # finding must never write configuration.
+        action = "review_finding"
+    else:
+        action = "apply_change"
     copy: dict[str, tuple[str, str]] = {
         "insufficient_analyst_evidence": (
             "The rule has enough case volume to inspect, but too few independently "
@@ -1076,6 +1417,21 @@ async def _open_proposal(
             "A suppression-style change always requires explicit human review.",
             "Review the affected scope and approve only if the loss of future signal is acceptable.",
         ),
+        INERT_ALERTS_ROLE_OVERRIDE: (
+            "This rule is noisy, but raising its correlation threshold cannot reduce its "
+            "volume: every observed case fired with an effective correlation mode of EVERY "
+            "(n=1), which is what an alerts-role feed forces so that each SIEM alert becomes "
+            "exactly one case. The raised threshold would be discarded on the next poll.",
+            "Tune this rule where it can take effect: raise the carrying feed's severity "
+            "floor, tune or disable the detection at the source, or add a suppression rule. "
+            "No correlation threshold change is proposed.",
+        ),
+        INERT_CONFIGURED_MODE_EVERY: (
+            "This rule is configured to correlate on EVERY occurrence, so its correlation "
+            "threshold is never consulted and raising it would change nothing.",
+            "Switch the rule to threshold correlation if per-window grouping is wanted, or "
+            "tune the carrying feed's severity floor / add a suppression rule instead.",
+        ),
     }
     reason_text, recommended_action = copy.get(
         reason,
@@ -1098,6 +1454,13 @@ async def _open_proposal(
         "feed_key": prop.feed_key,
         "source_id": prop.source_id,
         "feed_id": prop.feed_id,
+        # Additive provenance: why correlation_n was not the chosen target (rail 7).
+        "inert_reason": prop.inert_reason,
+        "inert_detail": (
+            INERT_REASON_DETAIL.get(prop.inert_reason or "") if prop.inert_reason else None
+        ),
+        "observed_mode_every": prop.stat.primary_mode_every,
+        "observed_mode_threshold": prop.stat.primary_mode_threshold,
         "fp_rate": round(prop.stat.fp_lower_bound, 4),
         "analyst_samples": prop.stat.total,
         "observed_cases": prop.stat.observed,
@@ -1112,6 +1475,12 @@ async def _open_proposal(
     }
     if action == "collect_evidence":
         rationale = f"More analyst evidence is required before tuning rule {rid!r}. {reason_text}"
+    elif action == "review_finding":
+        rationale = (
+            f"Rule {rid!r} is noisy over {prop.stat.total} analyst-confirmed outcomes, but a "
+            f"correlation threshold raise cannot take effect for it, so none was proposed. "
+            f"{reason_text}"
+        )
     else:
         rationale = (
             f"Adaptive tuner suggests {prop.kind} {prop.before}->{prop.after} for rule "
@@ -1297,12 +1666,15 @@ def materialize_approved_tuning(
 ) -> tuple[Preferences, TuningRecord | None, bool]:
     """Validate and materialise one approved tuning payload.
 
-    ``review_history`` and ``collect_evidence`` acknowledge work without mutating a
-    threshold. ``apply_change`` validates that the recommendation is still current
-    and remains within the configured bound before returning a fresh Preferences.
+    ``review_history``, ``collect_evidence`` and ``review_finding`` acknowledge work
+    without mutating a threshold. ``apply_change`` validates that the recommendation is
+    still current and remains within the configured bound before returning a fresh
+    Preferences.
     """
     action = str(payload.get("action") or "")
-    if action in {"review_history", "collect_evidence"}:
+    # ``review_finding`` is the rail-7 "this rule cannot be tuned by n" observation: it
+    # carries before == after and must stay acknowledgement-only forever.
+    if action in {"review_history", "collect_evidence", "review_finding"}:
         return prefs, None, False
     if action != "apply_change":
         raise ValueError("unknown tuning approval action")
