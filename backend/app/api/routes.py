@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import os
+from collections.abc import Awaitable, Callable
 from typing import Any, Literal
 from urllib.parse import quote_plus
 
@@ -2177,6 +2178,38 @@ async def list_proposals(
     }
 
 
+def _decision_failure_detail(phase: str, proposal_id: str, action: str) -> str:
+    """Truthful 503 text for a failed decision, by the phase that actually failed.
+
+    The operator-visible message must never claim more or less than the code can
+    prove. ``audit`` means this attempt stopped before its effect could run;
+    ``effect``/``finalize`` mean a configuration change may already be live, so the
+    message names exactly what to inspect instead of reporting a clean no-op.
+    """
+    evidence = f"proposal-decision:{proposal_id}:{action}"
+    noun = "approval" if action == "approve" else "rejection"
+    done = "approved" if action == "approve" else "rejected"
+    if phase == "finalize":
+        return (
+            f"The {noun} was applied and audited, but the proposal could not be marked "
+            f"{done} and is still shown as pending. Inspect audit event {evidence} and the "
+            "affected configuration; retrying is safe — the effect is keyed by the proposal id "
+            "and cannot be applied twice."
+        )
+    if phase == "effect":
+        return (
+            f"The {noun} decision was audited but applying it did not complete, so the "
+            "configuration may be partially changed. Inspect the proposal's approval_error, "
+            f"audit event {evidence}, and the affected configuration; retrying is safe — the "
+            "effect is keyed by the proposal id and cannot be applied twice."
+        )
+    return (
+        f"This {noun} attempt was not recorded in the append-only audit trail and therefore "
+        f"applied no configuration change. The proposal is still pending; inspect audit event "
+        f"{evidence} and the proposal's approval_error, then retry."
+    )
+
+
 @router.post("/proposals/{proposal_id}/approve")
 async def approve_proposal(
     proposal_id: str,
@@ -2191,9 +2224,15 @@ async def approve_proposal(
     picks it up LIVE. memory → append a human-injectable agent fact. tuning →
     revalidate and, where eligible, materialise the bounded change. ``automation_ack``
     records review only and never mutates configuration, Memory, suppression, or case
-    state. A strict CAS claim is persisted before any effect, every effect is keyed by
-    proposal id, and finalisation is strict so concurrent/retried requests cannot apply
-    the same proposal twice. 404 if missing; 409 if already decided/in progress."""
+    state.
+
+    The decision runs in four ordered phases — PREPARE (pure validation only),
+    AUDIT (the strict ``event_id``-keyed decision record), EFFECT, FINALISE — so an
+    operator who is told the approval failed can never find the configuration already
+    changed by that attempt. Every phase is idempotent: the strict claim fixes actor
+    and audit timestamp, ``record_strict`` deduplicates on ``event_id``, and every
+    effect is keyed by proposal id, so a retry after any failure converges on exactly
+    one applied change. 404 if missing; 409 if already decided/in progress."""
     by = current_username(request)
     token = new_id("approval-")
     try:
@@ -2201,6 +2240,7 @@ async def approve_proposal(
             proposal_id, by=by, token=token
         )
     except Exception as exc:  # durability boundary: never run an effect without a claim
+        logger.exception("Approval claim for proposal %s could not be persisted", proposal_id)
         raise HTTPException(status_code=503, detail="Could not persist the approval claim") from exc
     if claim == "missing" or proposal is None:
         raise HTTPException(status_code=404, detail="proposal not found")
@@ -2219,6 +2259,11 @@ async def approve_proposal(
     )
     audit_actor = decision_actor or "analyst"
 
+    # PREPARE validates purely, AUDIT records the decision, EFFECT applies it,
+    # FINALISE closes the lease. ``phase`` names the boundary an exception crossed so
+    # the 503 below can tell the operator what is actually true of their config.
+    phase = "prepare"
+    effect: Callable[[], Awaitable[None]] | None = None
     try:
         if proposal.kind == "suppression":
             payload = dict(proposal.payload or {})
@@ -2249,48 +2294,78 @@ async def approve_proposal(
                     "suppression_rules": [*prefs.suppression_rules, rule],
                 })
 
-            await state.mutate_execution_prefs(_append_once)
+            async def _apply_suppression() -> None:
+                await state.mutate_execution_prefs(_append_once)
+
+            effect = _apply_suppression
         elif proposal.kind == "memory":
             payload = dict(proposal.payload or {})
             text = str(payload.get("text", "") or proposal.rationale).strip()
             if not text:
                 raise ValueError("memory proposal has no text")
-            # Strict persistence: approval cannot succeed on a fail-soft KV write.
-            await state.memory.add_approved_proposal_strict(
-                text,
-                proposal_id=proposal.id,
-                category=str(payload.get("category", "")),
-                tags=list(payload.get("tags", []) or []),
-                author=decision_actor,
-            )
+
+            async def _apply_memory() -> None:
+                # Strict persistence: approval cannot succeed on a fail-soft KV write.
+                # ``proposal_id`` is the idempotency key for a post-audit retry.
+                await state.memory.add_approved_proposal_strict(
+                    text,
+                    proposal_id=proposal.id,
+                    category=str(payload.get("category", "")),
+                    tags=list(payload.get("tags", []) or []),
+                    author=decision_actor,
+                )
+
+            effect = _apply_memory
         elif proposal.kind == "tuning":
-            from ..engine.threshold_tuner import commit_approved_tuning
+            from ..engine.threshold_tuner import (
+                commit_approved_tuning,
+                materialize_approved_tuning,
+            )
 
             payload = dict(proposal.payload or {})
-            record, created = await commit_approved_tuning(
+            # Pure revalidation BEFORE the decision record: an unknown action, an
+            # out-of-policy step, or a stale recommendation is refused without
+            # auditing an approval that will never be applied. The commit below
+            # revalidates again against the freshest preferences under its own lock.
+            materialize_approved_tuning(
                 state.execution_prefs,
                 payload,
                 proposal_id=proposal.id,
-                tuning_store=state.tuning_store,
-                write_prefs=state.update_execution_prefs,
-                mutate_prefs=state.mutate_execution_prefs,
+                allow_idempotent_replay=True,
             )
-            if record is not None and created:
-                await state.audit.record(
-                    action_type=ActionType.TUNING,
-                    surface="proposal",
-                    actor=audit_actor,
-                    result_summary=(
-                        f"approved tuning proposal {proposal.id}: {record.target} "
-                        f"{record.before}->{record.after} for {record.rule_id}"
-                    ),
+
+            async def _apply_tuning() -> None:
+                record, created = await commit_approved_tuning(
+                    state.execution_prefs,
+                    payload,
+                    proposal_id=proposal.id,
+                    tuning_store=state.tuning_store,
+                    write_prefs=state.update_execution_prefs,
+                    mutate_prefs=state.mutate_execution_prefs,
                 )
+                if record is not None and created:
+                    await state.audit.record(
+                        action_type=ActionType.TUNING,
+                        surface="proposal",
+                        actor=audit_actor,
+                        result_summary=(
+                            f"approved tuning proposal {proposal.id}: {record.target} "
+                            f"{record.before}->{record.after} for {record.rule_id}"
+                        ),
+                    )
+
+            effect = _apply_tuning
         elif proposal.kind == "automation_ack":
             # The status transition and audit are the complete effect.
-            pass
+            effect = None
         else:  # pragma: no cover — Literal-constrained, defensive
             raise ValueError(f"unknown proposal kind: {proposal.kind}")
 
+        # The strict decision record comes FIRST so a failure here cannot leave a
+        # silently applied configuration change behind. It is keyed by event_id and
+        # its content is a pure function of the fixed claim, so the retry that
+        # follows a failed effect or finalisation reuses this exact row.
+        phase = "audit"
         await state.control_audit.record_strict(
             action_type=ActionType.PROPOSAL,
             event_id=f"proposal-decision:{proposal.id}:approve",
@@ -2299,27 +2374,36 @@ async def approve_proposal(
             actor=audit_actor,
             result_summary=(
                 f"proposal_id={proposal.id} action=approve kind={proposal.kind} "
-                "effect=confirmed finalization=pending"
+                "decision=authorized effect=pending finalization=pending"
             ),
         )
+        phase = "effect"
+        if effect is not None:
+            await effect()
+        phase = "finalize"
         updated = await state.proposals.finalize_approval(
             proposal_id, by=by, token=token
         )
         if updated is None:
             raise RuntimeError("approval lease was lost before finalisation")
     except Exception as exc:  # noqa: BLE001 — release the lease for a visible retry
+        # Diagnosis must not depend on the proposal's approval_error field alone.
+        logger.exception(
+            "Proposal %s approval failed in the %s phase (kind=%s)",
+            proposal_id, phase, proposal.kind,
+        )
         try:
             await state.proposals.release_approval(
                 proposal_id, token=token, error=str(exc)
             )
-        except Exception as release_exc:  # status remains applying; stale lease is recoverable
-            logger.error("Could not release failed proposal approval %s: %s", proposal_id, release_exc)
+        except Exception:  # noqa: BLE001 — status remains applying; a stale lease is recoverable
+            logger.exception("Could not release failed proposal approval %s", proposal_id)
         if isinstance(exc, ValueError):
             status = 409 if "stale" in str(exc).lower() else 400
             raise HTTPException(status_code=status, detail=str(exc)) from exc
         raise HTTPException(
             status_code=503,
-            detail="Approval could not be durably completed; no success was reported",
+            detail=_decision_failure_detail(phase, proposal.id, "approve"),
         ) from exc
 
     return {"ok": True, "proposal": _proposal_public(updated)}
@@ -2334,9 +2418,10 @@ async def reject_proposal(
 ) -> dict[str, Any]:
     """Reject a pending proposal through the same durable decision boundary.
 
-    Preferences / memory are unchanged. A strict CAS claim and idempotent
-    append-only audit row must both succeed before the proposal can be finalised as
-    rejected. 404 if missing; 409 if already decided/in progress.
+    Rejection has no effect phase at all: preferences, Memory, suppression and case
+    state are never touched, so the ordering is simply strict CAS claim → strict
+    append-only decision record → strict finalisation. 404 if missing; 409 if already
+    decided/in progress.
     """
     by = current_username(request)
     token = new_id("rejection-")
@@ -2345,6 +2430,7 @@ async def reject_proposal(
             proposal_id, by=by, token=token
         )
     except Exception as exc:
+        logger.exception("Rejection claim for proposal %s could not be persisted", proposal_id)
         raise HTTPException(
             status_code=503, detail="Could not persist the rejection claim"
         ) from exc
@@ -2360,6 +2446,7 @@ async def reject_proposal(
         if proposal.decision_actor is not None
         else (by or "").strip()
     )
+    phase = "audit"
     try:
         await state.control_audit.record_strict(
             action_type=ActionType.PROPOSAL,
@@ -2372,25 +2459,31 @@ async def reject_proposal(
                 "effect=none finalization=pending"
             ),
         )
+        phase = "finalize"
         updated = await state.proposals.finalize_rejection(
             proposal_id, by=by, token=token
         )
         if updated is None:
             raise RuntimeError("rejection lease was lost before finalisation")
     except Exception as exc:  # noqa: BLE001 — no unaudited success response
+        logger.exception(
+            "Proposal %s rejection failed in the %s phase (kind=%s)",
+            proposal_id, phase, proposal.kind,
+        )
         try:
             await state.proposals.release_approval(
                 proposal_id, token=token, error=str(exc)
             )
-        except Exception as release_exc:
-            logger.error(
-                "Could not release failed proposal rejection %s: %s",
-                proposal_id,
-                release_exc,
-            )
+        except Exception:  # noqa: BLE001 — status remains applying; a stale lease is recoverable
+            logger.exception("Could not release failed proposal rejection %s", proposal_id)
         raise HTTPException(
             status_code=503,
-            detail="Rejection could not be durably completed; no success was reported",
+            detail=(
+                "Rejection could not be durably completed; the proposal is still pending and "
+                "no configuration, Memory or case state was changed. Inspect audit event "
+                f"proposal-decision:{proposal.id}:reject and the proposal's approval_error, "
+                "then retry."
+            ),
         ) from exc
     return {"ok": True, "proposal": _proposal_public(updated)}
 
