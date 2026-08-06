@@ -51,6 +51,7 @@ from app.engine import threshold_tuner as tuner
 from app.engine.threshold_tuner import (
     INERT_ALERTS_ROLE_OVERRIDE,
     INERT_CONFIGURED_MODE_EVERY,
+    INERT_INLINE_RULE_CORRELATION,
     RuleStat,
     correlation_n_inert_reason,
     derive_proposals,
@@ -245,7 +246,47 @@ def test_explicitly_configured_mode_every_is_config_side_inert() -> None:
             )
         ],
     )
-    assert correlation_n_inert_reason(inline_threshold, st) is None
+    # An inline THRESHOLD correlation is ALSO inert, for a different structural reason:
+    # correlation_for_def resolves rd.correlation before correlation_rules[name], and
+    # apply_correlation_n only ever writes the latter — so the raise lands where the
+    # pipeline never reads it. Same defect class as the alerts-role override.
+    assert correlation_n_inert_reason(inline_threshold, st) == INERT_INLINE_RULE_CORRELATION
+
+
+def test_inline_rule_definition_correlation_is_inert_for_any_mode() -> None:
+    """apply_correlation_n writes correlation_rules; an inline correlation shadows it.
+
+    ``Preferences.correlation_for_def`` returns ``rd.correlation`` whenever a matched
+    RuleDefinition carries one, so the correlation_rules entry the writer materialises
+    is unreachable configuration for that rule regardless of the inline mode.
+    """
+    st = RuleStat(rule_id="r", observed=40, primary_cases=40, primary_mode_threshold=40)
+    for mode, n in ((CorrelationMode.THRESHOLD, 5), (CorrelationMode.NEVER, 1)):
+        prefs = _prefs(
+            rule_catalog=[
+                RuleDefinition(
+                    name="r",
+                    match=RuleMatch(field="event.code", op="equals", value="r"),
+                    correlation=CorrelationRule(mode=mode, n=n),
+                )
+            ],
+        )
+        assert correlation_n_inert_reason(prefs, st) == INERT_INLINE_RULE_CORRELATION, mode
+        # The writer really does target a location correlation_for_def ignores.
+        rd = next(r for r in prefs.rule_catalog if r.name == "r")
+        assert prefs.correlation_for_def(rd).mode == mode
+
+    # A RuleDefinition WITHOUT an inline correlation is unaffected — the by-name
+    # correlation_rules entry is exactly what the pipeline reads for it.
+    plain = _prefs(
+        correlation_rules={"r": CorrelationRule(mode=CorrelationMode.THRESHOLD, n=3)},
+        rule_catalog=[
+            RuleDefinition(
+                name="r", match=RuleMatch(field="event.code", op="equals", value="r")
+            )
+        ],
+    )
+    assert correlation_n_inert_reason(plain, st) is None
 
 
 def test_inherited_default_correlation_every_is_not_a_per_rule_verdict() -> None:

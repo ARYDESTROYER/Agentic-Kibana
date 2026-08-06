@@ -96,6 +96,15 @@ INERT_ALERTS_ROLE_OVERRIDE = "alerts_role_every_override"
 # ``correlation_rules`` entry or an inline ``RuleDefinition`` correlation), which
 # short-circuits the window/threshold test entirely — ``n`` is dead configuration.
 INERT_CONFIGURED_MODE_EVERY = "correlation_mode_every"
+# CONFIG-side: this rule's correlation is defined INLINE on its ``RuleDefinition``.
+# ``Preferences.correlation_for_def`` resolves ``rd.correlation`` BEFORE
+# ``correlation_rules[rd.name]``, and ``apply_correlation_n`` only ever writes the
+# latter — so the raise lands somewhere the live pipeline never reads. This holds for
+# ANY inline mode, not just EVERY: an inline THRESHOLD rule would otherwise be handed
+# an "applied" n raise that is discarded on every poll, exactly like the alerts-role
+# case. Writing through to the RuleDefinition instead is a separate decision with its
+# own blast radius; refusing to draft a dead change is the safe half.
+INERT_INLINE_RULE_CORRELATION = "inline_rule_definition_correlation"
 
 INERT_REASON_DETAIL: dict[str, str] = {
     INERT_ALERTS_ROLE_OVERRIDE: (
@@ -106,6 +115,11 @@ INERT_REASON_DETAIL: dict[str, str] = {
     INERT_CONFIGURED_MODE_EVERY: (
         "this rule is explicitly configured mode=EVERY, which never consults n, so a "
         "correlation_n raise would change nothing"
+    ),
+    INERT_INLINE_RULE_CORRELATION: (
+        "this rule's correlation is defined inline on its rule definition, which takes "
+        "precedence over the correlation_rules entry a correlation_n raise writes, so "
+        "the change would never be read by the pipeline"
     ),
 }
 
@@ -317,6 +331,27 @@ def _is_every(rule: Any) -> bool:
     return str(getattr(mode, "value", mode) or "").strip().lower() == CorrelationMode.EVERY.value
 
 
+def _inline_correlation(prefs: Preferences, rule_id: str) -> Any | None:
+    """This rule's INLINE ``RuleDefinition.correlation``, if it has one.
+
+    ``Preferences.correlation_for_def`` resolves ``rd.correlation`` BEFORE
+    ``correlation_rules[rd.name]``, so an inline correlation makes the
+    ``correlation_rules`` entry — the only thing :func:`apply_correlation_n` writes —
+    unreachable by the live pipeline. Never raises: a malformed catalog returns None.
+    """
+    rid = normalize_rule_id(rule_id)
+    if not rid:
+        return None
+    try:
+        for rd in getattr(prefs, "rule_catalog", None) or []:
+            if normalize_rule_id(getattr(rd, "name", "")) != rid:
+                continue
+            return getattr(rd, "correlation", None)
+    except Exception:  # noqa: BLE001 — a malformed catalog never breaks tuning
+        return None
+    return None
+
+
 def _explicitly_configured_every(prefs: Preferences, rule_id: str) -> bool:
     """True when THIS rule is explicitly configured to correlate on EVERY occurrence.
 
@@ -382,6 +417,11 @@ def correlation_n_inert_reason(
         return None
     if _explicitly_configured_every(prefs, rid):
         return INERT_CONFIGURED_MODE_EVERY
+    if _inline_correlation(prefs, rid) is not None:
+        # Reached only for a non-EVERY inline correlation (the EVERY case is reported
+        # above under its more specific reason). apply_correlation_n writes
+        # correlation_rules, which correlation_for_def never reads for this rule.
+        return INERT_INLINE_RULE_CORRELATION
     if stat.primary_mode_threshold > 0:
         return None            # contrary evidence: n really did gate a firing
     if stat.primary_mode_every <= 0:
