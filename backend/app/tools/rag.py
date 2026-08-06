@@ -19,6 +19,7 @@ import logging
 import math
 import re
 from collections import Counter
+from dataclasses import replace as dataclass_replace
 from typing import TYPE_CHECKING, Any
 
 from ..config import Preferences
@@ -51,6 +52,40 @@ logger = logging.getLogger("tlsoc.tools.rag")
 # guarded here so a bulk "clear imported docs" cannot drop prior analyst decisions.
 SEED_SOURCES = frozenset({"runbook", "mitre", "suppression", "resolved_case"})
 
+# The precedent (institutional-memory) corpus source. Accumulated at runtime from
+# analyst-confirmed cases, never shipped, and — unlike every other seed source —
+# only ever projected through a BOUNDED window (see ``_RESOLVED_CASE_PAGE_SIZE`` /
+# ``_resolved_case_items``).
+RESOLVED_CASE_SOURCE = "resolved_case"
+
+# Managed sources whose projection is a FULL reconciliation of the source of truth:
+# every enabled document is rebuilt on each projection, so a managed document that
+# is absent from the new projection genuinely no longer exists and may be evicted.
+#
+# ``resolved_case`` is deliberately EXCLUDED. Its projection is a bounded window
+# (``_resolved_case_items(limit=200)`` over the newest qualifying terminal cases),
+# so "not in the current projection" means "outside the window", NOT "deleted".
+# Sweeping it as stale destroyed the entire accumulated precedent corpus on the
+# next unrelated reprojection. Precedent removal stays possible EXPLICITLY (a
+# per-document delete via ``delete_document(..., force=True)``) — just never as a
+# side effect of reprojecting some other source.
+FULLY_RECONCILED_SEED_SOURCES = frozenset(SEED_SOURCES - {RESOLVED_CASE_SOURCE})
+
+# Bounded scan for the precedent projection. The window counts QUALIFYING
+# (analyst-confirmed) cases, not raw terminal ones, so an autonomous deployment's
+# own unlabelled auto-closes can no longer evict every precedent; the scan cap keeps
+# that search bounded when the unlabelled backlog is large.
+_RESOLVED_CASE_PAGE_SIZE = 200
+_RESOLVED_CASE_SCAN_CAP = 5000
+
+# The analyst note is the one operator-authored free-text field that becomes durable
+# model-facing corpus text. Bound it hard.
+_ANALYST_NOTE_MAX_CHARS = 500
+
+# Legacy grouping key for pre-fix incrementally indexed precedent (chunks written
+# with a stable ``doc_id`` but no ``metadata.document_id``).
+_LEGACY_RESOLVED_CASE_DOCUMENT = f"seed:{RESOLVED_CASE_SOURCE}"
+
 # The corpus source tag for operator-imported threat-intelligence documents (F11).
 # Retrievable like any other knowledge and injected as a TRUSTED fenced block.
 THREAT_CONTEXT_SOURCE = "threat_context"
@@ -81,6 +116,28 @@ def is_trusted_knowledge(source: str | None) -> bool:
 
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
+
+# Control characters (incl. newlines/tabs) that must never survive into a stored
+# precedent chunk: they let a single operational note restructure the corpus text.
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+
+def _flatten_analyst_note(note: str | None) -> str:
+    """Bound + flatten a free-text analyst note before it becomes durable corpus text.
+
+    The note is operator-authored, but it is stored verbatim in a ``resolved_case``
+    chunk that is replayed into future prompts, so an oversized or multi-line note
+    silently reshapes the precedent corpus around it (and dilutes its retrieval
+    vector). Strip control characters/newlines, collapse whitespace, and bound the
+    length to ``_ANALYST_NOTE_MAX_CHARS``.
+
+    This is defence in depth, NOT a substitute for the fence: ``resolved_case``
+    remains UNTRUSTED-fenced at render time (#9 / OWASP LLM01)."""
+    text = _CONTROL_CHARS_RE.sub(" ", str(note or ""))
+    text = " ".join(text.split())
+    if len(text) > _ANALYST_NOTE_MAX_CHARS:
+        text = text[: _ANALYST_NOTE_MAX_CHARS - 1].rstrip() + "…"
+    return text
 
 
 def _slugify(title: str) -> str:
@@ -277,6 +334,12 @@ class RagService:
         self._seeded = False
         self._seed_signature: tuple[bool, ...] | None = None
         self._seed_lock = asyncio.Lock()
+        # Last projection outcome PER SOURCE, so a health surface can show that a
+        # re-seed shrank (or collapsed) a corpus instead of that fact living only in
+        # a log line. Shape per source:
+        #   {source, before, after, delta, shrank, collapsed, source_enabled, at}
+        # ``before``/``after`` are stored chunk counts either side of the projection.
+        self.last_projection: dict[str, dict[str, Any]] = {}
 
     def set_prefs(self, prefs: Preferences) -> None:
         """Point the service at the latest preferences so a live settings change
@@ -319,10 +382,19 @@ class RagService:
         verified for the new projection.  This method is intentionally called only
         after that verification so an embedding/provider failure can never erase
         the last known-good corpus.  Operator imports are never considered here.
+
+        Only FULLY RECONCILED sources are swept (see
+        ``FULLY_RECONCILED_SEED_SOURCES``): for those, the projection rebuilds every
+        enabled document, so absence from ``expected`` proves the document was
+        withdrawn.  ``resolved_case`` is excluded because its projection is a bounded
+        window over the newest qualifying cases — absence there only means "older
+        than the window", and sweeping it wiped the entire accumulated precedent
+        corpus on any unrelated reprojection.  Explicit per-document deletion still
+        removes a specific precedent.
         """
         removed = 0
         for document in await self._store.list_documents():
-            if str(document.get("source") or "") not in SEED_SOURCES:
+            if str(document.get("source") or "") not in FULLY_RECONCILED_SEED_SOURCES:
                 continue
             document_id = str(document.get("document_id") or "")
             if document_id and document_id not in expected:
@@ -498,6 +570,145 @@ class RagService:
             if chunk.source not in SEED_SOURCES
         ]
 
+    @staticmethod
+    def _preserved_resolved_case_items(chunks: list[StoredChunk]) -> list[dict[str, Any]]:
+        """Carry EXISTING precedent through a vector-space migration.
+
+        ``_reseed`` physically replaces the vector space, and the precedent it can
+        re-derive from the CaseStore is only the bounded window. Re-embedding the
+        stored precedent chunks keeps everything older than that window alive; the
+        freshly derived window wins on doc-id collision so the canonical text is
+        still the shared builder's.
+        """
+        out: list[dict[str, Any]] = []
+        for chunk in chunks:
+            if chunk.source != RESOLVED_CASE_SOURCE:
+                continue
+            doc_id = str(chunk.doc_id or "")
+            metadata = dict(chunk.metadata or {})
+            case_id = str(metadata.get("case_id") or "")
+            document_id = str(metadata.get("document_id") or "")
+            if not document_id:
+                if doc_id.startswith(f"{RESOLVED_CASE_SOURCE}:"):
+                    document_id = doc_id
+                elif case_id:
+                    document_id = f"{RESOLVED_CASE_SOURCE}:{case_id}"
+                else:
+                    continue
+            metadata["document_id"] = document_id
+            out.append(
+                {
+                    "text": chunk.text,
+                    "embedding_text": chunk.text,
+                    "source": chunk.source,
+                    "metadata": metadata,
+                    "doc_id": doc_id or document_id,
+                }
+            )
+        return out
+
+    async def _chunk_counts_by_source(self) -> dict[str, int]:
+        """Stored chunk count per source, or ``{}`` when the store cannot be read."""
+        try:
+            stats = await self._store.stats()
+            return {
+                str(source): int(count or 0)
+                for source, count in dict(stats.get("by_source") or {}).items()
+            }
+        except Exception as exc:  # noqa: BLE001 — observability must never break seeding
+            logger.warning("Reading RAG source counts failed: %s", exc)
+            return {}
+
+    def _record_projection_outcome(
+        self, outgoing: dict[str, int], incoming: dict[str, int]
+    ) -> None:
+        """Compare the OUTGOING corpus with the INCOMING one, per source.
+
+        A re-seed must never silently shrink a source. ``RAG seeded with N chunk(s)``
+        reads like an ordinary startup line even when N collapsed from ~2000 to 0, so
+        an actual corpus wipe left no distinguishable trace. Any decrease for a source
+        that is still ENABLED is logged at WARNING with both counts, and the full
+        per-source outcome is published on ``self.last_projection`` so a health
+        endpoint can surface it without re-deriving anything. A source the operator
+        just disabled is expected to go to zero, so it is recorded but not warned on.
+        """
+        at = iso_now()
+        outcome: dict[str, dict[str, Any]] = {}
+        for source in sorted(set(outgoing) | set(incoming)):
+            before = int(outgoing.get(source, 0))
+            after = int(incoming.get(source, 0))
+            enabled = self._source_enabled(source)
+            outcome[source] = {
+                "source": source,
+                "before": before,
+                "after": after,
+                "delta": after - before,
+                "shrank": after < before,
+                "collapsed": before > 0 and after == 0,
+                "source_enabled": enabled,
+                "at": at,
+            }
+            if after < before and enabled:
+                logger.warning(
+                    "RAG projection SHRANK an enabled source: %s %d -> %d chunk(s) "
+                    "(delta %+d)%s",
+                    source,
+                    before,
+                    after,
+                    after - before,
+                    " — the source COLLAPSED to zero" if after == 0 else "",
+                )
+        self.last_projection = outcome
+
+    async def _reconcile_legacy_resolved_case_documents(self) -> int:
+        """One-time, tolerant migration of pre-fix incrementally indexed precedent.
+
+        Before the per-case document identity fix, ``index_resolved_case`` wrote its
+        chunk with a stable ``doc_id`` but no ``metadata.document_id``, so the vector
+        store grouped EVERY feedback-indexed precedent under the single synthetic
+        ``seed:resolved_case`` document. Re-tag those chunks in place: the doc id is
+        unchanged, so the store upserts (no duplicate, no re-embedding, no extra
+        gateway spend), and each case converges on its own
+        ``resolved_case:{case_id}`` document exactly like a freshly indexed one.
+
+        Chunks whose per-case identity cannot be derived are LEFT ALONE rather than
+        dropped — they stay visible and retrievable under the legacy grouping, and
+        the stale sweep no longer touches ``resolved_case`` at all, so nothing is
+        orphaned. Idempotent: after migration the legacy grouping is empty.
+        """
+        try:
+            legacy = await self._store.list_chunks(_LEGACY_RESOLVED_CASE_DOCUMENT)
+        except Exception as exc:  # noqa: BLE001 — migration is best-effort
+            logger.warning("Legacy resolved_case reconciliation could not read: %s", exc)
+            return 0
+        upgraded: list[StoredChunk] = []
+        for chunk in legacy:
+            if chunk.source != RESOLVED_CASE_SOURCE:
+                continue
+            metadata = dict(chunk.metadata or {})
+            doc_id = str(chunk.doc_id or "")
+            case_id = str(metadata.get("case_id") or "")
+            if doc_id.startswith(f"{RESOLVED_CASE_SOURCE}:"):
+                document_id = doc_id
+            elif case_id:
+                document_id = f"{RESOLVED_CASE_SOURCE}:{case_id}"
+            else:
+                continue
+            metadata["document_id"] = document_id
+            upgraded.append(dataclass_replace(chunk, metadata=metadata))
+        if not upgraded:
+            return 0
+        try:
+            await self._store.add(upgraded)
+        except Exception as exc:  # noqa: BLE001 — never block seeding on a migration
+            logger.warning("Legacy resolved_case reconciliation could not write: %s", exc)
+            return 0
+        logger.info(
+            "Reconciled %d legacy resolved_case chunk(s) into per-case documents",
+            len(upgraded),
+        )
+        return len(upgraded)
+
     async def ensure_seeded(self) -> None:
         """Idempotently embed and store the enabled sources. Fails closed.
 
@@ -507,6 +718,10 @@ class RagService:
             if self._seeded and self._seed_signature == signature:
                 return
             try:
+                outgoing = await self._chunk_counts_by_source()
+                # Converge any pre-fix precedent onto per-case document identity
+                # before the projection reads/writes documents.
+                await self._reconcile_legacy_resolved_case_documents()
                 # Stage and validate the complete managed projection before ANY
                 # old document is removed. This preserves the last known-good
                 # corpus when loading, embedding, or persistence fails.
@@ -525,6 +740,9 @@ class RagService:
                 self._seeded = True
                 self._seed_signature = signature
                 logger.info("RAG seeded with %d chunk(s)", len(chunks))
+                self._record_projection_outcome(
+                    outgoing, await self._chunk_counts_by_source()
+                )
             except Exception as exc:  # noqa: BLE001
                 self._seeded = False
                 self._seed_signature = None
@@ -646,62 +864,161 @@ class RagService:
             logger.warning("Reading runbook projection status failed: %s", exc)
         return out
 
+    @staticmethod
+    def _case_analyst_note(case: "Case", ground_truth_source: str | None = None) -> str:
+        """Recover the durable analyst note already stored on the case.
+
+        Both writers persist the note on the case BEFORE indexing: a close /
+        confirm-FP appends ``{"event": "analyst_action", ..., "note": ...}`` to
+        ``case.history``, and grading appends ``FeedbackEntry.comment``. Reading it
+        back from the case is what lets the BULK projection reproduce exactly the
+        same chunk the incremental path wrote, instead of the two paths disagreeing
+        about the same case.
+        """
+        def _from_feedback() -> str:
+            for entry in reversed(list(case.feedback or [])):
+                comment = str(getattr(entry, "comment", "") or "").strip()
+                if comment:
+                    return comment
+            return ""
+
+        if ground_truth_source == "analyst_feedback":
+            comment = _from_feedback()
+            if comment:
+                return comment
+        for entry in reversed(list(case.history or [])):
+            if isinstance(entry, dict) and entry.get("event") == "analyst_action":
+                note = str(entry.get("note") or "").strip()
+                if note:
+                    return note
+        return _from_feedback()
+
+    @staticmethod
+    def _resolved_case_text(case: "Case", outcome: str, note: str) -> str:
+        """The ONE precedent-chunk representation, shared by BOTH indexing paths.
+
+        The bulk projection and the incremental close/feedback path both upsert the
+        same deterministic ``resolved_case:{case_id}`` doc id, so whichever ran last
+        used to win — and they emitted DIFFERENT text (the bulk path carried evidence
+        + recommended action; the incremental path carried risk + trigger + note).
+        Two identical deployments therefore accumulated materially different
+        precedent, which is the control input for auto-close comparisons.
+
+        This builder is the SUPERSET of both: outcome, model verdict, entity, rules,
+        risk, trigger sentence, top-3 evidence summaries, recommended action and the
+        bounded/flattened analyst note. ``note`` is expected to have already passed
+        through :func:`_flatten_analyst_note`.
+        """
+        entity = f"{case.entity.type.value}:{case.entity.value}"
+        rules = ", ".join(case.rule_ids) or "n/a"
+        verdict = case.verdict.value if case.verdict else "n/a"
+        evidence = "; ".join(e.summary for e in case.evidence[:3]) or "n/a"
+        reason = (
+            case.trigger_reason.sentence
+            if case.trigger_reason and case.trigger_reason.sentence
+            else ""
+        )
+        return (
+            f"Resolved case {case.case_id}: analyst-confirmed outcome {outcome}; "
+            f"model verdict {verdict}; entity {entity}. "
+            f"Rules: {rules}. Risk: {round(case.risk_score, 1)}. "
+            f"Trigger: {reason or 'n/a'}. "
+            f"Evidence: {evidence}. "
+            f"Recommended action: {case.recommended_action or 'n/a'}. "
+            f"Analyst note: {note or 'n/a'}."
+        )
+
+    def _resolved_case_item(
+        self, case: "Case", note: str | None = None
+    ) -> dict[str, Any] | None:
+        """Project ONE case into its precedent item, or ``None`` when it is not
+        analyst-confirmed ground truth.
+
+        The single per-case projection used by both the bulk window and the
+        incremental close/feedback path, so the stored text + metadata cannot drift
+        between them. ``doc_id`` stays the durable
+        ``resolved_case:{case_id}`` storage identity across all three vector-store
+        backends, and ``metadata.document_id`` mirrors it so one case is one
+        document (never a shared, single-delete blob).
+        """
+        outcome, ground_truth_source = analyst_confirmed_outcome(case)
+        if outcome is None:
+            return None
+        supplied = str(note or "").strip()
+        resolved_note = _flatten_analyst_note(
+            supplied or self._case_analyst_note(case, ground_truth_source)
+        )
+        document_id = f"{RESOLVED_CASE_SOURCE}:{case.case_id}"
+        return {
+            "text": self._resolved_case_text(case, outcome, resolved_note),
+            "source": RESOLVED_CASE_SOURCE,
+            "doc_id": document_id,
+            "metadata": {
+                "case_id": case.case_id,
+                "verdict": case.verdict.value if case.verdict else "n/a",
+                "outcome": outcome,
+                "entity": f"{case.entity.type.value}:{case.entity.value}",
+                "status": case.status.value if case.status else "",
+                "note": resolved_note,
+                "ground_truth_source": ground_truth_source,
+                "trust_class": "analyst_confirmed",
+                "document_id": document_id,
+            },
+        }
+
     async def _resolved_case_items(self, limit: int = 200) -> list[dict[str, Any]]:
+        """The newest ``limit`` QUALIFYING precedents (bounded scan).
+
+        The window is counted in analyst-confirmed items, NOT in raw terminal cases.
+        Counting raw cases meant a self-running deployment's own unlabelled
+        auto-closes — which are newer than every labelled case and unbounded in
+        number — consumed every slot, so the precedent corpus eroded to zero exactly
+        as the agent succeeded. Paging continues until ``limit`` qualifying items are
+        collected or ``_RESOLVED_CASE_SCAN_CAP`` cases have been examined, whichever
+        comes first, so a large unlabelled backlog costs a bounded scan rather than
+        the whole corpus.
+        """
         if self._cases is None:
             return []
-        cases: list["Case"] = []
+        items: list[dict[str, Any]] = []
         seen: set[str] = set()
+        scanned = 0
         for status in (CaseStatus.CLOSED.value, CaseStatus.RESOLVED.value):
             offset = 0
-            while len(cases) < limit:
-                page_size = min(200, limit - len(cases))
+            while len(items) < limit and scanned < _RESOLVED_CASE_SCAN_CAP:
+                page_size = min(
+                    _RESOLVED_CASE_PAGE_SIZE, _RESOLVED_CASE_SCAN_CAP - scanned
+                )
                 page, total = await self._cases.list(
                     status=status, limit=page_size, offset=offset
                 )
-                for case in page:
-                    if case.case_id not in seen:
-                        seen.add(case.case_id)
-                        cases.append(case)
-                offset += len(page)
-                if not page or offset >= total:
+                if not page:
                     break
-        items: list[dict[str, Any]] = []
-        for case in cases:
-            confirmed = analyst_confirmed_outcome(case)
-            if confirmed[0] is None:
-                continue
-            outcome, ground_truth_source = confirmed
-            entity = f"{case.entity.type.value}:{case.entity.value}"
-            rules = ", ".join(case.rule_ids) or "n/a"
-            evidence = "; ".join(e.summary for e in case.evidence[:3]) or "n/a"
-            verdict = case.verdict.value if case.verdict else "n/a"
-            text = (
-                f"Resolved case {case.case_id}: analyst-confirmed outcome {outcome}; "
-                f"model verdict {verdict}; entity {entity}. Rules: {rules}. "
-                f"Evidence: {evidence}. Recommended action: "
-                f"{case.recommended_action or 'n/a'}."
-            )
-            items.append({
-                "text": text,
-                "source": "resolved_case",
-                "doc_id": f"resolved_case:{case.case_id}",
-                "metadata": {
-                    "case_id": case.case_id,
-                    "verdict": verdict,
-                    "outcome": outcome,
-                    "entity": entity,
-                    "ground_truth_source": ground_truth_source,
-                    "trust_class": "analyst_confirmed",
-                },
-            })
+                for case in page:
+                    if case.case_id in seen:
+                        continue
+                    seen.add(case.case_id)
+                    scanned += 1
+                    item = self._resolved_case_item(case)
+                    if item is not None:
+                        items.append(item)
+                        if len(items) >= limit:
+                            break
+                offset += len(page)
+                if offset >= total:
+                    break
+            if len(items) >= limit or scanned >= _RESOLVED_CASE_SCAN_CAP:
+                break
         return items
 
     async def index_resolved_cases(self, limit: int = 200) -> int:
         """Load CLOSED cases and index one chunk per case as institutional memory.
 
-        The chunk text combines verdict + entity + rules + the top evidence
-        summaries + recommended_action; source="resolved_case"; metadata carries
-        case_id / verdict / entity so the UI/agent can cite the source case.
+        Only analyst-confirmed cases qualify, and the window counts QUALIFYING cases
+        rather than raw terminal ones. The chunk text comes from the shared
+        :meth:`_resolved_case_text` builder (identical to the incremental path);
+        source="resolved_case"; metadata carries case_id / verdict / entity so the
+        UI/agent can cite the source case.
         Returns the number of chunks added. Never raises (logs + returns 0)."""
         if self._cases is None:
             return 0
@@ -715,51 +1032,25 @@ class RagService:
         """Index ONE resolved-case chunk on close as institutional memory (C3-5).
 
         Triggered from the case-action endpoint when an analyst closes / confirms-FP
-        a case. The chunk combines entity + rules + verdict + risk + trigger reason +
-        the analyst NOTE so future investigations of similar entities learn from the
-        prior decision. Uses a DETERMINISTIC ``doc_id = resolved_case:{case_id}`` so
-        re-closing OVERWRITES rather than duplicating. Gated by ``rag.enabled`` AND
-        ``rag.use_resolved_cases``. FAIL-SAFE: returns 0 (never raises) so a failed
-        embedding/vector-store write never breaks the close action (it still 200s)."""
+        a case. The chunk is built by the SHARED :meth:`_resolved_case_item`
+        projection, so it is byte-identical to what the bulk window would write for
+        the same case (previously the two paths emitted different text and the last
+        writer won). Uses a DETERMINISTIC ``doc_id = resolved_case:{case_id}`` so
+        re-closing OVERWRITES rather than duplicating, and routes through
+        ``_managed_items`` so the chunk carries the same per-case
+        ``metadata.document_id`` — one case is one document, never a shared
+        ``seed:resolved_case`` blob that a single delete can wipe. Gated by
+        ``rag.enabled`` AND ``rag.use_resolved_cases``. FAIL-SAFE: returns 0 (never
+        raises) so a failed embedding/vector-store write never breaks the close
+        action (it still 200s)."""
         cfg = self._prefs.rag
         if not (cfg.enabled and cfg.use_resolved_cases):
             return 0
         try:
-            confirmed = analyst_confirmed_outcome(case)
-            if confirmed[0] is None:
+            item = self._resolved_case_item(case, note=note)
+            if item is None:
                 return 0
-            outcome, ground_truth_source = confirmed
-            entity = f"{case.entity.type.value}:{case.entity.value}"
-            rules = ", ".join(case.rule_ids) or "n/a"
-            verdict = case.verdict.value if case.verdict else "n/a"
-            reason = (
-                case.trigger_reason.sentence
-                if case.trigger_reason and case.trigger_reason.sentence
-                else ""
-            )
-            note = (note or "").strip()
-            text = (
-                f"Resolved case {case.case_id}: analyst-confirmed outcome {outcome}; "
-                f"model verdict {verdict}; entity {entity}. "
-                f"Rules: {rules}. Risk: {round(case.risk_score, 1)}. "
-                f"Trigger: {reason or 'n/a'}. Analyst note: {note or 'n/a'}."
-            )
-            item = {
-                "text": text,
-                "source": "resolved_case",
-                "doc_id": f"resolved_case:{case.case_id}",
-                "metadata": {
-                    "case_id": case.case_id,
-                    "verdict": verdict,
-                    "outcome": outcome,
-                    "entity": entity,
-                    "status": case.status.value if case.status else "",
-                    "note": note,
-                    "ground_truth_source": ground_truth_source,
-                    "trust_class": "analyst_confirmed",
-                },
-            }
-            return await self._embed_and_add([item])
+            return await self._embed_and_add(self._managed_items([item]))
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "index_resolved_case failed for %s: %s", getattr(case, "case_id", "?"), exc
@@ -1031,13 +1322,28 @@ class RagService:
         """
         async with self._seed_lock:
             backup = await self._snapshot_store_chunks()
+            outgoing = await self._chunk_counts_by_source()
             cleared = False
             try:
                 seeds = await self._enabled_seeds()
                 if self._prefs.rag.use_resolved_cases:
                     seeds.extend(await self._resolved_case_items())
                 seeds.extend(self._operator_items_from_snapshot(backup))
-                replacement = await self._embed_items(self._managed_items(seeds))
+                managed = self._managed_items(seeds)
+                # Precedent outside the bounded window would otherwise be silently
+                # dropped by the space migration. Carry it over, skipping anything
+                # the freshly derived window already covers so the replacement never
+                # contains two chunks with one doc id (which would collapse on upsert
+                # and trip the persisted-count check below).
+                staged_doc_ids = {str(item.get("doc_id") or "") for item in managed}
+                managed.extend(
+                    item
+                    for item in self._managed_items(
+                        self._preserved_resolved_case_items(backup)
+                    )
+                    if str(item.get("doc_id") or "") not in staged_doc_ids
+                )
+                replacement = await self._embed_items(managed)
 
                 await self._store.clear()
                 cleared = True
@@ -1053,6 +1359,9 @@ class RagService:
                         await self._runbooks.mark_indexed(record.runbook.id, record.revision)
                 self._seeded = True
                 self._seed_signature = self._source_signature()
+                self._record_projection_outcome(
+                    outgoing, await self._chunk_counts_by_source()
+                )
             except Exception as exc:
                 self._seeded = False
                 self._seed_signature = None
