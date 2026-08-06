@@ -249,7 +249,9 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-          cache-dependency-path: backend/requirements.txt
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
       - name: Install production dependencies
         run: |
           python -m pip install --requirement requirements.txt
@@ -342,6 +344,50 @@ jobs:
           kill "${server_pid}"
           wait "${server_pid}" || true
           trap - EXIT
+      # Installed AFTER the boot check so that check keeps running against exactly
+      # the production dependency set.
+      - name: Install test dependencies
+        run: |
+          python -m pip install --requirement requirements-dev.txt
+          python -m pip check
+      # The offline suite runs on SQLite, whose INTEGER is already 64-bit, so it
+      # structurally cannot catch a PostgreSQL-only column-width or in-place
+      # migration defect (see tests/test_postgres_state_acceptance.py). These
+      # tests skip without a PostgreSQL URL, so they must be run HERE, against the
+      # live service, with POSTGRES_TEST_DB_URL exported.
+      - name: Run the PostgreSQL state acceptance tests
+        env:
+          POSTGRES_TEST_DB_URL: postgresql+asyncpg://tlsoc:ci-postgres-password@127.0.0.1:5432/tlsoc
+          ACCEPTANCE_REPORT: ${{ runner.temp }}/postgres-acceptance.xml
+        run: |
+          python -m pytest -q -rs tests/test_postgres_state_acceptance.py \
+            --junit-xml="${ACCEPTANCE_REPORT}"
+          python - <<'PY'
+          import os
+          import xml.etree.ElementTree as ET
+
+          # These tests skip themselves without a PostgreSQL URL, so a silently
+          # skipped lane would look identical to a passing one. Assert they really
+          # EXECUTED against the live service — never let this gate go quiet.
+          root = ET.parse(os.environ["ACCEPTANCE_REPORT"]).getroot()
+          suite = root.find("testsuite") if root.tag == "testsuites" else root
+          if suite is None:
+              raise SystemExit("no testsuite element in the acceptance report")
+          counts = {
+              key: int(suite.get(key, "0"))
+              for key in ("tests", "skipped", "failures", "errors")
+          }
+          print(f"PostgreSQL acceptance results: {counts}")
+          if counts["tests"] < 1:
+              raise SystemExit("no PostgreSQL acceptance tests ran")
+          if counts["skipped"]:
+              raise SystemExit(
+                  "PostgreSQL acceptance tests were SKIPPED — the live service was "
+                  "not reachable via POSTGRES_TEST_DB_URL"
+              )
+          if counts["failures"] or counts["errors"]:
+              raise SystemExit("PostgreSQL acceptance tests failed")
+          PY
 
   webui-tests:
     name: Web UI tests (Vitest)
