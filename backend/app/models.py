@@ -512,11 +512,20 @@ class Proposal(BaseModel):
     rule selector). ``payload`` carries the SuppressionRule-shaped dict (or the
     memory text/category, bounded tuning evidence, or acknowledgement context) the
     approve path validates and, where applicable, materialises.
+
+    A pending proposal is a claim about EVIDENCE THAT EXISTED WHEN IT WAS DRAFTED, so
+    it decays. ``expires_at`` bounds its life (the queue projects a lapsed row as
+    ``expired`` and :meth:`app.stores.proposals.ProposalStore.sweep_expired` makes that
+    durable; an expired proposal can be rejected but never approved), and
+    ``evidence_fingerprint`` binds the row to the exact evidence counters and their
+    PROVENANCE that justified it. Approving a threshold change whose evidence basis can
+    no longer be verified is refused so it is re-drafted from current evidence rather
+    than applied from stale — or bulk-ratified, model-derived — reasoning.
     """
 
     id: str = Field(default_factory=lambda: new_id("prop-"))
     kind: Literal["suppression", "memory", "tuning", "automation_ack"] = "suppression"
-    status: Literal["pending", "applying", "approved", "rejected"] = "pending"
+    status: Literal["pending", "applying", "approved", "rejected", "expired"] = "pending"
     payload: dict[str, Any] = Field(default_factory=dict)
     rationale: str = ""
     confidence: float = 0.0
@@ -539,6 +548,15 @@ class Proposal(BaseModel):
     applying_at: str | None = None
     approval_error: str | None = None
     expires_at: str | None = None
+    # Bounded, operator-authored justification captured by the first rejection claim
+    # (single or bulk). Immutable afterwards, exactly like ``decision_actor``.
+    decision_reason: str | None = None
+    # ``ev1:<sha256>`` over the recommendation AND the evidence counters + provenance
+    # it was derived from (see :func:`app.stores.proposals.evidence_fingerprint`).
+    # ``None`` means the drafter recorded no verifiable basis — the honest answer for
+    # every row written before provenance was tracked, and the reason such a row can
+    # no longer be applied.
+    evidence_fingerprint: str | None = None
 
 
 # Max accepted profile-avatar data-URL length. The browser resizes to 256×256

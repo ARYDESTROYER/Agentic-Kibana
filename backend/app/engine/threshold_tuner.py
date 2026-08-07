@@ -60,7 +60,17 @@ from typing import Any, Awaitable, Callable
 from ..config import Preferences
 from ..constants import ActionType, CorrelationMode, TERMINAL_CASE_STATUSES
 from ..models import Case, Proposal
+from ..stores.proposals import (
+    PROVENANCE_BULK_RATIFIED,
+    PROVENANCE_INDEPENDENT_ANALYST,
+    PROVENANCE_KEY,
+    PROVENANCE_MIXED,
+    PROVENANCE_NO_ANALYST_EVIDENCE,
+    evidence_fingerprint,
+    evidence_summary,
+)
 from ..stores.tuning import TuningRecord, TuningStore
+from ..tools.rag import PRECEDENT_RATIFICATION_EVENT
 from ..utils import now_utc
 from .analyst_outcomes import analyst_confirmed_outcome as _analyst_outcome
 
@@ -213,6 +223,52 @@ def normalize_rule_id(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _is_bulk_ratified(case: Case) -> bool:
+    """True when an operator bulk-ratified this case's MODEL verdict as precedent.
+
+    Reads the same append-only ``case.history`` event the bulk bootstrap writes, which
+    ``analyst_confirmed_outcome`` deliberately cannot see. That invisibility is the
+    safety property — a ratification must never become a training label — so this
+    helper exists purely so the tuner can SAY that a rule's unlabelled volume was
+    bulk-ratified rather than leaving the distinction invisible on the proposal.
+    Never raises: a malformed history degrades to "not ratified".
+    """
+    try:
+        for entry in reversed(list(getattr(case, "history", None) or [])):
+            if isinstance(entry, dict) and entry.get("event") == PRECEDENT_RATIFICATION_EVENT:
+                return True
+    except Exception:  # noqa: BLE001 — provenance reporting never breaks tuning
+        return False
+    return False
+
+
+def evidence_provenance_payload(stat: RuleStat) -> dict[str, Any]:
+    """The per-provenance sample breakdown recorded on every drafted proposal.
+
+    ``independent_analyst_outcomes`` is the ONLY figure a card may present as
+    analyst-confirmed; bulk ratifications are reported beside it, never inside it.
+    """
+    independent = int(stat.total)
+    bulk = int(stat.bulk_ratified)
+    if independent > 0 and bulk > 0:
+        provenance = PROVENANCE_MIXED
+    elif independent > 0:
+        provenance = PROVENANCE_INDEPENDENT_ANALYST
+    elif bulk > 0:
+        provenance = PROVENANCE_BULK_RATIFIED
+    else:
+        provenance = PROVENANCE_NO_ANALYST_EVIDENCE
+    return {
+        "independent_analyst_outcomes": independent,
+        "analyst_feedback_labels": int(stat.feedback_labels),
+        "explicit_disposition_labels": int(stat.disposition_labels),
+        "bulk_ratified_model_verdicts": bulk,
+        "unlabelled_cases": max(0, int(stat.unconfirmed) - bulk),
+        "provenance": provenance,
+        "analyst_confirmed": independent > 0,
+    }
+
+
 def _is_fp(case: Case) -> bool:
     return _analyst_outcome(case)[0] == "false_positive"
 
@@ -236,6 +292,12 @@ class RuleStat:
     unconfirmed: int = 0      # observed cases excluded from training
     feedback_labels: int = 0
     disposition_labels: int = 0
+    # Of the ``unconfirmed`` cases, how many an operator BULK-RATIFIED as lower-trust
+    # precedent (the agent's own verdict, re-affirmed in bulk). Recorded for VISIBILITY
+    # only: it never enters ``total``/``fp``/``tp`` and therefore never moves a
+    # threshold. Its whole job is to let a proposal say "this is bulk-ratified model
+    # output, not analyst ground truth" instead of quietly presenting it as evidence.
+    bulk_ratified: int = 0
     fp_lower_bound: float = 0.0
     volume_ewma: float | None = None
     daily_counts: list[float] = field(default_factory=list)
@@ -263,6 +325,7 @@ def _accumulate_rule_stats(cases: list[Case], *, ewma_alpha: float, z: float) ->
     per_rule_days: dict[str, dict[str, int]] = {}
     for case in cases:
         outcome, evidence_source = _analyst_outcome(case)
+        ratified = outcome is None and _is_bulk_ratified(case)
         closed = _case_closed_at(case)
         day_key = closed.strftime("%Y-%m-%d") if closed else "unknown"
         canonical_rule_ids = dict.fromkeys(
@@ -280,6 +343,8 @@ def _accumulate_rule_stats(cases: list[Case], *, ewma_alpha: float, z: float) ->
             st.observed += 1
             if outcome is None:
                 st.unconfirmed += 1
+                if ratified:
+                    st.bulk_ratified += 1
             else:
                 st.total += 1
             if outcome == "false_positive":
@@ -1477,9 +1542,16 @@ async def _open_proposal(
         reason,
         ("The adaptive tuning recommendation requires human review.", "Review the evidence before applying any change."),
     )
+    provenance = evidence_provenance_payload(prop.stat)
+    # v3 keys the recommendation to its EVIDENCE PROVENANCE as well as its counters.
+    # A pre-provenance ``v2`` row therefore no longer suppresses the honest re-draft
+    # of the same recommendation: the stale one lapses and is swept, the new one
+    # carries a verifiable basis, and no queue is silently frozen behind a row whose
+    # evidence can no longer be checked.
     dedupe_key = (
-        f"tuning:v2:{action}:{reason}:{prop.kind}:{rid}:{prop.before}:{prop.after}:"
-        f"{prop.stat.observed}:{prop.stat.total}:{prop.stat.fp}:{prop.stat.tp}"
+        f"tuning:v3:{action}:{reason}:{prop.kind}:{rid}:{prop.before}:{prop.after}:"
+        f"{prop.stat.observed}:{prop.stat.total}:{prop.stat.fp}:{prop.stat.tp}:"
+        f"{provenance['provenance']}:{provenance['bulk_ratified_model_verdicts']}"
     )
     payload = {
         "tuning": True,
@@ -1511,6 +1583,9 @@ async def _open_proposal(
             "Latest analyst feedback actual_outcome or explicit analyst disposition action. "
             "Model verdicts and automatic dispositions are excluded."
         ),
+        # WHERE the samples came from, separated by trust. Bulk-ratified model
+        # verdicts are reported here and are never folded into ``analyst_samples``.
+        PROVENANCE_KEY: provenance,
         "dedupe_key": dedupe_key,
     }
     if action == "collect_evidence":
@@ -1534,6 +1609,10 @@ async def _open_proposal(
         source_case_ids=[],
         created_by="tuner",
         expires_at=expires,
+        # Bind the row to the exact evidence it was derived from. The approve path
+        # recomputes this; a payload whose recommendation or provenance no longer
+        # matches is refused and re-drafted rather than applied from stale reasoning.
+        evidence_fingerprint=evidence_fingerprint(payload),
     )
     try:
         stored, created = await _persist_proposal_verified(
@@ -1632,6 +1711,17 @@ async def _queue_historical_reviews(
             "confirmed_false_positives": 0,
             "confirmed_true_positives": 0,
             "evidence_basis": "Legacy tuning ledger; independent analyst evidence was not recorded.",
+            # Explicitly "nothing analyst-derived stands behind this", which is a very
+            # different statement from "we did not record where the evidence came from".
+            PROVENANCE_KEY: {
+                "independent_analyst_outcomes": 0,
+                "analyst_feedback_labels": 0,
+                "explicit_disposition_labels": 0,
+                "bulk_ratified_model_verdicts": 0,
+                "unlabelled_cases": int(record.samples),
+                "provenance": PROVENANCE_NO_ANALYST_EVIDENCE,
+                "analyst_confirmed": False,
+            },
             "record_id": record.id,
             "dedupe_key": dedupe_key,
         }
@@ -1644,6 +1734,7 @@ async def _queue_historical_reviews(
             ),
             confidence=0.0,
             created_by="tuner",
+            evidence_fingerprint=evidence_fingerprint(payload),
         )
         try:
             stored, created = await _persist_proposal_verified(
@@ -1697,27 +1788,72 @@ async def queue_legacy_tuning_reviews(
     return outcome
 
 
+class StaleTuningProposal(ValueError):
+    """An approved tuning recommendation that must be RE-DRAFTED, not applied.
+
+    Subclasses ``ValueError`` so every existing caller keeps its current handling
+    (the approve route already maps a stale recommendation to HTTP 409). The added
+    ``tuning_evidence_code`` lets a caller distinguish "this recommendation is out of
+    date" from an ordinary malformed-payload rejection WITHOUT importing this module
+    or matching on prose — read it with ``getattr(exc, "tuning_evidence_code", None)``.
+    """
+
+    def __init__(self, message: str, *, code: str) -> None:
+        super().__init__(message)
+        self.tuning_evidence_code = code
+
+
 def materialize_approved_tuning(
     prefs: Preferences,
     payload: dict[str, Any],
     *,
     proposal_id: str,
     allow_idempotent_replay: bool = False,
+    evidence_fingerprint_recorded: str | None = None,
 ) -> tuple[Preferences, TuningRecord | None, bool]:
     """Validate and materialise one approved tuning payload.
 
     ``review_history``, ``collect_evidence`` and ``review_finding`` acknowledge work
-    without mutating a threshold. ``apply_change`` validates that the recommendation is
-    still current and remains within the configured bound before returning a fresh
-    Preferences.
+    without mutating a threshold. ``apply_change`` must survive THREE independent
+    staleness checks before a single preference is rewritten:
+
+    1. **Its evidence basis must still be verifiable.** ``evidence_fingerprint_recorded``
+       is recomputed from the payload; a missing, mismatched or provenance-free basis
+       means nobody can prove what justified this change, so it is refused.
+    2. **That basis must be independent analyst evidence.** A recommendation standing
+       only on bulk-ratified model verdicts would be the agent tuning itself against
+       its own output, wearing the words "analyst-confirmed" — refused.
+    3. **The recommendation must still be current** — the live threshold must still be
+       the ``before`` value it was derived from, and the step must remain in policy.
+
+    Every refusal raises :class:`StaleTuningProposal`, so the caller can tell an
+    operator "this must be re-drafted" rather than reporting a generic failure.
     """
     action = str(payload.get("action") or "")
     # ``review_finding`` is the rail-7 "this rule cannot be tuned by n" observation: it
-    # carries before == after and must stay acknowledgement-only forever.
+    # carries before == after and must stay acknowledgement-only forever. These actions
+    # materialise nothing, so an unverifiable basis is a labelling problem (surfaced by
+    # ``evidence_summary``) rather than an approval hazard.
     if action in {"review_history", "collect_evidence", "review_finding"}:
         return prefs, None, False
     if action != "apply_change":
         raise ValueError("unknown tuning approval action")
+
+    # EVIDENCE GATE — before any threshold arithmetic, and identical to what the
+    # review card renders, so the UI can never present a claim the server would apply
+    # on evidence it will not stand behind.
+    summary = evidence_summary(Proposal(
+        kind="tuning",
+        payload=dict(payload),
+        evidence_fingerprint=evidence_fingerprint_recorded,
+    ))
+    if not summary["approvable"]:
+        raise StaleTuningProposal(
+            "tuning proposal is stale: its evidence basis is no longer verifiable "
+            f"({summary['blocked_reason']}); {summary['label']} Re-draft the "
+            "recommendation from current evidence instead of approving this one.",
+            code=str(summary["blocked_reason"]),
+        )
 
     rid = normalize_rule_id(payload.get("rule_id"))
     target = str(payload.get("target") or "")
@@ -1746,7 +1882,10 @@ def materialize_approved_tuning(
         live_before = exact_floor if exact_floor is not None else -1
     already_applied = bool(allow_idempotent_replay and live_before == after)
     if live_before != before and not already_applied:
-        raise ValueError("tuning proposal is stale; live threshold changed")
+        raise StaleTuningProposal(
+            "tuning proposal is stale; live threshold changed",
+            code="live_threshold_changed",
+        )
 
     stat = RuleStat(
         rule_id=rid,
@@ -1799,6 +1938,7 @@ async def commit_approved_tuning(
     tuning_store: TuningStore,
     write_prefs: Callable[[Preferences], Awaitable[Preferences] | Preferences],
     mutate_prefs: PrefsMutator | None = None,
+    evidence_fingerprint_recorded: str | None = None,
 ) -> tuple[TuningRecord | None, bool]:
     """Commit one approved tuning effect with durable rollback provenance.
 
@@ -1816,6 +1956,7 @@ async def commit_approved_tuning(
         payload,
         proposal_id=proposal_id,
         allow_idempotent_replay=True,
+        evidence_fingerprint_recorded=evidence_fingerprint_recorded,
     )
     if preview_record is None:
         return None, False
@@ -1833,6 +1974,7 @@ async def commit_approved_tuning(
                 payload,
                 proposal_id=proposal_id,
                 allow_idempotent_replay=True,
+                evidence_fingerprint_recorded=evidence_fingerprint_recorded,
             )
             if record is None:
                 raise ValueError("approved tuning change has no rollback record")

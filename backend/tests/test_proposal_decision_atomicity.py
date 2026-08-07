@@ -36,6 +36,7 @@ from app.api.routes import approve_proposal, reject_proposal
 from app.constants import AUDIT_READ_PATTERN, ActionType
 from app.models import Proposal
 from app.state import AppState
+from app.stores.proposals import PROVENANCE_KEY, evidence_fingerprint
 
 
 # --------------------------------------------------------------------------- #
@@ -98,30 +99,46 @@ def _memory_proposal(text: str = "Scanner 10.0.0.12 is an approved asset.") -> P
 
 
 def _tuning_proposal(state: AppState, rule_id: str) -> Proposal:
-    """A bounded, in-policy correlation_n increase for ``rule_id``."""
+    """A bounded, in-policy correlation_n increase for ``rule_id``.
+
+    Carries a verifiable evidence basis (independent analyst provenance + the matching
+    fingerprint) because the approve path now refuses to enact a threshold change it
+    cannot prove the origin of. See ``test_proposal_lifecycle.py`` for the refusals.
+    """
     before = state.execution_prefs.correlation_for(rule_id).n
+    payload = {
+        "tuning": True,
+        "action": "apply_change",
+        "reason_code": "policy_requires_approval",
+        "reason": "Independent analyst evidence supports a bounded change.",
+        "recommended_action": "Approve the bounded threshold increase.",
+        "rule_id": rule_id,
+        "target": "correlation_n",
+        "before": before,
+        "after": before + 1,
+        "fp_rate": 0.72,
+        "analyst_samples": 40,
+        "observed_cases": 46,
+        "unconfirmed_cases": 6,
+        "confirmed_false_positives": 37,
+        "confirmed_true_positives": 3,
+        "evidence_basis": "analyst outcomes",
+        PROVENANCE_KEY: {
+            "independent_analyst_outcomes": 40,
+            "analyst_feedback_labels": 31,
+            "explicit_disposition_labels": 9,
+            "bulk_ratified_model_verdicts": 0,
+            "unlabelled_cases": 6,
+            "provenance": "independent_analyst",
+            "analyst_confirmed": True,
+        },
+        "dedupe_key": f"atomicity-{rule_id}",
+    }
     return Proposal(
         kind="tuning",
-        payload={
-            "tuning": True,
-            "action": "apply_change",
-            "reason_code": "policy_requires_approval",
-            "reason": "Independent analyst evidence supports a bounded change.",
-            "recommended_action": "Approve the bounded threshold increase.",
-            "rule_id": rule_id,
-            "target": "correlation_n",
-            "before": before,
-            "after": before + 1,
-            "fp_rate": 0.72,
-            "analyst_samples": 40,
-            "observed_cases": 46,
-            "unconfirmed_cases": 6,
-            "confirmed_false_positives": 37,
-            "confirmed_true_positives": 3,
-            "evidence_basis": "analyst outcomes",
-            "dedupe_key": f"atomicity-{rule_id}",
-        },
+        payload=payload,
         created_by="tuner",
+        evidence_fingerprint=evidence_fingerprint(payload),
     )
 
 
@@ -502,12 +519,18 @@ async def test_stale_tuning_proposal_is_refused_without_a_decision_audit_row(
     """A recommendation overtaken by a live change is 409'd before it is audited."""
     prop = _tuning_proposal(app_state, "stale_rule")
     await app_state.proposals.add(prop)
-    # Someone raised the live threshold in the meantime.
+    # Someone raised the live threshold in the meantime. The evidence basis itself is
+    # intact (the fingerprint is recomputed for the shifted payload), so this pins the
+    # live-configuration staleness seam specifically.
     stale_payload = dict(prop.payload)
     stale_payload["before"] = int(stale_payload["before"]) + 5
     stale_payload["after"] = int(stale_payload["after"]) + 5
     await app_state.proposals.add(
-        prop.model_copy(update={"id": prop.id + "-stale", "payload": stale_payload})
+        prop.model_copy(update={
+            "id": prop.id + "-stale",
+            "payload": stale_payload,
+            "evidence_fingerprint": evidence_fingerprint(stale_payload),
+        })
     )
 
     with pytest.raises(HTTPException) as caught:
