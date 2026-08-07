@@ -56,6 +56,8 @@ import type {
   ModelsResponse,
   NoiseLineage,
   NoiseReduction,
+  AutoCloseHealth,
+  DiagnosticsHealth,
   NotificationPreview,
   NotificationProviders,
   NotificationTemplate,
@@ -1266,6 +1268,24 @@ export const api = {
   noiseReductionLineage: (windowHours = 24, limit = 12) =>
     request<NoiseLineage>('GET', 'metrics/noise-reduction/lineage', {
       query: { window_hours: windowHours, limit },
+    }),
+
+  // ---- Operator diagnostics (the silent failures, made observable) ----- //
+  // GET /api/diagnostics/health — the precedent-corpus / schema-migration /
+  // auto-close roll-up. `settings:read` server-side, and deliberately NOT on the
+  // public /api/health. Read-only + seed-free: asking never triggers an embedding
+  // spend or a projection. Returns SEPARATE `alerts` and `unknowns` lists, so an
+  // empty `alerts` is never rendered as a clean bill of health.
+  // GET /api/metrics/auto-close-health — the rolling auto-close signal with an
+  // explicit `status` (`metrics:view` server-side). Both are typeof-guardable at the
+  // call site so a minimal test/mock surface never has to stub them.
+  diagnosticsHealth: (windowHours = 24) =>
+    request<DiagnosticsHealth>('GET', 'diagnostics/health', {
+      query: { window_hours: windowHours },
+    }),
+  autoCloseHealth: (windowHours = 24) =>
+    request<AutoCloseHealth>('GET', 'metrics/auto-close-health', {
+      query: { window_hours: windowHours },
     }),
 
   // ---- Analytics surfaces ---------------------------------------------- //

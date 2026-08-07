@@ -34,7 +34,7 @@ import { Textarea } from '@/ui/textarea';
 import { Separator } from '@/ui/separator';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/ui/collapsible';
 
-import { tsValue } from './shared';
+import { DURABLE_CONTEXT_NOTE, tsValue } from './shared';
 
 /* ------------------------------------------------------------------ types --- */
 
@@ -260,8 +260,15 @@ export const GradingFields: React.FC<GradingFieldsProps> = ({
             rows={2}
             placeholder="What did the analyst see that the agent didn't?"
             value={draft.comment ?? ''}
+            aria-describedby="grading-miss-help"
             onChange={(e) => patch({ comment: e.target.value })}
           />
+          {/* The analyst-comment disclosure: this grading comment is posted to
+              `/cases/{id}/feedback`, which re-indexes the resolved case — so the text
+              becomes part of the precedent chunk the investigator reads later. */}
+          <p id="grading-miss-help" className="text-xs leading-relaxed text-muted-foreground">
+            {DURABLE_CONTEXT_NOTE}
+          </p>
         </div>
       ) : null}
 

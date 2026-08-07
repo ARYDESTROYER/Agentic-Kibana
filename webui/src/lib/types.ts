@@ -1321,6 +1321,30 @@ export interface EnrichmentConfig {
   cache_ttl_seconds?: number;
 }
 
+/**
+ * Compounding guards for the LOWER-TRUST `model_unconfirmed` precedent tier
+ * (`RagConfig.unconfirmed_precedent`). Every guard is inert while
+ * {@link RagConfig.use_unconfirmed_resolved_cases} is false.
+ *
+ * The tier indexes the agent's OWN auto-closed verdicts — prior model judgements, not
+ * analyst decisions — so these bounds exist to stop one unreviewed close becoming
+ * quotable precedent, and to stop a run being dominated by an echo of itself.
+ */
+export interface UnconfirmedPrecedentConfig {
+  /** Minimum MODEL confidence (0..1) on the auto-closed case before it may be precedent. */
+  min_confidence?: number;
+  /** How often the same (entity-type, rule set, outcome) pattern must recur. 1 disables. */
+  min_recurrence?: number;
+  /** Age-out horizon in days, applied to the case's terminal timestamp. */
+  max_age_days?: number;
+  /** Hard cap on the FRACTION of one retrieval that may be unconfirmed precedent (0 blocks it). */
+  max_context_share?: number;
+  /** Multiplier (0..1) demoting an unconfirmed chunk's final ranking score. */
+  rank_penalty?: number;
+  /** Bound on how many unconfirmed precedents the projection may hold at all. */
+  max_items?: number;
+}
+
 export interface RagConfig {
   enabled?: boolean;
   top_k?: number;
@@ -1331,6 +1355,15 @@ export interface RagConfig {
   use_suppression_rules?: boolean;
   /** Inject imported threat-intel corpus (source="threat_context") as TRUSTED fenced context (F11). */
   use_threat_context?: boolean;
+  /**
+   * The LOWER-TRUST precedent tier — DEFAULT FALSE. Additionally indexes the agent's own
+   * auto-closed cases as a distinct `model_unconfirmed` tier: prior MODEL JUDGEMENTS, never
+   * analyst decisions. Requires `use_resolved_cases`; always outranked by analyst-confirmed
+   * precedent, bounded by {@link unconfirmed_precedent}, and still UNTRUSTED-fenced (#9).
+   */
+  use_unconfirmed_resolved_cases?: boolean;
+  /** Compounding bounds on the lower-trust tier above. */
+  unconfirmed_precedent?: UnconfirmedPrecedentConfig;
 }
 
 export interface StandupConfig {
@@ -3317,6 +3350,193 @@ export interface NoiseLineage {
     store_truncated: boolean;
   };
   limitations: string;
+}
+
+// --------------------------------------------------------------------------- //
+// Operator diagnostics — the SILENT failures, made observable.
+// GET /api/diagnostics/health (settings:read) · GET /api/metrics/auto-close-health
+// (metrics:view). Both are read-only, seed-free, and ADVISORY: nothing here is ever
+// an input to the deterministic close/escalate decision (#3).
+//
+// THE CONTRACT THAT MATTERS: `alerts` are positively-detected conditions and
+// `unknowns` are signals that could NOT be evaluated. They are separate lists on
+// purpose — an empty `alerts` with a non-empty `unknowns` is "we could not tell",
+// never "everything is fine". There is deliberately no composite health score.
+// --------------------------------------------------------------------------- //
+
+/** One diagnostics finding — an entry in either `alerts` or `unknowns`. */
+export interface DiagnosticsFinding {
+  id: string;
+  /** `critical` | `warning` on an alert; always `unknown` on an unknown. */
+  severity: string;
+  title: string;
+  /** Plain-text explanation (rendered escaped, never as markup). */
+  detail: string;
+  /** Suggested operator remediation; may be empty. */
+  remediation: string;
+}
+
+/** The last RAG projection's per-source before/after outcome (in-process only). */
+export interface DiagnosticsProjection {
+  /** False until a projection has run IN THIS PROCESS — reported, never faked as zero. */
+  available: boolean;
+  /** `recorded` | `not_yet_projected`. */
+  state: string;
+  scope: string;
+  reason: string;
+  sources: Record<string, Record<string, unknown>>;
+  shrank_sources: string[];
+  collapsed_sources: string[];
+}
+
+/** How much analyst-confirmed ground truth the fetched case history actually holds. */
+export interface PrecedentGroundTruth {
+  analyst_confirmed_cases: number;
+  terminal_cases: number;
+  scanned_cases: number;
+  by_outcome: Record<string, number>;
+  by_evidence_source: Record<string, number>;
+  zero_analyst_confirmed_cases: boolean;
+  truncated: boolean;
+  store_total: number;
+  fetched: number;
+}
+
+/** Precedent-corpus health: size, per-source counts, and the explicit starvation flag. */
+export interface PrecedentCorpusHealth {
+  /** The corpus itself could be read at all. */
+  available: boolean;
+  /** The analyst-confirmed count below is a trustworthy TOTAL (not a lower bound). */
+  known: boolean;
+  reason: string;
+  /** `ok` | `starved` | `disabled` | `unknown`. */
+  status: string;
+  status_reason: string;
+  rag_enabled: boolean;
+  precedent_source: string;
+  precedent_source_enabled: boolean;
+  /** True when the lower-trust `model_unconfirmed` tier shares this corpus source. */
+  unconfirmed_tier_enabled: boolean;
+  precedent_documents: number;
+  precedent_chunks: number;
+  analyst_confirmed_precedent_documents: number;
+  analyst_confirmed_count_exact: boolean;
+  /** THE flag: "0 analyst-confirmed precedents available", as a diagnosable state. */
+  zero_analyst_confirmed_precedents: boolean;
+  /** True only when the source is ENABLED and positively known to be empty. */
+  starved: boolean;
+  total_chunks: number;
+  total_documents: number;
+  chunks_by_source: Record<string, number>;
+  documents_by_source: Record<string, number>;
+  projection: DiagnosticsProjection;
+  ground_truth: PrecedentGroundTruth;
+}
+
+/** The in-place SQL schema-migration outcome. `failed` breaks strict audit writes. */
+export interface SchemaMigrationHealth {
+  available: boolean;
+  /** `ok` | `failed` | `not_applicable`. */
+  state: string;
+  state_backend: string;
+  detail: string;
+  /** Remediation SQL, when the backend supplied one. */
+  remediation: string;
+  failed: boolean;
+  reason: string;
+}
+
+/** One window's auto-close tally. `rate` is the DASH string when it cannot be measured. */
+export interface AutoCloseWindow {
+  decided: number;
+  auto_closed: number;
+  routed_to_human: number;
+  analyst_decided: number;
+  /** 0..1 — or the backend DASH string `'—'` when `available` is false. */
+  rate: number | string;
+  available: boolean;
+  /** Honest reason the rate is unavailable (plain text). Never a fabricated 0. */
+  reason: string;
+}
+
+/** A read-only mirror of the operator's auto-close policy (display only, #3). */
+export interface AutoClosePolicySnapshot {
+  available: boolean;
+  any_enabled: boolean;
+  false_positive_enabled: boolean;
+  true_positive_enabled: boolean;
+  reason: string;
+}
+
+/**
+ * The explicit auto-close health status. NEVER a score:
+ * `disabled` (configured off) · `no_volume` (nothing decided — a quiet period, not an
+ * outage) · `collapsed` (rate fell to ~0 while volume held steady — THE outage signal) ·
+ * `never_fired` · `degraded` · `insufficient_evidence` · `ok`.
+ */
+export type AutoCloseHealthStatus =
+  | 'disabled'
+  | 'no_volume'
+  | 'collapsed'
+  | 'never_fired'
+  | 'degraded'
+  | 'insufficient_evidence'
+  | 'ok';
+
+/** GET /api/metrics/auto-close-health — the rolling auto-close signal. */
+export interface AutoCloseHealth {
+  window_hours: number;
+  generated_at: string;
+  current: AutoCloseWindow;
+  baseline: AutoCloseWindow;
+  lifetime: AutoCloseWindow;
+  policy: AutoClosePolicySnapshot;
+  status: AutoCloseHealthStatus | string;
+  reason: string;
+  collapsed: boolean;
+  volume_steady: boolean;
+  comparable: boolean;
+  needs_attention: boolean;
+  thresholds: Record<string, number>;
+  truncated: boolean;
+  store_total: number;
+  fetched: number;
+}
+
+/** GET /api/diagnostics/health — the operator diagnostics roll-up. */
+export interface DiagnosticsHealth {
+  generated_at: string;
+  window_hours: number;
+  demo_active: boolean;
+  state_backend: string;
+  precedent_corpus: PrecedentCorpusHealth;
+  schema_migration: SchemaMigrationHealth;
+  auto_close: AutoCloseHealth;
+  /** POSITIVELY DETECTED conditions. */
+  alerts: DiagnosticsFinding[];
+  /** Signals that could NOT be evaluated. Not problems — and not a clean bill either. */
+  unknowns: DiagnosticsFinding[];
+  alert_count: number;
+  unknown_count: number;
+}
+
+/**
+ * GET /api/rag/precedent/bootstrap — preview of the bulk lower-trust ratification
+ * (POST adds `ratified`/`indexed`/`remaining`). Read-only; the tier is never enabled here.
+ */
+export interface PrecedentBootstrapStatus {
+  tier_enabled: boolean;
+  use_resolved_cases: boolean;
+  use_unconfirmed_resolved_cases: boolean;
+  trust_class: string;
+  provenance: string;
+  acknowledgement_required: string;
+  max_batch: number;
+  guards: UnconfirmedPrecedentConfig;
+  /** Explicit statements of what bootstrapping does NOT do (plain text). */
+  does_not: string[];
+  eligible: number;
+  pending: number;
 }
 
 // --------------------------------------------------------------------------- //

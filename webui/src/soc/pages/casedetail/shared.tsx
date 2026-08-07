@@ -45,6 +45,24 @@ import { isAutoClosedByAI } from '@/soc/components/badges';
 export const CASE_MANAGER_PANEL_PADDING =
   'px-4 py-4 sm:px-5 sm:py-5 lg:px-6';
 
+/**
+ * THE analyst-comment disclosure — shown wherever a note the analyst writes on a
+ * close/confirm-FP or an AI grading is carried into `index_resolved_case`.
+ *
+ * Why this label exists: a comment written here is embedded into the resolved-case
+ * precedent chunk and is read back by the investigator on every future retrieval that
+ * matches. In production an ordinary operational aside ("Backfill: confirming agent
+ * FALSE_POSITIVE disposition…") became durable evidence and quietly depressed
+ * investigator confidence just under the auto-close bar, so nothing closed. The text
+ * was well-formed — its MEANING was the problem — so sanitising could never have caught
+ * it. The only real fix is telling the analyst, where they type, what the note becomes.
+ *
+ * Deliberately a calm one-line LABEL, not a warning banner: notes are wanted, and the
+ * point is informed authorship rather than discouragement.
+ */
+export const DURABLE_CONTEXT_NOTE =
+  'Saved with the resolved case as durable context — the AI reads this note when it investigates similar cases later.';
+
 /** One selectable notification channel in the Notify dialog. */
 export interface NotifyChannelOption {
   id: string;
