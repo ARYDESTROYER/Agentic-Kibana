@@ -431,6 +431,30 @@ def _assert_release(path: Path, workflow: dict[str, Any]) -> None:
         "Verify the signed plan inside the constrained update supervisor"
     )
     constrained_run = str(constrained_step.get("run", ""))
+    permission_prep_markers = (
+        'verification_dir="$(mktemp -d)"',
+        "install -m 0444 upgrade-plan.json \\\n"
+        '  "${verification_dir}/upgrade-plan.json"',
+        "install -m 0444 upgrade-plan.sigstore.json \\\n"
+        '  "${verification_dir}/upgrade-plan.sigstore.json"',
+        'chmod 0555 "${verification_dir}"',
+        "docker run --detach",
+    )
+    cleanup_guard = 'if [[ -d "${verification_dir}" ]]; then'
+    cleanup_permission_restore = 'chmod 0700 "${verification_dir}"'
+    cleanup_status_capture = "release_step_status=$?"
+    cleanup_trap_disable = "trap - EXIT"
+    cleanup_failure_state = "verification_cleanup_status=0"
+    cleanup_remaining_init = 'remaining_container=""'
+    cleanup_absence_probe = "docker container ls --all"
+    cleanup_exact_name_filter = '--filter "name=^/${container}$"'
+    cleanup_remaining_check = 'elif [[ -n "${remaining_container}" ]]; then'
+    cleanup_safe_guard = "if (( verification_cleanup_status == 0 )); then"
+    cleanup_failure_promotion = (
+        "if (( release_step_status == 0 && verification_cleanup_status != 0 )); then"
+    )
+    cleanup_status_exit = 'exit "${release_step_status}"'
+    cleanup_registration = "trap cleanup EXIT"
     if constrained_step.get("env") != {
         "UPDATER": "${{ steps.images.outputs.updater }}"
     }:
@@ -454,6 +478,7 @@ def _assert_release(path: Path, workflow: dict[str, Any]) -> None:
         "target=/var/backups/agentic-soc",
         "target=/deployment/host-runtime",
         "target=/verification,readonly",
+        *permission_prep_markers[:-1],
         '"${UPDATER}"',
         ".State.Health.Status",
         "docker logs \"${container}\"",
@@ -462,6 +487,8 @@ def _assert_release(path: Path, workflow: dict[str, Any]) -> None:
         '--env EXPECTED_IDENTITY="${identity}"',
         'test "${TUF_ROOT}" = /var/lib/agentic-soc-updater/sigstore-root',
         'test -w "${TUF_ROOT}"',
+        "test -r /verification/upgrade-plan.json",
+        "test -r /verification/upgrade-plan.sigstore.json",
         "cosign verify-blob",
         "upgrade-plan.sigstore.json",
         "upgrade-plan.json",
@@ -472,12 +499,102 @@ def _assert_release(path: Path, workflow: dict[str, Any]) -> None:
             raise ValueError(
                 f"{path}: constrained updater signed-plan verification lacks {marker!r}"
             )
+    if any(constrained_run.count(marker) != 1 for marker in permission_prep_markers):
+        raise ValueError(
+            f"{path}: constrained updater verification preparation must contain "
+            "each least-privilege operation exactly once"
+        )
+    if constrained_run.count(cleanup_permission_restore) != 1:
+        raise ValueError(
+            f"{path}: constrained updater verification cleanup must restore "
+            "the runner-owned fixture's private mode exactly once"
+        )
+    if constrained_run.count(cleanup_guard) != 1:
+        raise ValueError(
+            f"{path}: constrained updater verification cleanup must guard the "
+            "runner-owned fixture exactly once"
+        )
+    for marker in (
+        cleanup_status_capture,
+        cleanup_trap_disable,
+        cleanup_failure_state,
+        cleanup_remaining_init,
+        cleanup_absence_probe,
+        cleanup_exact_name_filter,
+        cleanup_remaining_check,
+        cleanup_safe_guard,
+        cleanup_failure_promotion,
+        cleanup_status_exit,
+        cleanup_registration,
+    ):
+        if constrained_run.count(marker) != 1:
+            raise ValueError(
+                f"{path}: constrained updater verification cleanup must preserve "
+                f"the release result with {marker!r} exactly once"
+            )
+    mktemp_index = constrained_run.index(permission_prep_markers[0])
+    cleanup_registration_index = constrained_run.index(cleanup_registration)
+    first_install_index = constrained_run.index(permission_prep_markers[1])
+    if not mktemp_index < cleanup_registration_index < first_install_index:
+        raise ValueError(
+            f"{path}: constrained updater verification must register cleanup "
+            "immediately after creating the runner-owned fixture"
+        )
+    cleanup_capture_index = constrained_run.index(cleanup_status_capture)
+    cleanup_disable_index = constrained_run.index(cleanup_trap_disable)
+    cleanup_docker_remove_index = constrained_run.index(
+        'docker rm --force "${container}"'
+    )
+    cleanup_remaining_init_index = constrained_run.index(cleanup_remaining_init)
+    cleanup_absence_probe_index = constrained_run.index(cleanup_absence_probe)
+    cleanup_remaining_check_index = constrained_run.index(cleanup_remaining_check)
+    cleanup_safe_guard_index = constrained_run.index(cleanup_safe_guard)
+    cleanup_volume_remove_index = constrained_run.index(
+        'docker volume rm --force "${volume}"'
+    )
+    cleanup_guard_index = constrained_run.index(cleanup_guard)
+    cleanup_restore_index = constrained_run.index(cleanup_permission_restore)
+    cleanup_remove_index = constrained_run.index('rm -rf -- "${verification_dir}"')
+    cleanup_promotion_index = constrained_run.index(cleanup_failure_promotion)
+    cleanup_exit_index = constrained_run.index(cleanup_status_exit)
+    if not (
+        cleanup_capture_index
+        < cleanup_disable_index
+        < cleanup_docker_remove_index
+        < cleanup_remaining_init_index
+        < cleanup_absence_probe_index
+        < cleanup_remaining_check_index
+        < cleanup_safe_guard_index
+        < cleanup_volume_remove_index
+        < cleanup_guard_index
+        < cleanup_restore_index
+        < cleanup_remove_index
+        < cleanup_promotion_index
+        < cleanup_exit_index
+    ):
+        raise ValueError(
+            f"{path}: constrained updater verification cleanup must preserve the "
+            "original result, prove the container and bind are absent, restore "
+            "private mode, remove the guarded fixture, and return the correct result"
+        )
+    permission_prep_indices = [
+        constrained_run.index(marker) for marker in permission_prep_markers
+    ]
+    if permission_prep_indices != sorted(permission_prep_indices):
+        raise ValueError(
+            f"{path}: constrained updater verification preparation must order "
+            "mktemp, exact read-only installs, chmod 0555, then docker run"
+        )
     for forbidden in (
         "--entrypoint",
         "--env TUF_ROOT",
         "--env HOME",
         "/var/run/docker.sock",
         "continue-on-error",
+        "cp upgrade-plan.json upgrade-plan.sigstore.json",
+        "chmod 0777",
+        "chmod -R",
+        "chown ",
     ):
         if forbidden in constrained_run:
             raise ValueError(
@@ -634,6 +751,38 @@ def _assert_dockerfile_bases(path: Path) -> None:
             stages.add(stage_name)
 
 
+def _assert_webui_build_platforms(path: Path) -> None:
+    """Keep architecture-neutral Console builds native in multi-platform releases."""
+
+    stages: list[tuple[str | None, str | None]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        match = re.match(
+            r"^\s*FROM\s+(?:--platform=(\S+)\s+)?\S+(?:\s+AS\s+(\S+))?\s*$",
+            line,
+            flags=re.IGNORECASE,
+        )
+        if match is not None:
+            platform, stage_name = match.groups()
+            stages.append((stage_name.lower() if stage_name else None, platform))
+
+    stage_platforms = {
+        stage_name: platform for stage_name, platform in stages if stage_name is not None
+    }
+    for stage_name in ("docs", "build"):
+        if stage_platforms.get(stage_name) != "$BUILDPLATFORM":
+            raise ValueError(
+                f"{path}: architecture-neutral {stage_name!r} stage must use "
+                "--platform=$BUILDPLATFORM so package tools never run under target "
+                "architecture emulation"
+            )
+
+    if not stages or stages[-1] != (None, None):
+        raise ValueError(
+            f"{path}: final Web Console runtime stage must be the unnamed last stage "
+            "and inherit Docker's target platform without a --platform override"
+        )
+
+
 def main() -> int:
     paths = _workflow_paths()
     for path in paths:
@@ -647,6 +796,7 @@ def main() -> int:
             _assert_docs(path, workflow)
     for path in SHIPPING_DOCKERFILES:
         _assert_dockerfile_bases(path)
+    _assert_webui_build_platforms(ROOT / "webui" / "Dockerfile")
     print(
         f"CI policy passed for {len(paths)} workflows and "
         f"{len(SHIPPING_DOCKERFILES)} shipping Dockerfiles"

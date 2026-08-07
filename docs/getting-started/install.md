@@ -24,10 +24,11 @@ when infrastructure and external model calls are not part of your evaluation.
 
 ## 1. Check out version 0.1
 
-Use the immutable Stable tag:
+After its complete signed publication and canonical runtime acceptance succeed, use
+the immutable `v0.1.12` Stable tag:
 
 ```bash
-git clone --branch v0.1.9 --depth 1 \
+git clone --branch v0.1.12 --depth 1 \
   https://github.com/ARYDESTROYER/Agentic-Kibana.git
 cd Agentic-Kibana
 ```
@@ -42,17 +43,25 @@ The immutable `v0.1.4` and `v0.1.5` tags are not installable releases: their
 publication attempts stopped before a canonical signed plan and public GitHub
 Release existed. The immutable `v0.1.6`, `v0.1.7`, and `v0.1.8` publications have signed/public
 artifacts but failed canonical bootstrap acceptance at different portability
-boundaries. Use `v0.1.9` only
-when its canonical GitHub Release, plan signature, and public image digests verify
-and canonical PostgreSQL Compose runtime acceptance completes. Otherwise use a
+boundaries. The immutable `v0.1.9` publication built, signed, and anonymously proved
+all three images, but its constrained supervisor could not traverse the runner-owned
+verification directory and no GitHub Release or installable plan was published. The
+immutable `v0.1.10` workflow later timed out while its Web Console builder ran under
+target emulation; it also has no installable GitHub Release or canonical signed plan.
+The immutable `v0.1.11` workflow built, signed, anonymously proved, and verified all
+three images and the plan but failed during post-verification cleanup before its
+canonical Release or assets were published. Both must never be used. Use `v0.1.12`
+only when its canonical GitHub Release, plan
+signature, public image digests, and canonical PostgreSQL Compose runtime acceptance
+all verify. Otherwise use a
 previously verified Stable release or Testing only for an explicitly
 unreleased evaluation.
 
-The immutable `v0.1.8` tag has valid signed/public artifacts, but canonical
-bootstrap failed when cosign 3 tried to initialize its default TUF cache beneath the
-updater's read-only `/root`. It is a superseded historical record, not a supported
-deployment or bootstrap source; 0.1.9 moves that trust state to the writable updater
-state volume without a schema, protocol, identity, privilege, or frozen-base change.
+Version 0.1.12 retains the writable updater trust cache and least-privilege verification
+assets, and moves only architecture-neutral Console builder work to BuildKit's native
+platform. The final nginx runtime remains target-platform-specific. It also restores
+the runner-owned verification fixture to private mode only after verifier exit. It changes no
+schema, protocol, identity, privilege, trust predicate, or frozen-base bytes.
 
 ## 2. Prepare configuration
 

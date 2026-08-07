@@ -12,8 +12,8 @@ real source with persistent application state.
 !!! info "Choose the matching channel"
 
     `Testing` contains integrated candidates. Under the release contract, `main`
-    holds only accepted Stable source and immutable `v0.1.9` identifies this patch.
-    The remote has both canonical branches; use `v0.1.9` only when its signed GitHub
+    holds only accepted Stable source and immutable `v0.1.12` identifies this candidate.
+    The remote has both canonical branches; use `v0.1.12` only when its signed GitHub
     Release and public digest-pinned images verify and canonical PostgreSQL Compose
     runtime acceptance completes, and use `Testing` only for an unreleased preview;
     repository administrators must verify branch protections and required checks
@@ -24,7 +24,15 @@ real source with persistent application state.
     installation. Versions 0.1.7 and 0.1.8 are also immutable, superseded history:
     0.1.7 could not publish the private control socket under dropped capabilities,
     while 0.1.8 reached signed-plan verification but cosign's default TUF cache was
-    unwritable beneath the read-only root filesystem.
+    unwritable beneath the read-only root filesystem. Version 0.1.9 corrected that
+    cache location, then failed when the constrained supervisor could not traverse
+    the runner-owned verification directory; it has no installable GitHub Release.
+    Version 0.1.10 fixed that traversal boundary but its signed-release job timed out
+    while the architecture-neutral Web Console builder ran under target emulation.
+    Version 0.1.11 then passed all image and plan verification, including inside the
+    constrained updater, but its post-verification cleanup failed before canonical
+    Release publication. Both are immutable, non-installable history and must never
+    be recommended.
 
 ## Get the source
 
@@ -36,19 +44,21 @@ real source with persistent application state.
     cd Agentic-Kibana
     ```
 
-=== "Stable 0.1.9"
+=== "Stable 0.1.12 (after acceptance)"
 
     ```bash
-    git clone --branch v0.1.9 --depth 1 \
+    git clone --branch v0.1.12 --depth 1 \
       https://github.com/ARYDESTROYER/Agentic-Kibana.git
     cd Agentic-Kibana
     ```
 
-    The `v0.1.9` tag is immutable after publication; do not create, move, or replace it locally. Users
+    The `v0.1.12` tag is absent before publication and immutable afterward; do not
+    create, move, or replace it locally. Users
     pulling `main` receive the current accepted Stable source, while candidate work
     remains isolated on `Testing`. A branch name alone is not acceptance evidence,
     so repository administrators must verify protections and required checks. If the
-    signed Release or public image evidence is missing, use a previously verified Stable release.
+    signed Release, public image evidence, or canonical runtime acceptance is missing,
+    use a previously verified Stable release.
 
 ## Option A: deterministic demo
 

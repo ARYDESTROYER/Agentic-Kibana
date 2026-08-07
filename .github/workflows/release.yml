@@ -572,15 +572,52 @@ jobs:
           backup_volume="agentic-soc-release-updater-backup-${suffix}"
           runtime_volume="agentic-soc-release-updater-runtime-${suffix}"
           verification_dir="$(mktemp -d)"
-          cp upgrade-plan.json upgrade-plan.sigstore.json "${verification_dir}/"
           cleanup() {
+            release_step_status=$?
+            trap - EXIT
+            verification_cleanup_status=0
             docker rm --force "${container}" >/dev/null 2>&1 || true
-            for volume in "${control_volume}" "${state_volume}" "${backup_volume}" "${runtime_volume}"; do
-              docker volume rm --force "${volume}" >/dev/null 2>&1 || true
-            done
-            rm -rf -- "${verification_dir}"
+            remaining_container=""
+            if ! remaining_container="$(
+              docker container ls --all \
+                --filter "name=^/${container}$" \
+                --format '{{.Names}}'
+            )"; then
+              verification_cleanup_status=1
+            elif [[ -n "${remaining_container}" ]]; then
+              verification_cleanup_status=1
+            fi
+            if (( verification_cleanup_status == 0 )); then
+              for volume in "${control_volume}" "${state_volume}" "${backup_volume}" "${runtime_volume}"; do
+                docker volume rm --force "${volume}" >/dev/null 2>&1 || true
+              done
+              # The runner owns this directory. Restore its original private mode
+              # only after Docker proves the read-only bind is gone so the fixture
+              # can be removed without broadening supervisor-visible permissions.
+              if [[ -d "${verification_dir}" ]]; then
+                if chmod 0700 "${verification_dir}"; then
+                  rm -rf -- "${verification_dir}" || verification_cleanup_status=1
+                else
+                  verification_cleanup_status=1
+                fi
+              fi
+            fi
+            if (( release_step_status == 0 && verification_cleanup_status != 0 )); then
+              release_step_status="${verification_cleanup_status}"
+            fi
+            exit "${release_step_status}"
           }
           trap cleanup EXIT
+          # mktemp creates a 0700 directory owned by the runner. The shipping
+          # supervisor deliberately drops every Linux capability, so even uid 0
+          # cannot traverse that host-owned directory through a read-only bind.
+          # Normalize the verification inputs to immutable, world-readable bytes
+          # before removing directory write access. The bind remains read-only.
+          install -m 0444 upgrade-plan.json \
+            "${verification_dir}/upgrade-plan.json"
+          install -m 0444 upgrade-plan.sigstore.json \
+            "${verification_dir}/upgrade-plan.sigstore.json"
+          chmod 0555 "${verification_dir}"
           for volume in "${control_volume}" "${state_volume}" "${backup_volume}" "${runtime_volume}"; do
             docker volume create "${volume}" >/dev/null
           done
@@ -626,6 +663,8 @@ jobs:
           test "${TUF_ROOT}" = /var/lib/agentic-soc-updater/sigstore-root
           mkdir -p "${TUF_ROOT}"
           test -w "${TUF_ROOT}"
+          test -r /verification/upgrade-plan.json
+          test -r /verification/upgrade-plan.sigstore.json
           cosign verify-blob \
             --bundle /verification/upgrade-plan.sigstore.json \
             --certificate-identity "${EXPECTED_IDENTITY}" \

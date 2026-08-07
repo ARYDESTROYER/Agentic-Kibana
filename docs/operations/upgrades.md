@@ -12,15 +12,17 @@ feature branches → Testing → main (Stable)
 ```
 
 `Testing` is the integration and acceptance branch. `main` is the supported Stable
-branch. The current release is represented as `0.1.9` in packages/images and
-`v0.1.9` as an immutable release tag; its documentation
-line remains `0.1`.
+branch. The current source candidate is represented as `0.1.12` in packages/images
+and becomes Stable only if the immutable `v0.1.12` tag and its complete signed/public
+artifact set pass every publication and canonical runtime acceptance gate; its
+documentation line remains `0.1`.
 
 !!! note "Canonical topology and administrative controls"
 
     The remote now uses `Testing` for integration and default `main` for accepted
-    Stable source. Version 0.1.9 is Stable only when the exact verified `main`
-    commit has the immutable `v0.1.9` tag and matching signed/public artifacts.
+    Stable source. Version 0.1.12 is Stable only when the exact verified `main`
+    commit has the immutable `v0.1.12` tag, matching signed/public artifacts, and
+    completed canonical runtime acceptance.
     Pull-request protections,
     required checks, and release-environment policy are repository settings rather
     than source-code guarantees. Administrators must verify them independently;
@@ -43,7 +45,25 @@ line remains `0.1`.
     The immutable `v0.1.8` tag also has valid signed/public artifacts. Canonical
     bootstrap reached signed-plan verification, where cosign 3 tried to initialize
     its default TUF cache at `/root/.sigstore` beneath the updater's read-only root
-    filesystem. It is historical, bootstrap-blocked, and superseded by 0.1.9.
+    filesystem. It is historical, bootstrap-blocked, and superseded.
+
+    The immutable `v0.1.9` tag built, signed, and anonymously proved all three
+    images, but constrained plan verification could not traverse the runner-owned
+    verification directory. The workflow stopped before GitHub Release publication,
+    so no installable signed plan exists for that tag. It is also historical,
+    bootstrap-blocked, and superseded by 0.1.12.
+
+    The immutable `v0.1.10` tag passed source and exact-tag CI, then its signed-release
+    workflow timed out while the architecture-neutral Web Console builder ran under
+    target emulation. It has no complete three-image set, canonical signed plan,
+    GitHub Release, Stable tags, or Stable Help Center. It is non-installable,
+    superseded, and must never be moved, reused, or used as an update source.
+
+    The immutable `v0.1.11` tag passed every image and plan-verification gate,
+    including verification inside the constrained updater. Its post-verification
+    cleanup then failed before attestations, GitHub Release, canonical asset,
+    Stable-tag, or Stable-documentation publication. It too is non-installable,
+    superseded, and immutable.
 
 ## Promotion gate
 
@@ -59,7 +79,7 @@ Before promoting `Testing` to `main`:
 - ensure every package, image, OpenAPI document, and documentation page uses the same
   release identity.
 
-Promote through a reviewed pull request. Tag the accepted `main` commit `v0.1.9` and
+Promote through a reviewed pull request. Tag the accepted `main` commit `v0.1.12` and
 publish artifacts identified by digest. Do not move a release tag.
 
 ### Version and promotion checklist
@@ -85,24 +105,32 @@ publish artifacts identified by digest. Do not move a release tag.
    publish by digest, and let the docs workflow move `stable`/`latest`.
 
 `TLSOC_VERSION` and `TLSOC_RELEASE_CHANNEL` answer different questions. Promoting
-`0.1.9` from Testing to Stable changes provenance, not its SemVer.
+`0.1.12` from Testing to Stable changes provenance, not its SemVer.
 
 ## Supported one-click upgrades
 
-Agentic SOC 0.1.9 includes the updater foundation for the reference deployment and
-publishes it only after the candidate completes the immutable Stable release gate.
+Agentic SOC 0.1.12 includes the updater foundation for the reference deployment and
+becomes installable only after the candidate completes the immutable Stable
+publication and canonical runtime acceptance gates.
 After one explicit bootstrap, a built-in `super_admin` can authorize a compatible
 Stable release from the Console and the updater performs the host-side work. The
 ordinary backend and browser never receive Docker access, registry credentials,
 arbitrary command execution, or a writable deployment file.
 
-The 0.1.9 updater bakes
+The 0.1.12 updater bakes
 `TUF_ROOT=/var/lib/agentic-soc-updater/sigstore-root`, so cosign's TUF trust state
 lives on the existing writable updater-state volume while the root filesystem stays
-read-only. Stable publication verifies the canonical signed plan inside the real
-digest-pinned updater under the production `read-only`, `cap_drop: ALL`, and
-`no-new-privileges` constraints. There is no state-schema, updater-protocol,
-publisher-identity, process-privilege, trust-policy, or frozen-base change.
+read-only. Stable publication materializes the canonical plan and bundle as read-only
+files beneath an explicitly traversable verification directory, then verifies them
+inside the real digest-pinned updater under the production `read-only`, `cap_drop: ALL`, and
+`no-new-privileges` constraints. Its architecture-neutral Web Console documentation
+and application builder stages run on BuildKit's native platform while the final
+nginx runtime remains target-platform-specific. After the constrained verifier exits,
+release-fixture cleanup restores its runner-owned parent directory to private mode
+`0700`, then removes it; the plan and bundle remain mode `0444` beneath mode `0555`
+throughout verification. There is no state-schema,
+updater-protocol, publisher-identity, process-privilege, trust-policy, or frozen-base
+change.
 
 The first implementation is deliberately narrow:
 
@@ -130,13 +158,14 @@ that file is a manual upgrade even when every image and signature is otherwise v
 
 An installation made before the updater exists cannot grant itself host update
 authority. The supported transition from the final pre-supervisor Stable release,
-v0.1.1, to v0.1.9 therefore requires one host-authorized bootstrap. On the host:
+v0.1.1, to v0.1.12 therefore requires one host-authorized bootstrap. On the host:
 
 1. keep the existing reference PostgreSQL Compose deployment running;
 2. configure durable `.env` values for `TLSOC_PG_PASSWORD`,
    `TLSOC_AUTH_ENABLED=true`, a `TLSOC_AUTH_JWT_SECRET` of at least 32 characters,
    and the trusted `AGENTIC_SOC_UPDATE_REPOSITORY`;
-3. check out the clean, exact annotated `v0.1.9` tag whose commit is contained in
+3. after the complete publication and acceptance evidence verifies, check out the
+   clean, exact annotated `v0.1.12` tag whose commit is contained in
    `origin/main`; and
 4. run `./scripts/bootstrap-updater.sh` from that checkout.
 
@@ -158,7 +187,7 @@ it is deleted only after bootstrap observes that exact job terminal. An unreadab
 invalid supervisor or any active job fails closed for operator recovery; bootstrap
 never force-replaces work in progress.
 It builds only the initial supervisor transport from the verified checkout, then
-asks that supervisor to fetch, verify, preflight, and apply the signed v0.1.9 plan.
+asks that supervisor to fetch, verify, preflight, and apply the signed v0.1.12 plan.
 The full transition therefore uses the same digest-pinned pull, quiesce, verified
 backup, identity/health checks, durable receipt, and automatic rollback state machine
 as later Console-initiated updates. It is not an unverified local rebuild of the
@@ -168,15 +197,16 @@ application pair.
 
     A Testing- or source-built 0.1.3 deployment, the non-installable `v0.1.4` /
     `v0.1.5` publication attempts, and the published-but-bootstrap-blocked `v0.1.6`
-    through `v0.1.8` records cannot be relabelled Stable. If an attempted 0.1.8
-    bootstrap left an inspectable idle 0.1.8 supervisor while the application
-    remained on v0.1.1, the v0.1.9 bootstrap preserves durable state and replaces
+    through `v0.1.8` records and the failed-publication `v0.1.9` through `v0.1.11` records cannot be
+    relabelled Stable. If an earlier attempt left
+    an inspectable idle older supervisor while the application
+    remained on v0.1.1, the v0.1.12 bootstrap preserves durable state and replaces
     that version-mismatched supervisor before signed-plan verification. Reconcile
-    other states only through the documented 0.1.9 path appropriate to their actual
+    other states only through the documented 0.1.12 path appropriate to their actual
     installed release. Bootstrap also requires a strictly newer target, so an
-    already-running 0.1.9 deployment cannot bootstrap itself from the 0.1.9 plan.
+    already-running 0.1.12 deployment cannot bootstrap itself from the 0.1.12 plan.
 
-Once a supported 0.1.9 deployment has the supervisor, later compatible Stable
+Once a supported 0.1.12 deployment has the supervisor, later compatible Stable
 releases can be applied from the Console. A missing supervisor or a safely inspectable,
 idle older protocol or version is remediated by the host-authorized bootstrap; active, unreadable,
 or invalid supervisor state remains an explicit manual blocker. The product never
@@ -356,7 +386,7 @@ updater does not claim zero downtime or immunity from loss of its trusted host.
 
 ### Updater retention and capacity
 
-Version 0.1.9 does **not** automatically prune updater jobs, preflights, cached signed
+Version 0.1.12 does **not** automatically prune updater jobs, preflights, cached signed
 plans and signature bundles, deployment snapshots/receipts, or PostgreSQL backups.
 The reference deployment keeps updater state in the persistent
 `agentic-soc-updater-state` volume and verified dumps in the separate
@@ -380,7 +410,7 @@ Never remove or rotate away:
 Archive or remove eligible history only after **all** of these are true: a later
 successfully installed release has superseded the record's rollback authority; the
 exact terminal outcome is present in application audit; and the operator's backup and
-retention policy permits disposal. Version 0.1.9 provides no supported online,
+retention policy permits disposal. Version 0.1.12 provides no supported online,
 per-record cleanup command, so do not delete individual live-volume files while the
 supervisor is running or infer eligibility from age alone.
 

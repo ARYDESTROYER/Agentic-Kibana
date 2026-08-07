@@ -473,6 +473,246 @@ class WorkflowPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unconditional fail-closed"):
             policy._assert_release(release_path, workflow)
 
+    def test_release_signed_plan_gate_normalizes_bind_mount_permissions(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        gate = next(
+            step
+            for step in workflow["jobs"]["publish"]["steps"]
+            if step.get("name")
+            == "Verify the signed plan inside the constrained update supervisor"
+        )
+        gate["run"] = gate["run"].replace(
+            'chmod 0555 "${verification_dir}"',
+            ': # permission normalization removed',
+        )
+        with self.assertRaisesRegex(ValueError, "constrained updater"):
+            policy._assert_release(release_path, workflow)
+
+    def test_release_signed_plan_gate_restores_owner_write_for_cleanup(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        gate = next(
+            step
+            for step in workflow["jobs"]["publish"]["steps"]
+            if step.get("name")
+            == "Verify the signed plan inside the constrained update supervisor"
+        )
+        gate["run"] = gate["run"].replace(
+            'chmod 0700 "${verification_dir}"',
+            ': # cleanup permission restoration removed',
+        )
+        with self.assertRaisesRegex(ValueError, "cleanup must restore"):
+            policy._assert_release(release_path, workflow)
+
+    def test_release_signed_plan_gate_restores_cleanup_permission_before_remove(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        gate = next(
+            step
+            for step in workflow["jobs"]["publish"]["steps"]
+            if step.get("name")
+            == "Verify the signed plan inside the constrained update supervisor"
+        )
+        restore = 'chmod 0700 "${verification_dir}"'
+        remove = 'rm -rf -- "${verification_dir}"'
+        run = gate["run"]
+        restore_index = run.index(restore)
+        remove_index = run.index(remove)
+        gate["run"] = (
+            run[:restore_index]
+            + remove
+            + run[restore_index + len(restore) : remove_index]
+            + restore
+            + run[remove_index + len(remove) :]
+        )
+        with self.assertRaisesRegex(ValueError, "preserve the original result"):
+            policy._assert_release(release_path, workflow)
+
+    def test_release_signed_plan_gate_guards_cleanup_directory(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        gate = next(
+            step
+            for step in workflow["jobs"]["publish"]["steps"]
+            if step.get("name")
+            == "Verify the signed plan inside the constrained update supervisor"
+        )
+        gate["run"] = gate["run"].replace(
+            'if [[ -d "${verification_dir}" ]]; then',
+            ': # cleanup guard removed',
+        )
+        with self.assertRaisesRegex(ValueError, "cleanup must guard"):
+            policy._assert_release(release_path, workflow)
+
+    def test_release_signed_plan_gate_cleanup_preserves_original_status(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        gate = next(
+            step
+            for step in workflow["jobs"]["publish"]["steps"]
+            if step.get("name")
+            == "Verify the signed plan inside the constrained update supervisor"
+        )
+        gate["run"] = gate["run"].replace(
+            "release_step_status=$?",
+            "release_step_status=0",
+            1,
+        )
+        with self.assertRaisesRegex(ValueError, "preserve the release result"):
+            policy._assert_release(release_path, workflow)
+
+    def test_release_signed_plan_gate_proves_container_absent_before_cleanup(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        gate = next(
+            step
+            for step in workflow["jobs"]["publish"]["steps"]
+            if step.get("name")
+            == "Verify the signed plan inside the constrained update supervisor"
+        )
+        gate["run"] = gate["run"].replace(
+            "docker container ls --all",
+            ": # container-absence probe removed",
+            1,
+        )
+        with self.assertRaisesRegex(ValueError, "preserve the release result"):
+            policy._assert_release(release_path, workflow)
+
+    def test_release_signed_plan_gate_uses_exact_container_name_probe(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        gate = next(
+            step
+            for step in workflow["jobs"]["publish"]["steps"]
+            if step.get("name")
+            == "Verify the signed plan inside the constrained update supervisor"
+        )
+        gate["run"] = gate["run"].replace(
+            '--filter "name=^/${container}$"',
+            '--filter "name=${container}"',
+            1,
+        )
+        with self.assertRaisesRegex(ValueError, "preserve the release result"):
+            policy._assert_release(release_path, workflow)
+
+    def test_release_signed_plan_gate_defers_fixture_cleanup_until_bind_is_gone(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        gate = next(
+            step
+            for step in workflow["jobs"]["publish"]["steps"]
+            if step.get("name")
+            == "Verify the signed plan inside the constrained update supervisor"
+        )
+        gate["run"] = gate["run"].replace(
+            "if (( verification_cleanup_status == 0 )); then",
+            "if true; then",
+            1,
+        )
+        with self.assertRaisesRegex(ValueError, "preserve the release result"):
+            policy._assert_release(release_path, workflow)
+
+    def test_release_signed_plan_gate_does_not_restore_fixture_before_absence_probe(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        gate = next(
+            step
+            for step in workflow["jobs"]["publish"]["steps"]
+            if step.get("name")
+            == "Verify the signed plan inside the constrained update supervisor"
+        )
+        restore = 'chmod 0700 "${verification_dir}"'
+        probe = "docker container ls --all"
+        run = gate["run"]
+        run = run.replace(restore, "", 1)
+        insertion = run.index(probe)
+        gate["run"] = run[:insertion] + restore + "\n            " + run[insertion:]
+        with self.assertRaisesRegex(ValueError, "preserve the original result"):
+            policy._assert_release(release_path, workflow)
+
+    def test_release_signed_plan_gate_registers_cleanup_before_fixture_setup(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        gate = next(
+            step
+            for step in workflow["jobs"]["publish"]["steps"]
+            if step.get("name")
+            == "Verify the signed plan inside the constrained update supervisor"
+        )
+        run = gate["run"]
+        registration = "trap cleanup EXIT\n"
+        run = run.replace(registration, "", 1)
+        insertion = run.index('chmod 0555 "${verification_dir}"')
+        insertion = run.index("\n", insertion) + 1
+        gate["run"] = run[:insertion] + registration + run[insertion:]
+        with self.assertRaisesRegex(ValueError, "register cleanup"):
+            policy._assert_release(release_path, workflow)
+
+    def test_release_signed_plan_gate_requires_exact_bind_asset_destination(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        gate = next(
+            step
+            for step in workflow["jobs"]["publish"]["steps"]
+            if step.get("name")
+            == "Verify the signed plan inside the constrained update supervisor"
+        )
+        gate["run"] = gate["run"].replace(
+            '"${verification_dir}/upgrade-plan.sigstore.json"',
+            '"${verification_dir}/bundle.json"',
+            1,
+        )
+        with self.assertRaisesRegex(ValueError, "constrained updater"):
+            policy._assert_release(release_path, workflow)
+
+    def test_release_signed_plan_gate_normalizes_before_container_start(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        workflow = policy._load(release_path)
+        gate = next(
+            step
+            for step in workflow["jobs"]["publish"]["steps"]
+            if step.get("name")
+            == "Verify the signed plan inside the constrained update supervisor"
+        )
+        gate["run"] = gate["run"].replace(
+            'chmod 0555 "${verification_dir}"\n',
+            "",
+            1,
+        ).replace(
+            "docker run --detach \\\n",
+            "docker run --detach \\\n"
+            'chmod 0555 "${verification_dir}"\n',
+            1,
+        )
+        with self.assertRaisesRegex(ValueError, "must order"):
+            policy._assert_release(release_path, workflow)
+
+    def test_release_signed_plan_gate_rejects_broad_permission_changes(self) -> None:
+        release_path = policy.WORKFLOW_DIR / "release.yml"
+        broad_mutations = (
+            'chmod 0777 "${verification_dir}"',
+            'chmod -R a+rX "${verification_dir}"',
+            'chown 0:10001 "${verification_dir}"',
+            'cp upgrade-plan.json upgrade-plan.sigstore.json "${verification_dir}/"',
+        )
+        for mutation in broad_mutations:
+            with self.subTest(mutation=mutation):
+                workflow = policy._load(release_path)
+                gate = next(
+                    step
+                    for step in workflow["jobs"]["publish"]["steps"]
+                    if step.get("name")
+                    == "Verify the signed plan inside the constrained update supervisor"
+                )
+                gate["run"] = gate["run"].replace(
+                    'chmod 0555 "${verification_dir}"',
+                    f'chmod 0555 "${{verification_dir}}"\n          {mutation}',
+                    1,
+                )
+                with self.assertRaisesRegex(ValueError, "forbidden runtime override"):
+                    policy._assert_release(release_path, workflow)
+
     def test_release_stable_tags_must_follow_release_publication(self) -> None:
         release_path = policy.WORKFLOW_DIR / "release.yml"
         workflow = policy._load(release_path)
@@ -635,6 +875,61 @@ class WorkflowPolicyTests(unittest.TestCase):
                 encoding="utf-8",
             )
             policy._assert_dockerfile_bases(path)
+
+    def test_webui_architecture_neutral_builds_use_native_platform(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "Dockerfile"
+            path.write_text(
+                "FROM --platform=$BUILDPLATFORM python:3.11-alpine@sha256:"
+                + "a" * 64
+                + " AS docs\n"
+                "RUN python3 -m pip install mkdocs\n"
+                "FROM --platform=$BUILDPLATFORM node:22-alpine@sha256:"
+                + "b" * 64
+                + " AS build\n"
+                "RUN npm ci\n"
+                "FROM nginx:1.27-alpine@sha256:"
+                + "c" * 64
+                + "\n",
+                encoding="utf-8",
+            )
+            policy._assert_webui_build_platforms(path)
+
+    def test_webui_docs_build_cannot_run_under_target_emulation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "Dockerfile"
+            path.write_text(
+                "FROM --platform=$TARGETPLATFORM python:3.11-alpine AS docs\n"
+                "FROM --platform=$BUILDPLATFORM node:22-alpine AS build\n"
+                "FROM nginx:1.27-alpine\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "'docs' stage"):
+                policy._assert_webui_build_platforms(path)
+
+    def test_webui_node_build_cannot_run_under_target_emulation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "Dockerfile"
+            path.write_text(
+                "FROM --platform=$BUILDPLATFORM python:3.11-alpine AS docs\n"
+                "FROM --platform=$TARGETPLATFORM node:22-alpine AS build\n"
+                "FROM nginx:1.27-alpine\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "'build' stage"):
+                policy._assert_webui_build_platforms(path)
+
+    def test_webui_runtime_must_remain_target_platform(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "Dockerfile"
+            path.write_text(
+                "FROM --platform=$BUILDPLATFORM python:3.11-alpine AS docs\n"
+                "FROM --platform=$BUILDPLATFORM node:22-alpine AS build\n"
+                "FROM --platform=$BUILDPLATFORM nginx:1.27-alpine\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "runtime stage"):
+                policy._assert_webui_build_platforms(path)
 
 
 if __name__ == "__main__":

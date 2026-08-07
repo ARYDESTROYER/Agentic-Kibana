@@ -11,9 +11,9 @@ Vitest clean, **#3 `decide()` byte-identical**, and
 docs + Journal updated. Commit or publish only after the user or maintainer
 intentionally authorizes that repository mutation.
 
-**Current baseline (Version `0.1.9`; `Testing` integration and default `main`
-Stable source):** the canonical branches exist; 0.1.9 is a Stable release only when
-the exact accepted commit has the immutable `v0.1.9` tag and matching signed/public
+**Current baseline (Version `0.1.12`; `Testing` integration and default `main`
+Stable source):** the canonical branches exist; 0.1.12 is a Stable release only when
+the exact accepted commit has the immutable `v0.1.12` tag and matching signed/public
 artifacts. The immutable `v0.1.4` and `v0.1.5` tags are historical and
 non-installable because neither completed a canonical signed GitHub Release. The
 immutable `v0.1.6` tag is a published and signed artifact record whose canonical
@@ -24,9 +24,23 @@ acceptance found that its updater could not publish the private control socket u
 the dropped-capability runtime. The immutable `v0.1.8` publication corrected that
 socket boundary but canonical bootstrap then failed when cosign 3 tried to initialize
 its default TUF cache beneath the updater's read-only `/root`. It too is superseded
-and not a supported bootstrap source. Version 0.1.9 moves that trust state to the
-writable updater-state volume and replaces an idle mismatched supervisor without a
-schema, protocol, identity, privilege, or frozen-base change. Branch
+and not a supported bootstrap source. The immutable `v0.1.9` publication built,
+signed, and anonymously proved all three images, but its constrained supervisor could
+not traverse the runner-owned verification directory; it published no GitHub Release
+or installable plan. Version 0.1.10 carried the traversal correction through source
+and exact-tag CI, then its signed-release workflow timed out while the Web Console's
+architecture-neutral builder ran under target emulation. It published no complete
+three-image set, canonical plan, GitHub Release, Stable tags, or Stable documentation
+and is immutable, superseded, and non-installable. Version 0.1.11 retained the updater
+trust and traversal corrections while moving architecture-neutral Console builder
+work to BuildKit's native platform; its release built, signed, anonymously proved,
+and verified all three images and the plan, including inside the constrained updater,
+but post-verification cleanup failed before canonical publication. It is immutable,
+superseded, and non-installable. Version 0.1.12 restores the runner-owned verification
+fixture to private mode only after verifier exit, then removes it. It changes no
+schema, protocol, identity, privilege, trust predicate, or frozen-base bytes and
+remains a candidate until every publication and canonical runtime acceptance gate
+passes. Branch
 protections, required checks, Pages source selection, and `github-pages` environment
 policy remain repository-administration controls and must be verified independently;
 source files cannot attest to those settings. The current console adds the polished
@@ -71,9 +85,8 @@ findings fixed) before them. On top of all of them, a **backend deep-audit harde
 pass** (`c5516e5`→`abd0385`, 2026-07-14/15, now present on `origin/Testing`) fixed **47 verified findings**
 (0 crit / 10 high / 24 med / 13 low) from a 24-auditor + adversarial-verify Workflow —
     one atomic commit per finding, no co-author, each with a regression test. The current 0.1
-    candidate was re-verified on 2026-08-04: backend **2,306 pytest** (0 failures);
-    Console **1,936 Vitest** across 286 files (1,927 passed + 9 intentionally
-    skipped) under the strict zero-stderr/zero-console-output
+    candidate was re-verified on 2026-08-05: backend **2,306 pytest** (0 failures);
+    Console **1,935/1,935 Vitest** across 286 files under the strict zero-stderr/zero-console-output
     gate; full version-matched Help Center + app build clean at **3,189 modules**; and
     zero-warning ESLint plus all five design-system gates clean. `engine/case_manager.py`
     `decide()` remains **byte-identical** (verified clean), and the generated-contract,
@@ -203,8 +216,8 @@ continuous-improvement claim. The audited evidence boundaries are now closed as 
 Remaining scale-out work is intentionally separate: schedulers still need distributed
 leases/ownership and campaigns do not retain an immutable split/merge lifecycle history.
 
-**F. Ranked post-0.1.9 hardening sequence (release-gap audit, 2026-08-04):** keep the
-0.1.9 Stable release focused on the truthful Sigstore/runtime correction and complete
+**F. Ranked post-0.1.12 hardening sequence (release-gap audit, 2026-08-05):** keep the
+0.1.12 Stable candidate focused on the truthful constrained-verifier cleanup correction and complete
 release acceptance. The next
 engineering sequence is ordered by data safety and measurable outcomes, not screen count:
 
