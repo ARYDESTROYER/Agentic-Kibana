@@ -6,16 +6,24 @@ power the analytics UI: verdict mix, status breakdown, persona/playbook usage,
 average risk, a coarse MTTR, a per-day case trend, and the AI-decision feedback
 quality roll-up. Everything is defensive: malformed timestamps are skipped, never
 raised, so a dashboard query can't fail a request.
+
+It also carries the two OBSERVABILITY signals that exist so a silent triage outage
+cannot stay silent: :func:`auto_close_health` (a rolling auto-close rate with enough
+context to tell "auto-close collapsed" from "nobody sent us any work") and
+:func:`precedent_ground_truth` (how much analyst-confirmed ground truth the case
+history actually holds). Both are read-time derivations and are NEVER read by
+``case_manager.decide()`` (#3).
 """
 
 from __future__ import annotations
 
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from ..constants import CaseStatus, DecisionBy, TERMINAL_CASE_STATUSES, Verdict
 from ..models import Case
+from .analyst_outcomes import analyst_confirmed_outcome
 
 # A labelled placeholder for a metric that could not be computed because the
 # underlying transition / event never occurred (rather than a misleading 0). The UI
@@ -711,3 +719,345 @@ def posture_metrics(
         }
 
     return rollup
+
+
+# --------------------------------------------------------------------------- #
+# Auto-close health — a FIRST-CLASS observability signal.
+#
+# The failure this exists for: auto-close silently stopped firing (an unrelated
+# configuration change starved the precedent corpus) and NOTHING surfaced it —
+# no warning, no metric, no UI signal. A rolling auto-close rate that falls to ~0
+# while investigation volume holds steady is the one cheap, deterministic signal
+# that catches that outage the same day.
+#
+# Everything below is a READ-TIME DERIVATION over already-persisted case data. It is
+# NEVER read by ``case_manager.decide()`` (#3) — ``decide()`` takes
+# ``(verdict, confidence, risk_score, policy)`` and nothing else. Reading
+# ``AutoClosePolicy`` here is display-only (exactly as ``sla_metrics`` reads
+# ``Preferences.sla``): it explains an expected zero, it never influences one.
+#
+# Honesty contract (house style — see ``engine/agent_improvement.py``): insufficient
+# evidence stays EXPLICIT. A window without enough decided cases reports ``rate:
+# DASH`` + ``available: false`` + a ``reason``; it never degrades into a
+# reassuring-looking number, and there is no composite "health score".
+# --------------------------------------------------------------------------- #
+
+# A window needs at least this many DECIDED cases before an auto-close RATE is
+# statistically meaningful at all. Below it the window is insufficient evidence.
+AUTO_CLOSE_MIN_DECIDED = 10
+# "~0" — a rate at or below this counts as collapsed-to-zero.
+AUTO_CLOSE_NEAR_ZERO_RATE = 0.02
+# The comparison baseline must itself have been meaningfully non-zero, otherwise
+# "it fell to zero" is not a statement about anything.
+AUTO_CLOSE_BASELINE_MIN_RATE = 0.05
+# Volume "holds steady" when the current window still carries at least this fraction
+# of the preceding window's decided volume. Without this guard a quiet weekend is
+# indistinguishable from an auto-close outage — which is the whole point.
+AUTO_CLOSE_STEADY_VOLUME_FRACTION = 0.5
+# A relative drop of at least this much (but not all the way to ~0) is a degradation.
+AUTO_CLOSE_DEGRADED_DROP_FRACTION = 0.5
+
+
+def _decision_dt(case: Case) -> datetime | None:
+    """The instant the deterministic decision was LAST recorded for this case.
+
+    ``case_manager.apply()`` appends ``{"event": "decision", "ts": ...}`` to the
+    append-only ``history`` every time it runs, so the newest such entry is the
+    precise instant ``decide()`` produced the case's current outcome. That is the
+    right anchor for a ROLLING auto-close rate: a case created days ago but decided
+    today belongs to today's window. Falls back to the detection/creation instant
+    when no decision entry survives (older cases, trimmed history)."""
+    for entry in reversed(case.history or []):
+        if not isinstance(entry, dict) or entry.get("event") != "decision":
+            continue
+        dt = _parse_iso(entry.get("ts"))
+        if dt is not None:
+            return dt
+    return _created_dt(case)
+
+
+def _auto_close_tally(
+    cases: list[Case], *, start: datetime | None, end: datetime | None
+) -> dict[str, int]:
+    """Count DECIDED vs AUTO-CLOSED cases whose decision lands in ``[start, end)``.
+
+    ``start``/``end`` of ``None`` mean "unbounded on that side". A case counts as
+    *decided* once the investigation produced a verdict (``decide()`` therefore ran);
+    it counts as *auto-closed* when the deterministic decision author was the AGENT
+    and the case is terminal — the same ``decision_by == agent`` tally
+    :func:`quality_metrics` already uses for ``automation_rate``."""
+    decided = auto_closed = routed_to_human = analyst_decided = 0
+    for case in cases:
+        at = _decision_dt(case)
+        if at is None:
+            continue
+        if start is not None and at < start:
+            continue
+        if end is not None and at >= end:
+            continue
+        if case.verdict is None:
+            continue
+        decided += 1
+        terminal = (case.status.value if case.status else "") in _TERMINAL
+        if case.decision_by == DecisionBy.AGENT and terminal:
+            auto_closed += 1
+        elif case.decision_by == DecisionBy.ANALYST:
+            analyst_decided += 1
+        else:
+            routed_to_human += 1
+    return {
+        "decided": decided,
+        "auto_closed": auto_closed,
+        "routed_to_human": routed_to_human,
+        "analyst_decided": analyst_decided,
+    }
+
+
+def _auto_close_block(
+    tally: dict[str, int], *, label: str, min_decided: int
+) -> dict[str, Any]:
+    """Wrap a tally in the honest rate block. ``rate`` is the labelled DASH whenever
+    the window cannot support a meaningful rate — never a fabricated 0.0 and never a
+    reassuring-looking number computed from two samples. The raw counts stay
+    available so a caller can be explicit about what it is doing."""
+    decided = int(tally.get("decided", 0))
+    if decided == 0:
+        return {
+            **tally, "rate": DASH, "available": False,
+            "reason": f"no case reached a verdict in the {label} window",
+        }
+    if decided < min_decided:
+        return {
+            **tally, "rate": DASH, "available": False,
+            "reason": (
+                f"only {decided} decided case(s) in the {label} window; at least "
+                f"{min_decided} are required before an auto-close rate is meaningful"
+            ),
+        }
+    return {
+        **tally,
+        "rate": _ratio(int(tally.get("auto_closed", 0)), decided),
+        "available": True,
+        "reason": "",
+    }
+
+
+def _auto_close_policy_block(policy: Any) -> dict[str, Any]:
+    """A read-only mirror of the operator's auto-close policy, so a zero rate that is
+    simply *configured* is not mistaken for an outage. Display-only (#3)."""
+    if policy is None:
+        return {
+            "available": False, "any_enabled": False,
+            "false_positive_enabled": False, "true_positive_enabled": False,
+            "reason": "the auto-close policy was not supplied to this rollup",
+        }
+    fp = bool(getattr(getattr(policy, "false_positive", None), "enabled", False))
+    tp = bool(getattr(getattr(policy, "true_positive", None), "enabled", False))
+    return {
+        "available": True, "any_enabled": bool(fp or tp),
+        "false_positive_enabled": fp, "true_positive_enabled": tp, "reason": "",
+    }
+
+
+def auto_close_health(
+    cases: list[Case],
+    *,
+    window_hours: int = 24,
+    policy: Any = None,
+    now: datetime | None = None,
+    store_total: int | None = None,
+    min_decided: int = AUTO_CLOSE_MIN_DECIDED,
+) -> dict[str, Any]:
+    """The rolling auto-close rate as a diagnosable health signal.
+
+    Compares the current ``window_hours`` window with the immediately preceding
+    equal-length window, and adds an unbounded "lifetime" tally over the supplied
+    case set so a collapse that happened days ago (both windows already at zero) is
+    still visible rather than reading as a steady, healthy zero.
+
+    ``status`` is one explicit string, never a score:
+
+    * ``disabled``              — every verdict class has auto-close turned OFF, so a
+      zero rate is the configured behaviour, not a failure.
+    * ``no_volume``             — nothing was decided in the current window. A quiet
+      period is NOT an auto-close outage, and is reported as such.
+    * ``collapsed``             — the rate fell to ~0 while decided volume held
+      steady against a previously non-zero baseline. **This is the outage signal.**
+    * ``never_fired``           — auto-close is enabled and enough cases have been
+      decided, but not a single one has ever auto-closed.
+    * ``degraded``              — a large (>=50%) relative drop with steady volume.
+    * ``insufficient_evidence`` — not enough decided cases to compare honestly.
+    * ``ok``                    — measured and within tolerance.
+
+    Pure + deterministic given ``cases``/``now``; advisory only. Nothing here is ever
+    read by ``case_manager.decide()`` (#3)."""
+    now = now or datetime.now(timezone.utc)
+    window_hours = max(1, int(window_hours))
+    span = timedelta(hours=window_hours)
+    window_start = now - span
+    baseline_start = window_start - span
+
+    current = _auto_close_block(
+        _auto_close_tally(cases, start=window_start, end=None),
+        label="current", min_decided=min_decided,
+    )
+    baseline = _auto_close_block(
+        _auto_close_tally(cases, start=baseline_start, end=window_start),
+        label="preceding", min_decided=min_decided,
+    )
+    lifetime = _auto_close_block(
+        _auto_close_tally(cases, start=None, end=None),
+        label="fetched", min_decided=min_decided,
+    )
+    policy_block = _auto_close_policy_block(policy)
+
+    baseline_decided = int(baseline["decided"])
+    current_decided = int(current["decided"])
+    volume_steady = bool(
+        baseline_decided > 0
+        and current_decided >= baseline_decided * AUTO_CLOSE_STEADY_VOLUME_FRACTION
+    )
+    comparable = bool(current["available"] and baseline["available"])
+    current_rate = current["rate"] if current["available"] else None
+    baseline_rate = baseline["rate"] if baseline["available"] else None
+
+    collapsed = bool(
+        comparable
+        and volume_steady
+        and baseline_rate is not None
+        and current_rate is not None
+        and baseline_rate >= AUTO_CLOSE_BASELINE_MIN_RATE
+        and current_rate <= AUTO_CLOSE_NEAR_ZERO_RATE
+    )
+    degraded = bool(
+        comparable
+        and volume_steady
+        and not collapsed
+        and baseline_rate is not None
+        and current_rate is not None
+        and baseline_rate >= AUTO_CLOSE_BASELINE_MIN_RATE
+        and current_rate <= baseline_rate * (1.0 - AUTO_CLOSE_DEGRADED_DROP_FRACTION)
+    )
+    never_fired = bool(
+        policy_block["any_enabled"]
+        and lifetime["available"]
+        and int(lifetime["auto_closed"]) == 0
+    )
+
+    if policy_block["available"] and not policy_block["any_enabled"]:
+        status = "disabled"
+        reason = (
+            "auto-close is turned OFF for every verdict class, so a zero auto-close "
+            "rate is the configured behaviour"
+        )
+    elif current_decided == 0:
+        status = "no_volume"
+        reason = (
+            f"no case reached a verdict in the last {window_hours}h"
+            + (
+                f" (the preceding {window_hours}h decided {baseline_decided}) — this is an "
+                "investigation-volume gap, not an auto-close outage"
+                if baseline_decided
+                else " and none did in the preceding window either"
+            )
+        )
+    elif collapsed:
+        status = "collapsed"
+        reason = (
+            f"the auto-close rate fell from {baseline_rate} to {current_rate} while decided "
+            f"volume held steady ({baseline_decided} -> {current_decided} cases)"
+        )
+    elif never_fired:
+        status = "never_fired"
+        reason = (
+            f"auto-close is enabled but not one of the {lifetime['decided']} decided "
+            "case(s) in the fetched history has ever auto-closed"
+        )
+    elif not comparable:
+        status = "insufficient_evidence"
+        reason = current["reason"] or baseline["reason"]
+    elif degraded:
+        status = "degraded"
+        reason = (
+            f"the auto-close rate dropped from {baseline_rate} to {current_rate} while "
+            "decided volume held steady"
+        )
+    else:
+        status = "ok"
+        reason = ""
+
+    return {
+        "window_hours": window_hours,
+        "generated_at": now.isoformat(),
+        "current": current,
+        "baseline": baseline,
+        "lifetime": lifetime,
+        "policy": policy_block,
+        "status": status,
+        "reason": reason,
+        "collapsed": collapsed,
+        "volume_steady": volume_steady,
+        "comparable": comparable,
+        "needs_attention": status in ("collapsed", "never_fired", "degraded"),
+        "thresholds": {
+            "min_decided": int(min_decided),
+            "near_zero_rate": AUTO_CLOSE_NEAR_ZERO_RATE,
+            "baseline_min_rate": AUTO_CLOSE_BASELINE_MIN_RATE,
+            "steady_volume_fraction": AUTO_CLOSE_STEADY_VOLUME_FRACTION,
+            "degraded_drop_fraction": AUTO_CLOSE_DEGRADED_DROP_FRACTION,
+        },
+        **truncation_marker(len(cases), store_total),
+    }
+
+
+def analyst_confirmed_case_ids(cases: list[Case]) -> set[str]:
+    """The ids of cases whose outcome is INDEPENDENTLY analyst-confirmed.
+
+    Lets an observability surface tell an analyst-confirmed precedent document apart
+    from a lower-trust one when both tiers share a corpus source: the projected
+    document identity is derived from the case id, so intersecting these ids with the
+    corpus's precedent document ids counts the confirmed tier exactly, without reading
+    (or depending on) any RAG internal. Pure + read-only."""
+    return {
+        case.case_id
+        for case in cases
+        if analyst_confirmed_outcome(case)[0] is not None and case.case_id
+    }
+
+
+def precedent_ground_truth(
+    cases: list[Case], *, store_total: int | None = None
+) -> dict[str, Any]:
+    """How much ANALYST-CONFIRMED ground truth the fetched case set actually holds.
+
+    The precedent corpus can only ever be as large as the labelled history behind it,
+    so "the corpus has zero precedents" means something quite different depending on
+    whether the case history holds zero analyst-confirmed outcomes (nobody has graded
+    anything — a labelling gap) or hundreds (the projection is broken). Both numbers
+    are reported so the operator can tell those apart instead of guessing.
+
+    Uses the SAME independent classifier the tuner and the RAG projection use
+    (:func:`engine.analyst_outcomes.analyst_confirmed_outcome`) — a terminal status,
+    a model verdict, or a bare disposition is never ground truth. Pure + read-only."""
+    confirmed = 0
+    terminal = 0
+    by_outcome: Counter[str] = Counter()
+    by_evidence: Counter[str] = Counter()
+    for case in cases:
+        if (case.status.value if case.status else "") in _TERMINAL:
+            terminal += 1
+        outcome, evidence = analyst_confirmed_outcome(case)
+        if outcome is None:
+            continue
+        confirmed += 1
+        by_outcome[outcome] += 1
+        by_evidence[str(evidence or "unknown")] += 1
+    return {
+        "analyst_confirmed_cases": confirmed,
+        "terminal_cases": terminal,
+        "scanned_cases": len(cases),
+        "by_outcome": dict(by_outcome),
+        "by_evidence_source": dict(by_evidence),
+        "zero_analyst_confirmed_cases": confirmed == 0,
+        **truncation_marker(len(cases), store_total),
+    }

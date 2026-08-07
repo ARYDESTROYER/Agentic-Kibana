@@ -1098,6 +1098,60 @@ class EnrichmentConfig(BaseModel):
     fusion_enabled: bool = False
 
 
+class UnconfirmedPrecedentConfig(BaseModel):
+    """Compounding guards for the LOWER-TRUST ``model_unconfirmed`` precedent tier.
+
+    A fully autonomous deployment can never satisfy the analyst-confirmed gate
+    (``engine/analyst_outcomes.analyst_confirmed_outcome``): auto-close depends on
+    precedent, precedent depends on analyst labels, and analyst labels only exist if
+    somebody works a queue the product exists to keep empty.  The escape hatch is a
+    SEPARATE, explicitly weaker tier — the agent's own unreviewed closes, labelled as
+    such — NOT a loosening of that gate.
+
+    The failure mode this block exists to prevent is the agent's own drift being fed
+    back to it as evidence.  No single guard is sufficient, so four independent ones
+    compose (every one is individually disable-able, and all of them are inert while
+    ``RagConfig.use_unconfirmed_resolved_cases`` is False):
+
+    * ``min_confidence`` — a low-confidence auto-close is exactly the judgement most
+      likely to be wrong, and it is the cheapest thing to exclude.  High confidence is
+      not accuracy, so this is a floor, never a warrant.
+    * ``min_recurrence`` — one auto-close is an anecdote; the same (entity-type, rule
+      set, outcome) pattern closed the same way N times is at least a stable, auditable
+      regularity.  This is what stops ONE hallucinated close from becoming quotable
+      precedent.  Recurrence is counted inside the bounded scan window only.
+    * ``max_age_days`` — unconfirmed precedent is a PROVISIONAL belief that decays.  If
+      it mattered, an analyst should have confirmed it by now (at which point it is
+      promoted to the confirmed tier, which never ages out); if nobody did, the
+      environment has probably moved on.  Enforced both at projection and at retrieval,
+      so a chunk already in the vector store also goes quiet on schedule.
+    * ``max_context_share`` — a hard cap on the FRACTION of a retrieval that may be the
+      model's own prior output, so a run can never be dominated by an echo of itself.
+
+    ``rank_penalty`` additionally demotes unconfirmed chunks in the blended ranking, and
+    ``max_items`` bounds how much unconfirmed precedent the projection may hold at all.
+
+    None of this touches the deterministic close/escalate decision (#3): precedent is
+    retrieved context for the investigator, and it stays UNTRUSTED-fenced (#9).
+    """
+
+    # Minimum MODEL confidence on the auto-closed case before it may be precedent.
+    min_confidence: float = Field(default=0.8, ge=0.0, le=1.0)
+    # How many times the same (entity_type, rule set, outcome) pattern must have been
+    # auto-closed the same way before ANY of them is indexed. 1 disables the guard.
+    min_recurrence: int = Field(default=3, ge=1, le=1000)
+    # Age-out horizon, in days, applied to the case's terminal timestamp.
+    max_age_days: int = Field(default=30, ge=1, le=3650)
+    # Upper bound on the FRACTION of one retrieval that may be unconfirmed precedent.
+    # The effective cap is floor(top_k * max_context_share); 0.0 blocks it entirely.
+    max_context_share: float = Field(default=0.34, ge=0.0, le=1.0)
+    # Multiplier applied to an unconfirmed chunk's final ranking score. Confirmed
+    # precedent additionally OUTRANKS unconfirmed unconditionally (tier invariant).
+    rank_penalty: float = Field(default=0.5, ge=0.0, le=1.0)
+    # Bound on how many unconfirmed precedents the projection may hold.
+    max_items: int = Field(default=50, ge=0, le=1000)
+
+
 class RagConfig(BaseModel):
     enabled: bool = True
     top_k: int = 4
@@ -1121,6 +1175,24 @@ class RagConfig(BaseModel):
     # (source="threat_context") in retrieval so they are injected as a TRUSTED fenced
     # block. ``use_resolved_cases`` (above) controls past-case institutional memory.
     use_threat_context: bool = True
+    # --- The LOWER-TRUST precedent tier (default OFF, #10). -------------------------
+    # ``use_resolved_cases`` indexes ONLY analyst-confirmed ground truth. A fully
+    # autonomous deployment produces none of that, so its precedent corpus is
+    # permanently empty. Turning this ON additionally indexes the agent's own
+    # auto-closed cases as a DISTINCT ``trust_class="model_unconfirmed"`` tier: never
+    # promoted to analyst-confirmed, always outranked by it, bounded by the
+    # ``unconfirmed_precedent`` guards below, rendered under a SEPARATE prompt heading
+    # that does not claim analyst provenance, and still UNTRUSTED-fenced (#9).
+    #
+    # Default FALSE so an existing deployment's retrieval is byte-identical (#10). It
+    # requires ``use_resolved_cases`` as well — it is a sub-tier of the precedent
+    # corpus, not an independent source. It NEVER loosens
+    # ``analyst_confirmed_outcome``: the threshold tuner and every other
+    # independent-ground-truth consumer see exactly what they saw before.
+    use_unconfirmed_resolved_cases: bool = False
+    unconfirmed_precedent: UnconfirmedPrecedentConfig = Field(
+        default_factory=UnconfirmedPrecedentConfig
+    )
 
 
 class PersonaConfig(BaseModel):

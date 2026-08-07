@@ -42,6 +42,7 @@ import {
 import {
   type ActionDef,
   DISPOSITION_OPTIONS,
+  DURABLE_CONTEXT_NOTE,
   PRIORITY_OPTIONS,
   RESOLUTION_OPTIONS,
   TagInput,
@@ -110,7 +111,16 @@ export const ConfirmActionDialog: React.FC<ConfirmActionDialogProps> = ({
   verdict,
   grading,
   onGradingChange,
-}) => (
+}) => {
+  // Which actions carry the note into DURABLE, AGENT-VISIBLE context. The backend
+  // indexes the resolved case (note included) on the `close` and `confirm_fp` verbs
+  // only, so the disclosure follows the same wire verb — `close_disposition` maps to
+  // `close` via `wireAction`, and an escalate/hold note is not indexed.
+  const notePersists = pending
+    ? pending.key === 'confirm_fp' || (pending.wireAction ?? pending.key) === 'close'
+    : false;
+
+  return (
   <Dialog
     open={pending !== null}
     onOpenChange={(o) => {
@@ -228,13 +238,25 @@ export const ConfirmActionDialog: React.FC<ConfirmActionDialogProps> = ({
           ) : null}
 
           <div className="space-y-1.5">
-            <Label className="text-xs">Analyst note (optional)</Label>
+            <Label htmlFor="confirm-action-note" className="text-xs">
+              Analyst note (optional)
+            </Label>
             <Textarea
+              id="confirm-action-note"
               rows={3}
               placeholder="Add context for the next analyst…"
               value={note}
+              aria-describedby={notePersists ? 'confirm-action-note-help' : undefined}
               onChange={(e) => onNoteChange(e.target.value)}
             />
+            {/* The analyst-comment disclosure: on a close / confirm-FP this note is
+                carried into the resolved-case precedent chunk and read back by the
+                investigator on similar future cases (see DURABLE_CONTEXT_NOTE). */}
+            {notePersists ? (
+              <p id="confirm-action-note-help" className="text-xs leading-relaxed text-muted-foreground">
+                {DURABLE_CONTEXT_NOTE}
+              </p>
+            ) : null}
           </div>
 
           {/* Round-7 #10: grade the AI decision inline on close. The agree/override
@@ -267,6 +289,7 @@ export const ConfirmActionDialog: React.FC<ConfirmActionDialogProps> = ({
       </DialogContent>
     ) : null}
   </Dialog>
-);
+  );
+};
 
 export default ConfirmActionDialog;

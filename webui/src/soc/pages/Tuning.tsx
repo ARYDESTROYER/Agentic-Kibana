@@ -155,6 +155,41 @@ function ruleState(rule: RuleNoise, minSamples: number): RuleState {
   return rule.over_target ? 'attention' : 'within';
 }
 
+/**
+ * Short operator labels for the tuner's `correlation_n` INERTNESS reason codes.
+ *
+ * A noisy rule can sit over target and still get no correlation-threshold
+ * recommendation, because the live pipeline would discard the raise. Leaving that
+ * silent is the exact failure mode the backend fix exists to end, so the reason is
+ * always shown next to the rule.
+ */
+const INERT_REASON_LABEL: Record<string, string> = {
+  alerts_role_every_override: 'Alerts-role feed forces every alert through',
+  correlation_mode_every: 'Rule is configured mode=EVERY',
+  inline_rule_definition_correlation: 'Correlation is defined inline on the rule',
+};
+
+interface InertNote {
+  label: string;
+  detail: string;
+}
+
+/**
+ * The rule's inertness note, or null when a correlation-threshold raise would work
+ * normally. Falls back to the raw reason code (humanised) if a newer backend adds a
+ * code this Console does not know yet — never silently drops the signal.
+ */
+function inertNote(rule: RuleNoise): InertNote | null {
+  if (!rule.correlation_n_inert) return null;
+  const code = (rule.correlation_n_inert_reason ?? '').trim();
+  return {
+    label: INERT_REASON_LABEL[code] ?? (code ? humanizeToken(code) : 'Threshold change would not take effect'),
+    detail:
+      (rule.correlation_n_inert_detail ?? '').trim() ||
+      'A correlation threshold raise would be discarded by the pipeline, so none is proposed.',
+  };
+}
+
 function RuleStateBadge({ state }: { state: RuleState }) {
   if (state === 'attention') {
     return (
@@ -316,6 +351,19 @@ function explainNoRecommendation(
       instruction: 'The rule is operating within the configured false-positive target.',
       effect: 'Continue monitoring new verdict feedback.',
       safety: 'The rule remains unchanged.',
+    };
+  }
+
+  const inert = inertNote(rule);
+  if (inert) {
+    return {
+      title: 'Correlation threshold cannot help this rule',
+      // Backend-authored plain text: exactly WHY the raise would be discarded.
+      instruction: inert.detail,
+      effect:
+        'No correlation threshold change is proposed. A raise here would be written to ' +
+        'configuration the live pipeline never reads for this rule.',
+      safety: 'The rule remains unchanged. Adjust the feed or the rule’s correlation instead.',
     };
   }
 
@@ -1280,6 +1328,7 @@ function RuleList({
             ? explainRecommendation(recs[0], shadowEvalEnabled)
             : explainNoRecommendation(state, rule, minSamples);
           const observed = observedFpRate(rule.total, rule.fp);
+          const rowInert = inertNote(rule);
           const actionLabel = recs.length > 1
             ? `${fmtNumber(recs.length)} bounded changes`
             : action.title;
@@ -1303,6 +1352,7 @@ function RuleList({
               >
                 <span id={descriptionId} className="sr-only">
                   {explanation.lead} {explanation.support} {action.title}. {action.instruction}
+                  {rowInert ? ` Correlation threshold raise is inert: ${rowInert.detail}` : ''}
                 </span>
 
                 <span className="min-w-0">
@@ -1362,6 +1412,8 @@ function RuleList({
                           : 'Approval required'}
                       </Badge>
                     ) : null}
+                    {/* Why a noisy rule gets NO correlation_n recommendation. */}
+                    {rowInert ? <Badge variant="secondary">Threshold raise inert</Badge> : null}
                   </span>
                   <span className="mt-1 block line-clamp-2 text-xs leading-relaxed text-muted-foreground">
                     {action.instruction}
@@ -1463,6 +1515,7 @@ function RuleDetailPanel({
   const state = ruleState(rule, minSamples);
   const Root = variant === 'aside' ? 'aside' : 'div';
   const explanation = explainRuleState(rule, minSamples, target);
+  const inert = inertNote(rule);
   const actionExplanations = recommendations.length
     ? recommendations.map((recommendation) => ({
         recommendation,
@@ -1537,6 +1590,25 @@ function RuleDetailPanel({
           {explanation.support}
         </p>
       </section>
+
+      {/* Why a noisy rule gets no correlation_n recommendation. Shown independently of
+          the recommended action, because the rule can also carry a RE-TARGETED change
+          (a severity floor) whose copy would otherwise hide the structural reason. */}
+      {inert ? (
+        <section className="space-y-1.5" aria-labelledby="tuning-rule-inert-heading">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3
+              id="tuning-rule-inert-heading"
+              className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+            >
+              Correlation threshold is inert
+            </h3>
+            <Badge variant="secondary">{inert.label}</Badge>
+          </div>
+          {/* Backend-authored plain text (#9). */}
+          <p className="text-xs leading-relaxed text-muted-foreground">{inert.detail}</p>
+        </section>
+      ) : null}
 
       <section className="space-y-3" aria-labelledby="tuning-rule-action-heading">
         <h3

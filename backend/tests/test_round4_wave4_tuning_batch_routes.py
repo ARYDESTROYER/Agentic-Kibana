@@ -439,3 +439,48 @@ def test_every_non_get_route_carries_an_authz_gate() -> None:
 # --------------------------------------------------------------------------- #
 def _run(client: TestClient, coro):
     return client.portal.call(lambda: coro)  # type: ignore[attr-defined]
+
+
+def test_recommendations_explain_an_inert_correlation_n_rule(state_and_client) -> None:
+    """A rule over target with no correlation_n recommendation must say WHY.
+
+    Silence is what made the reported defect invisible: the tuner kept "applying"
+    correlation_n raises that an alerts-role feed discards on every poll, so the FP
+    rate never moved and the same rules were re-drafted forever. The dry-run must
+    surface the structural reason instead of just omitting the recommendation.
+    """
+    from app.config import CorrelationMode, CorrelationRule
+
+    state, client = state_and_client
+    _run(client, _seed_noisy(state))
+
+    # Configure the noisy rule as EVERY — mode=EVERY never consults n, so a raise is
+    # dead configuration exactly as the alerts-role override makes it.
+    state.prefs.correlation_rules["noisy_rule"] = CorrelationRule(
+        mode=CorrelationMode.EVERY, n=1
+    )
+
+    body = client.get("/api/tuning/recommendations").json()
+    noise = {row["rule_id"]: row for row in body["rule_noise"]}
+    row = noise["noisy_rule"]
+    assert row["over_target"] is True
+    assert row["correlation_n_inert"] is True
+    assert row["correlation_n_inert_reason"] == "correlation_mode_every"
+    assert "never consults n" in row["correlation_n_inert_detail"]
+
+    # ...and no correlation_n recommendation is offered for it.
+    recos = {p["rule_id"]: p for p in body["recommendations"]}
+    assert recos.get("noisy_rule", {}).get("kind") != "correlation_n"
+
+
+def test_recommendations_do_not_flag_a_tunable_rule_as_inert(state_and_client) -> None:
+    """The ordinary path is unchanged: a normal rule is never reported inert."""
+    state, client = state_and_client
+    _run(client, _seed_noisy(state))
+
+    body = client.get("/api/tuning/recommendations").json()
+    noise = {row["rule_id"]: row for row in body["rule_noise"]}
+    assert noise["noisy_rule"]["correlation_n_inert"] is False
+    assert noise["noisy_rule"]["correlation_n_inert_reason"] == ""
+    recos = {p["rule_id"]: p for p in body["recommendations"]}
+    assert recos["noisy_rule"]["kind"] == "correlation_n"

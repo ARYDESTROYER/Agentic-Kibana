@@ -10,6 +10,7 @@ here: SQLAlchemy resolves the ``+asyncpg`` driver lazily from the URL only when 
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
@@ -47,14 +48,104 @@ def build_async_engine(url: str) -> AsyncEngine:
     return engine
 
 
+# Outcome of the last in-place schema migration attempt, so a health surface can
+# report a DIAGNOSABLE state instead of failing strict audit writes invisibly.
+# ``state`` is one of: "not_applicable" (non-PostgreSQL / nothing to do),
+# "ok" (schema is current), "failed" (migration needed but could not be applied).
+SCHEMA_MIGRATION_STATUS: dict[str, Any] = {
+    "state": "not_applicable",
+    "detail": "",
+    "remediation": "",
+}
+
+
 async def create_all(engine: AsyncEngine) -> None:
     """Create all state tables if absent (idempotent). On Postgres, also ensure the
-    pgvector extension is available before any native vector column is used."""
+    pgvector extension is available before any native vector column is used, and
+    reconcile in-place column-type migrations for tables that already exist."""
     if engine.url.get_backend_name() == "postgresql":
         await _ensure_pgvector(engine)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    await ensure_schema_migrations(engine)
     logger.info("SQL state schema ensured")
+
+
+# ``audit.id`` shipped as 32-bit ``integer`` through 0.1.13 while the strict audit
+# path writes a 63-bit derived surrogate key — so EVERY keyed strict write (proposal
+# approve/reject, update control-plane records) failed on an existing PostgreSQL
+# deployment. ``Base.metadata.create_all`` only creates ABSENT tables, so a fresh
+# deploy picks the widened model up automatically but an existing one needs this
+# explicit widening. Deliberately scoped to ``audit.id``: it is the only column that
+# receives an out-of-range value, and widening the (potentially far larger) usage /
+# rag_chunks tables would force an expensive boot-time rewrite for a purely
+# theoretical 2.1-billion-row autoincrement ceiling.
+_AUDIT_ID_REMEDIATION = (
+    "ALTER TABLE audit ALTER COLUMN id TYPE bigint; "
+    "ALTER SEQUENCE audit_id_seq AS bigint;"
+)
+
+
+async def ensure_schema_migrations(engine: AsyncEngine) -> dict[str, Any]:
+    """Apply idempotent in-place schema migrations. Never raises.
+
+    A failure here must not stop the process from booting (Gate 2), but it must NOT
+    be silent either: the outcome is logged at ERROR with the exact remediation SQL
+    and recorded in :data:`SCHEMA_MIGRATION_STATUS` for the health surface.
+    """
+    if engine.url.get_backend_name() != "postgresql":
+        _set_migration_status("not_applicable", "", "")
+        return dict(SCHEMA_MIGRATION_STATUS)
+
+    from sqlalchemy import text
+
+    try:
+        async with engine.begin() as conn:
+            current = await conn.scalar(
+                text(
+                    "SELECT data_type FROM information_schema.columns "
+                    "WHERE table_schema = current_schema() "
+                    "AND table_name = 'audit' AND column_name = 'id'"
+                )
+            )
+            if current is None:
+                # No audit table yet (create_all would have made one) — nothing to do.
+                _set_migration_status("ok", "audit table absent", "")
+                return dict(SCHEMA_MIGRATION_STATUS)
+            if str(current) == "bigint":
+                _set_migration_status("ok", "audit.id is bigint", "")
+                return dict(SCHEMA_MIGRATION_STATUS)
+
+            logger.warning(
+                "Migrating audit.id from %s to bigint; strict audit writes "
+                "(proposal approve/reject) fail until this completes",
+                current,
+            )
+            await conn.execute(text("ALTER TABLE audit ALTER COLUMN id TYPE bigint"))
+            sequence = await conn.scalar(
+                text("SELECT pg_get_serial_sequence('audit', 'id')")
+            )
+            if sequence:
+                # Quoted identifier already fully qualified by pg_get_serial_sequence.
+                await conn.execute(text(f"ALTER SEQUENCE {sequence} AS bigint"))
+        logger.info("Migrated audit.id to bigint")
+        _set_migration_status("ok", "audit.id widened to bigint", "")
+    except Exception as exc:  # noqa: BLE001 — boot must survive; visibility is mandatory
+        logger.error(
+            "SCHEMA MIGRATION FAILED: audit.id could not be widened to bigint (%s). "
+            "Privileged strict audit writes — including proposal approve/reject — "
+            "will FAIL until this is applied manually: %s",
+            exc,
+            _AUDIT_ID_REMEDIATION,
+        )
+        _set_migration_status("failed", str(exc), _AUDIT_ID_REMEDIATION)
+    return dict(SCHEMA_MIGRATION_STATUS)
+
+
+def _set_migration_status(state: str, detail: str, remediation: str) -> None:
+    SCHEMA_MIGRATION_STATUS["state"] = state
+    SCHEMA_MIGRATION_STATUS["detail"] = detail
+    SCHEMA_MIGRATION_STATUS["remediation"] = remediation
 
 
 async def _ensure_pgvector(engine: AsyncEngine) -> None:

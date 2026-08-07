@@ -210,6 +210,13 @@ async def tuning_recommendations(
     rule_noise: list[dict[str, Any]] = []
     for rid in sorted(stats):
         st = stats[rid]
+        # A noisy rule can be over target and STILL get no correlation_n recommendation
+        # because the live pipeline would discard the raise (an alerts-role feed forces
+        # mode=EVERY, or the rule's correlation is configured/defined somewhere
+        # correlation_rules is not read). Without this an operator sees a rule flagged
+        # over_target with no recommendation and no reason — the same silence that made
+        # the original defect invisible. Additive fields only.
+        inert_reason = tuner.correlation_n_inert_reason(prefs, st, rule_id=rid)
         rule_noise.append({
             "rule_id": _safe(rid),
             "observed": st.observed,
@@ -221,6 +228,11 @@ async def tuning_recommendations(
             "fp_rate": round(st.fp_lower_bound, 4),
             "volume_ewma": (round(st.volume_ewma, 3) if st.volume_ewma is not None else None),
             "over_target": st.total >= int(cfg.min_samples) and st.fp_lower_bound > float(cfg.fp_rate_target),
+            "correlation_n_inert": inert_reason is not None,
+            "correlation_n_inert_reason": _safe(inert_reason or ""),
+            "correlation_n_inert_detail": _safe(
+                tuner.INERT_REASON_DETAIL.get(inert_reason or "", "")
+            ),
         })
 
     return {

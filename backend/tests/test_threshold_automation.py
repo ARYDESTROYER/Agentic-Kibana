@@ -430,7 +430,7 @@ async def test_approval_crash_after_audit_keeps_first_actor_on_different_operato
         actor="alice",
         result_summary=(
             f"proposal_id={prop.id} action=approve kind=memory "
-            "effect=confirmed finalization=pending"
+            "decision=authorized effect=pending finalization=pending"
         ),
     )
 
@@ -465,7 +465,12 @@ async def test_approval_crash_after_audit_keeps_first_actor_on_different_operato
 async def test_approval_audit_failure_is_visible_and_retryable_without_duplicate_effect(
     app_state: AppState, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """No approval success is reported without strict append-only evidence."""
+    """No approval success is reported without strict append-only evidence.
+
+    The decision record is written BEFORE the effect, so an audit failure leaves the
+    configuration untouched — an operator told the approval failed must never find
+    the change already applied. The retry then converges on exactly one effect.
+    """
     from fastapi import HTTPException
 
     from app.api.routes import approve_proposal
@@ -490,10 +495,10 @@ async def test_approval_audit_failure_is_visible_and_retryable_without_duplicate
     stored = await app_state.proposals.get(prop.id)
     assert stored is not None and stored.status == "pending"
     assert "audit ledger unavailable" in str(stored.approval_error)
-    assert len([
+    assert [
         item for item in await app_state.memory.list(False)
         if item.approval_proposal_id == prop.id
-    ]) == 1
+    ] == []
 
     retried = await approve_proposal(prop.id, _ApproveRequest(app_state), state=app_state)
     assert retried["ok"] is True

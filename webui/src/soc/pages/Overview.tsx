@@ -86,6 +86,7 @@ import { BarList, type BarListItem } from '@/soc/components/BarList';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
 import { AutomationNudge } from './AutomationNudge';
+import { HealthDiagnostics } from '@/soc/components/HealthDiagnostics';
 import { StartDemoButton } from '@/soc/components/StartDemoButton';
 import { usePosture } from '@/soc/hooks/usePosture';
 import { Card, CardContent } from '@/ui/card';
@@ -883,6 +884,12 @@ export default function Overview({ onNavigate }: OverviewProps) {
     });
   }, []);
 
+  // The diagnostics band only mounts when the client actually exposes at least one of
+  // the two health endpoints (mirrors the AutomationNudge/noiseReduction guard) — a
+  // trimmed mock surface must never see a call it cannot answer.
+  const healthAvailable =
+    typeof api.diagnosticsHealth === 'function' || typeof api.autoCloseHealth === 'function';
+
   // ----- Recommended-automation nudge (onboarding-beginner) --------------- //
   const [showNudge, setShowNudge] = React.useState(false);
   React.useEffect(() => {
@@ -1364,6 +1371,14 @@ export default function Overview({ onNavigate }: OverviewProps) {
           onDismiss={dismissNudge}
         />
       ) : null}
+
+      {/* Agent health — the previously SILENT failures (auto-close collapse, a starved
+          precedent corpus, a failed state-schema migration) belong on the dashboard, so
+          they sit above the fold rather than in a settings page nobody opens. The panel
+          fetches its own RBAC-gated signals and self-hides when neither grant is held or
+          neither endpoint answered; the `typeof` guard keeps a trimmed mock surface (and
+          an older proxy) from ever calling a method it does not have. */}
+      {healthAvailable ? <HealthDiagnostics windowHours={hours} /> : null}
 
       {error ? (
         <LoadError error={error} title="Could not load the dashboard" onRetry={refreshAll} />

@@ -12,7 +12,173 @@ History is reconstructed from `git log`.
 
 ## [Unreleased]
 
-No changes yet.
+**The self-running deployment that stopped closing cases.** A field report from a
+long-running autonomous instance traced a fall from roughly 96% auto-close to zero,
+with no operator-visible signal anywhere in the product. The cause was not one bug but
+a chain: the resolved-case precedent corpus eroded and was then wiped outright, the
+threshold tuner recorded changes the pipeline structurally discarded, proposal approval
+could report failure while its effect was already live, and on PostgreSQL every
+privileged audit write was impossible. Each failure was silent, and the only trace of
+the corpus loss was an ordinary-looking `RAG seeded with 20 chunk(s)` at INFO — a line
+that reads identically whether the number is 2000 or 0. This release fixes the chain
+and, just as importantly, makes each of these conditions a state an operator can see.
+
+### Fixed
+
+- **Privileged audit writes were impossible on PostgreSQL.** `SqlAuditRepository.write_strict`
+  maps an event id to a deterministic negative 63-bit surrogate key, but `audit.id` was a
+  32-bit column, so every keyed strict write failed out of int32 range. Proposal approve and
+  reject both write a decision audit row before finalising, so both returned 503 on every
+  attempt and no proposal-decision audit row could ever exist. The offline suite never
+  caught it because SQLite's `INTEGER` is already 64-bit. The column and its sequence are
+  now 64-bit, existing deployments are migrated in place at boot, and the dialect-level
+  contract is pinned in tests that need no database server.
+- **Proposal approval applied its effect before auditing the decision.** A failure in a
+  later step released the lease and returned "no success was reported" while the tuning
+  ledger row, the configuration change, and an approval audit line were all already
+  written and the proposal was still pending and re-offered. Approval is now four explicit
+  phases — prepare, audit, effect, finalise — so an effect can never precede its own audit
+  row. This strengthens non-negotiable #2 rather than trading against it: every step was
+  already idempotent, so a retry converges instead of double-applying. The swallowed
+  exception is now logged, and the failure message is phase-specific instead of always
+  claiming a clean no-op.
+- **The resolved-case precedent corpus eroded, then was deleted.** Three defects
+  compounded. The precedent window counted raw terminal cases, so the agent's own
+  unlabelled auto-closes consumed every slot and the corpus shrank precisely as the agent
+  succeeded. The bulk and incremental indexing paths wrote different text for the same
+  document id, so whichever ran last silently won. And the incremental path never set a
+  per-case document id, which grouped every feedback-indexed precedent under one synthetic
+  document that the stale sweep could remove in a single call — that, not the erosion, is
+  what destroyed the reported corpus. The window now pages until it holds the requested
+  number of qualifying items, both paths share one text builder, precedent carries per-case
+  document identity, and `resolved_case` is excluded from the stale sweep because its
+  projection is a bounded window (absence means "outside the window", never "withdrawn").
+  A projection may no longer silently shrink a still-enabled source.
+- **The threshold tuner drafted correlation changes the pipeline discards.** Correlation
+  deliberately forces `mode=EVERY, n=1` for any group carrying an alerts-role event, and a
+  correlation defined inline on a rule definition takes precedence over the entry a
+  `correlation_n` raise writes. In both cases the tuner recorded a change as auto-applied
+  and reversible while every poll ignored it, then re-drafted the same rule forever.
+  Inertness is now detected from positive evidence only — an explicitly configured
+  `mode=EVERY`, an inline rule correlation of any mode, or unanimous case evidence that
+  every observed firing used the effective override — and such a rule is surfaced as
+  untunable-by-`n` with the structural reason instead of being drafted.
+
+### Added
+
+- **`GET /api/diagnostics/health`** (auth + `settings:read`) — the operator roll-up for the
+  conditions that used to fail silently: precedent-corpus size and per-source counts, an
+  explicit "0 analyst-confirmed precedents available" flag, the analyst-confirmed ground
+  truth actually present in case history (so a labelling gap is distinguishable from a
+  broken projection), the SQL schema-migration state with its remediation SQL, and
+  auto-close health. It returns **separate `alerts` and `unknowns` lists** and no composite
+  score, so "nothing is wrong" and "nothing could be measured" stay different answers. It
+  is read-only and seed-free — asking about corpus health never triggers an embedding
+  spend — and it is deliberately not on the unauthenticated `GET /api/health`, which is
+  byte-identical.
+- **`GET /api/metrics/auto-close-health`** (auth + `metrics:view`) — the rolling auto-close
+  rate as a first-class signal with one explicit status: `disabled`, `no_volume`,
+  `collapsed`, `never_fired`, `degraded`, `insufficient_evidence`, or `ok`. A near-zero
+  rate only means an outage while decided volume holds steady, which is what separates
+  "auto-close died" from "quiet night"; thin evidence reports an unavailable rate and a
+  reason rather than a healthy-looking number.
+- **Console: an agent-health band on the dashboard.** An auto-close collapse belongs where
+  an operator already looks, so the Security Command Center now renders the diagnostics
+  roll-up and the auto-close status above the fold. Each signal is gated on its own grant,
+  `unknowns` render under "not yet measured" and are explicitly neither problems nor
+  reassurance, an empty `alerts` list beside a non-empty `unknowns` list says in words that
+  it is not a clean bill of health, and `insufficient_evidence` / `no_volume` render as
+  exactly that rather than as `0%`.
+- **An opt-in, default-off lower-trust precedent tier.** A fully autonomous deployment
+  produces no analyst-confirmed outcomes, so its precedent corpus is permanently empty:
+  auto-close depends on precedent, precedent depends on analyst labels, and analyst labels
+  only exist if somebody works a queue the product exists to keep empty. The escape hatch is
+  a separate, explicitly weaker tier — `rag.use_unconfirmed_resolved_cases` — that indexes
+  the agent's own auto-closed verdicts as a distinct `model_unconfirmed` class, never a
+  loosening of the analyst-confirmed gate, which is untouched. Four composing guards
+  (confidence floor, minimum recurrence, age-out, context-share cap) plus a rank penalty and
+  an unconditional ordering invariant stop the agent's own drift being fed back to it as
+  evidence. Both tiers remain UNTRUSTED-fenced (#9) and render under headings that cannot be
+  confused. `POST /api/rag/precedent/bootstrap` bulk-ratifies a backlog — permission-gated,
+  audited, bounded, idempotent, dry-runnable, and requiring an exact acknowledgement string —
+  and writes a history event that is deliberately invisible to the analyst-outcome
+  classifier, so the threshold tuner sees exactly what it saw before.
+- **Console: the tier and its guards in Knowledge settings**, labelled lower-trust and
+  off by default, and described as feeding the agent prior model judgements rather than
+  analyst decisions.
+- **Console: the tuning inertness reason** wherever per-rule noise is shown, so a noisy
+  rule that receives no correlation-threshold recommendation says why instead of going
+  silent. `GET /api/tuning/recommendations` rule rows gained the additive
+  `correlation_n_inert`, `correlation_n_inert_reason` and `correlation_n_inert_detail`
+  fields.
+- **Console: the analyst-comment disclosure.** A note written on a close or a
+  confirm-false-positive, and a comment written on the AI grading, are embedded into the
+  resolved-case precedent chunk and read back by the investigator on similar future cases.
+  In production an ordinary operational aside became durable evidence and depressed
+  investigator confidence to just under the auto-close bar, so nothing closed — the text was
+  well-formed, and its meaning was the problem, which no amount of sanitising could have
+  caught. Both fields now carry a short label saying what the note becomes.
+
+- **`POST /api/proposals/bulk-reject`** (`proposals:approve`) — clearing a stale queue no
+  longer means one request per proposal. Bounded to 200 ids with a mandatory reason, it
+  reuses the single-reject body per proposal so every rejection still goes through the
+  strict append-only audit path, and reports per-item outcomes so one bad item never
+  aborts the batch. The field report asked for this to *avoid* the strict-audit path
+  because that path was broken; it is fixed now, and bypassing it would have traded a
+  fixed bug for a permanent hole in the audit log.
+
+### Changed
+
+- **Proposals carry an evidence fingerprint and derived provenance.** A proposal records a
+  deterministic fingerprint over the keys defining its recommendation and over the
+  analyst-sample counts with their provenance, and approval refuses a mismatch with a
+  machine-readable code rather than applying stale reasoning. `analyst_samples` is now
+  broken down into independent analyst outcomes, feedback labels, explicit dispositions,
+  bulk-ratified model verdicts, and unlabelled cases — and that provenance is **derived,
+  never self-declared**, so a payload claiming independent evidence while carrying only
+  bulk ratifications is still reported as `bulk_ratified` and is unapprovable. Bulk
+  ratifications are counted out of the sample total, so they cannot move a threshold. This
+  is the defect that let a backfill present model verdicts as analyst-confirmed evidence.
+  **Every pre-existing pending tuning proposal that would apply a change is therefore
+  unapprovable until re-drafted** — deliberately, because those are precisely the rows
+  whose analyst labels may be backfilled model verdicts.
+- **Lapsed proposals expire.** `expires_at` existed but nothing swept it and expired
+  proposals still rendered as actionable. A lapsed row is now projected as `expired` at
+  read time (a view, never a write, so a failed sweep costs durability but never honesty)
+  and swept durably. Approving an expired proposal is refused at the claim, before any
+  audit row or effect; rejecting one stays available, which is what makes a queue
+  clearable. Suppression proposals are exempt, because their `expires_at` is the lifetime
+  of the rule approval materialises rather than a review deadline.
+- Analyst notes carried into a precedent chunk are bounded and flattened, so an
+  operational note cannot reshape the corpus. Where the bulk projection has no
+  caller-supplied note it recovers the note already persisted on the case, so a
+  reprojection no longer blanks every note.
+- Approval audit summaries now record `decision=authorized effect=pending
+  finalization=pending`, so a row never claims a confirmed effect before it has run.
+
+### Upgrade notes
+
+- **PostgreSQL deployments are migrated in place at boot** (`audit.id` → `bigint`, with the
+  sequence widened); the migration is idempotent, preserves rows, and never blocks boot. If
+  it fails it logs at ERROR with the exact remediation SQL and reports a `failed` state on
+  the new diagnostics endpoint. If you apply that SQL by hand, do **not** apply it against a
+  running backend: each pooled connection will raise one transient
+  `InvalidCachedStatementError` on its next use because its cached plan no longer matches
+  the column type. Restart the backend after a manual `ALTER`.
+- **The approval audit `result_summary` text changed.** A proposal left mid-decision across
+  the upgrade — one whose `…:approve` audit row was written by pre-fix code and never
+  finalised — will collide with the new summary on retry and needs an administrator to
+  clear it. This cannot occur on PostgreSQL, where no such row could ever have been written
+  in the first place.
+- **Disabling `rag.use_resolved_cases` no longer deletes precedent chunks.** They remain in
+  the store and simply stop being retrievable, so re-enabling the source restores the
+  accumulated corpus instead of starting from nothing.
+- **Pending tuning proposals drafted before this release cannot be approved.** They carry
+  no evidence fingerprint, so they are reported as `unverified` and refused with
+  `evidence_fingerprint_missing`. Reject them (bulk reject is the fast path) and let the
+  tuner re-draft against verifiable evidence. On the first run after deploying, a rule with
+  a stale pending proposal may briefly show both the old row and its honest re-draft; the
+  old one lapses at its own expiry and is then swept.
 
 ## [0.1.13] - 2026-08-05
 

@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import os
+from collections.abc import Awaitable, Callable
 from typing import Any, Literal
 from urllib.parse import quote_plus
 
@@ -75,6 +76,13 @@ from ..stores.chat_conversations import (
     ChatIdempotencyConflict,
     ChatRequestCapacityBusy,
     ChatRequestInProgress,
+)
+from ..stores.proposals import (
+    BULK_DECISION_LIMIT,
+    MAX_DECISION_REASON_CHARS,
+    evidence_summary,
+    proposal_is_expired,
+    sanitize_decision_reason,
 )
 from ..tools.enrich import EnrichTool
 from ..utils import iso_now, new_id, now_utc, relative_to_millis, to_millis
@@ -2155,10 +2163,19 @@ async def personas(state: AppState = Depends(get_state)) -> dict[str, Any]:
 # Agent PROPOSALS (HITL — agent drafts, human approves/rejects)
 # --------------------------------------------------------------------------- #
 def _proposal_public(proposal: Proposal) -> dict[str, Any]:
-    """Public projection; lease and immutable recovery identity stay internal."""
-    return proposal.model_dump(
+    """Public projection; lease and immutable recovery identity stay internal.
+
+    Carries the derived ``evidence`` block so a review card renders exactly the claim
+    the server is willing to act on: a bulk-ratified or unverifiable basis is never
+    presented as analyst-confirmed, and ``evidence.approvable`` tells the UI in advance
+    that the approve button would be refused.
+    """
+    data = proposal.model_dump(
         mode="json", exclude={"applying_token", "decision_actor"}
     )
+    data["evidence"] = evidence_summary(proposal)
+    data["expired"] = proposal.status == "expired" or proposal_is_expired(proposal)
+    return data
 
 
 @router.get("/proposals")
@@ -2169,12 +2186,72 @@ async def list_proposals(
 ) -> dict[str, Any]:
     """List agent-drafted proposals (newest first). ``?status=pending`` filters to
     the review queue; omit for all. A proposal is a PENDING recommendation — nothing
-    is live until it is explicitly approved."""
+    is live until it is explicitly approved.
+
+    Opportunistically garbage-collects lapsed proposals first. A queue nobody can work
+    (the deployment whose approvals were broken for its whole life) otherwise grows
+    without bound and keeps rendering month-old recommendations as actionable. The
+    sweep is bounded, writes nothing when nothing has lapsed, and is best-effort: the
+    store's read-time projection already presents a lapsed row as ``expired``, so a
+    failed sweep costs durability, never honesty.
+    """
+    try:
+        swept = await state.proposals.sweep_expired()
+    except Exception as exc:  # noqa: BLE001 — a read must never fail on housekeeping
+        logger.warning("expired-proposal sweep failed: %s", exc)
+        swept = []
+    if swept:
+        try:
+            await state.audit.record(
+                action_type=ActionType.PROPOSAL,
+                surface="proposal",
+                actor="system",
+                result_summary=(
+                    f"expired {len(swept)} pending proposals past expires_at: "
+                    + ",".join(p.id for p in swept[:20])
+                    + (",..." if len(swept) > 20 else "")
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001 — audit is best-effort for housekeeping
+            logger.warning("expired-proposal sweep audit failed: %s", exc)
     proposals = await state.proposals.list(status=status)
     return {
         "proposals": [_proposal_public(p) for p in proposals],
         "count": len(proposals),
+        "expired_swept": len(swept),
     }
+
+
+def _decision_failure_detail(phase: str, proposal_id: str, action: str) -> str:
+    """Truthful 503 text for a failed decision, by the phase that actually failed.
+
+    The operator-visible message must never claim more or less than the code can
+    prove. ``audit`` means this attempt stopped before its effect could run;
+    ``effect``/``finalize`` mean a configuration change may already be live, so the
+    message names exactly what to inspect instead of reporting a clean no-op.
+    """
+    evidence = f"proposal-decision:{proposal_id}:{action}"
+    noun = "approval" if action == "approve" else "rejection"
+    done = "approved" if action == "approve" else "rejected"
+    if phase == "finalize":
+        return (
+            f"The {noun} was applied and audited, but the proposal could not be marked "
+            f"{done} and is still shown as pending. Inspect audit event {evidence} and the "
+            "affected configuration; retrying is safe — the effect is keyed by the proposal id "
+            "and cannot be applied twice."
+        )
+    if phase == "effect":
+        return (
+            f"The {noun} decision was audited but applying it did not complete, so the "
+            "configuration may be partially changed. Inspect the proposal's approval_error, "
+            f"audit event {evidence}, and the affected configuration; retrying is safe — the "
+            "effect is keyed by the proposal id and cannot be applied twice."
+        )
+    return (
+        f"This {noun} attempt was not recorded in the append-only audit trail and therefore "
+        f"applied no configuration change. The proposal is still pending; inspect audit event "
+        f"{evidence} and the proposal's approval_error, then retry."
+    )
 
 
 @router.post("/proposals/{proposal_id}/approve")
@@ -2191,9 +2268,18 @@ async def approve_proposal(
     picks it up LIVE. memory → append a human-injectable agent fact. tuning →
     revalidate and, where eligible, materialise the bounded change. ``automation_ack``
     records review only and never mutates configuration, Memory, suppression, or case
-    state. A strict CAS claim is persisted before any effect, every effect is keyed by
-    proposal id, and finalisation is strict so concurrent/retried requests cannot apply
-    the same proposal twice. 404 if missing; 409 if already decided/in progress."""
+    state.
+
+    The decision runs in four ordered phases — PREPARE (pure validation only),
+    AUDIT (the strict ``event_id``-keyed decision record), EFFECT, FINALISE — so an
+    operator who is told the approval failed can never find the configuration already
+    changed by that attempt. Every phase is idempotent: the strict claim fixes actor
+    and audit timestamp, ``record_strict`` deduplicates on ``event_id``, and every
+    effect is keyed by proposal id, so a retry after any failure converges on exactly
+    one applied change. 404 if missing; 409 if already decided/in progress, if the
+    proposal has EXPIRED, or if its evidence basis can no longer be verified — the
+    last two are refusals to act on stale reasoning and ask for a re-draft, and both
+    happen before anything is audited or applied."""
     by = current_username(request)
     token = new_id("approval-")
     try:
@@ -2201,9 +2287,26 @@ async def approve_proposal(
             proposal_id, by=by, token=token
         )
     except Exception as exc:  # durability boundary: never run an effect without a claim
+        logger.exception("Approval claim for proposal %s could not be persisted", proposal_id)
         raise HTTPException(status_code=503, detail="Could not persist the approval claim") from exc
     if claim == "missing" or proposal is None:
         raise HTTPException(status_code=404, detail="proposal not found")
+    if claim == "expired":
+        # Its evidence window closed. Refusing is the safe default: approving a
+        # month-old recommendation against today's configuration is not.
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "proposal_expired",
+                "proposal_id": proposal.id,
+                "expires_at": proposal.expires_at,
+                "redraft_required": True,
+                "message": (
+                    "This proposal expired and can no longer be approved. Reject it to "
+                    "clear the queue; the drafter re-proposes from current evidence."
+                ),
+            },
+        )
     if claim != "claimed":
         raise HTTPException(
             status_code=409,
@@ -2219,6 +2322,11 @@ async def approve_proposal(
     )
     audit_actor = decision_actor or "analyst"
 
+    # PREPARE validates purely, AUDIT records the decision, EFFECT applies it,
+    # FINALISE closes the lease. ``phase`` names the boundary an exception crossed so
+    # the 503 below can tell the operator what is actually true of their config.
+    phase = "prepare"
+    effect: Callable[[], Awaitable[None]] | None = None
     try:
         if proposal.kind == "suppression":
             payload = dict(proposal.payload or {})
@@ -2249,48 +2357,82 @@ async def approve_proposal(
                     "suppression_rules": [*prefs.suppression_rules, rule],
                 })
 
-            await state.mutate_execution_prefs(_append_once)
+            async def _apply_suppression() -> None:
+                await state.mutate_execution_prefs(_append_once)
+
+            effect = _apply_suppression
         elif proposal.kind == "memory":
             payload = dict(proposal.payload or {})
             text = str(payload.get("text", "") or proposal.rationale).strip()
             if not text:
                 raise ValueError("memory proposal has no text")
-            # Strict persistence: approval cannot succeed on a fail-soft KV write.
-            await state.memory.add_approved_proposal_strict(
-                text,
-                proposal_id=proposal.id,
-                category=str(payload.get("category", "")),
-                tags=list(payload.get("tags", []) or []),
-                author=decision_actor,
-            )
+
+            async def _apply_memory() -> None:
+                # Strict persistence: approval cannot succeed on a fail-soft KV write.
+                # ``proposal_id`` is the idempotency key for a post-audit retry.
+                await state.memory.add_approved_proposal_strict(
+                    text,
+                    proposal_id=proposal.id,
+                    category=str(payload.get("category", "")),
+                    tags=list(payload.get("tags", []) or []),
+                    author=decision_actor,
+                )
+
+            effect = _apply_memory
         elif proposal.kind == "tuning":
-            from ..engine.threshold_tuner import commit_approved_tuning
+            from ..engine.threshold_tuner import (
+                commit_approved_tuning,
+                materialize_approved_tuning,
+            )
 
             payload = dict(proposal.payload or {})
-            record, created = await commit_approved_tuning(
+            fingerprint = proposal.evidence_fingerprint
+            # Pure revalidation BEFORE the decision record: an unknown action, an
+            # out-of-policy step, an unverifiable evidence basis, or a recommendation
+            # overtaken by a live change is refused without auditing an approval that
+            # will never be applied. The commit below revalidates again against the
+            # freshest preferences under its own lock.
+            materialize_approved_tuning(
                 state.execution_prefs,
                 payload,
                 proposal_id=proposal.id,
-                tuning_store=state.tuning_store,
-                write_prefs=state.update_execution_prefs,
-                mutate_prefs=state.mutate_execution_prefs,
+                allow_idempotent_replay=True,
+                evidence_fingerprint_recorded=fingerprint,
             )
-            if record is not None and created:
-                await state.audit.record(
-                    action_type=ActionType.TUNING,
-                    surface="proposal",
-                    actor=audit_actor,
-                    result_summary=(
-                        f"approved tuning proposal {proposal.id}: {record.target} "
-                        f"{record.before}->{record.after} for {record.rule_id}"
-                    ),
+
+            async def _apply_tuning() -> None:
+                record, created = await commit_approved_tuning(
+                    state.execution_prefs,
+                    payload,
+                    proposal_id=proposal.id,
+                    tuning_store=state.tuning_store,
+                    write_prefs=state.update_execution_prefs,
+                    mutate_prefs=state.mutate_execution_prefs,
+                    evidence_fingerprint_recorded=fingerprint,
                 )
+                if record is not None and created:
+                    await state.audit.record(
+                        action_type=ActionType.TUNING,
+                        surface="proposal",
+                        actor=audit_actor,
+                        result_summary=(
+                            f"approved tuning proposal {proposal.id}: {record.target} "
+                            f"{record.before}->{record.after} for {record.rule_id}"
+                        ),
+                    )
+
+            effect = _apply_tuning
         elif proposal.kind == "automation_ack":
             # The status transition and audit are the complete effect.
-            pass
+            effect = None
         else:  # pragma: no cover — Literal-constrained, defensive
             raise ValueError(f"unknown proposal kind: {proposal.kind}")
 
+        # The strict decision record comes FIRST so a failure here cannot leave a
+        # silently applied configuration change behind. It is keyed by event_id and
+        # its content is a pure function of the fixed claim, so the retry that
+        # follows a failed effect or finalisation reuses this exact row.
+        phase = "audit"
         await state.control_audit.record_strict(
             action_type=ActionType.PROPOSAL,
             event_id=f"proposal-decision:{proposal.id}:approve",
@@ -2299,30 +2441,137 @@ async def approve_proposal(
             actor=audit_actor,
             result_summary=(
                 f"proposal_id={proposal.id} action=approve kind={proposal.kind} "
-                "effect=confirmed finalization=pending"
+                "decision=authorized effect=pending finalization=pending"
             ),
         )
+        phase = "effect"
+        if effect is not None:
+            await effect()
+        phase = "finalize"
         updated = await state.proposals.finalize_approval(
             proposal_id, by=by, token=token
         )
         if updated is None:
             raise RuntimeError("approval lease was lost before finalisation")
     except Exception as exc:  # noqa: BLE001 — release the lease for a visible retry
+        # Diagnosis must not depend on the proposal's approval_error field alone.
+        logger.exception(
+            "Proposal %s approval failed in the %s phase (kind=%s)",
+            proposal_id, phase, proposal.kind,
+        )
         try:
             await state.proposals.release_approval(
                 proposal_id, token=token, error=str(exc)
             )
-        except Exception as release_exc:  # status remains applying; stale lease is recoverable
-            logger.error("Could not release failed proposal approval %s: %s", proposal_id, release_exc)
+        except Exception:  # noqa: BLE001 — status remains applying; a stale lease is recoverable
+            logger.exception("Could not release failed proposal approval %s", proposal_id)
         if isinstance(exc, ValueError):
+            # A staleness refusal is NOT an ordinary failure: nothing is wrong with the
+            # request, the recommendation itself is no longer safe to enact. Report it
+            # as its own machine-readable outcome so an operator (and the UI) can tell
+            # "re-draft this" apart from "this payload is malformed" or "the store is
+            # down". ``tuning_evidence_code`` is read duck-typed so the route never
+            # depends on the tuner module's exception class.
+            code = getattr(exc, "tuning_evidence_code", None)
+            if code:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "error": "stale_proposal",
+                        "code": str(code),
+                        "proposal_id": proposal.id,
+                        "redraft_required": True,
+                        "message": str(exc),
+                        "evidence": evidence_summary(proposal),
+                    },
+                ) from exc
             status = 409 if "stale" in str(exc).lower() else 400
             raise HTTPException(status_code=status, detail=str(exc)) from exc
         raise HTTPException(
             status_code=503,
-            detail="Approval could not be durably completed; no success was reported",
+            detail=_decision_failure_detail(phase, proposal.id, "approve"),
         ) from exc
 
     return {"ok": True, "proposal": _proposal_public(updated)}
+
+
+async def _reject_one(
+    state: AppState, proposal_id: str, *, by: str, reason: str = "",
+) -> tuple[str, Proposal | None, str]:
+    """Run ONE rejection through the durable decision boundary.
+
+    The single and bulk endpoints share this exact body so bulk rejection is not a
+    second, weaker path: strict CAS claim → strict ``event_id``-keyed append-only
+    decision record → strict finalisation, unchanged. Rejection has no effect phase at
+    all — preferences, Memory, suppression and case state are never touched.
+
+    Returns ``(outcome, proposal, detail)`` instead of raising, so a batch can report
+    per-item results without one bad item aborting the rest. ``outcome`` is one of
+    ``rejected``, ``already_rejected``, ``missing``, ``conflict``, ``unavailable``
+    (the claim could not be persisted — nothing was audited) or ``incomplete`` (the
+    decision could not be durably completed).
+    """
+    token = new_id("rejection-")
+    try:
+        proposal, outcome = await state.proposals.claim_rejection(
+            proposal_id, by=by, token=token, reason=reason,
+        )
+    except Exception as exc:  # noqa: BLE001 — never audit without a durable claim
+        logger.exception("Rejection claim for proposal %s could not be persisted", proposal_id)
+        return "unavailable", None, f"Could not persist the rejection claim: {exc}"
+    if outcome == "missing" or proposal is None:
+        return "missing", None, "proposal not found"
+    if outcome != "claimed":
+        if proposal.status == "rejected":
+            # Idempotent: this proposal is already in the state the caller asked for
+            # and its append-only decision row already exists.
+            return "already_rejected", proposal, "proposal is already rejected"
+        return "conflict", proposal, f"proposal is {proposal.status}, not pending"
+
+    decision_actor = (
+        proposal.decision_actor
+        if proposal.decision_actor is not None
+        else (by or "").strip()
+    )
+    fixed_reason = sanitize_decision_reason(proposal.decision_reason)
+    phase = "audit"
+    try:
+        await state.control_audit.record_strict(
+            action_type=ActionType.PROPOSAL,
+            event_id=f"proposal-decision:{proposal.id}:reject",
+            ts=proposal.decision_audit_at,
+            surface="proposal",
+            actor=decision_actor or "analyst",
+            result_summary=(
+                f"proposal_id={proposal.id} action=reject kind={proposal.kind} "
+                "effect=none finalization=pending"
+                + (f" reason={fixed_reason}" if fixed_reason else "")
+            ),
+        )
+        phase = "finalize"
+        updated = await state.proposals.finalize_rejection(
+            proposal_id, by=by, token=token
+        )
+        if updated is None:
+            raise RuntimeError("rejection lease was lost before finalisation")
+    except Exception as exc:  # noqa: BLE001 — no unaudited success response
+        logger.exception(
+            "Proposal %s rejection failed in the %s phase (kind=%s)",
+            proposal_id, phase, proposal.kind,
+        )
+        try:
+            await state.proposals.release_approval(
+                proposal_id, token=token, error=str(exc)
+            )
+        except Exception:  # noqa: BLE001 — status remains applying; a stale lease is recoverable
+            logger.exception("Could not release failed proposal rejection %s", proposal_id)
+        return "incomplete", proposal, (
+            "Rejection could not be durably completed; the proposal is still pending and "
+            "no configuration, Memory or case state was changed. Inspect audit event "
+            f"proposal-decision:{proposal.id}:reject and the proposal's approval_error, "
+            "then retry."
+        )
+    return "rejected", updated, ""
 
 
 @router.post("/proposals/{proposal_id}/reject")
@@ -2334,65 +2583,133 @@ async def reject_proposal(
 ) -> dict[str, Any]:
     """Reject a pending proposal through the same durable decision boundary.
 
-    Preferences / memory are unchanged. A strict CAS claim and idempotent
-    append-only audit row must both succeed before the proposal can be finalised as
-    rejected. 404 if missing; 409 if already decided/in progress.
+    Rejection has no effect phase at all: preferences, Memory, suppression and case
+    state are never touched, so the ordering is simply strict CAS claim → strict
+    append-only decision record → strict finalisation. An EXPIRED proposal may still
+    be rejected — retiring dead review work is how a queue is cleared and it changes
+    nothing. 404 if missing; 409 if already decided/in progress.
     """
     by = current_username(request)
-    token = new_id("rejection-")
-    try:
-        proposal, outcome = await state.proposals.claim_rejection(
-            proposal_id, by=by, token=token
-        )
-    except Exception as exc:
-        raise HTTPException(
-            status_code=503, detail="Could not persist the rejection claim"
-        ) from exc
-    if outcome == "missing" or proposal is None:
+    outcome, proposal, detail = await _reject_one(state, proposal_id, by=by)
+    if outcome == "unavailable":
+        raise HTTPException(status_code=503, detail="Could not persist the rejection claim")
+    if outcome == "missing":
         raise HTTPException(status_code=404, detail="proposal not found")
-    if outcome != "claimed":
+    if outcome in {"conflict", "already_rejected"}:
         raise HTTPException(
             status_code=409,
-            detail=f"proposal is {proposal.status}, not pending",
-        )
-    decision_actor = (
-        proposal.decision_actor
-        if proposal.decision_actor is not None
-        else (by or "").strip()
-    )
-    try:
-        await state.control_audit.record_strict(
-            action_type=ActionType.PROPOSAL,
-            event_id=f"proposal-decision:{proposal.id}:reject",
-            ts=proposal.decision_audit_at,
-            surface="proposal",
-            actor=decision_actor or "analyst",
-            result_summary=(
-                f"proposal_id={proposal.id} action=reject kind={proposal.kind} "
-                "effect=none finalization=pending"
+            detail=(
+                f"proposal is {proposal.status}, not pending"
+                if proposal is not None
+                else detail
             ),
         )
-        updated = await state.proposals.finalize_rejection(
-            proposal_id, by=by, token=token
-        )
-        if updated is None:
-            raise RuntimeError("rejection lease was lost before finalisation")
-    except Exception as exc:  # noqa: BLE001 — no unaudited success response
-        try:
-            await state.proposals.release_approval(
-                proposal_id, token=token, error=str(exc)
-            )
-        except Exception as release_exc:
-            logger.error(
-                "Could not release failed proposal rejection %s: %s",
-                proposal_id,
-                release_exc,
-            )
+    if outcome == "incomplete":
+        raise HTTPException(status_code=503, detail=detail)
+    return {"ok": True, "proposal": _proposal_public(proposal)}
+
+
+class ProposalBulkRejectRequest(BaseModel):
+    """Explicit ids plus one audited reason for clearing a review queue."""
+
+    ids: list[str] = Field(default_factory=list)
+    reason: str = ""
+
+
+@router.post("/proposals/bulk-reject")
+async def bulk_reject_proposals(
+    body: ProposalBulkRejectRequest,
+    request: Request,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("proposals", "approve")),
+) -> dict[str, Any]:
+    """Reject many proposals in one audited request.
+
+    A queue that accumulated for a deployment's whole life cannot realistically be
+    cleared one HTTP request at a time, but convenience must not buy itself a hole in
+    the append-only audit trail (#2). This therefore runs the SAME strict per-proposal
+    decision path as :func:`reject_proposal` — one ``event_id``-keyed append-only
+    decision record each — rather than a bulk state write with a single summary row.
+
+    Consequences of that choice, all deliberate:
+
+    * **Idempotent.** An already-rejected id reports ``already_rejected`` and writes
+      nothing new; ``record_strict`` deduplicates on ``event_id`` anyway.
+    * **Partial success is a first-class result.** One unusable id — missing, in
+      flight, or a store hiccup — is reported in ``results`` and never aborts the
+      batch, so an operator is never left guessing which half landed.
+    * **Bounded.** At most :data:`BULK_DECISION_LIMIT` ids per request, deduplicated,
+      because each one performs a durable write.
+
+    Expired proposals are rejectable, which is what makes this the queue-clearing tool.
+    """
+    seen: set[str] = set()
+    ids: list[str] = []
+    for raw in body.ids or []:
+        pid = str(raw or "").strip()
+        if pid and pid not in seen:
+            seen.add(pid)
+            ids.append(pid)
+    if not ids:
+        raise HTTPException(status_code=400, detail="ids must contain at least one proposal id")
+    if len(ids) > BULK_DECISION_LIMIT:
         raise HTTPException(
-            status_code=503,
-            detail="Rejection could not be durably completed; no success was reported",
-        ) from exc
-    return {"ok": True, "proposal": _proposal_public(updated)}
+            status_code=400,
+            detail=(
+                f"at most {BULK_DECISION_LIMIT} proposals per bulk rejection "
+                f"(received {len(ids)}); send the rest in a follow-up request"
+            ),
+        )
+    reason = sanitize_decision_reason(body.reason)
+    if not reason:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "reason is required so the append-only audit row records why the queue "
+                f"was cleared (max {MAX_DECISION_REASON_CHARS} characters)"
+            ),
+        )
+
+    by = current_username(request)
+    results: list[dict[str, Any]] = []
+    for pid in ids:
+        outcome, proposal, detail = await _reject_one(state, pid, by=by, reason=reason)
+        row: dict[str, Any] = {
+            "id": pid,
+            "outcome": outcome,
+            "ok": outcome in {"rejected", "already_rejected"},
+        }
+        if detail:
+            row["detail"] = detail
+        if proposal is not None:
+            row["status"] = proposal.status
+        results.append(row)
+
+    rejected = [r["id"] for r in results if r["outcome"] == "rejected"]
+    already = [r["id"] for r in results if r["outcome"] == "already_rejected"]
+    failed = [r for r in results if not r["ok"]]
+    try:
+        await state.audit.record(
+            action_type=ActionType.PROPOSAL,
+            surface="proposal",
+            actor=by or "analyst",
+            result_summary=(
+                f"bulk reject requested={len(ids)} rejected={len(rejected)} "
+                f"already_rejected={len(already)} failed={len(failed)} reason={reason}"
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001 — the per-proposal strict rows are the record
+        logger.warning("bulk rejection summary audit failed: %s", exc)
+
+    return {
+        "ok": not failed,
+        "requested": len(ids),
+        "rejected": rejected,
+        "already_rejected": already,
+        "failed": [r["id"] for r in failed],
+        "results": results,
+        "reason": reason,
+    }
 
 
 def _playbook_payload(state: AppState, playbook, *, content: str | None = None) -> dict[str, Any]:

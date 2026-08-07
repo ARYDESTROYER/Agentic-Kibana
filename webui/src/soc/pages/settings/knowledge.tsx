@@ -5,11 +5,16 @@
  * RAG retrieval config, the per-case threat-context panel, and deep-links to the
  * corpus and response-playbook management pages.
  */
-import { FileText, Library, ShieldAlert } from 'lucide-react';
+import { Bot, FileText, Library, ShieldAlert } from 'lucide-react';
 
-import type { ThreatContextConfig } from '@/lib/types';
+import type {
+  RagConfig,
+  ThreatContextConfig,
+  UnconfirmedPrecedentConfig,
+} from '@/lib/types';
 import { cn } from '@/lib/cn';
 
+import { Badge } from '@/ui/badge';
 import { Button } from '@/ui/button';
 import { Input } from '@/ui/input';
 import { SettingsGrid, SettingsCard, type SettingsTOCItem } from '@/soc/components/SettingsGrid';
@@ -20,9 +25,150 @@ import { SectionShell, NumPref, SwitchPref, type NavigateFn, type SecProps } fro
 
 const KNOWLEDGE_TOC: SettingsTOCItem[] = [
   { anchor: 'knowledge-rag', label: 'Retrieval (RAG)', icon: Library },
+  { anchor: 'knowledge-precedent', label: 'Unconfirmed precedent', icon: Bot },
   { anchor: 'knowledge-threat', label: 'Threat context', icon: ShieldAlert },
   { anchor: 'knowledge-corpus', label: 'Corpus', icon: FileText },
 ];
+
+/** Backend defaults for `RagConfig.unconfirmed_precedent` (mirrors `config.py`). */
+const PRECEDENT_GUARD_DEFAULTS: Required<UnconfirmedPrecedentConfig> = {
+  min_confidence: 0.8,
+  min_recurrence: 3,
+  max_age_days: 30,
+  max_context_share: 0.34,
+  rank_penalty: 0.5,
+  max_items: 50,
+};
+
+/**
+ * The LOWER-TRUST precedent tier and its compounding guards.
+ *
+ * Deliberately its own card, not another switch in the retrieval list: turning this on
+ * changes WHAT KIND OF EVIDENCE the investigator reads. The confirmed tier is analyst
+ * ground truth; this one is the agent's own unreviewed auto-closes — prior MODEL
+ * JUDGEMENTS. An operator has to be able to see that distinction without reading the
+ * backend, so the card states it, the switch is off by default, and the guards stay
+ * visible (but inert) whenever the tier is off.
+ */
+function UnconfirmedPrecedentControls({ prefs, update }: SecProps) {
+  const rag: RagConfig = prefs.rag || {};
+  const guards: UnconfirmedPrecedentConfig = rag.unconfirmed_precedent || {};
+  const ragEnabled = rag.enabled ?? true;
+  // A sub-tier of the precedent corpus, never an independent source: the backend
+  // requires `use_resolved_cases`, so the UI must not imply it can stand alone.
+  const precedentOn = rag.use_resolved_cases ?? true;
+  const tierOn = Boolean(rag.use_unconfirmed_resolved_cases);
+  const canEnable = ragEnabled && precedentOn;
+  const guardsDisabled = !canEnable || !tierOn;
+
+  const setRag = (patch: Partial<RagConfig>) => update({ rag: { ...rag, ...patch } });
+  const setGuard = (patch: Partial<UnconfirmedPrecedentConfig>) =>
+    setRag({ unconfirmed_precedent: { ...guards, ...patch } });
+  const guard = <K extends keyof UnconfirmedPrecedentConfig>(key: K): number =>
+    (guards[key] as number | undefined) ?? PRECEDENT_GUARD_DEFAULTS[key];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant="warning">Lower trust</Badge>
+        <Badge variant="secondary">Off by default</Badge>
+      </div>
+
+      <p className="max-w-3xl text-sm leading-relaxed text-muted-foreground">
+        Resolved-case precedent normally comes from{' '}
+        <span className="font-medium text-foreground">analyst-confirmed outcomes only</span>. This
+        option additionally feeds the agent{' '}
+        <span className="font-medium text-foreground">its own prior model judgements</span> — cases
+        the agent auto-closed that no human ever reviewed. They are labelled as a separate,
+        weaker tier, are always outranked by analyst-confirmed precedent, and never become
+        analyst ground truth: threshold tuning and every other confirmed-evidence consumer
+        ignore them entirely.
+      </p>
+
+      <SwitchPref
+        label="Learn from unreviewed agent closes"
+        help={
+          canEnable
+            ? 'Indexes the agent’s own auto-closed verdicts as a distinct, lower-trust precedent tier. It never changes how a case is closed or escalated — that stays deterministic.'
+            : 'Requires retrieval and the resolved-case precedent source above to be enabled.'
+        }
+        checked={tierOn}
+        disabled={!canEnable}
+        onChange={(v) => setRag({ use_unconfirmed_resolved_cases: v })}
+      />
+
+      <div className={cn('space-y-3', guardsDisabled && 'opacity-60')}>
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          These bounds compound. They exist to stop one unreviewed close becoming quotable
+          precedent, and to stop a retrieval being dominated by an echo of the model’s own
+          output.
+        </p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <NumPref
+            label="Minimum model confidence"
+            help="0–1. A low-confidence auto-close is the judgement most likely to be wrong. A floor, never a warrant."
+            value={guard('min_confidence')}
+            step={0.05}
+            min={0}
+            max={1}
+            disabled={guardsDisabled}
+            onChange={(v) => setGuard({ min_confidence: v })}
+          />
+          <NumPref
+            label="Minimum recurrence"
+            help="How often the same detection pattern must have closed the same way before any of them is indexed. 1 disables this guard."
+            value={guard('min_recurrence')}
+            step={1}
+            min={1}
+            max={1000}
+            disabled={guardsDisabled}
+            onChange={(v) => setGuard({ min_recurrence: v })}
+          />
+          <NumPref
+            label="Age-out (days)"
+            help="Unconfirmed precedent is provisional and decays. Enforced at projection AND at retrieval, so stored chunks go quiet on schedule."
+            value={guard('max_age_days')}
+            step={1}
+            min={1}
+            max={3650}
+            disabled={guardsDisabled}
+            onChange={(v) => setGuard({ max_age_days: v })}
+          />
+          <NumPref
+            label="Maximum context share"
+            help="0–1. The hard cap on the fraction of one retrieval that may be the model’s own prior output. 0 blocks it entirely."
+            value={guard('max_context_share')}
+            step={0.01}
+            min={0}
+            max={1}
+            disabled={guardsDisabled}
+            onChange={(v) => setGuard({ max_context_share: v })}
+          />
+          <NumPref
+            label="Rank penalty"
+            help="0–1 multiplier demoting an unconfirmed chunk in the blended ranking. Confirmed precedent outranks it unconditionally regardless."
+            value={guard('rank_penalty')}
+            step={0.05}
+            min={0}
+            max={1}
+            disabled={guardsDisabled}
+            onChange={(v) => setGuard({ rank_penalty: v })}
+          />
+          <NumPref
+            label="Maximum items"
+            help="Bound on how many unconfirmed precedents the automatic projection may hold at all."
+            value={guard('max_items')}
+            step={1}
+            min={0}
+            max={1000}
+            disabled={guardsDisabled}
+            onChange={(v) => setGuard({ max_items: v })}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /** RAG retrieval toggles (also reused by the Advanced › Suppression card). */
 export function RagControls({ prefs, update }: SecProps) {
@@ -69,6 +215,16 @@ export function KnowledgeSection({
           wide="full"
         >
           <RagControls prefs={prefs} update={update} />
+        </SettingsCard>
+
+        <SettingsCard
+          anchor="knowledge-precedent"
+          title="Unconfirmed precedent (lower trust)"
+          icon={Bot}
+          description="Optional, off by default: additionally feed the investigator the agent's OWN prior model judgements — auto-closed cases no analyst reviewed — as a separate, weaker, bounded tier."
+          wide="full"
+        >
+          <UnconfirmedPrecedentControls prefs={prefs} update={update} />
         </SettingsCard>
 
         <SettingsCard

@@ -1903,6 +1903,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/diagnostics/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Diagnostics Health
+         * @description The operator diagnostics roll-up for the conditions that used to fail silently.
+         *
+         *     Returns the precedent-corpus health signal (size, per-source projection counts, and
+         *     the explicit "0 analyst-confirmed precedents available" flag), the SQL
+         *     schema-migration state, and the rolling auto-close health signal — plus a flat
+         *     ``alerts`` list of positively-detected conditions and a SEPARATE ``unknowns`` list
+         *     of signals that could not be evaluated, so an empty ``alerts`` is never mistaken for
+         *     a clean bill of health. There is no composite health score — only the two counts.
+         *
+         *     Authenticated and gated on ``settings:read``. This detail is deliberately NOT on the
+         *     public ``GET /api/health``: corpus counts and per-source detection posture must not
+         *     be readable by an anonymous caller.
+         *
+         *     Read-only and seed-free — asking about corpus health never triggers an embedding
+         *     spend, a projection, or any write. Advisory only; never read by ``decide()`` (#3).
+         */
+        get: operations["diagnostics_health_api_diagnostics_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/enrichment/lookup": {
         parameters: {
             query?: never;
@@ -2408,6 +2442,41 @@ export interface paths {
          *     deterministic case decision (#3).
          */
         get: operations["metrics_agent_improvement_api_metrics_agent_improvement_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/metrics/auto-close-health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Metrics Auto Close Health
+         * @description The rolling auto-close rate as a FIRST-CLASS health signal.
+         *
+         *     Auto-close silently ceasing is the failure this endpoint exists for: an unrelated
+         *     configuration change starved the precedent corpus, auto-close stopped forever, and
+         *     nothing surfaced it. A rate that falls to ~0 **while decided volume holds steady**
+         *     is that outage; a rate of 0 because nobody sent any work, or because the operator
+         *     turned auto-close off, is not. The response reports both windows' raw counts plus
+         *     an explicit ``status`` so those are distinguishable rather than conflated.
+         *
+         *     Insufficient evidence stays explicit: a window without enough decided cases returns
+         *     a DASH rate and ``available: false`` with a reason, never a reassuring number. There
+         *     is no composite score.
+         *
+         *     READ-ONLY derivation over already-persisted cases, computed over up to the most
+         *     recent 5000 (``truncated`` says when the store held more). The auto-close policy is
+         *     read for DISPLAY only — nothing here is ever an input to ``decide()`` (#3).
+         */
+        get: operations["metrics_auto_close_health_api_metrics_auto_close_health_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3070,10 +3139,55 @@ export interface paths {
          * @description List agent-drafted proposals (newest first). ``?status=pending`` filters to
          *     the review queue; omit for all. A proposal is a PENDING recommendation — nothing
          *     is live until it is explicitly approved.
+         *
+         *     Opportunistically garbage-collects lapsed proposals first. A queue nobody can work
+         *     (the deployment whose approvals were broken for its whole life) otherwise grows
+         *     without bound and keeps rendering month-old recommendations as actionable. The
+         *     sweep is bounded, writes nothing when nothing has lapsed, and is best-effort: the
+         *     store's read-time projection already presents a lapsed row as ``expired``, so a
+         *     failed sweep costs durability, never honesty.
          */
         get: operations["list_proposals_api_proposals_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/proposals/bulk-reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bulk Reject Proposals
+         * @description Reject many proposals in one audited request.
+         *
+         *     A queue that accumulated for a deployment's whole life cannot realistically be
+         *     cleared one HTTP request at a time, but convenience must not buy itself a hole in
+         *     the append-only audit trail (#2). This therefore runs the SAME strict per-proposal
+         *     decision path as :func:`reject_proposal` — one ``event_id``-keyed append-only
+         *     decision record each — rather than a bulk state write with a single summary row.
+         *
+         *     Consequences of that choice, all deliberate:
+         *
+         *     * **Idempotent.** An already-rejected id reports ``already_rejected`` and writes
+         *       nothing new; ``record_strict`` deduplicates on ``event_id`` anyway.
+         *     * **Partial success is a first-class result.** One unusable id — missing, in
+         *       flight, or a store hiccup — is reported in ``results`` and never aborts the
+         *       batch, so an operator is never left guessing which half landed.
+         *     * **Bounded.** At most :data:`BULK_DECISION_LIMIT` ids per request, deduplicated,
+         *       because each one performs a durable write.
+         *
+         *     Expired proposals are rejectable, which is what makes this the queue-clearing tool.
+         */
+        post: operations["bulk_reject_proposals_api_proposals_bulk_reject_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3098,9 +3212,18 @@ export interface paths {
          *     picks it up LIVE. memory → append a human-injectable agent fact. tuning →
          *     revalidate and, where eligible, materialise the bounded change. ``automation_ack``
          *     records review only and never mutates configuration, Memory, suppression, or case
-         *     state. A strict CAS claim is persisted before any effect, every effect is keyed by
-         *     proposal id, and finalisation is strict so concurrent/retried requests cannot apply
-         *     the same proposal twice. 404 if missing; 409 if already decided/in progress.
+         *     state.
+         *
+         *     The decision runs in four ordered phases — PREPARE (pure validation only),
+         *     AUDIT (the strict ``event_id``-keyed decision record), EFFECT, FINALISE — so an
+         *     operator who is told the approval failed can never find the configuration already
+         *     changed by that attempt. Every phase is idempotent: the strict claim fixes actor
+         *     and audit timestamp, ``record_strict`` deduplicates on ``event_id``, and every
+         *     effect is keyed by proposal id, so a retry after any failure converges on exactly
+         *     one applied change. 404 if missing; 409 if already decided/in progress, if the
+         *     proposal has EXPIRED, or if its evidence basis can no longer be verified — the
+         *     last two are refusals to act on stale reasoning and ask for a re-draft, and both
+         *     happen before anything is audited or applied.
          */
         post: operations["approve_proposal_api_proposals__proposal_id__approve_post"];
         delete?: never;
@@ -3122,9 +3245,11 @@ export interface paths {
          * Reject Proposal
          * @description Reject a pending proposal through the same durable decision boundary.
          *
-         *     Preferences / memory are unchanged. A strict CAS claim and idempotent
-         *     append-only audit row must both succeed before the proposal can be finalised as
-         *     rejected. 404 if missing; 409 if already decided/in progress.
+         *     Rejection has no effect phase at all: preferences, Memory, suppression and case
+         *     state are never touched, so the ordering is simply strict CAS claim → strict
+         *     append-only decision record → strict finalisation. An EXPIRED proposal may still
+         *     be rejected — retiring dead review work is how a queue is cleared and it changes
+         *     nothing. 404 if missing; 409 if already decided/in progress.
          */
         post: operations["reject_proposal_api_proposals__proposal_id__reject_post"];
         delete?: never;
@@ -3193,6 +3318,39 @@ export interface paths {
          *     effect immediately for retrieval. 400 on empty/oversized text.
          */
         post: operations["rag_import_api_rag_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/rag/precedent/bootstrap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Precedent Bootstrap Status
+         * @description Preview the bulk bootstrap: tier state, guards, and how many cases qualify.
+         *
+         *     Read-only. ``eligible`` counts guard-passing candidates within the bounded scan;
+         *     ``pending`` is how many of those are not yet ratified.
+         */
+        get: operations["precedent_bootstrap_status_api_rag_precedent_bootstrap_get"];
+        put?: never;
+        /**
+         * Precedent Bootstrap
+         * @description Bulk-ratify the agent's own auto-closed verdicts as LOWER-TRUST precedent.
+         *
+         *     Bounded (``limit`` <= 1000), idempotent (an already-ratified case is skipped) and
+         *     therefore resumable: call it repeatedly until ``remaining`` is 0. Requires
+         *     ``rag:manage`` AND ``cases:write``, and an exact acknowledgement string so the
+         *     caller cannot claim afterwards that they believed these were analyst labels.
+         *     Audited per case plus once per batch (#2).
+         */
+        post: operations["precedent_bootstrap_api_rag_precedent_bootstrap_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6490,12 +6648,51 @@ export interface components {
             /** Expected Revision */
             expected_revision?: number | null;
         };
+        /**
+         * PrecedentBootstrapRequest
+         * @description An explicit, honest ratification of MODEL verdicts as weak precedent.
+         */
+        PrecedentBootstrapRequest: {
+            /**
+             * Acknowledgement
+             * @description Must be exactly: I am ratifying model verdicts, not independent analyst ground truth
+             */
+            acknowledgement: string;
+            /**
+             * Batch Id
+             * @default
+             */
+            batch_id: string;
+            /**
+             * Dry Run
+             * @default false
+             */
+            dry_run: boolean;
+            /**
+             * Limit
+             * @default 200
+             */
+            limit: number;
+        };
         /** PricingBody */
         PricingBody: {
             /** Input Per Million */
             input_per_million: number;
             /** Output Per Million */
             output_per_million: number;
+        };
+        /**
+         * ProposalBulkRejectRequest
+         * @description Explicit ids plus one audited reason for clearing a review queue.
+         */
+        ProposalBulkRejectRequest: {
+            /** Ids */
+            ids?: string[];
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
         };
         /**
          * ProviderSecretsBody
@@ -10777,6 +10974,37 @@ export interface operations {
             };
         };
     };
+    diagnostics_health_api_diagnostics_health_get: {
+        parameters: {
+            query?: {
+                window_hours?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     enrichment_lookup_api_enrichment_lookup_get: {
         parameters: {
             query: {
@@ -11543,6 +11771,37 @@ export interface operations {
                 as_of?: string | null;
                 current_days?: number;
                 baseline_days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    metrics_auto_close_health_api_metrics_auto_close_health_get: {
+        parameters: {
+            query?: {
+                window_hours?: number;
             };
             header?: never;
             path?: never;
@@ -12546,6 +12805,39 @@ export interface operations {
             };
         };
     };
+    bulk_reject_proposals_api_proposals_bulk_reject_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProposalBulkRejectRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     approve_proposal_api_proposals__proposal_id__approve_post: {
         parameters: {
             query?: never;
@@ -12702,6 +12994,59 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["RagImportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    precedent_bootstrap_status_api_rag_precedent_bootstrap_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    precedent_bootstrap_api_rag_precedent_bootstrap_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PrecedentBootstrapRequest"];
             };
         };
         responses: {

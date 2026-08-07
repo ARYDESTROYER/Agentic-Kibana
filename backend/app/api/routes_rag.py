@@ -26,7 +26,16 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from ..constants import ActionType
 from ..state import AppState
+from ..tools.rag import (
+    PRECEDENT_RATIFICATION_ACKNOWLEDGEMENT,
+    PRECEDENT_RATIFICATION_PROVENANCE,
+    TRUST_MODEL_UNCONFIRMED,
+    is_bulk_ratified,
+    precedent_ratification_entry,
+)
+from ..utils import iso_now, new_id
 from .deps import current_username, get_state, require_permission
 
 logger = logging.getLogger("tlsoc.api.rag")
@@ -162,6 +171,232 @@ async def rag_search(
         "query": query,
         "count": len(chunks),
         "chunks": [c.model_dump() for c in chunks],
+    }
+
+
+# --------------------------------------------------------------------------- #
+# BULK GROUND-TRUTH BOOTSTRAP — escaping the precedent cold start honestly.
+#
+# The precedent corpus only accepts analyst-confirmed outcomes
+# (``engine/analyst_outcomes.analyst_confirmed_outcome``), and that gate is CORRECT:
+# letting the agent index its own unreviewed closes would be a self-confirmation loop.
+# But a fully autonomous deployment can never satisfy it, so the only way anyone has
+# had to seed precedent is scripting ``POST /api/cases/{id}/feedback`` a few thousand
+# times — which forges analyst feedback and makes model verdicts look like independent
+# ground truth to the THRESHOLD TUNER as well as to RAG (a tuning proposal then honestly
+# reports "97 analyst labels / 97 confirmed FP" when the true independent count is zero).
+#
+# This endpoint is the supported alternative. It ratifies MODEL verdicts into the
+# explicitly weaker ``model_unconfirmed`` tier and records that provenance durably.
+#
+# What it does NOT do, deliberately:
+#   * it does NOT write ``FeedbackEntry`` rows, so ``analyst_confirmed_outcome`` still
+#     returns nothing for these cases and the threshold tuner's independent-evidence
+#     count is unchanged;
+#   * it does NOT fabricate analyst identity — the marker records the ratifying
+#     OPERATOR and states that the outcome is not an independent analyst outcome;
+#   * it does NOT upgrade any trust tier — a ratified precedent stays
+#     ``model_unconfirmed`` for ever unless a human actually classifies the case;
+#   * it does NOT touch ``status``/``disposition``/``decision_by`` or go anywhere near
+#     the deterministic ``decide()`` (#3).
+# --------------------------------------------------------------------------- #
+_PRECEDENT_BOOTSTRAP_MAX = 1000
+
+_PRECEDENT_BOOTSTRAP_DISCLAIMER = [
+    "Ratified entries are indexed as the lower-trust 'model_unconfirmed' precedent "
+    "tier and are always outranked and share-capped against analyst-confirmed ones.",
+    "No analyst feedback is written and no analyst identity is fabricated: "
+    "independent analyst-outcome counts (threshold tuning included) are unchanged.",
+    "Nothing is promoted: a ratified case stays 'model_unconfirmed' until a human "
+    "explicitly classifies it.",
+    "Case status, disposition and decision_by are untouched; the deterministic "
+    "close/escalate decision is never involved.",
+]
+
+
+class PrecedentBootstrapRequest(BaseModel):
+    """An explicit, honest ratification of MODEL verdicts as weak precedent."""
+
+    acknowledgement: str = Field(
+        ...,
+        description=(
+            "Must be exactly: " + PRECEDENT_RATIFICATION_ACKNOWLEDGEMENT
+        ),
+    )
+    limit: int = Field(default=200, ge=1, le=_PRECEDENT_BOOTSTRAP_MAX)
+    # A caller-supplied idempotency key for one logical backfill. Re-running with the
+    # same key (or none) is safe either way: already-ratified cases are skipped.
+    batch_id: str = Field(default="", max_length=64)
+    dry_run: bool = False
+
+
+def _precedent_preview(state: AppState) -> dict[str, Any]:
+    rag_cfg = getattr(state.prefs, "rag", None)
+    guards = getattr(rag_cfg, "unconfirmed_precedent", None)
+    return {
+        "tier_enabled": bool(
+            getattr(rag_cfg, "use_resolved_cases", False)
+            and getattr(rag_cfg, "use_unconfirmed_resolved_cases", False)
+        ),
+        "use_resolved_cases": bool(getattr(rag_cfg, "use_resolved_cases", False)),
+        "use_unconfirmed_resolved_cases": bool(
+            getattr(rag_cfg, "use_unconfirmed_resolved_cases", False)
+        ),
+        "trust_class": TRUST_MODEL_UNCONFIRMED,
+        "provenance": PRECEDENT_RATIFICATION_PROVENANCE,
+        "acknowledgement_required": PRECEDENT_RATIFICATION_ACKNOWLEDGEMENT,
+        "max_batch": _PRECEDENT_BOOTSTRAP_MAX,
+        "guards": guards.model_dump(mode="json") if guards is not None else {},
+        "does_not": list(_PRECEDENT_BOOTSTRAP_DISCLAIMER),
+    }
+
+
+@router.get("/rag/precedent/bootstrap")
+async def precedent_bootstrap_status(
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("rag", "read")),
+) -> dict[str, Any]:
+    """Preview the bulk bootstrap: tier state, guards, and how many cases qualify.
+
+    Read-only. ``eligible`` counts guard-passing candidates within the bounded scan;
+    ``pending`` is how many of those are not yet ratified."""
+    preview = _precedent_preview(state)
+    candidates: list[Any] = []
+    if preview["tier_enabled"]:
+        candidates = await state.rag_service.unconfirmed_precedent_candidates(
+            _PRECEDENT_BOOTSTRAP_MAX
+        )
+    preview["eligible"] = len(candidates)
+    preview["pending"] = sum(1 for case, _ in candidates if not is_bulk_ratified(case))
+    return preview
+
+
+@router.post("/rag/precedent/bootstrap")
+async def precedent_bootstrap(
+    body: PrecedentBootstrapRequest,
+    request: Request,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("rag", "manage")),
+    __=Depends(require_permission("cases", "write")),
+) -> dict[str, Any]:
+    """Bulk-ratify the agent's own auto-closed verdicts as LOWER-TRUST precedent.
+
+    Bounded (``limit`` <= 1000), idempotent (an already-ratified case is skipped) and
+    therefore resumable: call it repeatedly until ``remaining`` is 0. Requires
+    ``rag:manage`` AND ``cases:write``, and an exact acknowledgement string so the
+    caller cannot claim afterwards that they believed these were analyst labels.
+    Audited per case plus once per batch (#2).
+    """
+    if (body.acknowledgement or "").strip() != PRECEDENT_RATIFICATION_ACKNOWLEDGEMENT:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "explicit acknowledgement required; send acknowledgement="
+                f"{PRECEDENT_RATIFICATION_ACKNOWLEDGEMENT!r}"
+            ),
+        )
+    preview = _precedent_preview(state)
+    if not preview["tier_enabled"]:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "the lower-trust precedent tier is disabled; enable "
+                "rag.use_resolved_cases and rag.use_unconfirmed_resolved_cases in "
+                "settings before bootstrapping (this endpoint never enables it for you)"
+            ),
+        )
+
+    actor = current_username(request) or "operator"
+    batch_id = (body.batch_id or "").strip() or new_id("ratify")
+    # The scan cap is the ENDPOINT's bound, not ``guards.max_items``: the operator is
+    # deliberately seeding a backlog here, whereas ``max_items`` bounds how much the
+    # automatic periodic projection may (re-)derive on its own. Everything ratified
+    # stays subject to the age-out, rank penalty and context-share caps at retrieval,
+    # so a large backlog buys visibility, never influence.
+    candidates = await state.rag_service.unconfirmed_precedent_candidates(
+        _PRECEDENT_BOOTSTRAP_MAX
+    )
+    already = [pair for pair in candidates if is_bulk_ratified(pair[0])]
+    pending = [pair for pair in candidates if not is_bulk_ratified(pair[0])]
+    batch = pending[: int(body.limit)]
+
+    ratified: list[str] = []
+    failed: list[str] = []
+    if not body.dry_run:
+        for case, item in batch:
+            entry = precedent_ratification_entry(
+                actor=actor,
+                batch_id=batch_id,
+                outcome=str((item.get("metadata") or {}).get("outcome") or ""),
+                confidence=float(case.confidence or 0.0),
+            )
+            try:
+                case.history.append(entry)
+                await state.cases.save(case)
+            except Exception as exc:  # noqa: BLE001 — one bad case must not abort the batch
+                logger.warning(
+                    "precedent ratification could not persist %s: %s", case.case_id, exc
+                )
+                failed.append(case.case_id)
+                continue
+            ratified.append(case.case_id)
+            try:
+                await state.audit.record(
+                    action_type=ActionType.CONTEXT,
+                    surface="rag_precedent_bootstrap",
+                    actor=actor,
+                    case_id=case.case_id,
+                    result_summary=(
+                        f"bulk-ratified MODEL verdict as precedent "
+                        f"trust_class={TRUST_MODEL_UNCONFIRMED} "
+                        f"provenance={PRECEDENT_RATIFICATION_PROVENANCE} "
+                        f"batch={batch_id} independent_analyst_outcome=false"
+                    ),
+                )
+            except Exception as exc:  # noqa: BLE001 — audit is fail-soft per row
+                logger.warning("precedent ratification audit failed for %s: %s",
+                               case.case_id, exc)
+
+    indexed = 0
+    if ratified:
+        indexed = await state.rag_service.index_precedent_items(
+            [item for case, item in batch if case.case_id in set(ratified)],
+            ratified_by=actor,
+            batch_id=batch_id,
+        )
+
+    await state.audit.record(
+        action_type=ActionType.CONTEXT,
+        surface="rag_precedent_bootstrap",
+        actor=actor,
+        result_summary=(
+            f"precedent bootstrap batch={batch_id} dry_run={body.dry_run} "
+            f"eligible={len(candidates)} ratified={len(ratified)} indexed={indexed} "
+            f"already_ratified={len(already)} failed={len(failed)} "
+            f"trust_class={TRUST_MODEL_UNCONFIRMED} "
+            f"provenance={PRECEDENT_RATIFICATION_PROVENANCE} "
+            "independent_analyst_outcome=false"
+        ),
+    )
+
+    return {
+        "ok": not failed,
+        "batch_id": batch_id,
+        "at": iso_now(),
+        "actor": actor,
+        "dry_run": bool(body.dry_run),
+        "trust_class": TRUST_MODEL_UNCONFIRMED,
+        "provenance": PRECEDENT_RATIFICATION_PROVENANCE,
+        "eligible": len(candidates),
+        "selected": len(batch),
+        "ratified": len(ratified),
+        "indexed": indexed,
+        "already_ratified": len(already),
+        "failed": failed,
+        # Still un-ratified after this batch — call again with the same body to resume.
+        "remaining": max(0, len(pending) - len(ratified)),
+        "case_ids": ratified[:100],
+        "does_not": list(_PRECEDENT_BOOTSTRAP_DISCLAIMER),
     }
 
 
