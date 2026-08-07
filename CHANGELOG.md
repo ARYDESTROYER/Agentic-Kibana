@@ -119,8 +119,36 @@ and, just as importantly, makes each of these conditions a state an operator can
   well-formed, and its meaning was the problem, which no amount of sanitising could have
   caught. Both fields now carry a short label saying what the note becomes.
 
+- **`POST /api/proposals/bulk-reject`** (`proposals:approve`) — clearing a stale queue no
+  longer means one request per proposal. Bounded to 200 ids with a mandatory reason, it
+  reuses the single-reject body per proposal so every rejection still goes through the
+  strict append-only audit path, and reports per-item outcomes so one bad item never
+  aborts the batch. The field report asked for this to *avoid* the strict-audit path
+  because that path was broken; it is fixed now, and bypassing it would have traded a
+  fixed bug for a permanent hole in the audit log.
+
 ### Changed
 
+- **Proposals carry an evidence fingerprint and derived provenance.** A proposal records a
+  deterministic fingerprint over the keys defining its recommendation and over the
+  analyst-sample counts with their provenance, and approval refuses a mismatch with a
+  machine-readable code rather than applying stale reasoning. `analyst_samples` is now
+  broken down into independent analyst outcomes, feedback labels, explicit dispositions,
+  bulk-ratified model verdicts, and unlabelled cases — and that provenance is **derived,
+  never self-declared**, so a payload claiming independent evidence while carrying only
+  bulk ratifications is still reported as `bulk_ratified` and is unapprovable. Bulk
+  ratifications are counted out of the sample total, so they cannot move a threshold. This
+  is the defect that let a backfill present model verdicts as analyst-confirmed evidence.
+  **Every pre-existing pending tuning proposal that would apply a change is therefore
+  unapprovable until re-drafted** — deliberately, because those are precisely the rows
+  whose analyst labels may be backfilled model verdicts.
+- **Lapsed proposals expire.** `expires_at` existed but nothing swept it and expired
+  proposals still rendered as actionable. A lapsed row is now projected as `expired` at
+  read time (a view, never a write, so a failed sweep costs durability but never honesty)
+  and swept durably. Approving an expired proposal is refused at the claim, before any
+  audit row or effect; rejecting one stays available, which is what makes a queue
+  clearable. Suppression proposals are exempt, because their `expires_at` is the lifetime
+  of the rule approval materialises rather than a review deadline.
 - Analyst notes carried into a precedent chunk are bounded and flattened, so an
   operational note cannot reshape the corpus. Where the bulk projection has no
   caller-supplied note it recovers the note already persisted on the case, so a
@@ -145,6 +173,12 @@ and, just as importantly, makes each of these conditions a state an operator can
 - **Disabling `rag.use_resolved_cases` no longer deletes precedent chunks.** They remain in
   the store and simply stop being retrievable, so re-enabling the source restores the
   accumulated corpus instead of starting from nothing.
+- **Pending tuning proposals drafted before this release cannot be approved.** They carry
+  no evidence fingerprint, so they are reported as `unverified` and refused with
+  `evidence_fingerprint_missing`. Reject them (bulk reject is the fast path) and let the
+  tuner re-draft against verifiable evidence. On the first run after deploying, a rule with
+  a stale pending proposal may briefly show both the old row and its honest re-draft; the
+  old one lapses at its own expiry and is then swept.
 
 ## [0.1.13] - 2026-08-05
 
