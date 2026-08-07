@@ -21,7 +21,7 @@ RUN TLSOC_VERSION="${TLSOC_VERSION}" \
     TLSOC_RELEASE_CHANNEL="${TLSOC_RELEASE_CHANNEL}" \
     python3 scripts/build_docs_bundle.py --output /artifact/docs
 
-FROM --platform=$BUILDPLATFORM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS build
+FROM --platform=$BUILDPLATFORM node:25-alpine@sha256:bdf2cca6fe3dabd014ea60163eca3f0f7015fbd5c7ee1b0e9ccb4ced6eb02ef4 AS build
 WORKDIR /repo/webui
 COPY webui/package.json webui/package-lock.json ./
 RUN npm ci
