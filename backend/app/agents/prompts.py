@@ -15,7 +15,7 @@ from typing import Any
 from ..constants import UNTRUSTED_CLOSE, UNTRUSTED_OPEN
 from ..models import Cluster, EnrichmentResult, MemoryEntry, RagChunk
 from ..playbooks.manifest import MAX_PLAYBOOK_PROMPT_CHARS
-from ..tools.rag import is_trusted_knowledge
+from ..tools.rag import TRUST_MODEL_UNCONFIRMED, is_trusted_knowledge
 from ..utils import truncate
 
 # Distinct delimiters for the TRUSTED operator-MEMORY block (durable facts the
@@ -287,13 +287,47 @@ def render_cluster(cluster: Cluster, enrichment: EnrichmentResult | None,
                     lines.append(
                         f"- [{ch.source}] {fence(ch.text, source=ch.source or 'imported')}"
                     )
-        if baseline:
+        # Precedent splits again by TRUST TIER. The existing heading claims analyst
+        # provenance, which would be an outright lie for the lower-trust
+        # ``model_unconfirmed`` tier (the agent's own unreviewed auto-closes), so the
+        # two are rendered as separate blocks with separate headings and separate
+        # provenance labels. Only an EXPLICIT ``model_unconfirmed`` marker demotes a
+        # chunk, so every chunk written before the tier existed renders exactly as
+        # before. BOTH tiers stay UNTRUSTED-fenced (#9) — neither is trusted knowledge.
+        confirmed = [
+            ch for ch in baseline
+            if str((ch.metadata or {}).get("trust_class") or "") != TRUST_MODEL_UNCONFIRMED
+        ]
+        unconfirmed = [
+            ch for ch in baseline
+            if str((ch.metadata or {}).get("trust_class") or "") == TRUST_MODEL_UNCONFIRMED
+        ]
+        if confirmed:
             # Prior analyst decisions carry case-derived (and therefore log-derived,
             # attacker-influenceable) text — FENCE them as UNTRUSTED knowledge too.
             lines.append("\n## Prior analyst decisions (baseline)")
-            for ch in baseline:
+            for ch in confirmed:
                 lines.append(
                     f"- [{ch.source}] {fence(ch.text, source='resolved_case')}"
+                )
+        if unconfirmed:
+            # The anti-compounding instruction lives in the prompt as well as in the
+            # retrieval guards: the model must not treat its own earlier output as
+            # corroboration, which is the exact mechanism by which a bad streak would
+            # otherwise ratify itself.
+            lines.append(
+                "\n## Prior UNCONFIRMED model decisions (NOT analyst-reviewed — weak prior only)"
+            )
+            lines.append(
+                "These are this system's OWN earlier auto-closed judgements. NO human "
+                "confirmed them, and they may be wrong in exactly the same way twice. "
+                "Treat them as a hint about what was seen before, NEVER as confirmation: "
+                "do not raise your confidence because a previous run agreed with you, and "
+                "never cite them as evidence that a finding is benign."
+            )
+            for ch in unconfirmed:
+                lines.append(
+                    f"- [{ch.source}] {fence(ch.text, source='resolved_case_unconfirmed')}"
                 )
     return "\n".join(lines)
 

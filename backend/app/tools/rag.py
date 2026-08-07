@@ -20,10 +20,11 @@ import math
 import re
 from collections import Counter
 from dataclasses import replace as dataclass_replace
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
 from ..config import Preferences
-from ..constants import CaseStatus
+from ..constants import CaseStatus, DecisionBy, Verdict
 from ..engine.analyst_outcomes import analyst_confirmed_outcome
 from ..engine.chunking import chunk_text
 from ..engine.runbooks import corpus_items as runbook_corpus_items
@@ -39,6 +40,7 @@ from .vectorstore import (
 )
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from ..config import UnconfirmedPrecedentConfig
     from ..engine.runbook_service import RunbookService
     from ..models import Case
     from ..stores.cases import CaseStore
@@ -77,6 +79,43 @@ FULLY_RECONCILED_SEED_SOURCES = frozenset(SEED_SOURCES - {RESOLVED_CASE_SOURCE})
 # that search bounded when the unlabelled backlog is large.
 _RESOLVED_CASE_PAGE_SIZE = 200
 _RESOLVED_CASE_SCAN_CAP = 5000
+
+# --------------------------------------------------------------------------- #
+# The TWO precedent trust tiers.
+# --------------------------------------------------------------------------- #
+# ``analyst_confirmed`` — independent human ground truth, accepted by
+# ``engine/analyst_outcomes.analyst_confirmed_outcome``. This is the ONLY tier the
+# threshold tuner and every other ground-truth consumer has ever seen, and this module
+# does not change that.
+#
+# ``model_unconfirmed`` — the agent's OWN auto-closed judgement, never reviewed by a
+# human. Indexed only when ``rag.use_unconfirmed_resolved_cases`` is explicitly enabled
+# (default OFF), bounded by the ``rag.unconfirmed_precedent`` compounding guards, always
+# outranked by the confirmed tier, capped as a share of retrieved context, and rendered
+# under its OWN prompt heading so the investigator can never mistake it for an analyst
+# decision. It is a weaker PRIOR, never ground truth, and it is never promoted.
+TRUST_ANALYST_CONFIRMED = "analyst_confirmed"
+TRUST_MODEL_UNCONFIRMED = "model_unconfirmed"
+
+# Independent bounded scan for the unconfirmed tier. Deliberately SEPARATE from
+# ``_RESOLVED_CASE_SCAN_CAP`` so the analyst-confirmed projection is byte-identical
+# (it must never spend its budget looking for unconfirmed candidates), and so the extra
+# read only happens at all when the tier is switched on.
+_UNCONFIRMED_SCAN_CAP = 2000
+
+# The bulk ground-truth bootstrap (see ``routes_rag.py``). Ratification is recorded as
+# its OWN append-only ``case.history`` event type — never as a ``FeedbackEntry`` and
+# never as an ``analyst_action`` — precisely so that a consumer (RAG, the threshold
+# tuner, a metrics rollup, a human reading the case) can tell a bulk ratification of
+# MODEL verdicts apart from genuinely independent analyst outcomes. Backfilling model
+# verdicts through the analyst-feedback endpoint is what made 2062 model verdicts look
+# like analyst ground truth; this event is deliberately invisible to
+# ``analyst_confirmed_outcome``.
+PRECEDENT_RATIFICATION_EVENT = "precedent_ratification"
+PRECEDENT_RATIFICATION_PROVENANCE = "bulk_model_ratification"
+PRECEDENT_RATIFICATION_ACKNOWLEDGEMENT = (
+    "I am ratifying model verdicts, not independent analyst ground truth"
+)
 
 # The analyst note is the one operator-authored free-text field that becomes durable
 # model-facing corpus text. Bound it hard.
@@ -166,6 +205,53 @@ def _sanitise_source_label(source: str | None) -> str:
     if value in TRUSTED_KNOWLEDGE_SOURCES:
         return "imported"
     return value
+
+
+def _parse_iso(value: Any) -> datetime | None:
+    """Best-effort ISO-8601 → aware datetime; ``None`` when unparseable."""
+    try:
+        parsed = datetime.fromisoformat(str(value or "").replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def is_bulk_ratified(case: "Case") -> bool:
+    """Whether this case already carries a bulk precedent-ratification marker.
+
+    The marker is what makes the bootstrap IDEMPOTENT + resumable: a re-run over the
+    same backlog skips everything already ratified instead of re-writing it. It also
+    carries the PROVENANCE that keeps bulk ratification distinguishable from
+    independent analyst outcomes.
+    """
+    for entry in reversed(list(getattr(case, "history", None) or [])):
+        if isinstance(entry, dict) and entry.get("event") == PRECEDENT_RATIFICATION_EVENT:
+            return True
+    return False
+
+
+def precedent_ratification_entry(
+    *, actor: str, batch_id: str, outcome: str, confidence: float
+) -> dict[str, Any]:
+    """Build the append-only ``case.history`` provenance record for a ratification.
+
+    Deliberately NOT an ``analyst_action`` and NOT a ``FeedbackEntry``: this asserts
+    only that an authorised operator agreed to reuse the MODEL's own verdict as a
+    weak precedent. ``trust_class`` stays ``model_unconfirmed`` and ``analyst`` is
+    intentionally absent — no analyst identity is fabricated.
+    """
+    return {
+        "ts": iso_now(),
+        "event": PRECEDENT_RATIFICATION_EVENT,
+        "provenance": PRECEDENT_RATIFICATION_PROVENANCE,
+        "trust_class": TRUST_MODEL_UNCONFIRMED,
+        "ratified_by": str(actor or ""),
+        "batch_id": str(batch_id or ""),
+        "model_outcome": str(outcome or ""),
+        "model_confidence": round(float(confidence or 0.0), 4),
+        "independent_analyst_outcome": False,
+        "acknowledgement": PRECEDENT_RATIFICATION_ACKNOWLEDGEMENT,
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -332,7 +418,7 @@ class RagService:
         self._cases = cases
         self._runbooks = runbooks
         self._seeded = False
-        self._seed_signature: tuple[bool, ...] | None = None
+        self._seed_signature: tuple[Any, ...] | None = None
         self._seed_lock = asyncio.Lock()
         # Last projection outcome PER SOURCE, so a health surface can show that a
         # re-seed shrank (or collapsed) a corpus instead of that fact living only in
@@ -347,7 +433,7 @@ class RagService:
         without a full rewire."""
         self._prefs = prefs
 
-    def _source_signature(self) -> tuple[bool, ...]:
+    def _source_signature(self) -> tuple[Any, ...]:
         cfg = self._prefs.rag
         runbooks = getattr(self._prefs, "runbooks", None)
         return (
@@ -358,6 +444,32 @@ class RagService:
             bool(cfg.use_resolved_cases),
             bool(cfg.use_suppression_rules),
             bool(cfg.use_threat_context),
+            # The lower-trust tier and its compounding guards change WHAT is projected,
+            # so tightening a guard must reproject rather than leave stale, now-illegal
+            # precedent in the corpus. Appended (never inserted) so the existing
+            # positional members are unchanged.
+            bool(cfg.use_unconfirmed_resolved_cases),
+            self._unconfirmed_cfg().model_dump_json(),
+        )
+
+    def _unconfirmed_cfg(self) -> "UnconfirmedPrecedentConfig":
+        """The compounding-guard block (falls back to shipped defaults if absent)."""
+        cfg = getattr(self._prefs.rag, "unconfirmed_precedent", None)
+        if cfg is None:  # pragma: no cover - a stored pre-tier config
+            from ..config import UnconfirmedPrecedentConfig
+
+            return UnconfirmedPrecedentConfig()
+        return cfg
+
+    def _unconfirmed_enabled(self) -> bool:
+        """Whether the LOWER-TRUST precedent tier is active.
+
+        It is a SUB-TIER of the precedent corpus, so it requires ``use_resolved_cases``
+        as well as its own explicit opt-in. Default OFF (#10)."""
+        cfg = self._prefs.rag
+        return bool(
+            cfg.use_resolved_cases
+            and getattr(cfg, "use_unconfirmed_resolved_cases", False)
         )
 
     def _source_enabled(self, source: str) -> bool:
@@ -728,6 +840,7 @@ class RagService:
                 seeds = await self._enabled_seeds()
                 if self._prefs.rag.use_resolved_cases:
                     seeds.extend(await self._resolved_case_items())
+                    seeds.extend(await self._unconfirmed_precedent_addition(seeds))
                 managed = self._managed_items(seeds)
                 chunks = await self._embed_items(managed)
                 if chunks:
@@ -961,10 +1074,262 @@ class RagService:
                 "status": case.status.value if case.status else "",
                 "note": resolved_note,
                 "ground_truth_source": ground_truth_source,
-                "trust_class": "analyst_confirmed",
+                "trust_class": TRUST_ANALYST_CONFIRMED,
                 "document_id": document_id,
             },
         }
+
+    # ------------------------------------------------------------------ #
+    # The LOWER-TRUST ``model_unconfirmed`` precedent tier.
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _unconfirmed_outcome(case: "Case") -> str | None:
+        """The MODEL's own binary judgement, or ``None`` when it did not make one.
+
+        ``NEEDS_HUMAN`` is deliberately excluded: it is the absence of a judgement,
+        so it carries no precedent value and must never look like one."""
+        verdict = getattr(case.verdict, "value", case.verdict)
+        if verdict == Verdict.FALSE_POSITIVE.value:
+            return "false_positive"
+        if verdict == Verdict.TRUE_POSITIVE.value:
+            return "true_positive"
+        return None
+
+    @staticmethod
+    def _recurrence_key(case: "Case", outcome: str) -> str:
+        """The pattern a recurrence count is taken over.
+
+        Entity TYPE + the rule set + the outcome, NOT the entity VALUE: the useful
+        generalisation is "this detection pattern keeps resolving the same way", and a
+        per-value key would essentially never reach a recurrence threshold on the
+        rotating IPs an autonomous deployment actually sees."""
+        rules = "|".join(sorted(str(r) for r in (case.rule_ids or [])))
+        entity_type = getattr(case.entity.type, "value", case.entity.type)
+        return f"{entity_type}|{rules}|{outcome}"
+
+    @staticmethod
+    def _terminal_at(case: "Case") -> str:
+        """Best-effort instant the case became terminal (for the age-out guard)."""
+        for entry in reversed(list(case.status_history or [])):
+            if str(getattr(entry, "to_status", "") or "") in (
+                CaseStatus.CLOSED.value,
+                CaseStatus.RESOLVED.value,
+            ):
+                at = str(getattr(entry, "at", "") or "")
+                if at:
+                    return at
+        return str(case.updated_at or case.created_at or "")
+
+    @staticmethod
+    def _unconfirmed_case_text(case: "Case", outcome: str) -> str:
+        """The ``model_unconfirmed`` chunk text.
+
+        Deliberately a DIFFERENT sentence from :meth:`_resolved_case_text`: that one
+        opens "analyst-confirmed outcome", which would be an outright lie here. This
+        text states, in the corpus itself, that no human reviewed it — so the claim
+        survives even if a future renderer loses the heading. There is no "Analyst
+        note" field because there is no analyst.
+        """
+        entity = f"{case.entity.type.value}:{case.entity.value}"
+        rules = ", ".join(case.rule_ids) or "n/a"
+        verdict = case.verdict.value if case.verdict else "n/a"
+        evidence = "; ".join(e.summary for e in case.evidence[:3]) or "n/a"
+        reason = (
+            case.trigger_reason.sentence
+            if case.trigger_reason and case.trigger_reason.sentence
+            else ""
+        )
+        return (
+            f"Prior case {case.case_id}: UNCONFIRMED model outcome {outcome} — closed "
+            f"by the agent, NOT reviewed or confirmed by an analyst; "
+            f"model verdict {verdict} at confidence {round(float(case.confidence or 0.0), 2)}; "
+            f"entity {entity}. "
+            f"Rules: {rules}. Risk: {round(case.risk_score, 1)}. "
+            f"Trigger: {reason or 'n/a'}. "
+            f"Evidence: {evidence}. "
+            f"Recommended action: {case.recommended_action or 'n/a'}."
+        )
+
+    def _unconfirmed_case_item(
+        self, case: "Case", *, outcome: str, recurrence: int
+    ) -> dict[str, Any]:
+        """Project ONE agent-closed case into a ``model_unconfirmed`` precedent item.
+
+        Shares the ``resolved_case:{case_id}`` document identity with the confirmed
+        tier ON PURPOSE: a case is in exactly one tier at a time, so when an analyst
+        later confirms it the confirmed projection UPSERTS over this one — an upgrade
+        in place, never a duplicate and never two disagreeing chunks about one case.
+        """
+        document_id = f"{RESOLVED_CASE_SOURCE}:{case.case_id}"
+        return {
+            "text": self._unconfirmed_case_text(case, outcome),
+            "source": RESOLVED_CASE_SOURCE,
+            "doc_id": document_id,
+            "metadata": {
+                "case_id": case.case_id,
+                "verdict": case.verdict.value if case.verdict else "n/a",
+                "outcome": outcome,
+                "entity": f"{case.entity.type.value}:{case.entity.value}",
+                "status": case.status.value if case.status else "",
+                # No analyst note and NO ground-truth source: nothing independent
+                # backs this item, and pretending otherwise is the whole failure mode.
+                "note": "",
+                "ground_truth_source": "",
+                "trust_class": TRUST_MODEL_UNCONFIRMED,
+                "document_id": document_id,
+                "confidence": round(float(case.confidence or 0.0), 4),
+                "recurrence": int(recurrence),
+                "terminal_at": self._terminal_at(case),
+                "bulk_ratified": is_bulk_ratified(case),
+            },
+        }
+
+    def _unconfirmed_candidate(self, case: "Case", *, now: datetime) -> str | None:
+        """The per-case guards. Returns the model outcome, or ``None`` to reject.
+
+        Rejects anything the confirmed tier owns, anything the model did not actually
+        judge, anything a human decided (an analyst close without an explicit
+        classification is neither confirmed ground truth NOR a model judgement — it
+        belongs in no tier), anything under the confidence floor, and anything older
+        than the age-out horizon. The population-level recurrence guard is applied by
+        the caller, which is the only place it can be evaluated.
+        """
+        guards = self._unconfirmed_cfg()
+        if analyst_confirmed_outcome(case)[0] is not None:
+            return None  # the CONFIRMED tier owns it — never demote a real label
+        if getattr(case.decision_by, "value", case.decision_by) != DecisionBy.AGENT.value:
+            return None
+        outcome = self._unconfirmed_outcome(case)
+        if outcome is None:
+            return None
+        if float(case.confidence or 0.0) < float(guards.min_confidence):
+            return None
+        terminal_at = _parse_iso(self._terminal_at(case))
+        if terminal_at is None:
+            return None  # an undatable case can never be aged out — refuse it
+        if terminal_at < now - timedelta(days=int(guards.max_age_days)):
+            return None
+        return outcome
+
+    async def _scan_unconfirmed_candidates(
+        self, limit: int | None = None
+    ) -> list[tuple["Case", dict[str, Any]]]:
+        """Bounded scan → the guard-passing ``model_unconfirmed`` precedent items.
+
+        Returns ``(case, item)`` pairs so the bulk bootstrap can stamp provenance onto
+        the same cases it indexes. Inert (returns ``[]`` immediately) unless the tier
+        is explicitly enabled, so the default deployment pays nothing at all.
+        """
+        if self._cases is None or not self._unconfirmed_enabled():
+            return []
+        guards = self._unconfirmed_cfg()
+        cap = int(limit if limit is not None else guards.max_items)
+        if cap <= 0:
+            return []
+        now = datetime.now(timezone.utc)
+        # Pass 1 — collect every guard-passing candidate within the bounded scan, and
+        # count each recurrence pattern. Recurrence CANNOT be decided one case at a
+        # time, which is exactly why the incremental close path never writes this tier.
+        candidates: list[tuple["Case", str]] = []
+        counts: Counter[str] = Counter()
+        seen: set[str] = set()
+        scanned = 0
+        for status in (CaseStatus.CLOSED.value, CaseStatus.RESOLVED.value):
+            offset = 0
+            while scanned < _UNCONFIRMED_SCAN_CAP:
+                page_size = min(
+                    _RESOLVED_CASE_PAGE_SIZE, _UNCONFIRMED_SCAN_CAP - scanned
+                )
+                page, total = await self._cases.list(
+                    status=status, limit=page_size, offset=offset
+                )
+                if not page:
+                    break
+                for case in page:
+                    if case.case_id in seen:
+                        continue
+                    seen.add(case.case_id)
+                    scanned += 1
+                    outcome = self._unconfirmed_candidate(case, now=now)
+                    if outcome is not None:
+                        candidates.append((case, outcome))
+                        counts[self._recurrence_key(case, outcome)] += 1
+                offset += len(page)
+                if offset >= total:
+                    break
+            if scanned >= _UNCONFIRMED_SCAN_CAP:
+                break
+        # Pass 2 — keep only patterns that RECUR. One auto-close is an anecdote; a
+        # single hallucinated close must never become quotable precedent.
+        minimum = max(1, int(guards.min_recurrence))
+        out: list[tuple["Case", dict[str, Any]]] = []
+        for case, outcome in candidates:
+            recurrence = counts[self._recurrence_key(case, outcome)]
+            if recurrence < minimum:
+                continue
+            out.append(
+                (case, self._unconfirmed_case_item(case, outcome=outcome, recurrence=recurrence))
+            )
+            if len(out) >= cap:
+                break
+        return out
+
+    async def _unconfirmed_case_items(self, limit: int | None = None) -> list[dict[str, Any]]:
+        """The bounded ``model_unconfirmed`` slice of the precedent projection."""
+        return [item for _, item in await self._scan_unconfirmed_candidates(limit)]
+
+    async def _unconfirmed_precedent_addition(
+        self, staged: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Unconfirmed items that do NOT collide with anything already staged.
+
+        The two tiers share one document identity per case, so a collision would make
+        ``_verify_projection`` expect two chunks where the store upserts one and abort
+        the whole projection. The guards already exclude analyst-confirmed cases, so
+        this is belt-and-braces — and it settles the tie the right way round: an
+        already-staged CONFIRMED item always wins."""
+        addition = await self._unconfirmed_case_items()
+        if not addition:
+            return []
+        staged_ids = {str(item.get("doc_id") or "") for item in staged}
+        return [
+            item for item in addition if str(item.get("doc_id") or "") not in staged_ids
+        ]
+
+    async def unconfirmed_precedent_candidates(
+        self, limit: int | None = None
+    ) -> list[tuple["Case", dict[str, Any]]]:
+        """Public seam for the bulk bootstrap: guard-passing candidates + their items."""
+        return await self._scan_unconfirmed_candidates(limit)
+
+    async def index_precedent_items(
+        self, items: list[dict[str, Any]], *, ratified_by: str = "", batch_id: str = ""
+    ) -> int:
+        """Embed + upsert already-projected precedent items. Never raises.
+
+        ``ratified_by``/``batch_id`` are stamped into the chunk metadata so the corpus
+        itself records that these entries arrived through a BULK RATIFICATION of model
+        verdicts. Stamping provenance never changes ``trust_class``: a ratified item is
+        still ``model_unconfirmed``, because an operator agreeing to reuse a model
+        verdict is not an independent analyst outcome."""
+        if not items:
+            return 0
+        stamped: list[dict[str, Any]] = []
+        for raw in items:
+            item = dict(raw)
+            metadata = dict(item.get("metadata") or {})
+            if ratified_by or batch_id:
+                metadata["bulk_ratified"] = True
+                metadata["ratified_by"] = str(ratified_by or "")
+                metadata["ratification_batch"] = str(batch_id or "")
+                metadata["ratification_provenance"] = PRECEDENT_RATIFICATION_PROVENANCE
+            item["metadata"] = metadata
+            stamped.append(item)
+        try:
+            return await self._embed_and_add(self._managed_items(stamped))
+        except Exception as exc:  # noqa: BLE001 — corpus writes are always fail-safe
+            logger.warning("index_precedent_items failed: %s", exc)
+            return 0
 
     async def _resolved_case_items(self, limit: int = 200) -> list[dict[str, Any]]:
         """The newest ``limit`` QUALIFYING precedents (bounded scan).
@@ -1296,10 +1661,17 @@ class RagService:
             ]
             if not survivors:
                 return []
+            # The lower-trust tier is filtered BEFORE ranking so a disabled or aged-out
+            # chunk cannot consume a candidate slot. No-op when nothing unconfirmed is
+            # in the pool, which is every deployment that never enabled the tier.
+            survivors = self._filter_unconfirmed(survivors)
+            if not survivors:
+                return []
             if cfg.hybrid and len(survivors) > 1:
                 ranked = _hybrid_rerank(query, survivors, cfg.vector_weight, cfg.bm25_weight)
             else:
                 ranked = survivors
+            ranked = self._apply_precedent_policy(ranked, k)
             return [
                 RagChunk(
                     text=chunk.text,
@@ -1312,6 +1684,102 @@ class RagService:
         except Exception as exc:  # noqa: BLE001
             logger.warning("RAG retrieve failed for query %r: %s", query, exc)
             return []
+
+    # ------------------------------------------------------------------ #
+    # Retrieval-side precedent policy (the anti-compounding half of the tier).
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _is_unconfirmed(chunk: Any) -> bool:
+        """Whether a stored chunk is lower-trust precedent.
+
+        ONLY an explicit ``trust_class == "model_unconfirmed"`` counts. Every chunk
+        written before this tier existed — including ones with no ``trust_class`` at
+        all — keeps its previous treatment exactly, so an existing corpus behaves
+        byte-identically (#10)."""
+        if getattr(chunk, "source", None) != RESOLVED_CASE_SOURCE:
+            return False
+        metadata = getattr(chunk, "metadata", None) or {}
+        return str(metadata.get("trust_class") or "") == TRUST_MODEL_UNCONFIRMED
+
+    def _filter_unconfirmed(
+        self, survivors: list[tuple[Any, float]]
+    ) -> list[tuple[Any, float]]:
+        """Drop lower-trust precedent that must not reach a prompt.
+
+        Two independent reasons, both enforced HERE rather than only at projection
+        time, because ``resolved_case`` is deliberately exempt from the stale sweep —
+        a chunk that is already in the vector store stays there:
+
+        * the tier is switched off (so flipping the preference back is immediate and
+          complete, even for precedent indexed while it was on); or
+        * the case aged out of ``max_age_days`` (unconfirmed precedent is provisional
+          and must go quiet on schedule unless a human confirms it).
+        """
+        unconfirmed = [pair for pair in survivors if self._is_unconfirmed(pair[0])]
+        if not unconfirmed:
+            return survivors
+        if not self._unconfirmed_enabled():
+            return [pair for pair in survivors if not self._is_unconfirmed(pair[0])]
+        guards = self._unconfirmed_cfg()
+        horizon = datetime.now(timezone.utc) - timedelta(days=int(guards.max_age_days))
+        kept: list[tuple[Any, float]] = []
+        for chunk, score in survivors:
+            if self._is_unconfirmed(chunk):
+                terminal_at = _parse_iso((chunk.metadata or {}).get("terminal_at"))
+                if terminal_at is None or terminal_at < horizon:
+                    continue
+            kept.append((chunk, score))
+        return kept
+
+    def _apply_precedent_policy(
+        self, ranked: list[tuple[Any, float]], k: int
+    ) -> list[tuple[Any, float]]:
+        """Demote, order and cap the lower-trust tier. No-op without one in the pool.
+
+        Three separate protections, in the order they must be applied:
+
+        1. ``rank_penalty`` scales an unconfirmed chunk's final score, so it has to be
+           clearly more relevant than static knowledge to earn a slot at all.
+        2. The TIER INVARIANT: no unconfirmed precedent may ever be placed above an
+           analyst-confirmed precedent. Implemented by reordering only the positions
+           that precedent already occupies, so its interleaving with runbook/MITRE
+           knowledge is untouched — a real analyst decision simply always comes first.
+        3. ``max_context_share`` caps how many of the final ``k`` chunks may be
+           unconfirmed (``floor(k * share)``), so a retrieval can never be dominated by
+           an echo of the model's own prior output.
+        """
+        if not any(self._is_unconfirmed(chunk) for chunk, _ in ranked):
+            return ranked
+        guards = self._unconfirmed_cfg()
+
+        penalised = [
+            (chunk, score * float(guards.rank_penalty) if self._is_unconfirmed(chunk) else score)
+            for chunk, score in ranked
+        ]
+        penalised.sort(key=lambda pair: pair[1], reverse=True)
+
+        # Tier invariant — reorder the precedent PAIRS within the slots precedent
+        # already holds (each chunk keeps its own score).
+        positions = [
+            i for i, (chunk, _) in enumerate(penalised)
+            if getattr(chunk, "source", None) == RESOLVED_CASE_SOURCE
+        ]
+        if len(positions) > 1:
+            precedent = [penalised[i] for i in positions]
+            precedent.sort(key=lambda pair: 1 if self._is_unconfirmed(pair[0]) else 0)
+            for slot, pair in zip(positions, precedent):
+                penalised[slot] = pair
+
+        allowance = math.floor(max(0, int(k)) * float(guards.max_context_share))
+        out: list[tuple[Any, float]] = []
+        used = 0
+        for chunk, score in penalised:
+            if self._is_unconfirmed(chunk):
+                if used >= allowance:
+                    continue
+                used += 1
+            out.append((chunk, score))
+        return out
 
     async def _reseed(self) -> None:
         """Migrate the corpus safely after an embedding-space change.
@@ -1328,6 +1796,7 @@ class RagService:
                 seeds = await self._enabled_seeds()
                 if self._prefs.rag.use_resolved_cases:
                     seeds.extend(await self._resolved_case_items())
+                    seeds.extend(await self._unconfirmed_precedent_addition(seeds))
                 seeds.extend(self._operator_items_from_snapshot(backup))
                 managed = self._managed_items(seeds)
                 # Precedent outside the bounded window would otherwise be silently
