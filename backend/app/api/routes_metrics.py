@@ -7,6 +7,10 @@ untouched. These serve the rich, server-side rollup the posture dashboards consu
   rates (alert-to-incident / FP / escalation / containment / automation), aging
   (buckets + oldest-N + queue depth + closure-vs-arrival), SLA attainment vs
   ``Preferences.sla``, all with optional period-over-period deltas.
+* ``GET /api/metrics/auto-close-health`` — the rolling auto-close rate as a
+  first-class health signal, with enough context (decided volume in both windows +
+  the configured policy) to tell "auto-close collapsed" from "no volume" or "the
+  operator turned it off". See also ``GET /api/diagnostics/health``.
 * ``GET /api/mitre/coverage`` — per-tactic technique coverage vs the bundled corpus.
 * ``GET /api/mitre/coverage/navigator.layer.json`` — an ATT&CK Navigator v4.5 layer
   dict the UI can hand straight to the Navigator.
@@ -28,7 +32,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..engine.agent_improvement import agent_improvement_metrics
 from ..engine.clustering_explain import build_case_lineage
-from ..engine.metrics import _window_filter, posture_metrics
+from ..engine.metrics import _window_filter, auto_close_health, posture_metrics
 from ..engine.mitre_coverage import compute_mitre_coverage, navigator_layer
 from ..engine.noise_counters import build_noise_reduction
 from ..state import AppState
@@ -210,6 +214,37 @@ async def metrics_posture(
         sla_policy=sla_policy,
         window_hours=max(0, int(window_hours)),
         compare=(compare or "").strip().lower(),
+        store_total=store_total,
+    )
+
+
+@router.get("/metrics/auto-close-health")
+async def metrics_auto_close_health(
+    window_hours: int = Query(default=24, ge=1, le=8760),
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("metrics", "view")),
+) -> dict[str, Any]:
+    """The rolling auto-close rate as a FIRST-CLASS health signal.
+
+    Auto-close silently ceasing is the failure this endpoint exists for: an unrelated
+    configuration change starved the precedent corpus, auto-close stopped forever, and
+    nothing surfaced it. A rate that falls to ~0 **while decided volume holds steady**
+    is that outage; a rate of 0 because nobody sent any work, or because the operator
+    turned auto-close off, is not. The response reports both windows' raw counts plus
+    an explicit ``status`` so those are distinguishable rather than conflated.
+
+    Insufficient evidence stays explicit: a window without enough decided cases returns
+    a DASH rate and ``available: false`` with a reason, never a reassuring number. There
+    is no composite score.
+
+    READ-ONLY derivation over already-persisted cases, computed over up to the most
+    recent 5000 (``truncated`` says when the store held more). The auto-close policy is
+    read for DISPLAY only — nothing here is ever an input to ``decide()`` (#3)."""
+    cases, store_total = await _load_cases(state)
+    return auto_close_health(
+        cases,
+        window_hours=int(window_hours),
+        policy=getattr(getattr(state, "prefs", None), "auto_close", None),
         store_total=store_total,
     )
 
